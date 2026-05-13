@@ -22,10 +22,10 @@ return new class extends Migration
             $table->date('valid_to')->nullable();
             $table->timestamps();
 
-            $table->index(['portal_original', 'sender_email']);
-            $table->index(['portal_original', 'portal_value']);
-            $table->index('commercial_group');
-            $table->unique(['portal_original', 'sender_email', 'portal_value'], 'form_sender_unique_mapping');
+            $table->index(['portal_original', 'sender_email'], 'form_sender_portal_email_idx');
+            $table->index(['portal_original', 'portal_value'], 'form_sender_portal_value_idx');
+            $table->index('commercial_group', 'form_sender_group_idx');
+            $table->unique(['portal_original', 'sender_email', 'portal_value'], 'form_sender_unique');
         });
     }
 

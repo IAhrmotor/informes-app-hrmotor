@@ -18,7 +18,7 @@ return new class extends Migration
             $table->text('notes')->nullable();
             $table->timestamps();
 
-            $table->index(['portal_original', 'status']);
+            $table->index(['portal_original', 'status'], 'rule_valid_portal_status_idx');
         });
     }
 

@@ -20,9 +20,9 @@ return new class extends Migration
             $table->date('valid_to')->nullable();
             $table->timestamps();
 
-            $table->index(['portal_original', 'received_value']);
-            $table->index('commercial_group');
-            $table->unique(['portal_original', 'received_value'], 'call_delegation_unique_mapping');
+            $table->index(['portal_original', 'received_value'], 'call_map_portal_value_idx');
+            $table->index('commercial_group', 'call_map_group_idx');
+            $table->unique(['portal_original', 'received_value'], 'call_map_portal_value_unique');
         });
     }
 
