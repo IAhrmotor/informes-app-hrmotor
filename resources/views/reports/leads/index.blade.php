@@ -62,6 +62,7 @@
 
     <nav class="tabs-main" aria-label="Pestañas del informe">
         <button class="main-tab active" data-panel="panel-resumen">Resumen Dirección</button>
+        <button class="main-tab" data-panel="panel-informe-mensual">Informe mensual</button>
         <button class="main-tab" data-panel="panel-kpis">KPIs clave</button>
         <button class="main-tab" data-panel="panel-portales">Procedencia por portal</button>
         <button class="main-tab" data-panel="panel-portal-detalle">Detalle de portal</button>
@@ -142,6 +143,179 @@
 
             <div class="notice">
                 <strong>Nota:</strong> la vista sin Exposición permite analizar captación real sin leads recreados manualmente por comerciales.
+            </div>
+        </section>
+
+        <section id="panel-informe-mensual" class="tab-panel">
+            <section class="notice monthly-message" id="monthlyReportMessage">
+                Cargando informe mensual...
+            </section>
+
+            <div id="monthlyReportContent" class="monthly-report is-hidden">
+                <section class="card panel">
+                    <div class="panel-title">
+                        <div>
+                            <h2>Resumen ejecutivo</h2>
+                            <div class="small" id="monthlyPeriodLabel">Ultimos 30 dias frente al periodo anterior</div>
+                        </div>
+                        <div class="badge" id="monthlyGeneratedAt">-</div>
+                    </div>
+
+                    <div class="priority-grid" id="monthlyPriorityList"></div>
+                </section>
+
+                <section class="kpis monthly-kpis" id="monthlyKpiCards"></section>
+
+                <section class="card panel">
+                    <div class="panel-title">
+                        <div>
+                            <h2>Evolucion vs periodo anterior</h2>
+                            <div class="small">Lectura comparada de los bloques principales</div>
+                        </div>
+                    </div>
+
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Metrica</th>
+                                <th class="num">Periodo actual</th>
+                                <th class="num">Periodo anterior</th>
+                                <th class="num">Diferencia</th>
+                            </tr>
+                            </thead>
+                            <tbody id="monthlyEvolutionRows"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card panel">
+                    <div class="panel-title">
+                        <div>
+                            <h2>Potenciales por comercial</h2>
+                            <div class="small">Pendientes por falta de Task/Event o seguimiento reciente</div>
+                        </div>
+                    </div>
+
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Comercial</th>
+                                <th class="num">Potenciales</th>
+                                <th class="num">Sin Task/Event</th>
+                                <th class="num">Ultima Task/Event &gt;3 dias</th>
+                                <th class="num">Sin seguimiento &gt;3 dias</th>
+                            </tr>
+                            </thead>
+                            <tbody id="monthlyCommercialPendingRows"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card panel">
+                    <div class="panel-title">
+                        <div>
+                            <h2>Conversion, descarte y gestion por comercial</h2>
+                            <div class="small">Agrupado por gestor real resuelto</div>
+                        </div>
+                    </div>
+
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Comercial</th>
+                                <th class="num">Leads</th>
+                                <th class="num">Convertidos</th>
+                                <th class="num">% conversion</th>
+                                <th class="num">Descartados</th>
+                                <th class="num">% descarte</th>
+                                <th class="num">Gestionados</th>
+                                <th class="num">Con primera Task/Event</th>
+                                <th class="num">&lt;1h asignados</th>
+                            </tr>
+                            </thead>
+                            <tbody id="monthlyCommercialPerformanceRows"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card panel">
+                    <div class="panel-title">
+                        <div>
+                            <h2>Portales</h2>
+                            <div class="small">Volumen, conversion y cobertura registrada</div>
+                        </div>
+                    </div>
+
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Portal</th>
+                                <th class="num">Leads</th>
+                                <th class="num">Convertidos</th>
+                                <th class="num">% conversion</th>
+                                <th class="num">Potenciales</th>
+                                <th class="num">Sin seguimiento &gt;3 dias</th>
+                                <th class="num">Tiempo medio 1a Task/Event</th>
+                            </tr>
+                            </thead>
+                            <tbody id="monthlyPortalRows"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card panel">
+                    <div class="panel-title">
+                        <div>
+                            <h2>Delegaciones</h2>
+                            <div class="small">Conversion, descarte y tiempos por delegacion</div>
+                        </div>
+                    </div>
+
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Delegacion</th>
+                                <th class="num">Leads</th>
+                                <th class="num">Convertidos</th>
+                                <th class="num">% conversion</th>
+                                <th class="num">Descartados</th>
+                                <th class="num">% descarte</th>
+                                <th class="num">P90 1a Task/Event</th>
+                            </tr>
+                            </thead>
+                            <tbody id="monthlyDelegationRows"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="card panel">
+                    <div class="panel-title">
+                        <div>
+                            <h2>Potenciales pendientes por delegacion</h2>
+                            <div class="small">Bolsa viva pendiente de gestion o trazabilidad</div>
+                        </div>
+                    </div>
+
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr>
+                                <th>Delegacion</th>
+                                <th class="num">Potenciales</th>
+                                <th class="num">Sin Task/Event</th>
+                                <th class="num">Ultima Task/Event &gt;3 dias</th>
+                                <th class="num">Sin seguimiento &gt;3 dias</th>
+                            </tr>
+                            </thead>
+                            <tbody id="monthlyDelegationPendingRows"></tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
         </section>
 

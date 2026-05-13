@@ -3,6 +3,7 @@ const fmt = new Intl.NumberFormat('es-ES');
 const state = {
     selectedPortal: 'Web',
     portals: [],
+    monthlyReportLoaded: false,
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -29,6 +30,10 @@ function bindTabs() {
 
             button.classList.add('active');
             document.getElementById(panelId)?.classList.add('active');
+
+            if (panelId === 'panel-informe-mensual' && !state.monthlyReportLoaded) {
+                loadMonthlyCommercialReport();
+            }
         });
     });
 }
@@ -449,6 +454,326 @@ async function reloadAllData() {
     await loadComerciales();
     await loadComparativa();
     await loadCalidadDato();
+}
+
+async function loadMonthlyCommercialReport() {
+    const message = document.getElementById('monthlyReportMessage');
+    const content = document.getElementById('monthlyReportContent');
+
+    if (!message || !content) {
+        return;
+    }
+
+    message.textContent = 'Cargando informe mensual...';
+    message.classList.remove('is-hidden');
+    content.classList.add('is-hidden');
+
+    try {
+        const summary = await fetchMonthlyJson('/informes/leads/data/monthly-commercial/summary');
+
+        if (!summary.ok) {
+            message.textContent = summary.message || 'No hay informe mensual generado todavia.';
+            state.monthlyReportLoaded = true;
+            return;
+        }
+
+        const [
+            kpis,
+            evolution,
+            commercialPending,
+            commercialPerformance,
+            portals,
+            delegations,
+            delegationPending,
+        ] = await Promise.all([
+            fetchMonthlyJson('/informes/leads/data/monthly-commercial/kpis'),
+            fetchMonthlyJson('/informes/leads/data/monthly-commercial/evolution'),
+            fetchMonthlyJson('/informes/leads/data/monthly-commercial/commercial-pending'),
+            fetchMonthlyJson('/informes/leads/data/monthly-commercial/commercial-performance'),
+            fetchMonthlyJson('/informes/leads/data/monthly-commercial/portals'),
+            fetchMonthlyJson('/informes/leads/data/monthly-commercial/delegations'),
+            fetchMonthlyJson('/informes/leads/data/monthly-commercial/delegation-pending'),
+        ]);
+
+        renderMonthlySummary(summary);
+        renderMonthlyKpis(kpis.data || {});
+        renderMonthlyEvolution(evolution.data || {});
+        renderMonthlyCommercialPending((commercialPending.data || {}).items || []);
+        renderMonthlyCommercialPerformance((commercialPerformance.data || {}).items || []);
+        renderMonthlyPortals((portals.data || {}).items || []);
+        renderMonthlyDelegations((delegations.data || {}).items || []);
+        renderMonthlyDelegationPending((delegationPending.data || {}).items || []);
+
+        message.classList.add('is-hidden');
+        content.classList.remove('is-hidden');
+        state.monthlyReportLoaded = true;
+    } catch (error) {
+        message.textContent = 'No se pudo cargar el informe mensual.';
+        throw error;
+    }
+}
+
+async function fetchMonthlyJson(url) {
+    return fetchJson(url);
+}
+
+function renderMonthlySummary(response) {
+    const data = response.data || {};
+    const generated = document.getElementById('monthlyGeneratedAt');
+    const period = document.getElementById('monthlyPeriodLabel');
+    const prioritiesRoot = document.getElementById('monthlyPriorityList');
+
+    if (generated) {
+        generated.textContent = response.generated_at ? `Generado ${response.generated_at.slice(0, 10)}` : '-';
+    }
+
+    const current = data.periodos_estandar?.periodo_actual;
+    const previous = data.periodos_estandar?.periodo_anterior;
+
+    if (period && current && previous) {
+        period.textContent = `${dateOnly(current.inicio)} a ${dateOnly(current.fin)} frente a ${dateOnly(previous.inicio)} a ${dateOnly(previous.fin)}`;
+    }
+
+    if (!prioritiesRoot) {
+        return;
+    }
+
+    const priorities = data.resumen_ejecutivo?.prioridades || [];
+    prioritiesRoot.innerHTML = '';
+
+    if (!priorities.length) {
+        prioritiesRoot.innerHTML = '<div class="priority-item">No hay prioridades generadas para este snapshot.</div>';
+        return;
+    }
+
+    priorities.slice(0, 3).forEach((priority) => {
+        prioritiesRoot.insertAdjacentHTML('beforeend', `
+            <article class="priority-item">
+                <strong>${escapeHtml(priority.titulo || '-')}</strong>
+                <p>${escapeHtml(priority.sugerencia || '-')}</p>
+            </article>
+        `);
+    });
+}
+
+function renderMonthlyKpis(data) {
+    const root = document.getElementById('monthlyKpiCards');
+
+    if (!root) {
+        return;
+    }
+
+    const cards = [
+        ['L', 'Leads en analisis', formatMonthlyNumber(data.leads_en_analisis), 'Muestra del periodo'],
+        ['%', 'Conversion sobre total', formatMonthlyPercent(data.conversion_sobre_total), 'Convertidos / total'],
+        ['D', 'Descarte sobre total', formatMonthlyPercent(data.descarte_sobre_total), 'Descartados / total'],
+        ['T', 'Potenciales sin Task/Event', formatMonthlyNumber(data.potenciales_sin_task_event_registrada), 'Falta trazabilidad registrada'],
+        ['H', 'Tiempo medio 1a Task/Event', formatMonthlyHours(data.tiempo_medio_hasta_primera_task_event_horas), 'Desde asignacion'],
+        ['P90', 'P90 1a Task/Event', formatMonthlyHours(data.tiempo_p90_primera_task_event_horas), 'Desde asignacion'],
+        ['TE', 'Con primera Task/Event', formatMonthlyNumber(data.con_primera_task_event_registrada), 'Leads asignados'],
+        ['1h', '1a gestion <1h con Task/Event', formatMonthlyPercent(data.primera_gestion_menos_1h_entre_leads_con_task_event), 'Sobre leads con actividad'],
+        ['A', '1a gestion <1h asignados', formatMonthlyPercent(data.primera_gestion_menos_1h_sobre_leads_asignados), 'Sobre leads asignados'],
+    ];
+
+    root.innerHTML = '';
+
+    cards.forEach(([icon, label, value, hint]) => {
+        root.insertAdjacentHTML('beforeend', `
+            <div class="card kpi monthly-kpi">
+                <div class="ico">${escapeHtml(icon)}</div>
+                <div>
+                    <div class="kpi-label">${escapeHtml(label)}</div>
+                    <div class="kpi-value">${escapeHtml(value)}</div>
+                    <div class="kpi-hint">${escapeHtml(hint)}</div>
+                </div>
+            </div>
+        `);
+    });
+}
+
+function renderMonthlyEvolution(data) {
+    const rows = data.items || [];
+    const root = document.getElementById('monthlyEvolutionRows');
+
+    if (!root) {
+        return;
+    }
+
+    root.innerHTML = '';
+
+    if (!rows.length) {
+        root.innerHTML = '<tr><td colspan="4">No hay datos de evolucion en el snapshot.</td></tr>';
+        return;
+    }
+
+    rows.forEach((row) => {
+        root.insertAdjacentHTML('beforeend', `
+            <tr>
+                <td><strong>${escapeHtml(row.metrica)}</strong></td>
+                <td class="num">${formatMonthlyMetric(row.periodo_actual, row)}</td>
+                <td class="num">${formatMonthlyMetric(row.periodo_anterior, row)}</td>
+                <td class="num">${formatMonthlyDiff(row.diferencia, row)}</td>
+            </tr>
+        `);
+    });
+}
+
+function renderMonthlyCommercialPending(rows) {
+    renderMonthlyRows('monthlyCommercialPendingRows', rows, [
+        ['comercial', (row) => row.comercial || '-'],
+        ['potenciales', (row) => formatMonthlyNumber(row.leads_potenciales), true],
+        ['sin_task', (row) => formatMonthlyNumber(row.potenciales_sin_ninguna_task_event), true],
+        ['ultima', (row) => formatMonthlyNumber(row.potenciales_con_ultima_task_mayor_3_dias), true],
+        ['seguimiento', (row) => formatMonthlyNumber(row.potenciales_sin_seguimiento_mayor_3_dias), true],
+    ], 'No hay potenciales pendientes por comercial.');
+}
+
+function renderMonthlyCommercialPerformance(rows) {
+    renderMonthlyRows('monthlyCommercialPerformanceRows', rows, [
+        ['comercial', (row) => row.comercial || '-'],
+        ['leads', (row) => formatMonthlyNumber(row.leads_totales), true],
+        ['convertidos', (row) => formatMonthlyNumber(row.leads_convertidos), true],
+        ['conversion', (row) => formatMonthlyPercent(row.conversion_sobre_total), true],
+        ['descartados', (row) => formatMonthlyNumber(row.leads_descartados), true],
+        ['descarte', (row) => formatMonthlyPercent(row.descarte_sobre_total), true],
+        ['gestionados', (row) => formatMonthlyNumber(row.leads_gestionados), true],
+        ['primera', (row) => formatMonthlyNumber(row.leads_con_primera_actividad), true],
+        ['menos1h', (row) => formatMonthlyPercent(row.ratio_respondidos_menos_1h_sobre_asignados), true],
+    ], 'No hay rendimiento por comercial en el snapshot.');
+}
+
+function renderMonthlyPortals(rows) {
+    renderMonthlyRows('monthlyPortalRows', rows, [
+        ['portal', (row) => row.portal || '-'],
+        ['leads', (row) => formatMonthlyNumber(row.leads_totales), true],
+        ['convertidos', (row) => formatMonthlyNumber(row.leads_convertidos), true],
+        ['conversion', (row) => formatMonthlyPercent(row.conversion_sobre_total), true],
+        ['potenciales', (row) => formatMonthlyNumber(row.leads_potenciales), true],
+        ['seguimiento', (row) => formatMonthlyNumber(row.potenciales_sin_seguimiento_mayor_3_dias), true],
+        ['tiempo', (row) => formatMonthlyHours(row.tiempo_medio_respuesta_horas), true],
+    ], 'No hay datos de portales en el snapshot.');
+}
+
+function renderMonthlyDelegations(rows) {
+    renderMonthlyRows('monthlyDelegationRows', rows, [
+        ['delegacion', (row) => row.delegacion || '-'],
+        ['leads', (row) => formatMonthlyNumber(row.leads_totales), true],
+        ['convertidos', (row) => formatMonthlyNumber(row.leads_convertidos), true],
+        ['conversion', (row) => formatMonthlyPercent(row.conversion_sobre_total), true],
+        ['descartados', (row) => formatMonthlyNumber(row.leads_descartados), true],
+        ['descarte', (row) => formatMonthlyPercent(row.descarte_sobre_total), true],
+        ['p90', (row) => formatMonthlyHours(row.tiempo_p90_respuesta_horas), true],
+    ], 'No hay datos de delegaciones en el snapshot.');
+}
+
+function renderMonthlyDelegationPending(rows) {
+    renderMonthlyRows('monthlyDelegationPendingRows', rows, [
+        ['delegacion', (row) => row.delegacion || '-'],
+        ['potenciales', (row) => formatMonthlyNumber(row.leads_potenciales), true],
+        ['sin_task', (row) => formatMonthlyNumber(row.potenciales_sin_ninguna_task_event), true],
+        ['ultima', (row) => formatMonthlyNumber(row.potenciales_con_ultima_task_mayor_3_dias), true],
+        ['seguimiento', (row) => formatMonthlyNumber(row.potenciales_sin_seguimiento_mayor_3_dias), true],
+    ], 'No hay potenciales pendientes por delegacion.');
+}
+
+function renderMonthlyRows(rootId, rows, columns, emptyMessage) {
+    const root = document.getElementById(rootId);
+
+    if (!root) {
+        return;
+    }
+
+    root.innerHTML = '';
+
+    if (!rows.length) {
+        root.innerHTML = `<tr><td colspan="${columns.length}">${escapeHtml(emptyMessage)}</td></tr>`;
+        return;
+    }
+
+    rows.forEach((row) => {
+        const cells = columns.map(([key, formatter, numeric], index) => {
+            const value = formatter(row);
+            const tag = index === 0 ? 'strong' : 'span';
+            const className = numeric ? ' class="num"' : '';
+
+            return `<td${className}><${tag}>${escapeHtml(value)}</${tag}></td>`;
+        }).join('');
+
+        root.insertAdjacentHTML('beforeend', `<tr>${cells}</tr>`);
+    });
+}
+
+function formatMonthlyNumber(value) {
+    if (value === null || value === undefined || value === '') {
+        return '-';
+    }
+
+    return fmt.format(Number(value));
+}
+
+function formatMonthlyPercent(value) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return '-';
+    }
+
+    return `${Math.round(Number(value) * 100)}%`;
+}
+
+function formatMonthlyHours(value) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return '-';
+    }
+
+    const minutes = Number(value) * 60;
+
+    if (minutes < 1) {
+        return 'Inmediata';
+    }
+
+    if (minutes < 60) {
+        return `${Math.round(minutes)} min`;
+    }
+
+    return `${Math.round(Number(value))} h`;
+}
+
+function formatMonthlyMetric(value, row) {
+    if (row.is_ratio) {
+        return formatMonthlyPercent(value);
+    }
+
+    if ((row.key || '').includes('tiempo_')) {
+        return formatMonthlyHours(value);
+    }
+
+    return formatMonthlyNumber(value);
+}
+
+function formatMonthlyDiff(value, row) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return '-';
+    }
+
+    const number = Number(value);
+    const sign = number > 0 ? '+' : number < 0 ? '-' : '';
+
+    if (row.is_ratio) {
+        return `${sign}${Math.round(number * 100)} pp`;
+    }
+
+    if ((row.key || '').includes('tiempo_')) {
+        return `${sign}${formatMonthlyHours(Math.abs(number))}`;
+    }
+
+    return `${sign}${fmt.format(number)}`;
+}
+
+function dateOnly(value) {
+    if (!value) {
+        return '-';
+    }
+
+    return String(value).slice(0, 10);
 }
 
 function escapeHtml(value) {

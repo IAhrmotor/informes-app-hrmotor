@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Reports\Leads\LeadDashboardController;
 use App\Http\Controllers\Reports\Leads\LeadDashboardDataController;
+use App\Http\Controllers\Reports\Leads\MonthlyCommercialReportDataController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -21,4 +22,13 @@ Route::prefix('informes/leads')
         Route::get('/data/comerciales', [LeadDashboardDataController::class, 'comerciales'])->name('data.comerciales');
         Route::get('/data/comparativa', [LeadDashboardDataController::class, 'comparativa'])->name('data.comparativa');
         Route::get('/data/calidad-dato', [LeadDashboardDataController::class, 'calidadDato'])->name('data.calidad-dato');
+
+        Route::get('/data/monthly-commercial/summary', [MonthlyCommercialReportDataController::class, 'summary'])->name('data.monthly-commercial.summary');
+        Route::get('/data/monthly-commercial/evolution', [MonthlyCommercialReportDataController::class, 'evolution'])->name('data.monthly-commercial.evolution');
+        Route::get('/data/monthly-commercial/kpis', [MonthlyCommercialReportDataController::class, 'kpis'])->name('data.monthly-commercial.kpis');
+        Route::get('/data/monthly-commercial/commercial-pending', [MonthlyCommercialReportDataController::class, 'commercialPending'])->name('data.monthly-commercial.commercial-pending');
+        Route::get('/data/monthly-commercial/commercial-performance', [MonthlyCommercialReportDataController::class, 'commercialPerformance'])->name('data.monthly-commercial.commercial-performance');
+        Route::get('/data/monthly-commercial/portals', [MonthlyCommercialReportDataController::class, 'portals'])->name('data.monthly-commercial.portals');
+        Route::get('/data/monthly-commercial/delegations', [MonthlyCommercialReportDataController::class, 'delegations'])->name('data.monthly-commercial.delegations');
+        Route::get('/data/monthly-commercial/delegation-pending', [MonthlyCommercialReportDataController::class, 'delegationPending'])->name('data.monthly-commercial.delegation-pending');
     });

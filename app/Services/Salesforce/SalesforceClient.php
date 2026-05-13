@@ -2,6 +2,7 @@
 
 namespace App\Services\Salesforce;
 
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -15,39 +16,39 @@ class SalesforceClient
     public function query(string $soql): array
     {
         $auth = $this->authService->accessToken();
-
-        $url = rtrim($auth['instance_url'], '/')
-            .'/services/data/'
-            .config('salesforce.api_version')
-            .'/query';
-
-        $response = Http::withToken($auth['access_token'])
-            ->acceptJson()
-            ->get($url, [
-                'q' => $soql,
-            ]);
+        $response = $this->sendQuery($auth, $soql);
 
         if ($response->status() === 401) {
             $this->authService->clearToken();
 
             $auth = $this->authService->accessToken();
-
-            $response = Http::withToken($auth['access_token'])
-                ->acceptJson()
-                ->get($url, [
-                    'q' => $soql,
-                ]);
+            $response = $this->sendQuery($auth, $soql);
         }
 
         if (! $response->successful()) {
             throw new RuntimeException(
-                'Error consultando Salesforce SOQL: '.$response->status().' '.$response->body()
+                'Error consultando Salesforce SOQL: '.$response->status().' '.$this->sanitizeBody($response->body())
             );
         }
 
-        $data = $response->json();
+        return $this->collectPaginatedResults($auth, $response->json() ?? []);
+    }
 
-        return $this->collectPaginatedResults($auth, $data);
+    private function sendQuery(array $auth, string $soql): Response
+    {
+        return Http::withToken($auth['access_token'])
+            ->acceptJson()
+            ->get($this->queryUrl($auth), [
+                'q' => $soql,
+            ]);
+    }
+
+    private function queryUrl(array $auth): string
+    {
+        return rtrim($auth['instance_url'], '/')
+            .'/services/data/'
+            .config('salesforce.api_version')
+            .'/query';
     }
 
     private function collectPaginatedResults(array $auth, array $firstPage): array
@@ -63,13 +64,22 @@ class SalesforceClient
                 ->acceptJson()
                 ->get($url);
 
+            if ($response->status() === 401) {
+                $this->authService->clearToken();
+                $auth = $this->authService->accessToken();
+
+                $response = Http::withToken($auth['access_token'])
+                    ->acceptJson()
+                    ->get(rtrim($auth['instance_url'], '/').$nextRecordsUrl);
+            }
+
             if (! $response->successful()) {
                 throw new RuntimeException(
-                    'Error paginando Salesforce SOQL: '.$response->status().' '.$response->body()
+                    'Error paginando Salesforce SOQL: '.$response->status().' '.$this->sanitizeBody($response->body())
                 );
             }
 
-            $page = $response->json();
+            $page = $response->json() ?? [];
 
             $records = array_merge($records, $page['records'] ?? []);
             $done = (bool) ($page['done'] ?? true);
@@ -77,5 +87,22 @@ class SalesforceClient
         }
 
         return $records;
+    }
+
+    private function sanitizeBody(?string $body): string
+    {
+        $body = (string) $body;
+
+        foreach ([
+            config('salesforce.client_secret'),
+            config('salesforce.client_id'),
+            config('salesforce.refresh_token'),
+        ] as $secret) {
+            if (filled($secret)) {
+                $body = str_replace((string) $secret, '[redacted]', $body);
+            }
+        }
+
+        return $body;
     }
 }

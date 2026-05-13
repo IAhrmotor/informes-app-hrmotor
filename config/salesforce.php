@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'auth_mode' => env('SALESFORCE_AUTH_MODE', 'refresh_token'),
+    'auth_mode' => env('SALESFORCE_AUTH_MODE', 'client_credentials'),
 
     'api_version' => env('SALESFORCE_API_VERSION', 'v60.0'),
 
@@ -11,7 +11,7 @@ return [
     'client_id' => env('SALESFORCE_CLIENT_ID'),
     'client_secret' => env('SALESFORCE_CLIENT_SECRET'),
     'redirect_uri' => env('SALESFORCE_REDIRECT_URI'),
-    'scope' => env('SALESFORCE_SCOPE', 'api refresh_token'),
+    'scope' => env('SALESFORCE_SCOPE', 'api'),
 
     'refresh_token' => env('SALESFORCE_REFRESH_TOKEN'),
 

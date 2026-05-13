@@ -407,6 +407,57 @@ th.num {
     color: var(--text);
 }
 
+.is-hidden {
+    display: none !important;
+}
+
+.monthly-report {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.monthly-message {
+    margin-top: 0;
+}
+
+.priority-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.priority-item {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 15px;
+    background: #f8fafc;
+}
+
+.priority-item strong {
+    display: block;
+    font-size: 14px;
+    margin-bottom: 7px;
+}
+
+.priority-item p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.monthly-kpis {
+    grid-template-columns: repeat(3, 1fr);
+    margin-bottom: 0;
+}
+
+.monthly-kpi .ico {
+    font-size: 13px;
+    font-weight: 850;
+    color: #1d4ed8;
+}
+
 @media (max-width: 1000px) {
     .grid {
         grid-template-columns: 1fr;
@@ -414,6 +465,11 @@ th.num {
 
     .kpis,
     .filters {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .monthly-kpis,
+    .priority-grid {
         grid-template-columns: 1fr 1fr;
     }
 
@@ -434,6 +490,11 @@ th.num {
 
     .kpis,
     .filters {
+        grid-template-columns: 1fr;
+    }
+
+    .monthly-kpis,
+    .priority-grid {
         grid-template-columns: 1fr;
     }
 

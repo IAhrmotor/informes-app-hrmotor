@@ -29,6 +29,7 @@ class SalesforceAuthService
         $expiresIn = (int) ($tokenData['expires_in'] ?? 1800);
 
         Cache::put($cacheKey, $tokenData, now()->addSeconds(max($expiresIn - 120, 300)));
+        Cache::put(config('salesforce.instance_url_cache_key'), $tokenData['instance_url'], now()->addSeconds(max($expiresIn - 120, 300)));
 
         return $tokenData;
     }
@@ -36,23 +37,32 @@ class SalesforceAuthService
     public function clearToken(): void
     {
         Cache::forget(config('salesforce.cache_key'));
+        Cache::forget(config('salesforce.instance_url_cache_key'));
     }
 
     private function requestClientCredentialsToken(): array
     {
-        $response = Http::asForm()->post(config('salesforce.token_url'), [
+        $payload = [
             'grant_type' => 'client_credentials',
             'client_id' => config('salesforce.client_id'),
             'client_secret' => config('salesforce.client_secret'),
-        ]);
+        ];
+
+        if (filled(config('salesforce.scope'))) {
+            $payload['scope'] = config('salesforce.scope');
+        }
+
+        $response = Http::asForm()->post(config('salesforce.token_url'), $payload);
 
         if (! $response->successful()) {
             throw new RuntimeException(
-                'Error autenticando Salesforce client_credentials: '.$response->status().' '.$response->body()
+                'Error autenticando Salesforce client_credentials: '
+                .$response->status().' '.$this->sanitizeBody($response->body())
+                .$this->domainHint($response->body())
             );
         }
 
-        $data = $response->json();
+        $data = $response->json() ?? [];
 
         $this->validateTokenResponse($data);
 
@@ -78,11 +88,13 @@ class SalesforceAuthService
 
         if (! $response->successful()) {
             throw new RuntimeException(
-                'Error autenticando Salesforce refresh_token: '.$response->status().' '.$response->body()
+                'Error autenticando Salesforce refresh_token: '
+                .$response->status().' '.$this->sanitizeBody($response->body())
+                .$this->domainHint($response->body())
             );
         }
 
-        $data = $response->json();
+        $data = $response->json() ?? [];
 
         $this->validateTokenResponse($data);
 
@@ -92,11 +104,37 @@ class SalesforceAuthService
     private function validateTokenResponse(array $data): void
     {
         if (empty($data['access_token'])) {
-            throw new RuntimeException('Salesforce no devolvió access_token: '.json_encode($data));
+            throw new RuntimeException('Salesforce no devolvio access_token: '.$this->sanitizeBody(json_encode($data)));
         }
 
         if (empty($data['instance_url'])) {
-            throw new RuntimeException('Salesforce no devolvió instance_url: '.json_encode($data));
+            throw new RuntimeException('Salesforce no devolvio instance_url: '.$this->sanitizeBody(json_encode($data)));
         }
+    }
+
+    private function sanitizeBody(?string $body): string
+    {
+        $body = (string) $body;
+
+        foreach ([
+            config('salesforce.client_secret'),
+            config('salesforce.client_id'),
+            config('salesforce.refresh_token'),
+        ] as $secret) {
+            if (filled($secret)) {
+                $body = str_replace((string) $secret, '[redacted]', $body);
+            }
+        }
+
+        return $body;
+    }
+
+    private function domainHint(?string $body): string
+    {
+        if (! str_contains(strtolower((string) $body), 'request not supported on this domain')) {
+            return '';
+        }
+
+        return ' Hint: para client_credentials Salesforce suele requerir el My Domain, por ejemplo https://TU_DOMINIO.my.salesforce.com/services/oauth2/token.';
     }
 }
