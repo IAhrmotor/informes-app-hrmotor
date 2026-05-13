@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\MonthlyCommercialReportSnapshot;
+use App\Models\SalesforceLead;
 use App\Services\Reports\MonthlyCommercial\MonthlyCommercialPeriodService;
 use App\Services\Reports\MonthlyCommercial\MonthlyCommercialReportBuilder;
 use Carbon\CarbonImmutable;
@@ -23,13 +24,26 @@ class RefreshMonthlyCommercialReportCommand extends Command
         MonthlyCommercialPeriodService $periodService,
     ): int {
         $days = max((int) $this->option('days'), 1);
+        $now = CarbonImmutable::now();
+        $periods = $periodService->periods($days, $now);
 
         try {
-            $payload = $builder->build($days);
-            $periods = $periodService->periods($days, CarbonImmutable::parse($payload['periodos_estandar']['periodo_actual']['fin']));
+            $currentLeads = SalesforceLead::query()
+                ->where('created_date', '>=', $periods['current_start'])
+                ->where('created_date', '<', $periods['current_end'])
+                ->count();
+
+            if ($currentLeads === 0) {
+                $this->warn('No hay leads sincronizados en salesforce_leads para el periodo actual. Ejecuta primero php artisan salesforce:sync-monthly-commercial --days=60 --fresh');
+
+                return self::FAILURE;
+            }
+
+            $payload = $builder->build($days, $now);
+            $snapshot = null;
 
             if ($this->option('store')) {
-                MonthlyCommercialReportSnapshot::create([
+                $snapshot = MonthlyCommercialReportSnapshot::create([
                     'period_start' => $periods['current_start'],
                     'period_end' => $periods['current_end'],
                     'previous_period_start' => $periods['previous_start'],
@@ -48,7 +62,12 @@ class RefreshMonthlyCommercialReportCommand extends Command
                 $this->line('Leads en analisis: '.$summary['leads_totales']);
                 $this->line('Convertidos: '.$summary['leads_convertidos']);
                 $this->line('Descartados: '.$summary['leads_descartados']);
+                $this->line('Potenciales: '.$summary['leads_potenciales']);
                 $this->line('Potenciales sin seguimiento >3 dias: '.$summary['potenciales_sin_seguimiento_mayor_3_dias']);
+            }
+
+            if ($snapshot !== null) {
+                $this->line('Snapshot id: '.$snapshot->id);
             }
 
             return self::SUCCESS;

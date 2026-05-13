@@ -4,7 +4,6 @@ namespace App\Services\Reports\MonthlyCommercial\Sync;
 
 use App\Models\SalesforceUser;
 use App\Services\Salesforce\SalesforceClient;
-use Illuminate\Support\Arr;
 
 class SalesforceMonthlyUsersSyncService
 {
@@ -13,9 +12,40 @@ class SalesforceMonthlyUsersSyncService
     ) {
     }
 
-    public function sync(): int
+    public function sync(): array
     {
-        $records = $this->client->query(<<<'SOQL'
+        $soql = $this->soql();
+        $records = $this->client->query($soql);
+        $saved = 0;
+
+        foreach ($records as $record) {
+            if (blank(data_get($record, 'Id'))) {
+                continue;
+            }
+
+            SalesforceUser::updateOrCreate(
+                ['salesforce_id' => data_get($record, 'Id')],
+                [
+                    'name' => data_get($record, 'Name'),
+                    'profile_name' => data_get($record, 'Profile.Name'),
+                    'is_active' => (bool) data_get($record, 'IsActive', true),
+                    'raw_payload' => $record,
+                ]
+            );
+
+            $saved++;
+        }
+
+        return [
+            'soql' => $soql,
+            'queried' => count($records),
+            'saved' => $saved,
+        ];
+    }
+
+    public function soql(): string
+    {
+        return <<<'SOQL'
 SELECT
     Id,
     Name,
@@ -28,28 +58,6 @@ WHERE
         Profile.Name = 'Comerciales Partner Community'
         OR Profile.Name = 'Compra/Venta'
     )
-SOQL);
-
-        $synced = 0;
-
-        foreach ($records as $record) {
-            if (blank(Arr::get($record, 'Id'))) {
-                continue;
-            }
-
-            SalesforceUser::updateOrCreate(
-                ['salesforce_id' => Arr::get($record, 'Id')],
-                [
-                    'name' => Arr::get($record, 'Name'),
-                    'profile_name' => Arr::get($record, 'Profile.Name'),
-                    'is_active' => (bool) Arr::get($record, 'IsActive', true),
-                    'raw_payload' => $record,
-                ]
-            );
-
-            $synced++;
-        }
-
-        return $synced;
+SOQL;
     }
 }

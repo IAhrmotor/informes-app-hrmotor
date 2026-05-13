@@ -42,27 +42,19 @@ class SalesforceAuthService
 
     private function requestClientCredentialsToken(): array
     {
-        $payload = [
+        $response = Http::asForm()->post(config('salesforce.token_url'), [
             'grant_type' => 'client_credentials',
             'client_id' => config('salesforce.client_id'),
             'client_secret' => config('salesforce.client_secret'),
-        ];
-
-        if (filled(config('salesforce.scope'))) {
-            $payload['scope'] = config('salesforce.scope');
-        }
-
-        $response = Http::asForm()->post(config('salesforce.token_url'), $payload);
+        ]);
 
         if (! $response->successful()) {
             throw new RuntimeException(
-                'Error autenticando Salesforce client_credentials: '
-                .$response->status().' '.$this->sanitizeBody($response->body())
-                .$this->domainHint($response->body())
+                'Error autenticando Salesforce client_credentials: '.$response->status().' '.$response->body()
             );
         }
 
-        $data = $response->json() ?? [];
+        $data = $response->json();
 
         $this->validateTokenResponse($data);
 

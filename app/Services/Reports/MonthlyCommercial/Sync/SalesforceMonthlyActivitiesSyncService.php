@@ -6,7 +6,6 @@ use App\Models\SalesforceActivity;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
-use Illuminate\Support\Arr;
 
 class SalesforceMonthlyActivitiesSyncService
 {
@@ -15,51 +14,17 @@ class SalesforceMonthlyActivitiesSyncService
     ) {
     }
 
-    public function syncTasks(CarbonInterface $periodStart, CarbonInterface $periodEnd): int
+    public function syncTasks(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
     {
         return $this->syncActivityKind('Task', $this->tasksSoql($periodStart, $periodEnd));
     }
 
-    public function syncEvents(CarbonInterface $periodStart, CarbonInterface $periodEnd): int
+    public function syncEvents(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
     {
         return $this->syncActivityKind('Event', $this->eventsSoql($periodStart, $periodEnd));
     }
 
-    private function syncActivityKind(string $kind, string $soql): int
-    {
-        $records = $this->client->query($soql);
-        $synced = 0;
-
-        foreach ($records as $record) {
-            if (blank(Arr::get($record, 'Id')) || blank(Arr::get($record, 'WhoId'))) {
-                continue;
-            }
-
-            SalesforceActivity::updateOrCreate(
-                ['salesforce_id' => Arr::get($record, 'Id')],
-                [
-                    'lead_salesforce_id' => Arr::get($record, 'WhoId'),
-                    'activity_kind' => $kind,
-                    'owner_id' => Arr::get($record, 'OwnerId'),
-                    'owner_name' => Arr::get($record, 'Owner.Name'),
-                    'created_by_id' => Arr::get($record, 'CreatedById'),
-                    'created_by_name' => Arr::get($record, 'CreatedBy.Name'),
-                    'created_date' => $this->parseDateTime(Arr::get($record, 'CreatedDate')),
-                    'activity_date' => Arr::get($record, 'ActivityDate'),
-                    'subject' => Arr::get($record, 'Subject'),
-                    'type' => Arr::get($record, 'Type'),
-                    'status' => Arr::get($record, 'Status'),
-                    'raw_payload' => $record,
-                ]
-            );
-
-            $synced++;
-        }
-
-        return $synced;
-    }
-
-    private function tasksSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string
+    public function tasksSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string
     {
         $start = $this->soqlDateTime($periodStart);
         $end = $this->soqlDateTime($periodEnd);
@@ -92,7 +57,7 @@ WHERE
 SOQL;
     }
 
-    private function eventsSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string
+    public function eventsSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string
     {
         $start = $this->soqlDateTime($periodStart);
         $end = $this->soqlDateTime($periodEnd);
@@ -122,6 +87,44 @@ WHERE
     AND CreatedDate >= {$start}
     AND CreatedDate < {$end}
 SOQL;
+    }
+
+    private function syncActivityKind(string $kind, string $soql): array
+    {
+        $records = $this->client->query($soql);
+        $saved = 0;
+
+        foreach ($records as $record) {
+            if (blank(data_get($record, 'Id')) || blank(data_get($record, 'WhoId'))) {
+                continue;
+            }
+
+            SalesforceActivity::updateOrCreate(
+                ['salesforce_id' => data_get($record, 'Id')],
+                [
+                    'lead_salesforce_id' => data_get($record, 'WhoId'),
+                    'activity_kind' => $kind,
+                    'owner_id' => data_get($record, 'OwnerId'),
+                    'owner_name' => data_get($record, 'Owner.Name'),
+                    'created_by_id' => data_get($record, 'CreatedById'),
+                    'created_by_name' => data_get($record, 'CreatedBy.Name'),
+                    'created_date' => $this->parseDateTime(data_get($record, 'CreatedDate')),
+                    'activity_date' => data_get($record, 'ActivityDate'),
+                    'subject' => data_get($record, 'Subject'),
+                    'type' => data_get($record, 'Type'),
+                    'status' => data_get($record, 'Status'),
+                    'raw_payload' => $record,
+                ]
+            );
+
+            $saved++;
+        }
+
+        return [
+            'soql' => $soql,
+            'queried' => count($records),
+            'saved' => $saved,
+        ];
     }
 
     private function soqlDateTime(CarbonInterface $date): string

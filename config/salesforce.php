@@ -11,7 +11,7 @@ return [
     'client_id' => env('SALESFORCE_CLIENT_ID'),
     'client_secret' => env('SALESFORCE_CLIENT_SECRET'),
     'redirect_uri' => env('SALESFORCE_REDIRECT_URI'),
-    'scope' => env('SALESFORCE_SCOPE', 'api'),
+    'scope' => env('SALESFORCE_SCOPE'),
 
     'refresh_token' => env('SALESFORCE_REFRESH_TOKEN'),
 
