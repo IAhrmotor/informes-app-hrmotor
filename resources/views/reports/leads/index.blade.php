@@ -61,6 +61,16 @@
         </div>
 
         <div class="filter-group">
+            <label for="leadType">Tipo de Lead</label>
+            <select id="leadType">
+                <option value="all">Todos</option>
+                <option value="Tasación">Tasación</option>
+                <option value="Venta">Venta</option>
+                <option value="Venta con cambio">Venta con cambio</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
             <label for="leadDelegation">Delegación del lead</label>
             <select id="leadDelegation">
                 <option value="">Todas</option>

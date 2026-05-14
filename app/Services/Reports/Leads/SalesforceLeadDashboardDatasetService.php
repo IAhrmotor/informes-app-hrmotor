@@ -24,6 +24,12 @@ class SalesforceLeadDashboardDatasetService
 
     private const CACHE_TTL_MINUTES = 10;
 
+    private const LEAD_TYPES = [
+        'Tasación',
+        'Venta',
+        'Venta con cambio',
+    ];
+
     // Dirección quiere que los no clasificados cuenten en KPIs generales por ahora.
     private const INCLUDE_UNCLASSIFIED_IN_TOTALS = true;
 
@@ -88,6 +94,7 @@ class SalesforceLeadDashboardDatasetService
             'lead_delegation' => $request->string('lead_delegation')->toString()
                 ?: $request->string('delegation')->toString(),
             'lead_group' => $request->string('lead_group')->toString(),
+            'lead_type' => $request->string('lead_type')->toString(),
             'commercial_delegation' => $request->string('commercial_delegation')->toString(),
             'zone' => $request->string('zone')->toString(),
             'commercial' => $request->string('commercial')->toString(),
@@ -173,6 +180,7 @@ class SalesforceLeadDashboardDatasetService
             'id' => data_get($lead, 'id'),
             'salesforce_id' => data_get($lead, 'salesforce_id'),
             'status' => $status,
+            'lead_type' => data_get($lead, 'record_type_name'),
             'is_convertido' => $isConverted,
             'is_descartado' => $isDiscarded,
             'is_potencial' => $isPotential,
@@ -344,6 +352,10 @@ class SalesforceLeadDashboardDatasetService
         }
 
         if ($filters['lead_group'] && $lead['lead_group'] !== $filters['lead_group']) {
+            return false;
+        }
+
+        if ($filters['lead_type'] && $filters['lead_type'] !== 'all' && $lead['lead_type'] !== $filters['lead_type']) {
             return false;
         }
 
@@ -630,6 +642,7 @@ class SalesforceLeadDashboardDatasetService
                     ->merge($rows->pluck('lead_group'))
                     ->all()
             ),
+            'lead_types' => self::LEAD_TYPES,
             'commercial_delegations' => $this->delegationNormalizer->sortLabels($commercialDelegations->all()),
             'zones' => $this->delegationNormalizer->sortLabels($zones->all()),
             'statuses' => ['Convertido', 'Descartado', 'Potencial'],

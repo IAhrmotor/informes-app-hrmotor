@@ -34,6 +34,7 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
                         'CreatedDate' => '2026-05-01T10:00:00.000+0000',
                         'LastActivityDate' => '2026-05-02',
                         'Status' => 'Convertido',
+                        'RecordType' => ['Name' => 'Tasación'],
                         'OwnerId' => '005-owner-1',
                         'Owner' => ['Name' => 'Owner Uno'],
                         'Persona_que_trabaj__c' => '005-worker-1',
@@ -52,6 +53,7 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
                         'CreatedDate' => '2026-05-03T11:00:00.000+0000',
                         'LastActivityDate' => null,
                         'Status' => 'Potencial',
+                        'RecordType' => ['Name' => 'Venta con cambio'],
                         'OwnerId' => '005-owner-2',
                         'Owner' => ['Name' => 'Owner Dos'],
                         'Persona_que_trabaj__c' => null,
@@ -76,6 +78,7 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
 
         $this->assertSame(2, $result['queried']);
         $this->assertSame(2, $result['saved']);
+        $this->assertStringContainsString('RecordType.Name', $result['soql']);
         $this->assertStringContainsString('CreatedDate >= 2026-03-14T13:37:27Z', $result['soql']);
         $this->assertStringContainsString('CreatedDate < 2026-05-13T13:37:27Z', $result['soql']);
 
@@ -83,6 +86,7 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
         $this->assertDatabaseHas('salesforce_leads', [
             'salesforce_id' => '00Q1',
             'owner_name' => 'Owner Uno',
+            'record_type_name' => 'Tasación',
             'persona_que_trabajo_name' => 'Worker Uno',
             'portal_text' => 'Web',
         ]);
