@@ -53,7 +53,15 @@ class SalesforceLeadDashboardDatasetService
 
     public function commercialRows(Request $request): array
     {
-        return ['items' => $this->payload($request, 'commercials')['commercials']];
+        $payload = $this->payload($request, 'commercials');
+
+        return [
+            'ok' => true,
+            'zones' => $payload['commercial_zones'],
+            'delegations' => $payload['commercial_delegations'],
+            'commercials' => $payload['commercials'],
+            'items' => $payload['commercials'],
+        ];
     }
 
     public function delegationRows(Request $request): array
@@ -199,6 +207,8 @@ class SalesforceLeadDashboardDatasetService
     {
         $current = $this->emptyBucket();
         $previous = $this->emptyBucket();
+        $commercialZoneGroups = [];
+        $commercialDelegationGroups = [];
         $commercialGroups = [];
         $delegationGroups = [];
         $portalGroups = [];
@@ -213,6 +223,10 @@ class SalesforceLeadDashboardDatasetService
             $this->addToBucket($current, $lead);
 
             if ($lead['gestor_es_comercial']) {
+                $this->addGroup($commercialZoneGroups, $lead['commercial_zone'], $lead['commercial_zone'], [], $lead);
+                $this->addGroup($commercialDelegationGroups, $lead['commercial_delegation'].'|'.$lead['commercial_zone'], $lead['commercial_delegation'], [
+                    'zone' => $lead['commercial_zone'],
+                ], $lead);
                 $this->addGroup($commercialGroups, $lead['gestor_id'], $lead['gestor_nombre'], [
                     'commercial_delegation' => $lead['commercial_delegation'],
                     'zone' => $lead['commercial_zone'],
@@ -237,6 +251,8 @@ class SalesforceLeadDashboardDatasetService
 
         $current = $this->finalizeBucket($current);
         $previous = $this->finalizeBucket($previous);
+        $commercialZones = $this->finalizeGroups($commercialZoneGroups, 'zone');
+        $commercialDelegations = $this->finalizeGroups($commercialDelegationGroups, 'commercial_delegation');
         $commercials = $this->finalizeGroups($commercialGroups, 'comercial');
         $delegations = $this->finalizeGroups($delegationGroups, 'lead_delegation');
         $portals = $this->finalizeGroups($portalGroups, 'portal');
@@ -253,6 +269,8 @@ class SalesforceLeadDashboardDatasetService
                 'insights' => $this->insights($current, $previous, $portals, $commercials, $delegations),
                 'filters' => $this->filterOptions($currentRows),
             ],
+            'commercial_zones' => $commercialZones,
+            'commercial_delegations' => $commercialDelegations,
             'commercials' => $commercials,
             'delegations' => $delegations,
             'portals' => $portals,

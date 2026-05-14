@@ -16,6 +16,9 @@ class DashboardUiPhaseOneTest extends TestCase
         $response->assertSee('leadGroup');
         $response->assertSee('commercialDelegation');
         $response->assertSee('Zona', false);
+        $response->assertSee('Comerciales/Delegaciones/Zonas');
+        $response->assertSee('Delegaciones por reparto de leads');
+        $response->assertSee('Orden de cuadros');
         $response->assertDontSee('Datos actualizados: -');
         $response->assertDontSee('Grupo portal');
         $response->assertDontSee('Solo Exposicion', false);
@@ -23,6 +26,8 @@ class DashboardUiPhaseOneTest extends TestCase
         $response->assertDontSee('KPIs clave');
         $response->assertDontSee('Detalle portal');
         $response->assertDontSee('Calidad de dato');
+        $response->assertDontSee('data-panel="panel-comerciales">Comerciales</button>', false);
+        $response->assertDontSee('Delegaciones / Zonas');
     }
 
     public function test_js_formatea_fecha_europea_y_no_expone_grupo_portal(): void
@@ -32,6 +37,8 @@ class DashboardUiPhaseOneTest extends TestCase
         $this->assertStringContainsString("Intl.DateTimeFormat('es-ES'", $js);
         $this->assertStringContainsString("day: '2-digit'", $js);
         $this->assertStringContainsString("month: '2-digit'", $js);
+        $this->assertStringContainsString('makeTableSortable', $js);
+        $this->assertStringContainsString('parseSortableValue', $js);
         $this->assertStringNotContainsString('portalGroup', $js);
         $this->assertStringNotContainsString('portal_group', $js);
     }

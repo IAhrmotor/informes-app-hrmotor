@@ -61,7 +61,7 @@
     "isEntry": true
   },
   "resources/css/reports/leads-dashboard.css": {
-    "file": "assets/leads-dashboard-E6FKHbsW.css",
+    "file": "assets/leads-dashboard-BOHNQbtS.css",
     "name": "leads-dashboard",
     "names": [
       "leads-dashboard.css"
@@ -76,7 +76,7 @@
     "isEntry": true
   },
   "resources/js/reports/leads-dashboard.js": {
-    "file": "assets/leads-dashboard-x0WbkXru.js",
+    "file": "assets/leads-dashboard-ohrU5fki.js",
     "name": "leads-dashboard",
     "src": "resources/js/reports/leads-dashboard.js",
     "isEntry": true

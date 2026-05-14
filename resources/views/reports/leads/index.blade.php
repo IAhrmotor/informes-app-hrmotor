@@ -125,8 +125,8 @@
 
     <nav class="tabs-main" aria-label="Pestañas del informe">
         <button class="main-tab active" data-panel="panel-resumen">Resumen Dirección</button>
-        <button class="main-tab" data-panel="panel-comerciales">Comerciales</button>
-        <button class="main-tab" data-panel="panel-delegaciones">Delegaciones / Zonas</button>
+        <button class="main-tab" data-panel="panel-comerciales">Comerciales/Delegaciones/Zonas</button>
+        <button class="main-tab" data-panel="panel-delegaciones">Delegaciones por reparto de leads</button>
         <button class="main-tab" data-panel="panel-portales">Portales / Procedencia</button>
     </nav>
 
@@ -184,7 +184,80 @@
         </section>
 
         <section id="panel-comerciales" class="tab-panel">
-            <section class="card panel">
+            <section class="filters card">
+                <div class="filter-group">
+                    <label for="commercialPanelsOrder">Orden de cuadros</label>
+                    <select id="commercialPanelsOrder">
+                        <option value="zones,delegations,commercials">Zonas, Delegaciones, Comerciales</option>
+                        <option value="commercials,delegations,zones">Comerciales, Delegaciones, Zonas</option>
+                        <option value="delegations,zones,commercials">Delegaciones, Zonas, Comerciales</option>
+                    </select>
+                </div>
+            </section>
+
+            <div id="commercialPanels">
+            <section class="card panel" data-commercial-section="zones">
+                <div class="panel-title">
+                    <div>
+                        <h2>Zonas</h2>
+                        <div class="small">Agrupado por zona comercial del usuario atribuido</div>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Zona</th>
+                            <th class="num">Leads totales</th>
+                            <th class="num">Convertidos</th>
+                            <th class="num">% conversión</th>
+                            <th class="num">Descartados</th>
+                            <th class="num">% descarte</th>
+                            <th class="num">Potenciales</th>
+                            <th class="num">Potenciales sin trabajar</th>
+                            <th class="num">Gestionados</th>
+                            <th class="num">% gestionados</th>
+                            <th class="num">Llamadas</th>
+                            <th class="num">Formularios</th>
+                        </tr>
+                        </thead>
+                        <tbody id="commercialZoneRows"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card panel" data-commercial-section="delegations">
+                <div class="panel-title">
+                    <div>
+                        <h2>Delegaciones</h2>
+                        <div class="small">Agrupado por delegación comercial del usuario atribuido</div>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Delegación comercial</th>
+                            <th>Zona</th>
+                            <th class="num">Leads totales</th>
+                            <th class="num">Convertidos</th>
+                            <th class="num">% conversión</th>
+                            <th class="num">Descartados</th>
+                            <th class="num">% descarte</th>
+                            <th class="num">Potenciales</th>
+                            <th class="num">Potenciales sin trabajar</th>
+                            <th class="num">Gestionados</th>
+                            <th class="num">% gestionados</th>
+                            <th class="num">Llamadas</th>
+                            <th class="num">Formularios</th>
+                        </tr>
+                        </thead>
+                        <tbody id="commercialDelegationRows"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card panel" data-commercial-section="commercials">
                 <div class="panel-title">
                     <div>
                         <h2>Comerciales</h2>
@@ -215,13 +288,14 @@
                     </table>
                 </div>
             </section>
+            </div>
         </section>
 
         <section id="panel-delegaciones" class="tab-panel">
             <section class="card panel">
                 <div class="panel-title">
                     <div>
-                        <h2>Delegaciones / Zonas</h2>
+                        <h2>Delegaciones por reparto de leads</h2>
                         <div class="small">Agrupación por zona, grupo comercial y delegación normalizada</div>
                     </div>
                 </div>
@@ -229,9 +303,9 @@
                     <table>
                         <thead>
                         <tr>
-                            <th>Zona</th>
-                            <th>Grupo del lead</th>
                             <th>Delegación del lead</th>
+                            <th>Grupo del lead</th>
+                            <th>Zona</th>
                             <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
                             <th class="num">% conversión</th>

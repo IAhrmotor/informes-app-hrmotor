@@ -360,6 +360,16 @@ th {
     border-bottom: 1px solid var(--line);
 }
 
+th[data-sortable="true"] {
+    cursor: pointer;
+    user-select: none;
+}
+
+.sort-indicator {
+    color: #111827;
+    font-size: 11px;
+}
+
 td {
     padding: 12px 14px;
     border-bottom: 1px solid #f1f5f9;
