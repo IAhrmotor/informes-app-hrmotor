@@ -83,6 +83,9 @@ class DebugMonthlyCommercialReportCommand extends Command
         $this->line('Top 10 delegaciones del lead normalizadas:');
         $this->table(['delegacion_lead', 'total'], $this->topRows($diagnostics['lead_delegations']));
 
+        $this->line('Top 10 grupos del lead:');
+        $this->table(['grupo_lead', 'total'], $this->topRows($diagnostics['lead_groups']));
+
         $this->line('Top 10 zonas del lead normalizadas:');
         $this->table(['zona_lead', 'total'], $this->topRows($diagnostics['lead_zones']));
 
@@ -99,6 +102,7 @@ class DebugMonthlyCommercialReportCommand extends Command
         $this->line('Leads sin clasificar por delegacion comercial: '.$diagnostics['unclassified_commercial_delegation']);
         $this->printUnmapped('Valores brutos no mapeados delegacion lead:', $diagnostics['lead_unmapped']);
         $this->printUnmapped('Valores brutos no mapeados delegacion comercial:', $diagnostics['commercial_unmapped']);
+        $this->warnUndesiredFilterValues($diagnostics);
 
         $snapshot = MonthlyCommercialReportSnapshot::query()
             ->latest('generated_at')
@@ -129,6 +133,7 @@ class DebugMonthlyCommercialReportCommand extends Command
         $diagnostics = [
             'lead_raw' => [],
             'lead_delegations' => [],
+            'lead_groups' => [],
             'lead_zones' => [],
             'lead_unmapped' => [],
             'commercial_raw' => [],
@@ -159,6 +164,7 @@ class DebugMonthlyCommercialReportCommand extends Command
                     $leadDelegation = $this->delegationNormalizer->normalize($leadDelegationRaw);
                     $this->increment($diagnostics['lead_raw'], $leadDelegationRaw ?: LeadDelegationNormalizer::UNCLASSIFIED);
                     $this->increment($diagnostics['lead_delegations'], $leadDelegation['delegation']);
+                    $this->increment($diagnostics['lead_groups'], $leadDelegation['group']);
                     $this->increment($diagnostics['lead_zones'], $leadDelegation['zone']);
 
                     if (! $leadDelegation['is_classified']) {
@@ -170,7 +176,7 @@ class DebugMonthlyCommercialReportCommand extends Command
 
                     $managerId = $this->managerId($lead);
                     $commercialRaw = $this->clean(data_get($users->get($managerId), 'user_delegation'));
-                    $commercialDelegation = $this->delegationNormalizer->normalize($commercialRaw);
+                    $commercialDelegation = $this->normalizeCommercialDelegation($commercialRaw);
 
                     $this->increment($diagnostics['commercial_raw'], $commercialRaw ?: LeadDelegationNormalizer::UNCLASSIFIED);
                     $this->increment($diagnostics['commercial_delegations'], $commercialDelegation['delegation']);
@@ -230,6 +236,61 @@ class DebugMonthlyCommercialReportCommand extends Command
         }
 
         $this->table(['valor_bruto', 'total'], $this->topRows($counts));
+    }
+
+    private function warnUndesiredFilterValues(array $diagnostics): void
+    {
+        $forbidden = [
+            '@',
+            'Zona Madrid',
+            'Zona Barcelona',
+            'Web Alicante',
+            'Llamada directa',
+            'Tudela',
+            'Valencia Sedavi',
+            'Torrejón de Ardoz',
+            'Torrejon de Ardoz',
+        ];
+
+        $labels = array_merge(
+            array_keys($diagnostics['lead_delegations']),
+            array_keys($diagnostics['lead_groups']),
+            array_keys($diagnostics['lead_zones']),
+            array_keys($diagnostics['commercial_delegations']),
+            array_keys($diagnostics['commercial_zones']),
+        );
+
+        $bad = collect($labels)
+            ->filter(fn (string $label) => collect($forbidden)->contains(fn (string $needle) => str_contains($label, $needle)))
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($bad === []) {
+            $this->line('No hay valores no deseados en filtros normalizados.');
+
+            return;
+        }
+
+        $this->warn('Valores no deseados detectados en filtros normalizados: '.implode(', ', $bad));
+    }
+
+    private function normalizeCommercialDelegation(?string $raw): array
+    {
+        $normalized = $this->delegationNormalizer->normalize($raw);
+
+        if (str_ends_with($normalized['delegation'], ' General')) {
+            return [
+                'raw' => $normalized['raw'],
+                'delegation' => LeadDelegationNormalizer::UNCLASSIFIED,
+                'group' => LeadDelegationNormalizer::NO_GROUP,
+                'zone' => LeadDelegationNormalizer::UNCLASSIFIED,
+                'is_classified' => false,
+                'raw_unmapped' => $normalized['raw'],
+            ];
+        }
+
+        return $normalized;
     }
 
     private function clean(mixed $value): ?string

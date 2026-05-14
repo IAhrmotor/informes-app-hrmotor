@@ -28,6 +28,7 @@ function bindFilters() {
         'portal',
         'status',
         'leadDelegation',
+        'leadGroup',
         'commercialDelegation',
         'zone',
         'commercial',
@@ -173,6 +174,7 @@ function renderCommercials(rows) {
 function renderDelegations(rows) {
     renderRows('delegationRows', rows, [
         [(row) => row.zone || '-'],
+        [(row) => row.lead_group || '-'],
         [(row) => row.delegacion],
         [(row) => formatNumber(row.leads_totales), true],
         [(row) => formatNumber(row.convertidos), true],
@@ -232,6 +234,7 @@ function renderRows(rootId, rows, columns, emptyMessage) {
 function renderFilterOptions(filters) {
     fillSelect('commercial', filters.commercials || [], 'id', 'name');
     fillSelect('leadDelegation', (filters.lead_delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name');
+    fillSelect('leadGroup', (filters.lead_groups || []).map((item) => ({ id: item, name: item })), 'id', 'name');
     fillSelect('commercialDelegation', (filters.commercial_delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name');
     fillSelect('zone', (filters.zones || []).map((item) => ({ id: item, name: item })), 'id', 'name');
     fillSelect('portal', (filters.portals || []).map((item) => ({ id: item, name: item })), 'id', 'name');
@@ -262,6 +265,7 @@ function currentFilters() {
     setParam(params, 'portal', document.getElementById('portal')?.value);
     setParam(params, 'status', document.getElementById('status')?.value);
     setParam(params, 'lead_delegation', document.getElementById('leadDelegation')?.value);
+    setParam(params, 'lead_group', document.getElementById('leadGroup')?.value);
     setParam(params, 'commercial_delegation', document.getElementById('commercialDelegation')?.value);
     setParam(params, 'zone', document.getElementById('zone')?.value);
     setParam(params, 'commercial', document.getElementById('commercial')?.value);

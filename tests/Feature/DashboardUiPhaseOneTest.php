@@ -13,6 +13,7 @@ class DashboardUiPhaseOneTest extends TestCase
         $response->assertOk();
         $response->assertSee('Cargando datos de Salesforce...');
         $response->assertSee('leadDelegation');
+        $response->assertSee('leadGroup');
         $response->assertSee('commercialDelegation');
         $response->assertSee('Zona', false);
         $response->assertDontSee('Datos actualizados: -');

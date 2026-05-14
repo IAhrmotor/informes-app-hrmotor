@@ -41,6 +41,8 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
         $empty = $this->service->decorateLead(['status' => 'Potencial']);
 
         $this->assertSame('Madrid General', $lead['lead_delegation']);
+        $this->assertSame('Grupo Madrid', $lead['lead_group']);
+        $this->assertSame('Zona Sur y Centro', $lead['lead_zone']);
         $this->assertSame('Valencia', $fallbackEncargada['lead_delegation']);
         $this->assertSame('Zaragoza', $fallbackBueno['lead_delegation']);
         $this->assertSame('Sin clasificar', $empty['lead_delegation']);
@@ -68,10 +70,10 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
             'owner_id' => '005-owner',
         ]);
 
-        $this->assertSame('Madrid General', $converted['commercial_delegation']);
+        $this->assertSame('Sin clasificar', $converted['commercial_delegation']);
         $this->assertSame('Valencia', $discarded['commercial_delegation']);
-        $this->assertSame('Madrid General', $potential['commercial_delegation']);
-        $this->assertSame('Madrid', $potential['commercial_zone']);
+        $this->assertSame('Sin clasificar', $potential['commercial_delegation']);
+        $this->assertSame('Sin clasificar', $potential['commercial_zone']);
     }
 
     public function test_actividad_futura_no_cuenta_como_gestionado_en_periodo_historico(): void

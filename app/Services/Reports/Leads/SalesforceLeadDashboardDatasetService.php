@@ -34,9 +34,9 @@ class SalesforceLeadDashboardDatasetService
     ) {
     }
 
-    public function payload(Request $request): array
+    public function payload(Request $request, string $context = 'summary'): array
     {
-        $filters = $this->filters($request);
+        $filters = $this->filters($request, $context);
         $periods = $this->periods($filters);
 
         return Cache::remember(
@@ -48,27 +48,28 @@ class SalesforceLeadDashboardDatasetService
 
     public function summary(Request $request): array
     {
-        return $this->payload($request)['summary'];
+        return $this->payload($request, 'summary')['summary'];
     }
 
     public function commercialRows(Request $request): array
     {
-        return ['items' => $this->payload($request)['commercials']];
+        return ['items' => $this->payload($request, 'commercials')['commercials']];
     }
 
     public function delegationRows(Request $request): array
     {
-        return ['items' => $this->payload($request)['delegations']];
+        return ['items' => $this->payload($request, 'delegations')['delegations']];
     }
 
     public function portalRows(Request $request): array
     {
-        return ['items' => $this->payload($request)['portals']];
+        return ['items' => $this->payload($request, 'portals')['portals']];
     }
 
-    public function filters(Request $request): array
+    public function filters(Request $request, string $context = 'summary'): array
     {
         return [
+            'context' => $context,
             'period' => $request->string('period')->toString() ?: 'last_30_days',
             'current_start' => $request->string('current_start')->toString(),
             'current_end' => $request->string('current_end')->toString(),
@@ -78,6 +79,7 @@ class SalesforceLeadDashboardDatasetService
             'channel' => $request->string('channel')->toString(),
             'lead_delegation' => $request->string('lead_delegation')->toString()
                 ?: $request->string('delegation')->toString(),
+            'lead_group' => $request->string('lead_group')->toString(),
             'commercial_delegation' => $request->string('commercial_delegation')->toString(),
             'zone' => $request->string('zone')->toString(),
             'commercial' => $request->string('commercial')->toString(),
@@ -148,7 +150,7 @@ class SalesforceLeadDashboardDatasetService
         $leadDelegation = $this->resolveLeadDelegation($lead);
         $manager = $this->resolveSimplifiedManager($lead, $isConverted, $isDiscarded);
         $commercialUser = $manager['id'] ? $this->commercialUsers()->get($manager['id']) : null;
-        $commercialDelegation = $this->delegationNormalizer->normalize(data_get($commercialUser, 'user_delegation'));
+        $commercialDelegation = $this->normalizeCommercialDelegation(data_get($commercialUser, 'user_delegation'));
 
         $totalActivities = (int) (data_get($summary, 'total_actividades') ?? 0);
         $lastActivity = data_get($summary, 'fecha_ultima_actividad');
@@ -174,10 +176,12 @@ class SalesforceLeadDashboardDatasetService
             'portal' => $portal,
             'grupo_portal' => $this->portalGroup($portal),
             'lead_delegation' => $leadDelegation['delegation'],
+            'lead_group' => $leadDelegation['group'],
             'lead_zone' => $leadDelegation['zone'],
             'lead_delegation_raw' => $leadDelegation['raw'],
             'lead_delegation_is_classified' => $leadDelegation['is_classified'],
             'commercial_delegation' => $commercialDelegation['delegation'],
+            'commercial_group' => $commercialDelegation['group'],
             'commercial_zone' => $commercialDelegation['zone'],
             'commercial_delegation_raw' => $commercialDelegation['raw'],
             'commercial_delegation_is_classified' => $commercialDelegation['is_classified'],
@@ -215,8 +219,9 @@ class SalesforceLeadDashboardDatasetService
                 ], $lead);
             }
 
-            $this->addGroup($delegationGroups, $lead['lead_delegation'].'|'.$lead['lead_zone'], $lead['lead_delegation'], [
+            $this->addGroup($delegationGroups, $lead['lead_zone'].'|'.$lead['lead_group'].'|'.$lead['lead_delegation'], $lead['lead_delegation'], [
                 'zone' => $lead['lead_zone'],
+                'lead_group' => $lead['lead_group'],
             ], $lead);
 
             $this->addGroup($portalGroups, $lead['portal'], $lead['portal'], [], $lead);
@@ -272,7 +277,7 @@ class SalesforceLeadDashboardDatasetService
     private function decoratedLeadsForPeriod(array $period): array
     {
         return Cache::remember(
-            'lead-dashboard-period-rows-v3:'.md5(json_encode([
+            'lead-dashboard-period-rows-v4:'.md5(json_encode([
                 'period' => $this->periodPayload($period),
                 'version' => $this->dataVersion(),
             ])),
@@ -320,12 +325,15 @@ class SalesforceLeadDashboardDatasetService
             return false;
         }
 
+        if ($filters['lead_group'] && $lead['lead_group'] !== $filters['lead_group']) {
+            return false;
+        }
+
         if ($filters['commercial_delegation'] && $lead['commercial_delegation'] !== $filters['commercial_delegation']) {
             return false;
         }
 
-        // En fase 1 el filtro Zona se aplica sobre la delegación comercial.
-        if ($filters['zone'] && $lead['commercial_zone'] !== $filters['zone']) {
+        if ($filters['zone'] && $lead[$this->zoneFieldForContext($filters)] !== $filters['zone']) {
             return false;
         }
 
@@ -342,6 +350,21 @@ class SalesforceLeadDashboardDatasetService
         }
 
         return true;
+    }
+
+    private function zoneFieldForContext(array $filters): string
+    {
+        if (($filters['context'] ?? 'summary') === 'commercials') {
+            return 'commercial_zone';
+        }
+
+        if (in_array(($filters['context'] ?? 'summary'), ['summary', 'portals'], true) && filled($filters['commercial_delegation'])) {
+            // En resumen y portales la zona representa lead_zone; si se fuerza una delegación comercial,
+            // la zona acompaña ese mismo eje para evitar mezclar dos criterios de atribución.
+            return 'commercial_zone';
+        }
+
+        return 'lead_zone';
     }
 
     private function addGroup(array &$groups, string $key, string $label, array $extra, array $lead): void
@@ -402,6 +425,24 @@ class SalesforceLeadDashboardDatasetService
             ?? $this->clean(data_get($lead, 'delegacion_encargada_bueno'));
 
         return $this->delegationNormalizer->normalize($raw);
+    }
+
+    private function normalizeCommercialDelegation(mixed $raw): array
+    {
+        $normalized = $this->delegationNormalizer->normalize($this->clean($raw));
+
+        if (Str::endsWith($normalized['delegation'], ' General')) {
+            return [
+                'raw' => $normalized['raw'],
+                'delegation' => LeadDelegationNormalizer::UNCLASSIFIED,
+                'group' => LeadDelegationNormalizer::NO_GROUP,
+                'zone' => LeadDelegationNormalizer::UNCLASSIFIED,
+                'is_classified' => false,
+                'raw_unmapped' => $normalized['raw'],
+            ];
+        }
+
+        return $normalized;
     }
 
     private function resolveSimplifiedManager(mixed $lead, bool $isConverted, bool $isDiscarded): array
@@ -543,13 +584,11 @@ class SalesforceLeadDashboardDatasetService
 
         $commercialDelegations = $this->commercialUsers()
             ->pluck('user_delegation')
-            ->map(fn ($delegation) => $this->delegationNormalizer->normalize($delegation)['delegation'])
+            ->map(fn ($delegation) => $this->normalizeCommercialDelegation($delegation)['delegation'])
             ->filter()
             ->unique();
 
-        $zones = $this->commercialUsers()
-            ->pluck('user_delegation')
-            ->map(fn ($delegation) => $this->delegationNormalizer->normalize($delegation)['zone'])
+        $zones = collect($this->delegationNormalizer->knownZones())
             ->merge($rows->pluck('lead_zone'))
             ->filter()
             ->unique();
@@ -568,6 +607,11 @@ class SalesforceLeadDashboardDatasetService
                 ->values()
                 ->all(),
             'lead_delegations' => $this->delegationNormalizer->sortLabels($rows->pluck('lead_delegation')->all()),
+            'lead_groups' => $this->delegationNormalizer->sortLabels(
+                collect($this->delegationNormalizer->knownGroups())
+                    ->merge($rows->pluck('lead_group'))
+                    ->all()
+            ),
             'commercial_delegations' => $this->delegationNormalizer->sortLabels($commercialDelegations->all()),
             'zones' => $this->delegationNormalizer->sortLabels($zones->all()),
             'statuses' => ['Convertido', 'Descartado', 'Potencial'],
@@ -576,7 +620,7 @@ class SalesforceLeadDashboardDatasetService
 
     private function cacheKey(array $filters, array $periods): string
     {
-        return 'lead-dashboard-v4:'.md5(json_encode([
+        return 'lead-dashboard-v5:'.md5(json_encode([
             'filters' => $filters,
             'periods' => [
                 'current' => $this->periodPayload($periods['current']),
