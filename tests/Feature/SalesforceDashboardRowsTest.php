@@ -29,9 +29,9 @@ class SalesforceDashboardRowsTest extends TestCase
 
     public function test_comerciales_solo_muestra_usuarios_activos_de_perfiles_permitidos_y_resuelve_gestor(): void
     {
-        $this->commercial('005-worker', 'Comercial Worker', 'Compra/Venta', true, 'HR MOTOR MADRID');
-        $this->commercial('005-discard', 'Comercial Descarte', 'Comerciales Partner Community', true, 'HR MOTOR MADRID');
-        $this->commercial('005-owner', 'Comercial Owner', 'Compra/Venta', true, 'HR MOTOR MADRID');
+        $this->commercial('005-worker', 'Comercial Worker', 'Compra/Venta', true, 'HR MOTOR TORREJON');
+        $this->commercial('005-discard', 'Comercial Descarte', 'Comerciales Partner Community', true, 'HR MOTOR TORREJON');
+        $this->commercial('005-owner', 'Comercial Owner', 'Compra/Venta', true, 'HR MOTOR TORREJON');
         $this->commercial('005-api', 'API User', 'Administrador del sistema');
         $this->commercial('005-inactive', 'Inactivo', 'Compra/Venta', false);
 
@@ -51,8 +51,8 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertNotContains('Inactivo', $names);
 
         $worker = collect($response->json('items'))->firstWhere('comercial', 'Comercial Worker');
-        $this->assertSame('Madrid General', $worker['commercial_delegation']);
-        $this->assertSame('Madrid', $worker['zone']);
+        $this->assertSame('Torrejón', $worker['commercial_delegation']);
+        $this->assertSame('Zona Sur y Centro', $worker['zone']);
     }
 
     public function test_portales_agrupa_y_calcula_llamadas_formularios_conversion_y_descarte_sin_grupo_visible(): void
@@ -92,7 +92,8 @@ class SalesforceDashboardRowsTest extends TestCase
         $rows = collect($this->getJson('/informes/leads/data/delegations')->json('items'));
 
         $this->assertSame(2, $rows->firstWhere('delegacion', 'Madrid General')['leads_totales']);
-        $this->assertSame('Madrid', $rows->firstWhere('delegacion', 'Madrid General')['zone']);
+        $this->assertSame('Grupo Madrid', $rows->firstWhere('delegacion', 'Madrid General')['lead_group']);
+        $this->assertSame('Zona Sur y Centro', $rows->firstWhere('delegacion', 'Madrid General')['zone']);
         $this->assertSame(1, $rows->firstWhere('delegacion', 'Sin clasificar')['potenciales_sin_trabajar']);
     }
 
@@ -122,6 +123,8 @@ class SalesforceDashboardRowsTest extends TestCase
 
         $summary = $this->getJson('/informes/leads/data/summary');
         $leadDelegations = $summary->json('filters.lead_delegations');
+        $leadGroups = $summary->json('filters.lead_groups');
+        $commercialDelegations = $summary->json('filters.commercial_delegations');
         $zones = $summary->json('filters.zones');
 
         $this->assertContains('Madrid General', $leadDelegations);
@@ -132,13 +135,19 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertNotContains('Tudela', $leadDelegations);
         $this->assertNotContains('Web Alicante', $leadDelegations);
         $this->assertNotContains('Llamada directa', $leadDelegations);
-        $this->assertContains('Madrid', $zones);
-        $this->assertContains('Navarra', $zones);
+        $this->assertContains('Grupo Madrid', $leadGroups);
+        $this->assertContains('Grupo Navarra', $leadGroups);
+        $this->assertNotContains('Madrid General', $leadGroups);
+        $this->assertNotContains('Grupo Madrid', $commercialDelegations);
+        $this->assertNotContains('Madrid General', $commercialDelegations);
+        $this->assertContains('Zona Sur y Centro', $zones);
+        $this->assertContains('Zona Norte', $zones);
         $this->assertNotContains('Tudela', $zones);
 
         $rows = collect($this->getJson('/informes/leads/data/delegations')->json('items'));
 
         $this->assertSame(2, $rows->firstWhere('delegacion', 'Madrid General')['leads_totales']);
+        $this->assertSame('Grupo Madrid', $rows->firstWhere('delegacion', 'Madrid General')['lead_group']);
         $this->assertSame(1, $rows->firstWhere('delegacion', 'Fontellas')['leads_totales']);
         $this->assertSame(2, $rows->firstWhere('delegacion', 'Sin clasificar')['leads_totales']);
     }

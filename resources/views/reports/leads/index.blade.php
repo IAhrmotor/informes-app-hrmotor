@@ -68,6 +68,13 @@
         </div>
 
         <div class="filter-group">
+            <label for="leadGroup">Grupo del lead</label>
+            <select id="leadGroup">
+                <option value="">Todos</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
             <label for="commercialDelegation">Delegación comercial</label>
             <select id="commercialDelegation">
                 <option value="">Todas</option>
@@ -215,7 +222,7 @@
                 <div class="panel-title">
                     <div>
                         <h2>Delegaciones / Zonas</h2>
-                        <div class="small">Normalización con tablas maestras y fallback a Sin clasificar</div>
+                        <div class="small">Agrupación por zona, grupo comercial y delegación normalizada</div>
                     </div>
                 </div>
                 <div class="table-wrap">
@@ -223,6 +230,7 @@
                         <thead>
                         <tr>
                             <th>Zona</th>
+                            <th>Grupo del lead</th>
                             <th>Delegación del lead</th>
                             <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
