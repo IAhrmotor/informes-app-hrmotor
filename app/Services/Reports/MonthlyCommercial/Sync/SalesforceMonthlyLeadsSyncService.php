@@ -6,6 +6,7 @@ use App\Models\SalesforceLead;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use RuntimeException;
 
 class SalesforceMonthlyLeadsSyncService
 {
@@ -17,7 +18,19 @@ class SalesforceMonthlyLeadsSyncService
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
     {
         $soql = $this->soql($periodStart, $periodEnd);
-        $records = $this->client->query($soql);
+        $warnings = [];
+
+        try {
+            $records = $this->client->query($soql);
+        } catch (RuntimeException $exception) {
+            if (! $this->looksLikeMissingOptionalField($exception->getMessage())) {
+                throw $exception;
+            }
+
+            $warnings[] = 'La query de Lead con campos opcionales fallo. Revisa API names: Medio_Nuevo__c, Fuente_Nuevo__c, Remitente_Lead__c, Delegacion_Encargada_Bueno__c, Delegacion_Encargada__c. Error: '.$exception->getMessage();
+            $soql = $this->baseSoql($periodStart, $periodEnd);
+            $records = $this->client->query($soql);
+        }
         $saved = 0;
 
         foreach ($records as $record) {
@@ -41,8 +54,14 @@ class SalesforceMonthlyLeadsSyncService
                     'fecha_asignacion' => $this->parseDateTime(data_get($record, 'Fecha_Asignacion__c')),
                     'fuente_origen' => data_get($record, 'LEA_SEL_Fuente_Origen__c'),
                     'medio_origen' => data_get($record, 'LEA_SEL_Medio_Origen__c'),
+                    'medio_nuevo' => data_get($record, 'Medio_Nuevo__c'),
+                    'fuente_nuevo' => data_get($record, 'Fuente_Nuevo__c'),
+                    'remitente_lead' => data_get($record, 'Remitente_Lead__c'),
                     'portal_text' => data_get($record, 'Portal_Text__c'),
                     'delegacion_encargada_text' => data_get($record, 'Delegacion_Encargada_Text__c'),
+                    'delegacion_encargada_bueno' => data_get($record, 'Delegacion_Encargada_Bueno__c'),
+                    'delegacion_encargada' => data_get($record, 'Delegacion_Encargada__c'),
+                    'delegacion_original' => null,
                     'raw_payload' => $record,
                 ]
             );
@@ -54,13 +73,33 @@ class SalesforceMonthlyLeadsSyncService
             'soql' => $soql,
             'queried' => count($records),
             'saved' => $saved,
+            'warnings' => $warnings,
         ];
     }
 
     public function soql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string
     {
+        return $this->leadSoql($periodStart, $periodEnd, true);
+    }
+
+    public function baseSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string
+    {
+        return $this->leadSoql($periodStart, $periodEnd, false);
+    }
+
+    private function leadSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $includeOptionalDashboardFields): string
+    {
         $start = $this->soqlDateTime($periodStart);
         $end = $this->soqlDateTime($periodEnd);
+        $optionalFields = $includeOptionalDashboardFields
+            ? <<<'SOQL'
+    Medio_Nuevo__c,
+    Fuente_Nuevo__c,
+    Remitente_Lead__c,
+    Delegacion_Encargada_Bueno__c,
+    Delegacion_Encargada__c,
+SOQL
+            : '';
 
         return <<<SOQL
 SELECT
@@ -78,6 +117,7 @@ SELECT
     Fecha_Asignacion__c,
     LEA_SEL_Fuente_Origen__c,
     LEA_SEL_Medio_Origen__c,
+{$optionalFields}
     Portal_Text__c,
     Delegacion_Encargada_Text__c
 FROM Lead
@@ -86,6 +126,13 @@ WHERE
     AND CreatedDate >= {$start}
     AND CreatedDate < {$end}
 SOQL;
+    }
+
+    private function looksLikeMissingOptionalField(string $message): bool
+    {
+        return str_contains($message, 'INVALID_FIELD')
+            || str_contains($message, 'No such column')
+            || str_contains($message, 'field');
     }
 
     private function soqlDateTime(CarbonInterface $date): string

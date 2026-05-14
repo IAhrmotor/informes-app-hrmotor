@@ -15,11 +15,15 @@ Route::prefix('informes/leads')
         Route::get('/', [LeadDashboardController::class, 'index'])->name('index');
 
         Route::get('/data/resumen', [LeadDashboardDataController::class, 'resumen'])->name('data.resumen');
+        Route::get('/data/summary', [LeadDashboardDataController::class, 'resumen'])->name('data.summary');
         Route::get('/data/kpis', [LeadDashboardDataController::class, 'kpis'])->name('data.kpis');
         Route::get('/data/portales', [LeadDashboardDataController::class, 'portales'])->name('data.portales');
+        Route::get('/data/portals', [LeadDashboardDataController::class, 'portales'])->name('data.portals');
         Route::get('/data/portal-detalle', [LeadDashboardDataController::class, 'portalDetalle'])->name('data.portal-detalle');
         Route::get('/data/delegaciones', [LeadDashboardDataController::class, 'delegaciones'])->name('data.delegaciones');
+        Route::get('/data/delegations', [LeadDashboardDataController::class, 'delegaciones'])->name('data.delegations');
         Route::get('/data/comerciales', [LeadDashboardDataController::class, 'comerciales'])->name('data.comerciales');
+        Route::get('/data/commercials', [LeadDashboardDataController::class, 'comerciales'])->name('data.commercials');
         Route::get('/data/comparativa', [LeadDashboardDataController::class, 'comparativa'])->name('data.comparativa');
         Route::get('/data/calidad-dato', [LeadDashboardDataController::class, 'calidadDato'])->name('data.calidad-dato');
 

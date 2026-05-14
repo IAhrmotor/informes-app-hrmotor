@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
 
-    <title>Procedencia de Leads - Dirección</title>
+    <title>Dashboard comercial Salesforce - Dirección</title>
 
     @vite([
         'resources/css/reports/leads-dashboard.css',
@@ -16,11 +16,11 @@
     <header class="header">
         <div>
             <div class="eyebrow">Dirección</div>
-            <h1>Procedencia de leads</h1>
-            <p class="sub">Últimos 30 días · Portales, llamadas, formularios y delegaciones</p>
+            <h1>Dashboard comercial Salesforce</h1>
+            <p class="sub">Resumen, comerciales, delegaciones y procedencia desde Salesforce</p>
         </div>
 
-        <div class="badge">Vista limpia para seguimiento comercial</div>
+        <div class="badge" id="updatedBadge">Datos actualizados: -</div>
     </header>
 
     <section class="filters card">
@@ -31,15 +31,6 @@
                 <option value="current_month">Mes actual</option>
                 <option value="previous_month">Mes anterior</option>
                 <option value="custom">Personalizado</option>
-            </select>
-        </div>
-
-        <div class="filter-group">
-            <label for="expositionMode">Exposición</label>
-            <select id="expositionMode">
-                <option value="with">Con Exposición</option>
-                <option value="without">Sin Exposición</option>
-                <option value="only">Solo Exposición</option>
             </select>
         </div>
 
@@ -58,345 +49,152 @@
                 <option value="">Todos</option>
             </select>
         </div>
+
+        <div class="filter-group">
+            <label for="status">Estado</label>
+            <select id="status">
+                <option value="">Todos</option>
+                <option value="Potencial">Potencial</option>
+                <option value="Convertido">Convertido</option>
+                <option value="Descartado">Descartado</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="delegation">Delegación / zona</label>
+            <select id="delegation">
+                <option value="">Todas</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="commercial">Comercial</label>
+            <select id="commercial">
+                <option value="">Todos</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="expositionMode">Exposición</label>
+            <select id="expositionMode">
+                <option value="with">Incluir</option>
+                <option value="without">Excluir</option>
+                <option value="only">Solo Exposición</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="portalGroup">Grupo portal</label>
+            <select id="portalGroup">
+                <option value="">Todos</option>
+            </select>
+        </div>
+    </section>
+
+    <section class="filters card custom-periods is-hidden" id="customPeriods">
+        <div class="filter-group">
+            <label for="currentStart">Inicio actual</label>
+            <input type="date" id="currentStart">
+        </div>
+        <div class="filter-group">
+            <label for="currentEnd">Fin actual</label>
+            <input type="date" id="currentEnd">
+        </div>
+        <div class="filter-group">
+            <label for="comparisonStart">Inicio comparado</label>
+            <input type="date" id="comparisonStart">
+        </div>
+        <div class="filter-group">
+            <label for="comparisonEnd">Fin comparado</label>
+            <input type="date" id="comparisonEnd">
+        </div>
     </section>
 
     <nav class="tabs-main" aria-label="Pestañas del informe">
         <button class="main-tab active" data-panel="panel-resumen">Resumen Dirección</button>
-        <button class="main-tab" data-panel="panel-informe-mensual">Informe mensual</button>
-        <button class="main-tab" data-panel="panel-kpis">KPIs clave</button>
-        <button class="main-tab" data-panel="panel-portales">Procedencia por portal</button>
-        <button class="main-tab" data-panel="panel-portal-detalle">Detalle de portal</button>
-        <button class="main-tab" data-panel="panel-delegaciones">Delegaciones</button>
         <button class="main-tab" data-panel="panel-comerciales">Comerciales</button>
-        <button class="main-tab" data-panel="panel-comparativa">Comparativa</button>
-        <button class="main-tab" data-panel="panel-calidad">Calidad de dato</button>
+        <button class="main-tab" data-panel="panel-delegaciones">Delegaciones / Zonas</button>
+        <button class="main-tab" data-panel="panel-portales">Portales / Procedencia</button>
     </nav>
 
     <main>
         <section id="panel-resumen" class="tab-panel active">
-            <section class="kpis">
-                <div class="card kpi">
-                    <div class="ico">📊</div>
-                    <div>
-                        <div class="kpi-label">Total leads</div>
-                        <div class="kpi-value" id="kpiTotal">-</div>
-                        <div class="kpi-hint">Muestra analizada</div>
-                    </div>
-                </div>
+            <div class="notice is-hidden" id="emptyMessage">No hay datos sincronizados para el periodo seleccionado.</div>
 
-                <div class="card kpi">
-                    <div class="ico">☎️</div>
-                    <div>
-                        <div class="kpi-label">Llamadas</div>
-                        <div class="kpi-value" id="kpiCalls">-</div>
-                        <div class="kpi-hint">Canal llamada</div>
-                    </div>
+            <section class="period-strip">
+                <div class="card period-card">
+                    <span>Periodo actual</span>
+                    <strong id="currentPeriodLabel">-</strong>
                 </div>
-
-                <div class="card kpi">
-                    <div class="ico">📝</div>
-                    <div>
-                        <div class="kpi-label">Formularios</div>
-                        <div class="kpi-value" id="kpiForms">-</div>
-                        <div class="kpi-hint">Resto de leads</div>
-                    </div>
-                </div>
-
-                <div class="card kpi">
-                    <div class="ico">📍</div>
-                    <div>
-                        <div class="kpi-label">Pendiente clasificar</div>
-                        <div class="kpi-value" id="kpiPending">-</div>
-                        <div class="kpi-hint">Para cerrar clasificación</div>
-                    </div>
+                <div class="card period-card">
+                    <span>Periodo comparado</span>
+                    <strong id="comparisonPeriodLabel">-</strong>
                 </div>
             </section>
 
-            <section class="grid">
-                <div class="card panel">
-                    <div class="panel-title">
-                        <div>
-                            <h2>Leads por portal</h2>
-                            <div class="small">Reparto de llamadas y formularios</div>
-                        </div>
+            <section class="kpis dashboard-kpis" id="summaryKpis"></section>
 
-                        <div class="legend">
-                            <span><i class="dot dot-call"></i>Llamadas</span>
-                            <span><i class="dot dot-form"></i>Formularios</span>
-                        </div>
-                    </div>
-
-                    <div class="portal-bars" id="portalBars"></div>
-                </div>
-
-                <div class="card panel">
-                    <div class="panel-title">
-                        <div>
-                            <h2>Resumen por portal</h2>
-                            <div class="small">Selecciona un portal para ver su detalle</div>
-                        </div>
-                    </div>
-
-                    <div class="portal-list" id="portalList"></div>
-                </div>
-            </section>
-
-            <div class="notice">
-                <strong>Nota:</strong> la vista sin Exposición permite analizar captación real sin leads recreados manualmente por comerciales.
-            </div>
-        </section>
-
-        <section id="panel-informe-mensual" class="tab-panel">
-            <section class="notice monthly-message" id="monthlyReportMessage">
-                Cargando informe mensual...
-            </section>
-
-            <div id="monthlyReportContent" class="monthly-report is-hidden">
-                <section class="card panel">
-                    <div class="panel-title">
-                        <div>
-                            <h2>Resumen ejecutivo</h2>
-                            <div class="small" id="monthlyPeriodLabel">Ultimos 30 dias frente al periodo anterior</div>
-                        </div>
-                        <div class="badge" id="monthlyGeneratedAt">-</div>
-                    </div>
-
-                    <div class="priority-grid" id="monthlyPriorityList"></div>
-                </section>
-
-                <section class="kpis monthly-kpis" id="monthlyKpiCards"></section>
-
-                <section class="card panel">
-                    <div class="panel-title">
-                        <div>
-                            <h2>Evolucion vs periodo anterior</h2>
-                            <div class="small">Lectura comparada de los bloques principales</div>
-                        </div>
-                    </div>
-
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                            <tr>
-                                <th>Metrica</th>
-                                <th class="num">Periodo actual</th>
-                                <th class="num">Periodo anterior</th>
-                                <th class="num">Diferencia</th>
-                            </tr>
-                            </thead>
-                            <tbody id="monthlyEvolutionRows"></tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <section class="card panel">
-                    <div class="panel-title">
-                        <div>
-                            <h2>Potenciales por comercial</h2>
-                            <div class="small">Pendientes por falta de Task/Event o seguimiento reciente</div>
-                        </div>
-                    </div>
-
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                            <tr>
-                                <th>Comercial</th>
-                                <th class="num">Potenciales</th>
-                                <th class="num">Sin Task/Event</th>
-                                <th class="num">Ultima Task/Event &gt;3 dias</th>
-                                <th class="num">Sin seguimiento &gt;3 dias</th>
-                            </tr>
-                            </thead>
-                            <tbody id="monthlyCommercialPendingRows"></tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <section class="card panel">
-                    <div class="panel-title">
-                        <div>
-                            <h2>Conversion, descarte y gestion por comercial</h2>
-                            <div class="small">Agrupado por gestor real resuelto</div>
-                        </div>
-                    </div>
-
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                            <tr>
-                                <th>Comercial</th>
-                                <th class="num">Leads</th>
-                                <th class="num">Convertidos</th>
-                                <th class="num">% conversion</th>
-                                <th class="num">Descartados</th>
-                                <th class="num">% descarte</th>
-                                <th class="num">Gestionados</th>
-                                <th class="num">Con primera Task/Event</th>
-                                <th class="num">&lt;1h asignados</th>
-                            </tr>
-                            </thead>
-                            <tbody id="monthlyCommercialPerformanceRows"></tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <section class="card panel">
-                    <div class="panel-title">
-                        <div>
-                            <h2>Portales</h2>
-                            <div class="small">Volumen, conversion y cobertura registrada</div>
-                        </div>
-                    </div>
-
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                            <tr>
-                                <th>Portal</th>
-                                <th class="num">Leads</th>
-                                <th class="num">Convertidos</th>
-                                <th class="num">% conversion</th>
-                                <th class="num">Potenciales</th>
-                                <th class="num">Sin seguimiento &gt;3 dias</th>
-                                <th class="num">Tiempo medio 1a Task/Event</th>
-                            </tr>
-                            </thead>
-                            <tbody id="monthlyPortalRows"></tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <section class="card panel">
-                    <div class="panel-title">
-                        <div>
-                            <h2>Delegaciones</h2>
-                            <div class="small">Conversion, descarte y tiempos por delegacion</div>
-                        </div>
-                    </div>
-
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                            <tr>
-                                <th>Delegacion</th>
-                                <th class="num">Leads</th>
-                                <th class="num">Convertidos</th>
-                                <th class="num">% conversion</th>
-                                <th class="num">Descartados</th>
-                                <th class="num">% descarte</th>
-                                <th class="num">P90 1a Task/Event</th>
-                            </tr>
-                            </thead>
-                            <tbody id="monthlyDelegationRows"></tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <section class="card panel">
-                    <div class="panel-title">
-                        <div>
-                            <h2>Potenciales pendientes por delegacion</h2>
-                            <div class="small">Bolsa viva pendiente de gestion o trazabilidad</div>
-                        </div>
-                    </div>
-
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                            <tr>
-                                <th>Delegacion</th>
-                                <th class="num">Potenciales</th>
-                                <th class="num">Sin Task/Event</th>
-                                <th class="num">Ultima Task/Event &gt;3 dias</th>
-                                <th class="num">Sin seguimiento &gt;3 dias</th>
-                            </tr>
-                            </thead>
-                            <tbody id="monthlyDelegationPendingRows"></tbody>
-                        </table>
-                    </div>
-                </section>
-            </div>
-        </section>
-
-        <section id="panel-kpis" class="tab-panel">
             <section class="card panel">
                 <div class="panel-title">
                     <div>
-                        <h2>KPIs clave</h2>
-                        <div class="small">Lectura con Exposición, sin Exposición y diferencia</div>
+                        <h2>Comparativa básica</h2>
+                        <div class="small">Periodo actual frente al periodo comparado</div>
                     </div>
                 </div>
-
                 <div class="table-wrap">
                     <table>
                         <thead>
                         <tr>
                             <th>Métrica</th>
-                            <th class="num">Con Exposición</th>
-                            <th class="num">Sin Exposición</th>
+                            <th class="num">Periodo actual</th>
+                            <th class="num">Periodo comparado</th>
                             <th class="num">Diferencia</th>
+                            <th class="num">Variación</th>
                         </tr>
                         </thead>
-                        <tbody id="kpiRows"></tbody>
+                        <tbody id="comparisonRows"></tbody>
                     </table>
                 </div>
             </section>
-        </section>
 
-        <section id="panel-portales" class="tab-panel">
             <section class="card panel">
                 <div class="panel-title">
                     <div>
-                        <h2>Procedencia por portal</h2>
-                        <div class="small">Llamadas, formularios, total y conversión</div>
+                        <h2>Resumen ejecutivo</h2>
+                        <div class="small">Conclusiones generadas con KPIs reales del periodo</div>
                     </div>
                 </div>
+                <div class="insights" id="insights"></div>
+            </section>
+        </section>
 
+        <section id="panel-comerciales" class="tab-panel">
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Comerciales</h2>
+                        <div class="small">Solo usuarios activos con perfiles comerciales permitidos</div>
+                    </div>
+                </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
                         <tr>
-                            <th>Portal</th>
-                            <th class="num">Llamadas</th>
-                            <th class="num">Formularios</th>
-                            <th class="num">Total</th>
-                            <th class="num">% llamadas</th>
-                            <th class="num">% formularios</th>
+                            <th>Comercial</th>
+                            <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
                             <th class="num">% conversión</th>
-                        </tr>
-                        </thead>
-                        <tbody id="portalRows"></tbody>
-                    </table>
-                </div>
-            </section>
-        </section>
-
-        <section id="panel-portal-detalle" class="tab-panel">
-            <section class="card panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Detalle por delegación y grupo</h2>
-                        <div class="small">Detalle del portal seleccionado</div>
-                    </div>
-
-                    <div class="badge" id="selectedPortalBadge">-</div>
-                </div>
-
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                        <tr>
-                            <th>Delegación / grupo</th>
-                            <th>Tipo</th>
-                            <th>Grupo comercial</th>
+                            <th class="num">Descartados</th>
+                            <th class="num">% descarte</th>
+                            <th class="num">Potenciales</th>
+                            <th class="num">Potenciales sin trabajar</th>
+                            <th class="num">Gestionados</th>
+                            <th class="num">% gestionados</th>
                             <th class="num">Llamadas</th>
                             <th class="num">Formularios</th>
-                            <th class="num">Total</th>
                         </tr>
                         </thead>
-                        <tbody id="detailRows"></tbody>
+                        <tbody id="commercialRows"></tbody>
                     </table>
                 </div>
             </section>
@@ -406,26 +204,27 @@
             <section class="card panel">
                 <div class="panel-title">
                     <div>
-                        <h2>Delegaciones</h2>
-                        <div class="small">Vista por delegación real o grupo comercial</div>
+                        <h2>Delegaciones / Zonas</h2>
+                        <div class="small">Normalización con tablas maestras y fallback a Sin clasificar</div>
                     </div>
                 </div>
-
                 <div class="table-wrap">
                     <table>
                         <thead>
                         <tr>
-                            <th>Delegación / grupo</th>
-                            <th>Tipo</th>
-                            <th>Grupo comercial</th>
-                            <th class="num">Total leads</th>
-                            <th class="num">Llamadas</th>
-                            <th class="num">Formularios</th>
+                            <th>Delegación real o zona</th>
+                            <th>Grupo comercial / zona</th>
+                            <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
                             <th class="num">% conversión</th>
                             <th class="num">Descartados</th>
                             <th class="num">% descarte</th>
-                            <th class="num">Incidencias</th>
+                            <th class="num">Potenciales</th>
+                            <th class="num">Potenciales sin trabajar</th>
+                            <th class="num">Gestionados</th>
+                            <th class="num">% gestionados</th>
+                            <th class="num">Llamadas</th>
+                            <th class="num">Formularios</th>
                         </tr>
                         </thead>
                         <tbody id="delegationRows"></tbody>
@@ -434,83 +233,36 @@
             </section>
         </section>
 
-        <section id="panel-comerciales" class="tab-panel">
+        <section id="panel-portales" class="tab-panel">
             <section class="card panel">
                 <div class="panel-title">
                     <div>
-                        <h2>Comerciales</h2>
-                        <div class="small">Análisis por comercial operativo, conversión y seguimiento</div>
+                        <h2>Portales / Procedencia</h2>
+                        <div class="small">Canal por Medio Nuevo y portal por reglas Salesforce fase 1</div>
                     </div>
                 </div>
-
                 <div class="table-wrap">
                     <table>
                         <thead>
                         <tr>
-                            <th>Comercial</th>
-                            <th class="num">Total leads</th>
+                            <th>Portal original</th>
+                            <th>Grupo portal</th>
+                            <th class="num">Leads totales</th>
                             <th class="num">Llamadas</th>
                             <th class="num">Formularios</th>
+                            <th class="num">% llamadas</th>
+                            <th class="num">% formularios</th>
                             <th class="num">Convertidos</th>
                             <th class="num">% conversión</th>
                             <th class="num">Descartados</th>
                             <th class="num">% descarte</th>
                             <th class="num">Potenciales</th>
-                            <th class="num">Sin Task/Event</th>
-                            <th class="num">Cobertura Task/Event</th>
-                            <th class="num">Sin seguimiento reciente</th>
+                            <th class="num">Potenciales sin trabajar</th>
+                            <th class="num">Gestionados</th>
+                            <th class="num">% gestionados</th>
                         </tr>
                         </thead>
-                        <tbody id="commercialRows"></tbody>
-                    </table>
-                </div>
-            </section>
-        </section>
-
-        <section id="panel-comparativa" class="tab-panel">
-            <section class="card panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Comparativa entre periodos</h2>
-                        <div class="small" id="comparisonPeriodLabel">Periodo actual frente a periodo comparado</div>
-                    </div>
-                </div>
-
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                        <tr>
-                            <th>Métrica</th>
-                            <th class="num">Periodo actual</th>
-                            <th class="num">Periodo comparado</th>
-                            <th class="num">Diferencia</th>
-                        </tr>
-                        </thead>
-                        <tbody id="comparisonRows"></tbody>
-                    </table>
-                </div>
-            </section>
-        </section>
-
-        <section id="panel-calidad" class="tab-panel">
-            <section class="card panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Calidad de dato</h2>
-                        <div class="small">Incidencias pendientes de normalización</div>
-                    </div>
-                </div>
-
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                        <tr>
-                            <th>Incidencia</th>
-                            <th class="num">Registros</th>
-                            <th>Acción</th>
-                        </tr>
-                        </thead>
-                        <tbody id="qualityRows"></tbody>
+                        <tbody id="portalRows"></tbody>
                     </table>
                 </div>
             </section>

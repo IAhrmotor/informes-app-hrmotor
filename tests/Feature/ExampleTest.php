@@ -9,5 +9,9 @@ test('the application returns a successful response', function () {
 test('the leads dashboard returns a successful response', function () {
     $this->get('/informes/leads')
         ->assertOk()
-        ->assertSee('Informe mensual');
+        ->assertSee('Resumen Dirección')
+        ->assertSee('Comerciales')
+        ->assertSee('Delegaciones / Zonas')
+        ->assertSee('Portales / Procedencia')
+        ->assertDontSee('Informe mensual');
 });

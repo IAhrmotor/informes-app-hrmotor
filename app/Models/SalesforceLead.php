@@ -22,8 +22,14 @@ class SalesforceLead extends Model
         'fecha_asignacion',
         'fuente_origen',
         'medio_origen',
+        'medio_nuevo',
+        'fuente_nuevo',
+        'remitente_lead',
         'portal_text',
         'delegacion_encargada_text',
+        'delegacion_encargada_bueno',
+        'delegacion_encargada',
+        'delegacion_original',
         'raw_payload',
     ];
 

@@ -57,6 +57,9 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
             $this->line('Leads consultados: '.$leads['queried']);
             $this->line('Leads guardados: '.$leads['saved']);
             $this->line('Leads sincronizados: '.$leads['saved']);
+            foreach ($leads['warnings'] ?? [] as $warning) {
+                $this->warn($warning);
+            }
             $this->warnIfEmpty('leads', $leads['queried'], $periodStart, $periodEnd);
 
             $tasks = $activitiesSync->syncTasks($periodStart, $periodEnd);
