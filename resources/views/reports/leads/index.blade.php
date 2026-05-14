@@ -227,8 +227,6 @@
                             <th class="num">Potenciales sin trabajar</th>
                             <th class="num">Gestionados</th>
                             <th class="num">% gestionados</th>
-                            <th class="num">Llamadas</th>
-                            <th class="num">Formularios</th>
                         </tr>
                         </thead>
                         <tbody id="commercialZoneRows"></tbody>
@@ -258,8 +256,6 @@
                             <th class="num">Potenciales sin trabajar</th>
                             <th class="num">Gestionados</th>
                             <th class="num">% gestionados</th>
-                            <th class="num">Llamadas</th>
-                            <th class="num">Formularios</th>
                         </tr>
                         </thead>
                         <tbody id="commercialDelegationRows"></tbody>
@@ -290,8 +286,6 @@
                             <th class="num">Potenciales sin trabajar</th>
                             <th class="num">Gestionados</th>
                             <th class="num">% gestionados</th>
-                            <th class="num">Llamadas</th>
-                            <th class="num">Formularios</th>
                         </tr>
                         </thead>
                         <tbody id="commercialRows"></tbody>
