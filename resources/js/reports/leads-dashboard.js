@@ -203,8 +203,6 @@ function renderCommercials(rows) {
         [(row) => formatNumber(row.potenciales_sin_trabajar), true],
         [(row) => formatNumber(row.gestionados), true],
         [(row) => formatPercent(row.gestionados_pct), true],
-        [(row) => formatNumber(row.llamadas), true],
-        [(row) => formatNumber(row.formularios), true],
     ], 'No hay datos de comerciales para los filtros seleccionados.');
 }
 
@@ -220,8 +218,6 @@ function renderCommercialZones(rows) {
         [(row) => formatNumber(row.potenciales_sin_trabajar), true],
         [(row) => formatNumber(row.gestionados), true],
         [(row) => formatPercent(row.gestionados_pct), true],
-        [(row) => formatNumber(row.llamadas), true],
-        [(row) => formatNumber(row.formularios), true],
     ], 'No hay datos de zonas para los filtros seleccionados.');
 }
 
@@ -238,8 +234,6 @@ function renderCommercialDelegations(rows) {
         [(row) => formatNumber(row.potenciales_sin_trabajar), true],
         [(row) => formatNumber(row.gestionados), true],
         [(row) => formatPercent(row.gestionados_pct), true],
-        [(row) => formatNumber(row.llamadas), true],
-        [(row) => formatNumber(row.formularios), true],
     ], 'No hay datos de delegaciones comerciales para los filtros seleccionados.');
 }
 
