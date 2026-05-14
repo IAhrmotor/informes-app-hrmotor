@@ -14,6 +14,10 @@ class DashboardUiPhaseOneTest extends TestCase
         $response->assertSee('Cargando datos de Salesforce...');
         $response->assertSee('leadDelegation');
         $response->assertSee('leadGroup');
+        $response->assertSee('Tipo de Lead');
+        $response->assertSee('Tasación');
+        $response->assertSee('Venta');
+        $response->assertSee('Venta con cambio');
         $response->assertSee('commercialDelegation');
         $response->assertSee('Zona', false);
         $response->assertSee('Comerciales/Delegaciones/Zonas');
@@ -39,6 +43,8 @@ class DashboardUiPhaseOneTest extends TestCase
         $this->assertStringContainsString("month: '2-digit'", $js);
         $this->assertStringContainsString('makeTableSortable', $js);
         $this->assertStringContainsString('parseSortableValue', $js);
+        $this->assertStringContainsString("'leadType'", $js);
+        $this->assertStringContainsString("lead_type", $js);
         $this->assertStringNotContainsString('portalGroup', $js);
         $this->assertStringNotContainsString('portal_group', $js);
     }

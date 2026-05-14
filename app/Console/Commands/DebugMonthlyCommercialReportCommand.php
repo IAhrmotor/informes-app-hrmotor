@@ -50,6 +50,18 @@ class DebugMonthlyCommercialReportCommand extends Command
                 ->all()
         );
 
+        $this->line('Conteo por tipo de lead:');
+        $this->table(
+            ['record_type_name', 'total'],
+            SalesforceLead::query()
+                ->selectRaw("COALESCE(record_type_name, 'NULL') as record_type_label, COUNT(*) as total")
+                ->groupBy('record_type_label')
+                ->orderByDesc('total')
+                ->get()
+                ->map(fn ($row) => [$row->record_type_label, (int) $row->total])
+                ->all()
+        );
+
         $this->line('Top 10 portal_text:');
         $this->table(
             ['portal_text', 'total'],

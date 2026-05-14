@@ -13,6 +13,7 @@ class SalesforceLead extends Model
         'created_date',
         'last_activity_date',
         'status',
+        'record_type_name',
         'owner_id',
         'owner_name',
         'persona_que_trabajo_id',

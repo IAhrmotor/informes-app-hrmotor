@@ -30,6 +30,7 @@ function bindFilters() {
         'channel',
         'portal',
         'status',
+        'leadType',
         'leadDelegation',
         'leadGroup',
         'commercialDelegation',
@@ -438,6 +439,7 @@ function currentFilters() {
     setParam(params, 'channel', document.getElementById('channel')?.value);
     setParam(params, 'portal', document.getElementById('portal')?.value);
     setParam(params, 'status', document.getElementById('status')?.value);
+    setParam(params, 'lead_type', document.getElementById('leadType')?.value);
     setParam(params, 'lead_delegation', document.getElementById('leadDelegation')?.value);
     setParam(params, 'lead_group', document.getElementById('leadGroup')?.value);
     setParam(params, 'commercial_delegation', document.getElementById('commercialDelegation')?.value);
