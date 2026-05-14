@@ -12,6 +12,7 @@ use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyLeadsSyncServic
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyUsersSyncService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 class SalesforceSyncMonthlyCommercialCommand extends Command
@@ -81,6 +82,7 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
             $this->line("Summaries por lead generados: {$summaries}");
 
             $this->info('Sincronizacion mensual comercial completada.');
+            $this->invalidateDashboardCache();
 
             return self::SUCCESS;
         } catch (Throwable $exception) {
@@ -120,5 +122,11 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
     private function soqlDateTime(CarbonImmutable $date): string
     {
         return $date->utc()->format('Y-m-d\TH:i:s\Z');
+    }
+
+    private function invalidateDashboardCache(): void
+    {
+        Cache::forever('lead_dashboard_cache_version', ((int) Cache::get('lead_dashboard_cache_version', 1)) + 1);
+        $this->line('Cache del dashboard Salesforce invalidada.');
     }
 }

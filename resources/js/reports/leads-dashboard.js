@@ -26,9 +26,10 @@ function bindFilters() {
         'period',
         'channel',
         'portal',
-        'portalGroup',
         'status',
-        'delegation',
+        'leadDelegation',
+        'commercialDelegation',
+        'zone',
         'commercial',
         'expositionMode',
         'currentStart',
@@ -47,22 +48,33 @@ function bindFilters() {
 }
 
 async function reloadAllData() {
-    const [summary, commercials, delegations, portals] = await Promise.all([
-        fetchJson(`/informes/leads/data/summary?${currentFilters()}`),
-        fetchJson(`/informes/leads/data/commercials?${currentFilters()}`),
-        fetchJson(`/informes/leads/data/delegations?${currentFilters()}`),
-        fetchJson(`/informes/leads/data/portals?${currentFilters()}`),
-    ]);
+    setLoadingState(true);
 
-    renderSummary(summary);
-    renderFilterOptions(summary.filters || {});
-    renderCommercials(commercials.items || []);
-    renderDelegations(delegations.items || []);
-    renderPortals(portals.items || []);
+    try {
+        const summary = await fetchJson(`/informes/leads/data/summary?${currentFilters()}`);
+        renderSummary(summary);
+        renderFilterOptions(summary.filters || {});
+
+        const [commercials, delegations, portals] = await Promise.all([
+            fetchJson(`/informes/leads/data/commercials?${currentFilters()}`),
+            fetchJson(`/informes/leads/data/delegations?${currentFilters()}`),
+            fetchJson(`/informes/leads/data/portals?${currentFilters()}`),
+        ]);
+
+        renderCommercials(commercials.items || []);
+        renderDelegations(delegations.items || []);
+        renderPortals(portals.items || []);
+    } catch (error) {
+        showLoadError(error);
+    } finally {
+        setLoadingState(false);
+    }
 }
 
 function renderSummary(data) {
-    document.getElementById('updatedBadge').textContent = `Datos actualizados: ${data.datos_actualizados || '-'}`;
+    document.getElementById('updatedBadge').textContent = data.datos_actualizados
+        ? `Datos actualizados: ${formatDateTime(data.datos_actualizados)}`
+        : 'Datos actualizados: pendiente';
     document.getElementById('currentPeriodLabel').textContent = periodText(data.periodo_actual);
     document.getElementById('comparisonPeriodLabel').textContent = periodText(data.periodo_comparado);
 
@@ -142,6 +154,8 @@ function renderInsights(items) {
 function renderCommercials(rows) {
     renderRows('commercialRows', rows, [
         [(row) => row.comercial],
+        [(row) => row.commercial_delegation || '-'],
+        [(row) => row.zone || '-'],
         [(row) => formatNumber(row.leads_totales), true],
         [(row) => formatNumber(row.convertidos), true],
         [(row) => formatPercent(row.conversion_pct), true],
@@ -158,8 +172,8 @@ function renderCommercials(rows) {
 
 function renderDelegations(rows) {
     renderRows('delegationRows', rows, [
+        [(row) => row.zone || '-'],
         [(row) => row.delegacion],
-        [(row) => row.grupo_comercial || '-'],
         [(row) => formatNumber(row.leads_totales), true],
         [(row) => formatNumber(row.convertidos), true],
         [(row) => formatPercent(row.conversion_pct), true],
@@ -177,7 +191,6 @@ function renderDelegations(rows) {
 function renderPortals(rows) {
     renderRows('portalRows', rows, [
         [(row) => row.portal],
-        [(row) => row.grupo_portal || '-'],
         [(row) => formatNumber(row.leads_totales), true],
         [(row) => formatNumber(row.llamadas), true],
         [(row) => formatNumber(row.formularios), true],
@@ -218,8 +231,9 @@ function renderRows(rootId, rows, columns, emptyMessage) {
 
 function renderFilterOptions(filters) {
     fillSelect('commercial', filters.commercials || [], 'id', 'name');
-    fillSelect('delegation', (filters.delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name');
-    fillSelect('portalGroup', (filters.portal_groups || []).map((item) => ({ id: item, name: item })), 'id', 'name');
+    fillSelect('leadDelegation', (filters.lead_delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name');
+    fillSelect('commercialDelegation', (filters.commercial_delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name');
+    fillSelect('zone', (filters.zones || []).map((item) => ({ id: item, name: item })), 'id', 'name');
     fillSelect('portal', (filters.portals || []).map((item) => ({ id: item, name: item })), 'id', 'name');
 }
 
@@ -246,9 +260,10 @@ function currentFilters() {
     setParam(params, 'period', document.getElementById('period')?.value);
     setParam(params, 'channel', document.getElementById('channel')?.value);
     setParam(params, 'portal', document.getElementById('portal')?.value);
-    setParam(params, 'portal_group', document.getElementById('portalGroup')?.value);
     setParam(params, 'status', document.getElementById('status')?.value);
-    setParam(params, 'delegation', document.getElementById('delegation')?.value);
+    setParam(params, 'lead_delegation', document.getElementById('leadDelegation')?.value);
+    setParam(params, 'commercial_delegation', document.getElementById('commercialDelegation')?.value);
+    setParam(params, 'zone', document.getElementById('zone')?.value);
     setParam(params, 'commercial', document.getElementById('commercial')?.value);
     setParam(params, 'exposition_mode', document.getElementById('expositionMode')?.value);
 
@@ -260,6 +275,23 @@ function currentFilters() {
     }
 
     return params.toString();
+}
+
+function setLoadingState(isLoading) {
+    const loading = document.getElementById('loadingMessage');
+
+    loading?.classList.toggle('is-hidden', !isLoading);
+
+    if (isLoading) {
+        document.getElementById('updatedBadge').textContent = 'Cargando datos de Salesforce...';
+        document.getElementById('emptyMessage')?.classList.add('is-hidden');
+    }
+}
+
+function showLoadError(error) {
+    const empty = document.getElementById('emptyMessage');
+    empty.classList.remove('is-hidden');
+    empty.textContent = error?.message || 'No se han podido cargar los datos de Salesforce.';
 }
 
 function setParam(params, key, value) {
@@ -291,6 +323,22 @@ function periodText(period) {
     }
 
     return `${period.inicio || '-'} a ${period.fin || '-'}`;
+}
+
+function formatDateTime(value) {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return value || '-';
+    }
+
+    return new Intl.DateTimeFormat('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    }).format(date);
 }
 
 function formatNumber(value) {

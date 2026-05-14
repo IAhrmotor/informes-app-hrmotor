@@ -2,14 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Models\MasterCallDelegationMapping;
-use App\Models\MasterDelegation;
-use App\Models\MasterFormSenderMapping;
 use App\Models\MasterPortal;
-use App\Models\SalesforceActivity;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceUser;
-use App\Services\Reports\MonthlyCommercial\Sync\SalesforceLeadActivitySummaryService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -34,9 +29,9 @@ class SalesforceDashboardRowsTest extends TestCase
 
     public function test_comerciales_solo_muestra_usuarios_activos_de_perfiles_permitidos_y_resuelve_gestor(): void
     {
-        $this->commercial('005-worker', 'Comercial Worker', 'Compra/Venta');
-        $this->commercial('005-discard', 'Comercial Descarte', 'Comerciales Partner Community');
-        $this->commercial('005-owner', 'Comercial Owner', 'Compra/Venta');
+        $this->commercial('005-worker', 'Comercial Worker', 'Compra/Venta', true, 'HR MOTOR MADRID');
+        $this->commercial('005-discard', 'Comercial Descarte', 'Comerciales Partner Community', true, 'HR MOTOR MADRID');
+        $this->commercial('005-owner', 'Comercial Owner', 'Compra/Venta', true, 'HR MOTOR MADRID');
         $this->commercial('005-api', 'API User', 'Administrador del sistema');
         $this->commercial('005-inactive', 'Inactivo', 'Compra/Venta', false);
 
@@ -54,9 +49,13 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertContains('Comercial Owner', $names);
         $this->assertNotContains('API User', $names);
         $this->assertNotContains('Inactivo', $names);
+
+        $worker = collect($response->json('items'))->firstWhere('comercial', 'Comercial Worker');
+        $this->assertSame('Madrid General', $worker['commercial_delegation']);
+        $this->assertSame('Madrid', $worker['zone']);
     }
 
-    public function test_portales_agrupa_y_calcula_llamadas_formularios_conversion_y_descarte(): void
+    public function test_portales_agrupa_y_calcula_llamadas_formularios_conversion_y_descarte_sin_grupo_visible(): void
     {
         MasterPortal::create(['portal_original' => 'Google Maps', 'portal_group' => 'Google', 'is_active' => true]);
 
@@ -67,7 +66,7 @@ class SalesforceDashboardRowsTest extends TestCase
         $row = collect($this->getJson('/informes/leads/data/portals')->json('items'))
             ->firstWhere('portal', 'Google Maps');
 
-        $this->assertSame('Google', $row['grupo_portal']);
+        $this->assertArrayNotHasKey('grupo_portal', $row);
         $this->assertSame(3, $row['leads_totales']);
         $this->assertSame(1, $row['llamadas']);
         $this->assertSame(2, $row['formularios']);
@@ -76,26 +75,8 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertSame(1, $row['descartados']);
     }
 
-    public function test_delegaciones_usa_mappings_y_sin_clasificar_si_no_hay_mapping(): void
+    public function test_delegaciones_usa_prioridad_salesforce_y_sin_clasificar_si_no_hay_valor(): void
     {
-        MasterDelegation::create(['delegation_name' => 'HR MOTOR MADRID', 'commercial_group' => 'Madrid', 'is_active' => true]);
-        MasterCallDelegationMapping::create([
-            'portal_original' => 'Google Maps',
-            'received_value' => 'Madrid',
-            'type' => 'Delegación',
-            'delegation_name' => 'HR MOTOR MADRID',
-            'commercial_group' => 'Madrid',
-            'status' => 'active',
-        ]);
-        MasterFormSenderMapping::create([
-            'portal_original' => 'Web',
-            'sender_email' => 'leadsmadrid@hrmotor.com',
-            'type' => 'Delegación',
-            'delegation_name' => 'HR MOTOR MADRID',
-            'commercial_group' => 'Madrid',
-            'status' => 'active',
-        ]);
-
         $this->lead('00Q1', 'Potencial', [
             'medio_nuevo' => 'Llamada',
             'fuente_nuevo' => 'Google Maps',
@@ -104,13 +85,14 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->lead('00Q2', 'Potencial', [
             'medio_nuevo' => 'Formulario',
             'portal_text' => 'Web',
-            'remitente_lead' => 'leadsmadrid@hrmotor.com',
+            'delegacion_encargada' => 'HR MOTOR MADRID',
         ]);
         $this->lead('00Q3', 'Potencial', ['medio_nuevo' => 'Formulario', 'portal_text' => 'Sin mapa']);
 
         $rows = collect($this->getJson('/informes/leads/data/delegations')->json('items'));
 
-        $this->assertSame(2, $rows->firstWhere('delegacion', 'HR MOTOR MADRID')['leads_totales']);
+        $this->assertSame(2, $rows->firstWhere('delegacion', 'Madrid General')['leads_totales']);
+        $this->assertSame('Madrid', $rows->firstWhere('delegacion', 'Madrid General')['zone']);
         $this->assertSame(1, $rows->firstWhere('delegacion', 'Sin clasificar')['potenciales_sin_trabajar']);
     }
 
@@ -130,12 +112,44 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertEquals(50.0, $conversion['diferencia']);
     }
 
-    private function commercial(string $id, string $name, string $profile, bool $active = true): void
+    public function test_filtros_y_tabla_delegaciones_no_exponen_brutos_ni_emails(): void
+    {
+        $this->lead('00Q10', 'Potencial', ['delegacion_encargada_text' => 'leadsmadrid@hrmotor.com']);
+        $this->lead('00Q11', 'Potencial', ['delegacion_encargada_text' => 'Zona Madrid']);
+        $this->lead('00Q12', 'Potencial', ['delegacion_encargada_text' => 'Tudela']);
+        $this->lead('00Q13', 'Potencial', ['delegacion_encargada_text' => 'Web Alicante']);
+        $this->lead('00Q14', 'Potencial', ['delegacion_encargada_text' => 'Llamada directa']);
+
+        $summary = $this->getJson('/informes/leads/data/summary');
+        $leadDelegations = $summary->json('filters.lead_delegations');
+        $zones = $summary->json('filters.zones');
+
+        $this->assertContains('Madrid General', $leadDelegations);
+        $this->assertContains('Fontellas', $leadDelegations);
+        $this->assertContains('Sin clasificar', $leadDelegations);
+        $this->assertNotContains('leadsmadrid@hrmotor.com', $leadDelegations);
+        $this->assertNotContains('Zona Madrid', $leadDelegations);
+        $this->assertNotContains('Tudela', $leadDelegations);
+        $this->assertNotContains('Web Alicante', $leadDelegations);
+        $this->assertNotContains('Llamada directa', $leadDelegations);
+        $this->assertContains('Madrid', $zones);
+        $this->assertContains('Navarra', $zones);
+        $this->assertNotContains('Tudela', $zones);
+
+        $rows = collect($this->getJson('/informes/leads/data/delegations')->json('items'));
+
+        $this->assertSame(2, $rows->firstWhere('delegacion', 'Madrid General')['leads_totales']);
+        $this->assertSame(1, $rows->firstWhere('delegacion', 'Fontellas')['leads_totales']);
+        $this->assertSame(2, $rows->firstWhere('delegacion', 'Sin clasificar')['leads_totales']);
+    }
+
+    private function commercial(string $id, string $name, string $profile, bool $active = true, ?string $delegation = null): void
     {
         SalesforceUser::create([
             'salesforce_id' => $id,
             'name' => $name,
             'profile_name' => $profile,
+            'user_delegation' => $delegation,
             'is_active' => $active,
         ]);
     }

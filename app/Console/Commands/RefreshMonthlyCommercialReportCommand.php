@@ -8,6 +8,7 @@ use App\Services\Reports\MonthlyCommercial\MonthlyCommercialPeriodService;
 use App\Services\Reports\MonthlyCommercial\MonthlyCommercialReportBuilder;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 class RefreshMonthlyCommercialReportCommand extends Command
@@ -70,6 +71,8 @@ class RefreshMonthlyCommercialReportCommand extends Command
                 $this->line('Snapshot id: '.$snapshot->id);
             }
 
+            $this->invalidateDashboardCache();
+
             return self::SUCCESS;
         } catch (Throwable $exception) {
             $this->error('Error calculando el informe mensual comercial.');
@@ -77,5 +80,11 @@ class RefreshMonthlyCommercialReportCommand extends Command
 
             return self::FAILURE;
         }
+    }
+
+    private function invalidateDashboardCache(): void
+    {
+        Cache::forever('lead_dashboard_cache_version', ((int) Cache::get('lead_dashboard_cache_version', 1)) + 1);
+        $this->line('Cache del dashboard Salesforce invalidada.');
     }
 }

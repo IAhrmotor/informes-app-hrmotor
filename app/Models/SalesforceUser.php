@@ -10,6 +10,7 @@ class SalesforceUser extends Model
         'salesforce_id',
         'name',
         'profile_name',
+        'user_delegation',
         'is_active',
         'raw_payload',
     ];

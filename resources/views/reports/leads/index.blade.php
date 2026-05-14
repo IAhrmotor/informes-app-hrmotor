@@ -20,7 +20,7 @@
             <p class="sub">Resumen, comerciales, delegaciones y procedencia desde Salesforce</p>
         </div>
 
-        <div class="badge" id="updatedBadge">Datos actualizados: -</div>
+        <div class="badge" id="updatedBadge">Cargando datos de Salesforce...</div>
     </header>
 
     <section class="filters card">
@@ -61,8 +61,22 @@
         </div>
 
         <div class="filter-group">
-            <label for="delegation">Delegación / zona</label>
-            <select id="delegation">
+            <label for="leadDelegation">Delegación del lead</label>
+            <select id="leadDelegation">
+                <option value="">Todas</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="commercialDelegation">Delegación comercial</label>
+            <select id="commercialDelegation">
+                <option value="">Todas</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="zone">Zona</label>
+            <select id="zone">
                 <option value="">Todas</option>
             </select>
         </div>
@@ -79,14 +93,6 @@
             <select id="expositionMode">
                 <option value="with">Incluir</option>
                 <option value="without">Excluir</option>
-                <option value="only">Solo Exposición</option>
-            </select>
-        </div>
-
-        <div class="filter-group">
-            <label for="portalGroup">Grupo portal</label>
-            <select id="portalGroup">
-                <option value="">Todos</option>
             </select>
         </div>
     </section>
@@ -119,7 +125,18 @@
 
     <main>
         <section id="panel-resumen" class="tab-panel active">
+            <div class="notice" id="loadingMessage">Cargando datos de Salesforce...</div>
             <div class="notice is-hidden" id="emptyMessage">No hay datos sincronizados para el periodo seleccionado.</div>
+
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Resumen ejecutivo</h2>
+                        <div class="small">Conclusiones generadas con KPIs reales del periodo</div>
+                    </div>
+                </div>
+                <div class="insights" id="insights"></div>
+            </section>
 
             <section class="period-strip">
                 <div class="card period-card">
@@ -157,15 +174,6 @@
                 </div>
             </section>
 
-            <section class="card panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Resumen ejecutivo</h2>
-                        <div class="small">Conclusiones generadas con KPIs reales del periodo</div>
-                    </div>
-                </div>
-                <div class="insights" id="insights"></div>
-            </section>
         </section>
 
         <section id="panel-comerciales" class="tab-panel">
@@ -181,6 +189,8 @@
                         <thead>
                         <tr>
                             <th>Comercial</th>
+                            <th>Delegación comercial</th>
+                            <th>Zona</th>
                             <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
                             <th class="num">% conversión</th>
@@ -212,8 +222,8 @@
                     <table>
                         <thead>
                         <tr>
-                            <th>Delegación real o zona</th>
-                            <th>Grupo comercial / zona</th>
+                            <th>Zona</th>
+                            <th>Delegación del lead</th>
                             <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
                             <th class="num">% conversión</th>
@@ -245,8 +255,7 @@
                     <table>
                         <thead>
                         <tr>
-                            <th>Portal original</th>
-                            <th>Grupo portal</th>
+                            <th>Portal / Procedencia</th>
                             <th class="num">Leads totales</th>
                             <th class="num">Llamadas</th>
                             <th class="num">Formularios</th>
