@@ -2,7 +2,6 @@
 
 namespace App\Services\Reports\Leads;
 
-use App\Models\MasterDelegation;
 use App\Models\MasterPortal;
 use App\Models\MonthlyCommercialReportSnapshot;
 use App\Models\SalesforceLead;
@@ -30,7 +29,10 @@ class SalesforceLeadDashboardDatasetService
 
     private ?Collection $commercialUsersCache = null;
     private ?Collection $portalMapCache = null;
-    private ?Collection $delegationMapCache = null;
+    public function __construct(
+        private readonly LeadDelegationNormalizer $delegationNormalizer,
+    ) {
+    }
 
     public function payload(Request $request): array
     {
@@ -146,7 +148,7 @@ class SalesforceLeadDashboardDatasetService
         $leadDelegation = $this->resolveLeadDelegation($lead);
         $manager = $this->resolveSimplifiedManager($lead, $isConverted, $isDiscarded);
         $commercialUser = $manager['id'] ? $this->commercialUsers()->get($manager['id']) : null;
-        $commercialDelegation = $this->normalizeDelegation(data_get($commercialUser, 'user_delegation'));
+        $commercialDelegation = $this->delegationNormalizer->normalize(data_get($commercialUser, 'user_delegation'));
 
         $totalActivities = (int) (data_get($summary, 'total_actividades') ?? 0);
         $lastActivity = data_get($summary, 'fecha_ultima_actividad');
@@ -173,8 +175,12 @@ class SalesforceLeadDashboardDatasetService
             'grupo_portal' => $this->portalGroup($portal),
             'lead_delegation' => $leadDelegation['delegation'],
             'lead_zone' => $leadDelegation['zone'],
+            'lead_delegation_raw' => $leadDelegation['raw'],
+            'lead_delegation_is_classified' => $leadDelegation['is_classified'],
             'commercial_delegation' => $commercialDelegation['delegation'],
             'commercial_zone' => $commercialDelegation['zone'],
+            'commercial_delegation_raw' => $commercialDelegation['raw'],
+            'commercial_delegation_is_classified' => $commercialDelegation['is_classified'],
             'zona' => $commercialDelegation['zone'],
             'gestor_id' => $manager['id'],
             'gestor_nombre' => data_get($commercialUser, 'name') ?? $manager['name'],
@@ -266,7 +272,7 @@ class SalesforceLeadDashboardDatasetService
     private function decoratedLeadsForPeriod(array $period): array
     {
         return Cache::remember(
-            'lead-dashboard-period-rows-v2:'.md5(json_encode([
+            'lead-dashboard-period-rows-v3:'.md5(json_encode([
                 'period' => $this->periodPayload($period),
                 'version' => $this->dataVersion(),
             ])),
@@ -395,30 +401,7 @@ class SalesforceLeadDashboardDatasetService
             ?? $this->clean(data_get($lead, 'delegacion_encargada'))
             ?? $this->clean(data_get($lead, 'delegacion_encargada_bueno'));
 
-        return $this->normalizeDelegation($raw);
-    }
-
-    private function normalizeDelegation(?string $raw): array
-    {
-        if (! $raw) {
-            return ['delegation' => 'Sin clasificar', 'zone' => 'Sin clasificar', 'raw' => null];
-        }
-
-        $master = $this->delegationMap()->get($this->normalizeComparable($raw));
-
-        if ($master) {
-            return [
-                'delegation' => $master['delegation_name'],
-                'zone' => $master['commercial_group'] ?: 'Sin clasificar',
-                'raw' => $raw,
-            ];
-        }
-
-        return [
-            'delegation' => $raw,
-            'zone' => 'Sin clasificar',
-            'raw' => $raw,
-        ];
+        return $this->delegationNormalizer->normalize($raw);
     }
 
     private function resolveSimplifiedManager(mixed $lead, bool $isConverted, bool $isDiscarded): array
@@ -560,23 +543,16 @@ class SalesforceLeadDashboardDatasetService
 
         $commercialDelegations = $this->commercialUsers()
             ->pluck('user_delegation')
-            ->map(fn ($delegation) => $this->normalizeDelegation($delegation)['delegation'])
+            ->map(fn ($delegation) => $this->delegationNormalizer->normalize($delegation)['delegation'])
             ->filter()
             ->unique();
 
         $zones = $this->commercialUsers()
             ->pluck('user_delegation')
-            ->map(fn ($delegation) => $this->normalizeDelegation($delegation)['zone'])
-            ->merge(
-                MasterDelegation::query()
-                    ->where('is_active', true)
-                    ->pluck('commercial_group')
-            )
+            ->map(fn ($delegation) => $this->delegationNormalizer->normalize($delegation)['zone'])
+            ->merge($rows->pluck('lead_zone'))
             ->filter()
-            ->unique()
-            ->sort()
-            ->values()
-            ->all();
+            ->unique();
 
         return [
             'commercials' => $this->commercialUsers()
@@ -591,25 +567,16 @@ class SalesforceLeadDashboardDatasetService
                 ->sort()
                 ->values()
                 ->all(),
-            'lead_delegations' => $rows
-                ->pluck('lead_delegation')
-                ->filter()
-                ->unique()
-                ->sort()
-                ->values()
-                ->all(),
-            'commercial_delegations' => $commercialDelegations
-                ->sort()
-                ->values()
-                ->all(),
-            'zones' => $zones,
+            'lead_delegations' => $this->delegationNormalizer->sortLabels($rows->pluck('lead_delegation')->all()),
+            'commercial_delegations' => $this->delegationNormalizer->sortLabels($commercialDelegations->all()),
+            'zones' => $this->delegationNormalizer->sortLabels($zones->all()),
             'statuses' => ['Convertido', 'Descartado', 'Potencial'],
         ];
     }
 
     private function cacheKey(array $filters, array $periods): string
     {
-        return 'lead-dashboard-v3:'.md5(json_encode([
+        return 'lead-dashboard-v4:'.md5(json_encode([
             'filters' => $filters,
             'periods' => [
                 'current' => $this->periodPayload($periods['current']),
@@ -629,6 +596,7 @@ class SalesforceLeadDashboardDatasetService
             'lead_min_salesforce_id' => SalesforceLead::query()->min('salesforce_id'),
             'lead_max_salesforce_id' => SalesforceLead::query()->max('salesforce_id'),
             'user_max_id' => SalesforceUser::query()->max('id'),
+            'dashboard_cache_version' => Cache::get('lead_dashboard_cache_version', 1),
             'leads' => SalesforceLead::query()->max('updated_at'),
             'users' => SalesforceUser::query()->max('updated_at'),
             'summaries' => SalesforceLeadActivitySummary::query()->max('updated_at'),
@@ -692,31 +660,6 @@ class SalesforceLeadDashboardDatasetService
     private function portalGroup(string $portal): string
     {
         return $this->portalMap()->get($this->normalizeComparable($portal)) ?? $portal ?: 'Sin clasificar';
-    }
-
-    private function delegationMap(): Collection
-    {
-        if ($this->delegationMapCache !== null) {
-            return $this->delegationMapCache;
-        }
-
-        $map = collect();
-
-        MasterDelegation::query()
-            ->where('is_active', true)
-            ->get()
-            ->each(function (MasterDelegation $delegation) use ($map): void {
-                $payload = [
-                    'delegation_name' => $delegation->delegation_name,
-                    'commercial_group' => $delegation->commercial_group,
-                ];
-
-                $map->put($this->normalizeComparable($delegation->delegation_name), $payload);
-                $map->put($this->normalizeComparable(str_replace('HR MOTOR ', '', $delegation->delegation_name)), $payload);
-                $map->put($this->normalizeComparable($delegation->commercial_group), $payload);
-            });
-
-        return $this->delegationMapCache = $map;
     }
 
     private function parseDate(?string $value, CarbonImmutable $fallback): CarbonImmutable

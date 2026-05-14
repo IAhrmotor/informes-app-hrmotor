@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\MasterDelegation;
 use App\Models\MasterPortal;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceUser;
@@ -30,8 +29,6 @@ class SalesforceDashboardRowsTest extends TestCase
 
     public function test_comerciales_solo_muestra_usuarios_activos_de_perfiles_permitidos_y_resuelve_gestor(): void
     {
-        MasterDelegation::create(['delegation_name' => 'HR MOTOR MADRID', 'commercial_group' => 'Madrid', 'is_active' => true]);
-
         $this->commercial('005-worker', 'Comercial Worker', 'Compra/Venta', true, 'HR MOTOR MADRID');
         $this->commercial('005-discard', 'Comercial Descarte', 'Comerciales Partner Community', true, 'HR MOTOR MADRID');
         $this->commercial('005-owner', 'Comercial Owner', 'Compra/Venta', true, 'HR MOTOR MADRID');
@@ -54,7 +51,7 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertNotContains('Inactivo', $names);
 
         $worker = collect($response->json('items'))->firstWhere('comercial', 'Comercial Worker');
-        $this->assertSame('HR MOTOR MADRID', $worker['commercial_delegation']);
+        $this->assertSame('Madrid General', $worker['commercial_delegation']);
         $this->assertSame('Madrid', $worker['zone']);
     }
 
@@ -80,8 +77,6 @@ class SalesforceDashboardRowsTest extends TestCase
 
     public function test_delegaciones_usa_prioridad_salesforce_y_sin_clasificar_si_no_hay_valor(): void
     {
-        MasterDelegation::create(['delegation_name' => 'HR MOTOR MADRID', 'commercial_group' => 'Madrid', 'is_active' => true]);
-
         $this->lead('00Q1', 'Potencial', [
             'medio_nuevo' => 'Llamada',
             'fuente_nuevo' => 'Google Maps',
@@ -96,8 +91,8 @@ class SalesforceDashboardRowsTest extends TestCase
 
         $rows = collect($this->getJson('/informes/leads/data/delegations')->json('items'));
 
-        $this->assertSame(2, $rows->firstWhere('delegacion', 'HR MOTOR MADRID')['leads_totales']);
-        $this->assertSame('Madrid', $rows->firstWhere('delegacion', 'HR MOTOR MADRID')['zone']);
+        $this->assertSame(2, $rows->firstWhere('delegacion', 'Madrid General')['leads_totales']);
+        $this->assertSame('Madrid', $rows->firstWhere('delegacion', 'Madrid General')['zone']);
         $this->assertSame(1, $rows->firstWhere('delegacion', 'Sin clasificar')['potenciales_sin_trabajar']);
     }
 
@@ -115,6 +110,37 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertEquals(50.0, $conversion['periodo_actual']);
         $this->assertEquals(0.0, $conversion['periodo_comparado']);
         $this->assertEquals(50.0, $conversion['diferencia']);
+    }
+
+    public function test_filtros_y_tabla_delegaciones_no_exponen_brutos_ni_emails(): void
+    {
+        $this->lead('00Q10', 'Potencial', ['delegacion_encargada_text' => 'leadsmadrid@hrmotor.com']);
+        $this->lead('00Q11', 'Potencial', ['delegacion_encargada_text' => 'Zona Madrid']);
+        $this->lead('00Q12', 'Potencial', ['delegacion_encargada_text' => 'Tudela']);
+        $this->lead('00Q13', 'Potencial', ['delegacion_encargada_text' => 'Web Alicante']);
+        $this->lead('00Q14', 'Potencial', ['delegacion_encargada_text' => 'Llamada directa']);
+
+        $summary = $this->getJson('/informes/leads/data/summary');
+        $leadDelegations = $summary->json('filters.lead_delegations');
+        $zones = $summary->json('filters.zones');
+
+        $this->assertContains('Madrid General', $leadDelegations);
+        $this->assertContains('Fontellas', $leadDelegations);
+        $this->assertContains('Sin clasificar', $leadDelegations);
+        $this->assertNotContains('leadsmadrid@hrmotor.com', $leadDelegations);
+        $this->assertNotContains('Zona Madrid', $leadDelegations);
+        $this->assertNotContains('Tudela', $leadDelegations);
+        $this->assertNotContains('Web Alicante', $leadDelegations);
+        $this->assertNotContains('Llamada directa', $leadDelegations);
+        $this->assertContains('Madrid', $zones);
+        $this->assertContains('Navarra', $zones);
+        $this->assertNotContains('Tudela', $zones);
+
+        $rows = collect($this->getJson('/informes/leads/data/delegations')->json('items'));
+
+        $this->assertSame(2, $rows->firstWhere('delegacion', 'Madrid General')['leads_totales']);
+        $this->assertSame(1, $rows->firstWhere('delegacion', 'Fontellas')['leads_totales']);
+        $this->assertSame(2, $rows->firstWhere('delegacion', 'Sin clasificar')['leads_totales']);
     }
 
     private function commercial(string $id, string $name, string $profile, bool $active = true, ?string $delegation = null): void

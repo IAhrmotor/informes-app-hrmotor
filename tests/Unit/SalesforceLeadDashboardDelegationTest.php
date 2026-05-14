@@ -2,7 +2,6 @@
 
 namespace Tests\Unit;
 
-use App\Models\MasterDelegation;
 use App\Models\SalesforceUser;
 use App\Services\Reports\Leads\SalesforceLeadDashboardDatasetService;
 use Carbon\CarbonImmutable;
@@ -24,9 +23,6 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
 
     public function test_delegacion_lead_prioriza_text_encargada_y_bueno(): void
     {
-        MasterDelegation::create(['delegation_name' => 'HR MOTOR MADRID', 'commercial_group' => 'Madrid', 'is_active' => true]);
-        MasterDelegation::create(['delegation_name' => 'HR MOTOR VALENCIA', 'commercial_group' => 'Valencia', 'is_active' => true]);
-
         $lead = $this->service->decorateLead([
             'status' => 'Potencial',
             'delegacion_encargada_text' => 'Madrid',
@@ -44,16 +40,14 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
         ]);
         $empty = $this->service->decorateLead(['status' => 'Potencial']);
 
-        $this->assertSame('HR MOTOR MADRID', $lead['lead_delegation']);
-        $this->assertSame('HR MOTOR VALENCIA', $fallbackEncargada['lead_delegation']);
-        $this->assertSame('HR MOTOR ZARAGOZA', $fallbackBueno['lead_delegation']);
+        $this->assertSame('Madrid General', $lead['lead_delegation']);
+        $this->assertSame('Valencia', $fallbackEncargada['lead_delegation']);
+        $this->assertSame('Zaragoza', $fallbackBueno['lead_delegation']);
         $this->assertSame('Sin clasificar', $empty['lead_delegation']);
     }
 
     public function test_delegacion_comercial_sale_del_usuario_responsable_atribuido(): void
     {
-        MasterDelegation::create(['delegation_name' => 'HR MOTOR MADRID', 'commercial_group' => 'Madrid', 'is_active' => true]);
-        MasterDelegation::create(['delegation_name' => 'HR MOTOR VALENCIA', 'commercial_group' => 'Valencia', 'is_active' => true]);
         $this->user('005-worker', 'Trabajador', 'HR MOTOR MADRID');
         $this->user('005-discard', 'Descarte', 'HR MOTOR VALENCIA');
         $this->user('005-owner', 'Owner', 'HR MOTOR MADRID');
@@ -74,9 +68,9 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
             'owner_id' => '005-owner',
         ]);
 
-        $this->assertSame('HR MOTOR MADRID', $converted['commercial_delegation']);
-        $this->assertSame('HR MOTOR VALENCIA', $discarded['commercial_delegation']);
-        $this->assertSame('HR MOTOR MADRID', $potential['commercial_delegation']);
+        $this->assertSame('Madrid General', $converted['commercial_delegation']);
+        $this->assertSame('Valencia', $discarded['commercial_delegation']);
+        $this->assertSame('Madrid General', $potential['commercial_delegation']);
         $this->assertSame('Madrid', $potential['commercial_zone']);
     }
 

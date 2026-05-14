@@ -3,13 +3,12 @@
 namespace App\Console\Commands;
 
 use App\Models\MonthlyCommercialReportSnapshot;
-use App\Models\MasterDelegation;
 use App\Models\SalesforceActivity;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceLeadActivitySummary;
 use App\Models\SalesforceUser;
+use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 use Illuminate\Console\Command;
 
 class DebugMonthlyCommercialReportCommand extends Command
@@ -17,6 +16,12 @@ class DebugMonthlyCommercialReportCommand extends Command
     protected $signature = 'reports:debug-monthly-commercial';
 
     protected $description = 'Muestra conteos y diagnostico de datos para el informe mensual comercial.';
+
+    public function __construct(
+        private readonly LeadDelegationNormalizer $delegationNormalizer,
+    ) {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
@@ -26,7 +31,6 @@ class DebugMonthlyCommercialReportCommand extends Command
         $this->line('salesforce_activities count: '.SalesforceActivity::query()->count());
         $this->line('salesforce_lead_activity_summaries count: '.SalesforceLeadActivitySummary::query()->count());
         $this->line('monthly_commercial_report_snapshots count: '.MonthlyCommercialReportSnapshot::query()->count());
-        $this->line('master_delegations activas: '.MasterDelegation::query()->where('is_active', true)->count());
         $this->line('salesforce_users con user_delegation: '.SalesforceUser::query()->whereNotNull('user_delegation')->where('user_delegation', '<>', '')->count());
 
         $this->newLine();
@@ -73,17 +77,28 @@ class DebugMonthlyCommercialReportCommand extends Command
 
         $diagnostics = $this->delegationDiagnostics();
 
-        $this->line('Top 10 delegacion del lead:');
+        $this->line('Top 10 valores brutos delegacion del lead:');
+        $this->table(['valor_bruto', 'total'], $this->topRows($diagnostics['lead_raw']));
+
+        $this->line('Top 10 delegaciones del lead normalizadas:');
         $this->table(['delegacion_lead', 'total'], $this->topRows($diagnostics['lead_delegations']));
 
-        $this->line('Top 10 delegacion comercial:');
+        $this->line('Top 10 zonas del lead normalizadas:');
+        $this->table(['zona_lead', 'total'], $this->topRows($diagnostics['lead_zones']));
+
+        $this->line('Top 10 valores brutos delegacion comercial:');
+        $this->table(['valor_bruto', 'total'], $this->topRows($diagnostics['commercial_raw']));
+
+        $this->line('Top 10 delegaciones comerciales normalizadas:');
         $this->table(['delegacion_comercial', 'total'], $this->topRows($diagnostics['commercial_delegations']));
 
-        $this->line('Top 10 zonas comerciales:');
+        $this->line('Top 10 zonas comerciales normalizadas:');
         $this->table(['zona', 'total'], $this->topRows($diagnostics['commercial_zones']));
 
         $this->line('Leads sin clasificar por delegacion del lead: '.$diagnostics['unclassified_lead_delegation']);
         $this->line('Leads sin clasificar por delegacion comercial: '.$diagnostics['unclassified_commercial_delegation']);
+        $this->printUnmapped('Valores brutos no mapeados delegacion lead:', $diagnostics['lead_unmapped']);
+        $this->printUnmapped('Valores brutos no mapeados delegacion comercial:', $diagnostics['commercial_unmapped']);
 
         $snapshot = MonthlyCommercialReportSnapshot::query()
             ->latest('generated_at')
@@ -111,12 +126,15 @@ class DebugMonthlyCommercialReportCommand extends Command
     private function delegationDiagnostics(): array
     {
         $users = SalesforceUser::query()->get()->keyBy('salesforce_id');
-        $delegationMap = $this->delegationMap();
-
         $diagnostics = [
+            'lead_raw' => [],
             'lead_delegations' => [],
+            'lead_zones' => [],
+            'lead_unmapped' => [],
+            'commercial_raw' => [],
             'commercial_delegations' => [],
             'commercial_zones' => [],
+            'commercial_unmapped' => [],
             'unclassified_lead_delegation' => 0,
             'unclassified_commercial_delegation' => 0,
         ];
@@ -133,49 +151,41 @@ class DebugMonthlyCommercialReportCommand extends Command
                 'delegacion_encargada_bueno',
             ])
             ->orderBy('id')
-            ->chunkById(2000, function (Collection $leads) use (&$diagnostics, $users, $delegationMap): void {
+            ->chunkById(2000, function (Collection $leads) use (&$diagnostics, $users): void {
                 foreach ($leads as $lead) {
                     $leadDelegationRaw = $this->clean($lead->delegacion_encargada_text)
                         ?? $this->clean($lead->delegacion_encargada)
                         ?? $this->clean($lead->delegacion_encargada_bueno);
-                    $leadDelegation = $leadDelegationRaw ?: 'Sin clasificar';
-                    $this->increment($diagnostics['lead_delegations'], $leadDelegation);
+                    $leadDelegation = $this->delegationNormalizer->normalize($leadDelegationRaw);
+                    $this->increment($diagnostics['lead_raw'], $leadDelegationRaw ?: LeadDelegationNormalizer::UNCLASSIFIED);
+                    $this->increment($diagnostics['lead_delegations'], $leadDelegation['delegation']);
+                    $this->increment($diagnostics['lead_zones'], $leadDelegation['zone']);
 
-                    if ($leadDelegation === 'Sin clasificar') {
+                    if (! $leadDelegation['is_classified']) {
                         $diagnostics['unclassified_lead_delegation']++;
+                        if ($leadDelegation['raw_unmapped']) {
+                            $this->increment($diagnostics['lead_unmapped'], $leadDelegation['raw_unmapped']);
+                        }
                     }
 
                     $managerId = $this->managerId($lead);
-                    $commercialDelegation = $this->clean(data_get($users->get($managerId), 'user_delegation')) ?: 'Sin clasificar';
-                    $zone = $delegationMap->get($this->normalizeComparable($commercialDelegation)) ?: 'Sin clasificar';
+                    $commercialRaw = $this->clean(data_get($users->get($managerId), 'user_delegation'));
+                    $commercialDelegation = $this->delegationNormalizer->normalize($commercialRaw);
 
-                    $this->increment($diagnostics['commercial_delegations'], $commercialDelegation);
-                    $this->increment($diagnostics['commercial_zones'], $zone);
+                    $this->increment($diagnostics['commercial_raw'], $commercialRaw ?: LeadDelegationNormalizer::UNCLASSIFIED);
+                    $this->increment($diagnostics['commercial_delegations'], $commercialDelegation['delegation']);
+                    $this->increment($diagnostics['commercial_zones'], $commercialDelegation['zone']);
 
-                    if ($commercialDelegation === 'Sin clasificar') {
+                    if (! $commercialDelegation['is_classified']) {
                         $diagnostics['unclassified_commercial_delegation']++;
+                        if ($commercialDelegation['raw_unmapped']) {
+                            $this->increment($diagnostics['commercial_unmapped'], $commercialDelegation['raw_unmapped']);
+                        }
                     }
                 }
             });
 
         return $diagnostics;
-    }
-
-    private function delegationMap(): Collection
-    {
-        $map = collect();
-
-        MasterDelegation::query()
-            ->where('is_active', true)
-            ->get()
-            ->each(function (MasterDelegation $delegation) use ($map): void {
-                $zone = $delegation->commercial_group ?: 'Sin clasificar';
-                $map->put($this->normalizeComparable($delegation->delegation_name), $zone);
-                $map->put($this->normalizeComparable(str_replace('HR MOTOR ', '', $delegation->delegation_name)), $zone);
-                $map->put($this->normalizeComparable($delegation->commercial_group), $zone);
-            });
-
-        return $map;
     }
 
     private function managerId(SalesforceLead $lead): ?string
@@ -209,6 +219,19 @@ class DebugMonthlyCommercialReportCommand extends Command
         $counts[$key] = ($counts[$key] ?? 0) + 1;
     }
 
+    private function printUnmapped(string $title, array $counts): void
+    {
+        $this->line($title);
+
+        if ($counts === []) {
+            $this->line('No hay valores no mapeados relevantes.');
+
+            return;
+        }
+
+        $this->table(['valor_bruto', 'total'], $this->topRows($counts));
+    }
+
     private function clean(mixed $value): ?string
     {
         $value = trim((string) $value);
@@ -216,13 +239,4 @@ class DebugMonthlyCommercialReportCommand extends Command
         return $value !== '' ? $value : null;
     }
 
-    private function normalizeComparable(?string $value): string
-    {
-        return Str::of((string) $value)
-            ->lower()
-            ->ascii()
-            ->replace(['hr motor ', '.', ',', '-', '_', '/'], [''])
-            ->replaceMatches('/\s+/', '')
-            ->toString();
-    }
 }
