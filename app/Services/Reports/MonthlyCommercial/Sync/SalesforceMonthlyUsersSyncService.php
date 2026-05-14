@@ -28,6 +28,7 @@ class SalesforceMonthlyUsersSyncService
                 [
                     'name' => data_get($record, 'Name'),
                     'profile_name' => data_get($record, 'Profile.Name'),
+                    'user_delegation' => data_get($record, 'USR_SEL_Delegacion__c'),
                     'is_active' => (bool) data_get($record, 'IsActive', true),
                     'raw_payload' => $record,
                 ]
@@ -50,6 +51,7 @@ SELECT
     Id,
     Name,
     Profile.Name,
+    USR_SEL_Delegacion__c,
     IsActive
 FROM User
 WHERE

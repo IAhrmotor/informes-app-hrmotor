@@ -3,10 +3,13 @@
 namespace App\Console\Commands;
 
 use App\Models\MonthlyCommercialReportSnapshot;
+use App\Models\MasterDelegation;
 use App\Models\SalesforceActivity;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceLeadActivitySummary;
 use App\Models\SalesforceUser;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Illuminate\Console\Command;
 
 class DebugMonthlyCommercialReportCommand extends Command
@@ -23,6 +26,8 @@ class DebugMonthlyCommercialReportCommand extends Command
         $this->line('salesforce_activities count: '.SalesforceActivity::query()->count());
         $this->line('salesforce_lead_activity_summaries count: '.SalesforceLeadActivitySummary::query()->count());
         $this->line('monthly_commercial_report_snapshots count: '.MonthlyCommercialReportSnapshot::query()->count());
+        $this->line('master_delegations activas: '.MasterDelegation::query()->where('is_active', true)->count());
+        $this->line('salesforce_users con user_delegation: '.SalesforceUser::query()->whereNotNull('user_delegation')->where('user_delegation', '<>', '')->count());
 
         $this->newLine();
         $this->line('salesforce_leads.created_date min: '.(SalesforceLead::query()->min('created_date') ?? '-'));
@@ -66,6 +71,20 @@ class DebugMonthlyCommercialReportCommand extends Command
                 ->all()
         );
 
+        $diagnostics = $this->delegationDiagnostics();
+
+        $this->line('Top 10 delegacion del lead:');
+        $this->table(['delegacion_lead', 'total'], $this->topRows($diagnostics['lead_delegations']));
+
+        $this->line('Top 10 delegacion comercial:');
+        $this->table(['delegacion_comercial', 'total'], $this->topRows($diagnostics['commercial_delegations']));
+
+        $this->line('Top 10 zonas comerciales:');
+        $this->table(['zona', 'total'], $this->topRows($diagnostics['commercial_zones']));
+
+        $this->line('Leads sin clasificar por delegacion del lead: '.$diagnostics['unclassified_lead_delegation']);
+        $this->line('Leads sin clasificar por delegacion comercial: '.$diagnostics['unclassified_commercial_delegation']);
+
         $snapshot = MonthlyCommercialReportSnapshot::query()
             ->latest('generated_at')
             ->latest('id')
@@ -83,8 +102,127 @@ class DebugMonthlyCommercialReportCommand extends Command
 
         $this->line('Ultimo snapshot id: '.$snapshot->id);
         $this->line('Ultimo snapshot generated_at: '.($snapshot->generated_at?->toDateTimeString() ?? '-'));
+        $this->line('Datos actualizados: '.($snapshot->generated_at?->format('d/m/Y H:i') ?? '-'));
         $this->line('resumen_global.total_leads_30d: '.data_get($payload, 'resumen_global.leads_totales', 0));
 
         return self::SUCCESS;
+    }
+
+    private function delegationDiagnostics(): array
+    {
+        $users = SalesforceUser::query()->get()->keyBy('salesforce_id');
+        $delegationMap = $this->delegationMap();
+
+        $diagnostics = [
+            'lead_delegations' => [],
+            'commercial_delegations' => [],
+            'commercial_zones' => [],
+            'unclassified_lead_delegation' => 0,
+            'unclassified_commercial_delegation' => 0,
+        ];
+
+        SalesforceLead::query()
+            ->select([
+                'id',
+                'status',
+                'owner_id',
+                'persona_que_trabajo_id',
+                'propietario_descarte_id',
+                'delegacion_encargada_text',
+                'delegacion_encargada',
+                'delegacion_encargada_bueno',
+            ])
+            ->orderBy('id')
+            ->chunkById(2000, function (Collection $leads) use (&$diagnostics, $users, $delegationMap): void {
+                foreach ($leads as $lead) {
+                    $leadDelegationRaw = $this->clean($lead->delegacion_encargada_text)
+                        ?? $this->clean($lead->delegacion_encargada)
+                        ?? $this->clean($lead->delegacion_encargada_bueno);
+                    $leadDelegation = $leadDelegationRaw ?: 'Sin clasificar';
+                    $this->increment($diagnostics['lead_delegations'], $leadDelegation);
+
+                    if ($leadDelegation === 'Sin clasificar') {
+                        $diagnostics['unclassified_lead_delegation']++;
+                    }
+
+                    $managerId = $this->managerId($lead);
+                    $commercialDelegation = $this->clean(data_get($users->get($managerId), 'user_delegation')) ?: 'Sin clasificar';
+                    $zone = $delegationMap->get($this->normalizeComparable($commercialDelegation)) ?: 'Sin clasificar';
+
+                    $this->increment($diagnostics['commercial_delegations'], $commercialDelegation);
+                    $this->increment($diagnostics['commercial_zones'], $zone);
+
+                    if ($commercialDelegation === 'Sin clasificar') {
+                        $diagnostics['unclassified_commercial_delegation']++;
+                    }
+                }
+            });
+
+        return $diagnostics;
+    }
+
+    private function delegationMap(): Collection
+    {
+        $map = collect();
+
+        MasterDelegation::query()
+            ->where('is_active', true)
+            ->get()
+            ->each(function (MasterDelegation $delegation) use ($map): void {
+                $zone = $delegation->commercial_group ?: 'Sin clasificar';
+                $map->put($this->normalizeComparable($delegation->delegation_name), $zone);
+                $map->put($this->normalizeComparable(str_replace('HR MOTOR ', '', $delegation->delegation_name)), $zone);
+                $map->put($this->normalizeComparable($delegation->commercial_group), $zone);
+            });
+
+        return $map;
+    }
+
+    private function managerId(SalesforceLead $lead): ?string
+    {
+        if ($lead->status === 'Convertido') {
+            return $this->clean($lead->persona_que_trabajo_id) ?: $this->clean($lead->owner_id);
+        }
+
+        if ($lead->status === 'Descartado') {
+            return $this->clean($lead->propietario_descarte_id)
+                ?: $this->clean($lead->persona_que_trabajo_id)
+                ?: $this->clean($lead->owner_id);
+        }
+
+        return $this->clean($lead->owner_id);
+    }
+
+    private function topRows(array $counts): array
+    {
+        arsort($counts);
+
+        return collect($counts)
+            ->take(10)
+            ->map(fn (int $total, string $label) => [$label, $total])
+            ->values()
+            ->all();
+    }
+
+    private function increment(array &$counts, string $key): void
+    {
+        $counts[$key] = ($counts[$key] ?? 0) + 1;
+    }
+
+    private function clean(mixed $value): ?string
+    {
+        $value = trim((string) $value);
+
+        return $value !== '' ? $value : null;
+    }
+
+    private function normalizeComparable(?string $value): string
+    {
+        return Str::of((string) $value)
+            ->lower()
+            ->ascii()
+            ->replace(['hr motor ', '.', ',', '-', '_', '/'], [''])
+            ->replaceMatches('/\s+/', '')
+            ->toString();
     }
 }

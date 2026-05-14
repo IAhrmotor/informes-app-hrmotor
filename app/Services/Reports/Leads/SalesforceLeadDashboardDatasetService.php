@@ -2,17 +2,18 @@
 
 namespace App\Services\Reports\Leads;
 
-use App\Models\MasterCallDelegationMapping;
 use App\Models\MasterDelegation;
-use App\Models\MasterFormSenderMapping;
 use App\Models\MasterPortal;
+use App\Models\MonthlyCommercialReportSnapshot;
 use App\Models\SalesforceLead;
+use App\Models\SalesforceLeadActivitySummary;
 use App\Models\SalesforceUser;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 class SalesforceLeadDashboardDatasetService
@@ -22,80 +23,45 @@ class SalesforceLeadDashboardDatasetService
         'Comerciales Partner Community',
     ];
 
+    private const CACHE_TTL_MINUTES = 10;
+
+    // Dirección quiere que los no clasificados cuenten en KPIs generales por ahora.
+    private const INCLUDE_UNCLASSIFIED_IN_TOTALS = true;
+
     private ?Collection $commercialUsersCache = null;
     private ?Collection $portalMapCache = null;
-    private ?Collection $callDelegationMapCache = null;
-    private ?Collection $formSenderMapCache = null;
     private ?Collection $delegationMapCache = null;
 
-    public function summary(Request $request): array
+    public function payload(Request $request): array
     {
         $filters = $this->filters($request);
         $periods = $this->periods($filters);
-        $current = $this->aggregate($filters, $periods['current']);
-        $previous = $this->aggregate($filters, $periods['previous']);
-        $portals = $this->portalRows($request);
-        $commercials = $this->commercialRows($request);
-        $delegations = $this->delegationRows($request);
 
-        return [
-            'ok' => $current['leads_totales'] > 0 || $previous['leads_totales'] > 0,
-            'message' => $current['leads_totales'] > 0
-                ? null
-                : 'No hay datos sincronizados para el periodo seleccionado.',
-            'periodo_actual' => $this->periodPayload($periods['current']),
-            'periodo_comparado' => $this->periodPayload($periods['previous']),
-            'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
-            'kpis' => $current,
-            'comparativa' => $this->comparison($current, $previous),
-            'insights' => $this->insights($current, $previous, $portals['items'], $commercials['items'], $delegations['items']),
-            'filters' => $this->filterOptions(),
-        ];
+        return Cache::remember(
+            $this->cacheKey($filters, $periods),
+            now()->addMinutes(self::CACHE_TTL_MINUTES),
+            fn () => $this->buildPayload($filters, $periods)
+        );
+    }
+
+    public function summary(Request $request): array
+    {
+        return $this->payload($request)['summary'];
     }
 
     public function commercialRows(Request $request): array
     {
-        $filters = $this->filters($request);
-        $periods = $this->periods($filters);
-        $rows = $this->groupedRows($filters, $periods['current'], function (array $lead): ?array {
-            if (! $lead['gestor_es_comercial']) {
-                return null;
-            }
-
-            return [
-                'key' => $lead['gestor_id'],
-                'label' => $lead['gestor_nombre'] ?: 'Sin comercial',
-                'extra' => [],
-            ];
-        });
-
-        return ['items' => $rows];
+        return ['items' => $this->payload($request)['commercials']];
     }
 
     public function delegationRows(Request $request): array
     {
-        $filters = $this->filters($request);
-        $periods = $this->periods($filters);
-        $rows = $this->groupedRows($filters, $periods['current'], fn (array $lead) => [
-            'key' => $lead['delegacion'].'|'.$lead['grupo_comercial'],
-            'label' => $lead['delegacion'],
-            'extra' => ['grupo_comercial' => $lead['grupo_comercial']],
-        ]);
-
-        return ['items' => $rows];
+        return ['items' => $this->payload($request)['delegations']];
     }
 
     public function portalRows(Request $request): array
     {
-        $filters = $this->filters($request);
-        $periods = $this->periods($filters);
-        $rows = $this->groupedRows($filters, $periods['current'], fn (array $lead) => [
-            'key' => $lead['portal'].'|'.$lead['grupo_portal'],
-            'label' => $lead['portal'],
-            'extra' => ['grupo_portal' => $lead['grupo_portal']],
-        ]);
-
-        return ['items' => $rows];
+        return ['items' => $this->payload($request)['portals']];
     }
 
     public function filters(Request $request): array
@@ -107,10 +73,11 @@ class SalesforceLeadDashboardDatasetService
             'comparison_start' => $request->string('comparison_start')->toString(),
             'comparison_end' => $request->string('comparison_end')->toString(),
             'portal' => $request->string('portal')->toString(),
-            'portal_group' => $request->string('portal_group')->toString(),
             'channel' => $request->string('channel')->toString(),
-            'delegation' => $request->string('delegation')->toString(),
-            'commercial_group' => $request->string('commercial_group')->toString(),
+            'lead_delegation' => $request->string('lead_delegation')->toString()
+                ?: $request->string('delegation')->toString(),
+            'commercial_delegation' => $request->string('commercial_delegation')->toString(),
+            'zone' => $request->string('zone')->toString(),
             'commercial' => $request->string('commercial')->toString(),
             'status' => $request->string('status')->toString(),
             'exposition_mode' => $request->string('exposition_mode')->toString() ?: 'with',
@@ -123,13 +90,13 @@ class SalesforceLeadDashboardDatasetService
         $period = $filters['period'] ?: 'last_30_days';
 
         if ($period === 'custom') {
-            $currentStart = $this->parseDate($filters['current_start'], $now->subDays(30)->startOfDay());
+            $currentStart = $this->parseDate($filters['current_start'], $now->subDays(30)->startOfDay())->startOfDay();
             $currentEnd = $this->parseDate($filters['current_end'], $now)->endOfDay();
-            $comparisonStart = $this->parseDate($filters['comparison_start'], $currentStart->subDays($currentStart->diffInDays($currentEnd) + 1))->startOfDay();
+            $comparisonStart = $this->parseDate($filters['comparison_start'], $currentStart->subDays((int) floor($currentStart->diffInDays($currentEnd)) + 1))->startOfDay();
             $comparisonEnd = $this->parseDate($filters['comparison_end'], $currentStart->subDay())->endOfDay();
 
             return [
-                'current' => ['start' => $currentStart->startOfDay(), 'end' => $currentEnd],
+                'current' => ['start' => $currentStart, 'end' => $currentEnd],
                 'previous' => ['start' => $comparisonStart, 'end' => $comparisonEnd],
             ];
         }
@@ -176,15 +143,17 @@ class SalesforceLeadDashboardDatasetService
         $isPotential = $status === 'Potencial';
         $channel = $this->resolveChannel(data_get($lead, 'medio_nuevo'));
         $portal = $this->resolvePortal($lead, $channel);
-        $portalGroup = $this->portalGroup($portal);
-        $delegation = $this->resolveDelegation($lead, $channel, $portal);
+        $leadDelegation = $this->resolveLeadDelegation($lead);
         $manager = $this->resolveSimplifiedManager($lead, $isConverted, $isDiscarded);
         $commercialUser = $manager['id'] ? $this->commercialUsers()->get($manager['id']) : null;
+        $commercialDelegation = $this->normalizeDelegation(data_get($commercialUser, 'user_delegation'));
 
         $totalActivities = (int) (data_get($summary, 'total_actividades') ?? 0);
         $lastActivity = data_get($summary, 'fecha_ultima_actividad');
         $lastActivityAt = $lastActivity ? CarbonImmutable::parse($lastActivity) : null;
-        $hasRecentActivity = $lastActivityAt !== null && $lastActivityAt->greaterThanOrEqualTo($referenceDate->subDays(3));
+        $hasRecentActivity = $lastActivityAt !== null
+            && $lastActivityAt->lessThanOrEqualTo($referenceDate)
+            && $lastActivityAt->greaterThanOrEqualTo($referenceDate->subDays(3));
         $potentialWithoutWork = $isPotential && ($totalActivities === 0 || ! $hasRecentActivity);
         $managed = $isConverted || $isDiscarded || ($isPotential && $hasRecentActivity);
 
@@ -201,73 +170,89 @@ class SalesforceLeadDashboardDatasetService
             'is_formulario' => $channel === 'Formulario',
             'canal' => $channel,
             'portal' => $portal,
-            'grupo_portal' => $portalGroup,
-            'delegacion' => $delegation['delegation'],
-            'grupo_comercial' => $delegation['commercial_group'],
+            'grupo_portal' => $this->portalGroup($portal),
+            'lead_delegation' => $leadDelegation['delegation'],
+            'lead_zone' => $leadDelegation['zone'],
+            'commercial_delegation' => $commercialDelegation['delegation'],
+            'commercial_zone' => $commercialDelegation['zone'],
+            'zona' => $commercialDelegation['zone'],
             'gestor_id' => $manager['id'],
             'gestor_nombre' => data_get($commercialUser, 'name') ?? $manager['name'],
             'gestor_es_comercial' => $commercialUser !== null,
-            'is_exposicion' => Str::lower($portal) === Str::lower('Exposición') || Str::lower($portalGroup) === Str::lower('Exposición'),
+            'is_exposicion' => Str::lower($portal) === Str::lower('Exposición'),
             'total_actividades' => $totalActivities,
             'fecha_ultima_actividad' => $lastActivityAt,
         ];
     }
 
-    private function aggregate(array $filters, array $period): array
+    private function buildPayload(array $filters, array $periods): array
     {
-        $bucket = $this->emptyBucket();
+        $current = $this->emptyBucket();
+        $previous = $this->emptyBucket();
+        $commercialGroups = [];
+        $delegationGroups = [];
+        $portalGroups = [];
+        $currentRows = $this->decoratedLeadsForPeriod($periods['current']);
+        $previousRows = $this->decoratedLeadsForPeriod($periods['previous']);
 
-        $this->eachDecoratedLead($filters, $period, function (array $lead) use (&$bucket): void {
-            $this->addToBucket($bucket, $lead);
-        });
-
-        return $this->finalizeBucket($bucket);
-    }
-
-    private function groupedRows(array $filters, array $period, callable $groupResolver): array
-    {
-        $groups = [];
-
-        $this->eachDecoratedLead($filters, $period, function (array $lead) use (&$groups, $groupResolver): void {
-            $group = $groupResolver($lead);
-
-            if ($group === null) {
-                return;
+        foreach ($currentRows as $lead) {
+            if (! $this->passesFilters($lead, $filters)) {
+                continue;
             }
 
-            $key = $group['key'];
-            $groups[$key] ??= array_merge([
-                'label' => $group['label'],
-                'extra' => $group['extra'] ?? [],
-                'bucket' => $this->emptyBucket(),
-            ]);
+            $this->addToBucket($current, $lead);
 
-            $this->addToBucket($groups[$key]['bucket'], $lead);
-        });
+            if ($lead['gestor_es_comercial']) {
+                $this->addGroup($commercialGroups, $lead['gestor_id'], $lead['gestor_nombre'], [
+                    'commercial_delegation' => $lead['commercial_delegation'],
+                    'zone' => $lead['commercial_zone'],
+                ], $lead);
+            }
 
-        $rows = [];
+            $this->addGroup($delegationGroups, $lead['lead_delegation'].'|'.$lead['lead_zone'], $lead['lead_delegation'], [
+                'zone' => $lead['lead_zone'],
+            ], $lead);
 
-        foreach ($groups as $group) {
-            $metrics = $this->finalizeBucket($group['bucket']);
-            $rows[] = array_merge($group['extra'], $metrics, [
-                'nombre' => $group['label'],
-                'comercial' => $group['label'],
-                'delegacion' => $group['label'],
-                'portal' => $group['label'],
-            ]);
+            $this->addGroup($portalGroups, $lead['portal'], $lead['portal'], [], $lead);
         }
 
-        usort($rows, fn (array $a, array $b) => ($b['leads_totales'] ?? 0) <=> ($a['leads_totales'] ?? 0));
+        foreach ($previousRows as $lead) {
+            if (! $this->passesFilters($lead, $filters)) {
+                continue;
+            }
 
-        return array_values($rows);
+            $this->addToBucket($previous, $lead);
+        }
+
+        $current = $this->finalizeBucket($current);
+        $previous = $this->finalizeBucket($previous);
+        $commercials = $this->finalizeGroups($commercialGroups, 'comercial');
+        $delegations = $this->finalizeGroups($delegationGroups, 'lead_delegation');
+        $portals = $this->finalizeGroups($portalGroups, 'portal');
+
+        return [
+            'summary' => [
+                'ok' => $current['leads_totales'] > 0 || $previous['leads_totales'] > 0,
+                'message' => $current['leads_totales'] > 0 ? null : 'No hay datos sincronizados para el periodo seleccionado.',
+                'periodo_actual' => $this->periodPayload($periods['current']),
+                'periodo_comparado' => $this->periodPayload($periods['previous']),
+                'datos_actualizados' => $this->lastSnapshotDate()?->toDateTimeString() ?? $this->lastUpdated()?->toDateTimeString(),
+                'kpis' => $current,
+                'comparativa' => $this->comparison($current, $previous),
+                'insights' => $this->insights($current, $previous, $portals, $commercials, $delegations),
+                'filters' => $this->filterOptions($currentRows),
+            ],
+            'commercials' => $commercials,
+            'delegations' => $delegations,
+            'portals' => $portals,
+        ];
     }
 
     private function eachDecoratedLead(array $filters, array $period, callable $callback): void
     {
-        $query = $this->baseQuery($period);
         $referenceDate = CarbonImmutable::parse($period['end']);
 
-        $query->chunkById(1000, function (Collection $rows) use ($filters, $callback, $referenceDate): void {
+        $this->baseQuery($period)->chunkById(1000, function (Collection $rows) use ($filters, $callback, $referenceDate): void {
             foreach ($rows as $row) {
                 $lead = $this->decorateLead($row, $row, $referenceDate);
 
@@ -276,6 +261,29 @@ class SalesforceLeadDashboardDatasetService
                 }
             }
         }, 'salesforce_leads.id', 'id');
+    }
+
+    private function decoratedLeadsForPeriod(array $period): array
+    {
+        return Cache::remember(
+            'lead-dashboard-period-rows-v2:'.md5(json_encode([
+                'period' => $this->periodPayload($period),
+                'version' => $this->dataVersion(),
+            ])),
+            now()->addMinutes(self::CACHE_TTL_MINUTES),
+            function () use ($period): array {
+                $rows = [];
+                $referenceDate = CarbonImmutable::parse($period['end']);
+
+                $this->baseQuery($period)->chunkById(1000, function (Collection $chunk) use (&$rows, $referenceDate): void {
+                    foreach ($chunk as $row) {
+                        $rows[] = $this->decorateLead($row, $row, $referenceDate);
+                    }
+                }, 'salesforce_leads.id', 'id');
+
+                return $rows;
+            }
+        );
     }
 
     private function baseQuery(array $period): Builder
@@ -298,19 +306,20 @@ class SalesforceLeadDashboardDatasetService
             return false;
         }
 
-        if ($filters['portal_group'] && $lead['grupo_portal'] !== $filters['portal_group']) {
-            return false;
-        }
-
         if ($filters['channel'] && $lead['canal'] !== $filters['channel']) {
             return false;
         }
 
-        if ($filters['delegation'] && $lead['delegacion'] !== $filters['delegation']) {
+        if ($filters['lead_delegation'] && $lead['lead_delegation'] !== $filters['lead_delegation']) {
             return false;
         }
 
-        if ($filters['commercial_group'] && $lead['grupo_comercial'] !== $filters['commercial_group']) {
+        if ($filters['commercial_delegation'] && $lead['commercial_delegation'] !== $filters['commercial_delegation']) {
+            return false;
+        }
+
+        // En fase 1 el filtro Zona se aplica sobre la delegación comercial.
+        if ($filters['zone'] && $lead['commercial_zone'] !== $filters['zone']) {
             return false;
         }
 
@@ -326,11 +335,36 @@ class SalesforceLeadDashboardDatasetService
             return false;
         }
 
-        if ($filters['exposition_mode'] === 'only' && ! $lead['is_exposicion']) {
-            return false;
+        return true;
+    }
+
+    private function addGroup(array &$groups, string $key, string $label, array $extra, array $lead): void
+    {
+        $groups[$key] ??= [
+            'label' => $label,
+            'extra' => $extra,
+            'bucket' => $this->emptyBucket(),
+        ];
+
+        $this->addToBucket($groups[$key]['bucket'], $lead);
+    }
+
+    private function finalizeGroups(array $groups, string $labelKey): array
+    {
+        $rows = [];
+
+        foreach ($groups as $group) {
+            $rows[] = array_merge($group['extra'], $this->finalizeBucket($group['bucket']), [
+                $labelKey => $group['label'],
+                'nombre' => $group['label'],
+                'comercial' => $group['label'],
+                'delegacion' => $group['label'],
+            ]);
         }
 
-        return true;
+        usort($rows, fn (array $a, array $b) => ($b['leads_totales'] ?? 0) <=> ($a['leads_totales'] ?? 0));
+
+        return array_values($rows);
     }
 
     private function resolveChannel(mixed $medioNuevo): string
@@ -355,61 +389,35 @@ class SalesforceLeadDashboardDatasetService
             ?? 'Sin clasificar';
     }
 
-    private function portalGroup(string $portal): string
+    private function resolveLeadDelegation(mixed $lead): array
     {
-        return $this->portalMap()->get($this->normalizeComparable($portal)) ?? $portal ?: 'Sin clasificar';
-    }
-
-    private function resolveDelegation(mixed $lead, string $channel, string $portal): array
-    {
-        if ($channel === 'Llamada') {
-            $received = $this->clean(data_get($lead, 'delegacion_encargada_text'));
-            $mapping = $received ? $this->callDelegationMap()->get($this->normalizeComparable($portal).'|'.$this->normalizeComparable($received)) : null;
-
-            return $this->delegationResult($mapping, $received);
-        }
-
-        $sender = $this->clean(data_get($lead, 'remitente_lead'));
-
-        if ($sender) {
-            $mapping = $this->formSenderMap()->get($this->normalizeComparable($portal).'|'.mb_strtolower($sender));
-
-            if ($mapping) {
-                return $this->delegationResult($mapping, $sender);
-            }
-        }
-
-        $fallback = $this->clean(data_get($lead, 'delegacion_encargada_bueno'))
+        $raw = $this->clean(data_get($lead, 'delegacion_encargada_text'))
             ?? $this->clean(data_get($lead, 'delegacion_encargada'))
-            ?? $this->clean(data_get($lead, 'delegacion_original'))
-            ?? $this->clean(data_get($lead, 'delegacion_encargada_text'));
+            ?? $this->clean(data_get($lead, 'delegacion_encargada_bueno'));
 
-        return $this->delegationResult(null, $fallback);
+        return $this->normalizeDelegation($raw);
     }
 
-    private function delegationResult(mixed $mapping, ?string $fallback): array
+    private function normalizeDelegation(?string $raw): array
     {
-        if ($mapping) {
+        if (! $raw) {
+            return ['delegation' => 'Sin clasificar', 'zone' => 'Sin clasificar', 'raw' => null];
+        }
+
+        $master = $this->delegationMap()->get($this->normalizeComparable($raw));
+
+        if ($master) {
             return [
-                'delegation' => $mapping['delegation_name'] ?: ($mapping['commercial_group'] ?: 'Sin clasificar'),
-                'commercial_group' => $mapping['commercial_group'] ?: 'Sin clasificar',
+                'delegation' => $master['delegation_name'],
+                'zone' => $master['commercial_group'] ?: 'Sin clasificar',
+                'raw' => $raw,
             ];
         }
 
-        if ($fallback) {
-            $master = $this->delegationMap()->get($this->normalizeComparable($fallback));
-
-            if ($master) {
-                return [
-                    'delegation' => $master['delegation_name'],
-                    'commercial_group' => $master['commercial_group'],
-                ];
-            }
-        }
-
         return [
-            'delegation' => 'Sin clasificar',
-            'commercial_group' => 'Sin clasificar',
+            'delegation' => $raw,
+            'zone' => 'Sin clasificar',
+            'raw' => $raw,
         ];
     }
 
@@ -432,72 +440,12 @@ class SalesforceLeadDashboardDatasetService
         return ['id' => null, 'name' => 'Sin comercial'];
     }
 
-    private function comparison(array $current, array $previous): array
-    {
-        $metrics = [
-            ['key' => 'leads_totales', 'label' => 'Leads totales', 'ratio' => false],
-            ['key' => 'convertidos', 'label' => 'Convertidos', 'ratio' => false],
-            ['key' => 'conversion_pct', 'label' => '% conversion', 'ratio' => true],
-            ['key' => 'descartados', 'label' => 'Descartados', 'ratio' => false],
-            ['key' => 'descarte_pct', 'label' => '% descarte', 'ratio' => true],
-            ['key' => 'potenciales', 'label' => 'Potenciales', 'ratio' => false],
-            ['key' => 'potenciales_sin_trabajar', 'label' => 'Potenciales sin trabajar', 'ratio' => false],
-            ['key' => 'gestionados', 'label' => 'Gestionados', 'ratio' => false],
-            ['key' => 'gestionados_pct', 'label' => '% gestionados', 'ratio' => true],
-            ['key' => 'llamadas', 'label' => 'Llamadas', 'ratio' => false],
-            ['key' => 'formularios', 'label' => 'Formularios', 'ratio' => false],
-        ];
-
-        return array_map(function (array $metric) use ($current, $previous) {
-            $currentValue = $current[$metric['key']] ?? null;
-            $previousValue = $previous[$metric['key']] ?? null;
-
-            return [
-                'key' => $metric['key'],
-                'metrica' => $metric['label'],
-                'periodo_actual' => $currentValue,
-                'periodo_comparado' => $previousValue,
-                'diferencia' => is_numeric($currentValue) && is_numeric($previousValue) ? round($currentValue - $previousValue, 2) : null,
-                'variacion_pct' => is_numeric($currentValue) && is_numeric($previousValue) && (float) $previousValue !== 0.0
-                    ? round((($currentValue - $previousValue) / $previousValue) * 100, 2)
-                    : null,
-                'is_percentage' => $metric['ratio'],
-            ];
-        }, $metrics);
-    }
-
-    private function insights(array $current, array $previous, array $portals, array $commercials, array $delegations): array
-    {
-        if ($current['leads_totales'] === 0) {
-            return ['No hay datos suficientes para generar conclusiones del periodo actual.'];
-        }
-
-        $insights = [];
-        $insights[] = 'Hay '.$current['potenciales_sin_trabajar'].' potenciales sin trabajar en el periodo actual.';
-
-        $conversionDiff = round(($current['conversion_pct'] ?? 0) - ($previous['conversion_pct'] ?? 0), 2);
-        $insights[] = 'La conversion '.($conversionDiff >= 0 ? 'sube ' : 'baja ').abs($conversionDiff).' puntos frente al periodo comparado.';
-
-        $discardDiff = round(($current['descarte_pct'] ?? 0) - ($previous['descarte_pct'] ?? 0), 2);
-        $insights[] = 'El descarte '.($discardDiff >= 0 ? 'sube ' : 'baja ').abs($discardDiff).' puntos frente al periodo comparado.';
-
-        if (! empty($portals[0])) {
-            $insights[] = 'El portal '.$portals[0]['portal'].' concentra el mayor volumen de leads.';
-        }
-
-        if (! empty($delegations[0])) {
-            $insights[] = 'La delegacion/zona '.$delegations[0]['delegacion'].' acumula mas potenciales sin trabajar.';
-        }
-
-        if (! empty($commercials[0])) {
-            $insights[] = 'El comercial '.$commercials[0]['comercial'].' concentra mas potenciales sin trabajar.';
-        }
-
-        return array_slice($insights, 0, 6);
-    }
-
     private function addToBucket(array &$bucket, array $lead): void
     {
+        if (! self::INCLUDE_UNCLASSIFIED_IN_TOTALS && $lead['lead_delegation'] === 'Sin clasificar') {
+            return;
+        }
+
         $bucket['leads_totales']++;
         $bucket['convertidos'] += $lead['is_convertido'] ? 1 : 0;
         $bucket['descartados'] += $lead['is_descartado'] ? 1 : 0;
@@ -535,15 +483,156 @@ class SalesforceLeadDashboardDatasetService
         ];
     }
 
-    private function filterOptions(): array
+    private function comparison(array $current, array $previous): array
+    {
+        $metrics = [
+            ['key' => 'leads_totales', 'label' => 'Leads totales', 'ratio' => false],
+            ['key' => 'convertidos', 'label' => 'Convertidos', 'ratio' => false],
+            ['key' => 'conversion_pct', 'label' => '% conversión', 'ratio' => true],
+            ['key' => 'descartados', 'label' => 'Descartados', 'ratio' => false],
+            ['key' => 'descarte_pct', 'label' => '% descarte', 'ratio' => true],
+            ['key' => 'potenciales', 'label' => 'Potenciales', 'ratio' => false],
+            ['key' => 'potenciales_sin_trabajar', 'label' => 'Potenciales sin trabajar', 'ratio' => false],
+            ['key' => 'gestionados', 'label' => 'Gestionados', 'ratio' => false],
+            ['key' => 'gestionados_pct', 'label' => '% gestionados', 'ratio' => true],
+            ['key' => 'llamadas', 'label' => 'Llamadas', 'ratio' => false],
+            ['key' => 'formularios', 'label' => 'Formularios', 'ratio' => false],
+            ['key' => 'llamadas_pct', 'label' => '% llamadas', 'ratio' => true],
+            ['key' => 'formularios_pct', 'label' => '% formularios', 'ratio' => true],
+        ];
+
+        return array_map(function (array $metric) use ($current, $previous) {
+            $currentValue = $current[$metric['key']] ?? null;
+            $previousValue = $previous[$metric['key']] ?? null;
+
+            return [
+                'key' => $metric['key'],
+                'metrica' => $metric['label'],
+                'periodo_actual' => $currentValue,
+                'periodo_comparado' => $previousValue,
+                'diferencia' => is_numeric($currentValue) && is_numeric($previousValue) ? round($currentValue - $previousValue, 2) : null,
+                'variacion_pct' => is_numeric($currentValue) && is_numeric($previousValue) && (float) $previousValue !== 0.0
+                    ? round((($currentValue - $previousValue) / $previousValue) * 100, 2)
+                    : null,
+                'is_percentage' => $metric['ratio'],
+            ];
+        }, $metrics);
+    }
+
+    private function insights(array $current, array $previous, array $portals, array $commercials, array $delegations): array
+    {
+        if ($current['leads_totales'] === 0) {
+            return ['No hay datos suficientes para generar conclusiones del periodo actual.'];
+        }
+
+        $insights = [
+            'Hay '.$current['potenciales_sin_trabajar'].' potenciales sin trabajar en el periodo actual.',
+        ];
+
+        $conversionDiff = round(($current['conversion_pct'] ?? 0) - ($previous['conversion_pct'] ?? 0), 2);
+        $insights[] = 'La conversión '.($conversionDiff >= 0 ? 'sube ' : 'baja ').abs($conversionDiff).' puntos frente al periodo comparado.';
+
+        $discardDiff = round(($current['descarte_pct'] ?? 0) - ($previous['descarte_pct'] ?? 0), 2);
+        $insights[] = 'El descarte '.($discardDiff >= 0 ? 'sube ' : 'baja ').abs($discardDiff).' puntos frente al periodo comparado.';
+
+        if (! empty($portals[0])) {
+            $insights[] = 'El portal '.$portals[0]['portal'].' concentra el mayor volumen de leads.';
+        }
+
+        $delegationsByPending = $delegations;
+        usort($delegationsByPending, fn (array $a, array $b) => ($b['potenciales_sin_trabajar'] ?? 0) <=> ($a['potenciales_sin_trabajar'] ?? 0));
+        if (! empty($delegationsByPending[0])) {
+            $insights[] = 'La delegación '.$delegationsByPending[0]['lead_delegation'].' acumula más potenciales sin trabajar.';
+        }
+
+        $commercialsByPending = $commercials;
+        usort($commercialsByPending, fn (array $a, array $b) => ($b['potenciales_sin_trabajar'] ?? 0) <=> ($a['potenciales_sin_trabajar'] ?? 0));
+        if (! empty($commercialsByPending[0])) {
+            $insights[] = 'El comercial '.$commercialsByPending[0]['comercial'].' acumula más potenciales sin trabajar.';
+        }
+
+        return array_slice($insights, 0, 6);
+    }
+
+    private function filterOptions(array $rows): array
+    {
+        $rows = collect($rows);
+
+        $commercialDelegations = $this->commercialUsers()
+            ->pluck('user_delegation')
+            ->map(fn ($delegation) => $this->normalizeDelegation($delegation)['delegation'])
+            ->filter()
+            ->unique();
+
+        $zones = $this->commercialUsers()
+            ->pluck('user_delegation')
+            ->map(fn ($delegation) => $this->normalizeDelegation($delegation)['zone'])
+            ->merge(
+                MasterDelegation::query()
+                    ->where('is_active', true)
+                    ->pluck('commercial_group')
+            )
+            ->filter()
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+
+        return [
+            'commercials' => $this->commercialUsers()
+                ->map(fn ($user, string $id) => ['id' => $id, 'name' => $user['name']])
+                ->sortBy('name')
+                ->values()
+                ->all(),
+            'portals' => $rows
+                ->pluck('portal')
+                ->filter()
+                ->unique()
+                ->sort()
+                ->values()
+                ->all(),
+            'lead_delegations' => $rows
+                ->pluck('lead_delegation')
+                ->filter()
+                ->unique()
+                ->sort()
+                ->values()
+                ->all(),
+            'commercial_delegations' => $commercialDelegations
+                ->sort()
+                ->values()
+                ->all(),
+            'zones' => $zones,
+            'statuses' => ['Convertido', 'Descartado', 'Potencial'],
+        ];
+    }
+
+    private function cacheKey(array $filters, array $periods): string
+    {
+        return 'lead-dashboard-v3:'.md5(json_encode([
+            'filters' => $filters,
+            'periods' => [
+                'current' => $this->periodPayload($periods['current']),
+                'previous' => $this->periodPayload($periods['previous']),
+            ],
+            'version' => $this->dataVersion(),
+        ]));
+    }
+
+    private function dataVersion(): array
     {
         return [
-            'commercials' => $this->commercialUsers()->map(fn ($user, string $id) => ['id' => $id, 'name' => $user['name']])->values()->all(),
-            'portals' => SalesforceLead::query()->select('portal_text')->whereNotNull('portal_text')->distinct()->orderBy('portal_text')->pluck('portal_text')->values()->all(),
-            'portal_groups' => MasterPortal::query()->where('is_active', true)->orderBy('portal_group')->distinct()->pluck('portal_group')->values()->all(),
-            'delegations' => MasterDelegation::query()->where('is_active', true)->orderBy('delegation_name')->pluck('delegation_name')->values()->all(),
-            'commercial_groups' => MasterDelegation::query()->where('is_active', true)->orderBy('commercial_group')->distinct()->pluck('commercial_group')->values()->all(),
-            'statuses' => ['Convertido', 'Descartado', 'Potencial'],
+            'lead_count' => SalesforceLead::query()->count(),
+            'user_count' => SalesforceUser::query()->count(),
+            'summary_count' => SalesforceLeadActivitySummary::query()->count(),
+            'lead_max_id' => SalesforceLead::query()->max('id'),
+            'lead_min_salesforce_id' => SalesforceLead::query()->min('salesforce_id'),
+            'lead_max_salesforce_id' => SalesforceLead::query()->max('salesforce_id'),
+            'user_max_id' => SalesforceUser::query()->max('id'),
+            'leads' => SalesforceLead::query()->max('updated_at'),
+            'users' => SalesforceUser::query()->max('updated_at'),
+            'summaries' => SalesforceLeadActivitySummary::query()->max('updated_at'),
+            'snapshot' => MonthlyCommercialReportSnapshot::query()->max('generated_at'),
         ];
     }
 
@@ -553,6 +642,13 @@ class SalesforceLeadDashboardDatasetService
             'inicio' => CarbonImmutable::parse($period['start'])->toDateString(),
             'fin' => CarbonImmutable::parse($period['end'])->toDateString(),
         ];
+    }
+
+    private function lastSnapshotDate(): ?CarbonImmutable
+    {
+        $generatedAt = MonthlyCommercialReportSnapshot::query()->max('generated_at');
+
+        return $generatedAt ? CarbonImmutable::parse($generatedAt) : null;
     }
 
     private function lastUpdated(): ?CarbonImmutable
@@ -581,6 +677,7 @@ class SalesforceLeadDashboardDatasetService
             ->map(fn (SalesforceUser $user) => [
                 'name' => $user->name,
                 'profile_name' => $user->profile_name,
+                'user_delegation' => $user->user_delegation,
             ]);
     }
 
@@ -592,30 +689,9 @@ class SalesforceLeadDashboardDatasetService
             ->mapWithKeys(fn (MasterPortal $portal) => [$this->normalizeComparable($portal->portal_original) => $portal->portal_group]);
     }
 
-    private function callDelegationMap(): Collection
+    private function portalGroup(string $portal): string
     {
-        return $this->callDelegationMapCache ??= MasterCallDelegationMapping::query()
-            ->where('status', 'active')
-            ->get()
-            ->mapWithKeys(fn (MasterCallDelegationMapping $mapping) => [
-                $this->normalizeComparable($mapping->portal_original).'|'.$this->normalizeComparable($mapping->received_value) => [
-                    'delegation_name' => $mapping->delegation_name,
-                    'commercial_group' => $mapping->commercial_group,
-                ],
-            ]);
-    }
-
-    private function formSenderMap(): Collection
-    {
-        return $this->formSenderMapCache ??= MasterFormSenderMapping::query()
-            ->where('status', 'active')
-            ->get()
-            ->mapWithKeys(fn (MasterFormSenderMapping $mapping) => [
-                $this->normalizeComparable($mapping->portal_original).'|'.mb_strtolower($mapping->sender_email) => [
-                    'delegation_name' => $mapping->delegation_name,
-                    'commercial_group' => $mapping->commercial_group,
-                ],
-            ]);
+        return $this->portalMap()->get($this->normalizeComparable($portal)) ?? $portal ?: 'Sin clasificar';
     }
 
     private function delegationMap(): Collection
