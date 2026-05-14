@@ -10,8 +10,8 @@ test('the leads dashboard returns a successful response', function () {
     $this->get('/informes/leads')
         ->assertOk()
         ->assertSee('Resumen Dirección')
-        ->assertSee('Comerciales')
-        ->assertSee('Delegaciones / Zonas')
+        ->assertSee('Comerciales/Delegaciones/Zonas')
+        ->assertSee('Delegaciones por reparto de leads')
         ->assertSee('Portales / Procedencia')
         ->assertDontSee('Informe mensual');
 });

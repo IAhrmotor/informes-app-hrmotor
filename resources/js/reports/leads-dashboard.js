@@ -1,8 +1,11 @@
 const fmt = new Intl.NumberFormat('es-ES');
+const tableSortState = new Map();
 
 document.addEventListener('DOMContentLoaded', async () => {
     bindTabs();
     bindFilters();
+    bindCommercialPanelOrder();
+    bindTableSorting();
     toggleCustomPeriods();
     await reloadAllData();
 });
@@ -48,6 +51,35 @@ function bindFilters() {
     });
 }
 
+function bindCommercialPanelOrder() {
+    const select = document.getElementById('commercialPanelsOrder');
+    const storedOrder = localStorage.getItem('commercialPanelsOrder');
+
+    if (select && storedOrder && [...select.options].some((option) => option.value === storedOrder)) {
+        select.value = storedOrder;
+    }
+
+    applyCommercialPanelOrder();
+
+    select?.addEventListener('change', () => {
+        localStorage.setItem('commercialPanelsOrder', select.value);
+        applyCommercialPanelOrder();
+    });
+}
+
+function applyCommercialPanelOrder() {
+    const container = document.getElementById('commercialPanels');
+    const order = document.getElementById('commercialPanelsOrder')?.value || 'zones,delegations,commercials';
+
+    order.split(',').forEach((key) => {
+        const panel = container?.querySelector(`[data-commercial-section="${key}"]`);
+
+        if (panel) {
+            container.appendChild(panel);
+        }
+    });
+}
+
 async function reloadAllData() {
     setLoadingState(true);
 
@@ -62,7 +94,9 @@ async function reloadAllData() {
             fetchJson(`/informes/leads/data/portals?${currentFilters()}`),
         ]);
 
-        renderCommercials(commercials.items || []);
+        renderCommercialZones(commercials.zones || []);
+        renderCommercialDelegations(commercials.delegations || []);
+        renderCommercials(commercials.commercials || commercials.items || []);
         renderDelegations(delegations.items || []);
         renderPortals(portals.items || []);
     } catch (error) {
@@ -136,6 +170,8 @@ function renderComparison(rows) {
             </tr>
         `);
     });
+
+    applyStoredSort(root);
 }
 
 function renderInsights(items) {
@@ -171,11 +207,46 @@ function renderCommercials(rows) {
     ], 'No hay datos de comerciales para los filtros seleccionados.');
 }
 
+function renderCommercialZones(rows) {
+    renderRows('commercialZoneRows', rows, [
+        [(row) => row.zone || '-'],
+        [(row) => formatNumber(row.leads_totales), true],
+        [(row) => formatNumber(row.convertidos), true],
+        [(row) => formatPercent(row.conversion_pct), true],
+        [(row) => formatNumber(row.descartados), true],
+        [(row) => formatPercent(row.descarte_pct), true],
+        [(row) => formatNumber(row.potenciales), true],
+        [(row) => formatNumber(row.potenciales_sin_trabajar), true],
+        [(row) => formatNumber(row.gestionados), true],
+        [(row) => formatPercent(row.gestionados_pct), true],
+        [(row) => formatNumber(row.llamadas), true],
+        [(row) => formatNumber(row.formularios), true],
+    ], 'No hay datos de zonas para los filtros seleccionados.');
+}
+
+function renderCommercialDelegations(rows) {
+    renderRows('commercialDelegationRows', rows, [
+        [(row) => row.commercial_delegation],
+        [(row) => row.zone || '-'],
+        [(row) => formatNumber(row.leads_totales), true],
+        [(row) => formatNumber(row.convertidos), true],
+        [(row) => formatPercent(row.conversion_pct), true],
+        [(row) => formatNumber(row.descartados), true],
+        [(row) => formatPercent(row.descarte_pct), true],
+        [(row) => formatNumber(row.potenciales), true],
+        [(row) => formatNumber(row.potenciales_sin_trabajar), true],
+        [(row) => formatNumber(row.gestionados), true],
+        [(row) => formatPercent(row.gestionados_pct), true],
+        [(row) => formatNumber(row.llamadas), true],
+        [(row) => formatNumber(row.formularios), true],
+    ], 'No hay datos de delegaciones comerciales para los filtros seleccionados.');
+}
+
 function renderDelegations(rows) {
     renderRows('delegationRows', rows, [
-        [(row) => row.zone || '-'],
-        [(row) => row.lead_group || '-'],
         [(row) => row.delegacion],
+        [(row) => row.lead_group || '-'],
+        [(row) => row.zone || '-'],
         [(row) => formatNumber(row.leads_totales), true],
         [(row) => formatNumber(row.convertidos), true],
         [(row) => formatPercent(row.conversion_pct), true],
@@ -228,6 +299,109 @@ function renderRows(rootId, rows, columns, emptyMessage) {
         }).join('');
 
         root.insertAdjacentHTML('beforeend', `<tr>${cells}</tr>`);
+    });
+
+    applyStoredSort(root);
+}
+
+function bindTableSorting() {
+    document.querySelectorAll('table').forEach((table) => makeTableSortable(table));
+}
+
+function makeTableSortable(table) {
+    table.querySelectorAll('thead th').forEach((header, index) => {
+        header.dataset.sortable = 'true';
+        header.addEventListener('click', () => {
+            const tbody = table.querySelector('tbody');
+
+            if (!tbody) {
+                return;
+            }
+
+            const current = tableSortState.get(tbody.id);
+            const direction = current?.columnIndex === index && current.direction === 'asc' ? 'desc' : 'asc';
+            const state = { columnIndex: index, direction };
+
+            tableSortState.set(tbody.id, state);
+            sortRowsByColumn(table, index, direction);
+            updateSortIndicators(table, state);
+        });
+    });
+}
+
+function applyStoredSort(tbody) {
+    const table = tbody.closest('table');
+    const state = tableSortState.get(tbody.id);
+
+    if (!table || !state || state.columnIndex >= table.querySelectorAll('thead th').length) {
+        return;
+    }
+
+    sortRowsByColumn(table, state.columnIndex, state.direction);
+    updateSortIndicators(table, state);
+}
+
+function sortRowsByColumn(table, columnIndex, direction) {
+    const tbody = table.querySelector('tbody');
+    const multiplier = direction === 'asc' ? 1 : -1;
+    const rows = [...tbody.querySelectorAll('tr')];
+
+    rows.sort((a, b) => {
+        const aValue = parseSortableValue(a.children[columnIndex]?.textContent);
+        const bValue = parseSortableValue(b.children[columnIndex]?.textContent);
+
+        if (aValue.empty && bValue.empty) {
+            return 0;
+        }
+
+        if (aValue.empty) {
+            return 1;
+        }
+
+        if (bValue.empty) {
+            return -1;
+        }
+
+        if (aValue.type === 'number' && bValue.type === 'number') {
+            return (aValue.value - bValue.value) * multiplier;
+        }
+
+        return aValue.value.localeCompare(bValue.value, 'es', { sensitivity: 'base' }) * multiplier;
+    });
+
+    rows.forEach((row) => tbody.appendChild(row));
+}
+
+function parseSortableValue(value) {
+    const raw = String(value || '').trim();
+
+    if (raw === '' || raw === '-') {
+        return { empty: true, type: 'text', value: '' };
+    }
+
+    const normalized = raw
+        .replaceAll('%', '')
+        .replace(/\s+/g, '')
+        .replace(/^\+/, '');
+    const numericCandidate = normalized.includes(',')
+        ? normalized.replaceAll('.', '').replace(',', '.')
+        : (/^-?\d{1,3}(\.\d{3})+(\.\d+)?$/.test(normalized) ? normalized.replaceAll('.', '') : normalized);
+    const number = Number(numericCandidate);
+
+    if (!Number.isNaN(number) && /^-?\d+(\.\d+)?$/.test(numericCandidate)) {
+        return { empty: false, type: 'number', value: number };
+    }
+
+    return { empty: false, type: 'text', value: raw.toLocaleLowerCase('es') };
+}
+
+function updateSortIndicators(table, state) {
+    table.querySelectorAll('thead th').forEach((header, index) => {
+        header.querySelector('.sort-indicator')?.remove();
+
+        if (index === state.columnIndex) {
+            header.insertAdjacentHTML('beforeend', ` <span class="sort-indicator">${state.direction === 'asc' ? '▲' : '▼'}</span>`);
+        }
     });
 }
 
