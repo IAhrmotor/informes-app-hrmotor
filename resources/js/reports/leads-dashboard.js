@@ -27,12 +27,9 @@ function bindTabs() {
 function bindFilters() {
     [
         'period',
-        'channel',
         'portal',
-        'status',
         'leadType',
         'leadDelegation',
-        'leadGroup',
         'commercialDelegation',
         'zone',
         'commercial',
@@ -156,7 +153,7 @@ function renderComparison(rows) {
     root.innerHTML = '';
 
     if (!rows.length) {
-        root.innerHTML = '<tr><td colspan="5">No hay datos para comparar.</td></tr>';
+        root.innerHTML = '<tr><td colspan="4">No hay datos para comparar.</td></tr>';
         return;
     }
 
@@ -164,10 +161,9 @@ function renderComparison(rows) {
         root.insertAdjacentHTML('beforeend', `
             <tr>
                 <td><strong>${escapeHtml(row.metrica)}</strong></td>
-                <td class="num">${formatMetric(row.periodo_actual, row.is_percentage)}</td>
-                <td class="num">${formatMetric(row.periodo_comparado, row.is_percentage)}</td>
-                <td class="num">${formatDiff(row.diferencia, row.is_percentage)}</td>
-                <td class="num">${row.variacion_pct === null || row.variacion_pct === undefined ? '-' : `${formatSigned(row.variacion_pct)}%`}</td>
+                <td class="num" data-sort-value="${escapeHtml(row.periodo_actual ?? '')}">${formatComparisonValue(row, 'periodo_actual')}</td>
+                <td class="num" data-sort-value="${escapeHtml(row.periodo_comparado ?? '')}">${formatComparisonValue(row, 'periodo_comparado')}</td>
+                <td class="num" data-sort-value="${escapeHtml(row.diferencia ?? '')}">${formatComparisonDiff(row)}</td>
             </tr>
         `);
     });
@@ -185,7 +181,24 @@ function renderInsights(items) {
     }
 
     items.forEach((item) => {
-        root.insertAdjacentHTML('beforeend', `<div class="priority-item">${escapeHtml(item)}</div>`);
+        if (typeof item === 'string') {
+            root.insertAdjacentHTML('beforeend', `<div class="priority-item">${escapeHtml(item)}</div>`);
+            return;
+        }
+
+        const priority = normalizePriority(item.prioridad || 'media');
+
+        root.insertAdjacentHTML('beforeend', `
+            <article class="priority-item priority-${escapeHtml(priority)}">
+                <div class="priority-head">
+                    <b>${escapeHtml(item.titulo || 'Conclusión')}</b>
+                    <span class="priority-badge">${escapeHtml(priority)}</span>
+                </div>
+                <p>${escapeHtml(item.problema_detectado || '')}</p>
+                <p><b>Evidencia:</b> ${escapeHtml(item.evidencia || '')}</p>
+                <p><b>Recomendación:</b> ${escapeHtml(item.recomendacion || '')}</p>
+            </article>
+        `);
     });
 }
 
@@ -195,14 +208,11 @@ function renderCommercials(rows) {
         [(row) => row.commercial_delegation || '-'],
         [(row) => row.zone || '-'],
         [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatNumber(row.convertidos), true],
-        [(row) => formatPercent(row.conversion_pct), true],
-        [(row) => formatNumber(row.descartados), true],
-        [(row) => formatPercent(row.descarte_pct), true],
+        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
+        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
         [(row) => formatNumber(row.potenciales), true],
         [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatNumber(row.gestionados), true],
-        [(row) => formatPercent(row.gestionados_pct), true],
+        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
     ], 'No hay datos de comerciales para los filtros seleccionados.');
 }
 
@@ -210,14 +220,11 @@ function renderCommercialZones(rows) {
     renderRows('commercialZoneRows', rows, [
         [(row) => row.zone || '-'],
         [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatNumber(row.convertidos), true],
-        [(row) => formatPercent(row.conversion_pct), true],
-        [(row) => formatNumber(row.descartados), true],
-        [(row) => formatPercent(row.descarte_pct), true],
+        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
+        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
         [(row) => formatNumber(row.potenciales), true],
         [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatNumber(row.gestionados), true],
-        [(row) => formatPercent(row.gestionados_pct), true],
+        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
     ], 'No hay datos de zonas para los filtros seleccionados.');
 }
 
@@ -226,33 +233,24 @@ function renderCommercialDelegations(rows) {
         [(row) => row.commercial_delegation],
         [(row) => row.zone || '-'],
         [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatNumber(row.convertidos), true],
-        [(row) => formatPercent(row.conversion_pct), true],
-        [(row) => formatNumber(row.descartados), true],
-        [(row) => formatPercent(row.descarte_pct), true],
+        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
+        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
         [(row) => formatNumber(row.potenciales), true],
         [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatNumber(row.gestionados), true],
-        [(row) => formatPercent(row.gestionados_pct), true],
+        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
     ], 'No hay datos de delegaciones comerciales para los filtros seleccionados.');
 }
 
 function renderDelegations(rows) {
     renderRows('delegationRows', rows, [
         [(row) => row.delegacion],
-        [(row) => row.lead_group || '-'],
         [(row) => row.zone || '-'],
         [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatNumber(row.convertidos), true],
-        [(row) => formatPercent(row.conversion_pct), true],
-        [(row) => formatNumber(row.descartados), true],
-        [(row) => formatPercent(row.descarte_pct), true],
+        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
+        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
         [(row) => formatNumber(row.potenciales), true],
         [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatNumber(row.gestionados), true],
-        [(row) => formatPercent(row.gestionados_pct), true],
-        [(row) => formatNumber(row.llamadas), true],
-        [(row) => formatNumber(row.formularios), true],
+        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
     ], 'No hay datos de delegaciones para los filtros seleccionados.');
 }
 
@@ -260,18 +258,13 @@ function renderPortals(rows) {
     renderRows('portalRows', rows, [
         [(row) => row.portal],
         [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatNumber(row.llamadas), true],
-        [(row) => formatNumber(row.formularios), true],
-        [(row) => formatPercent(row.llamadas_pct), true],
-        [(row) => formatPercent(row.formularios_pct), true],
-        [(row) => formatNumber(row.convertidos), true],
-        [(row) => formatPercent(row.conversion_pct), true],
-        [(row) => formatNumber(row.descartados), true],
-        [(row) => formatPercent(row.descarte_pct), true],
+        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
+        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
         [(row) => formatNumber(row.potenciales), true],
         [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatNumber(row.gestionados), true],
-        [(row) => formatPercent(row.gestionados_pct), true],
+        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
+        [(row) => formatCountPercent(row.llamadas, row.llamadas_pct), true, (row) => row.llamadas, true],
+        [(row) => formatCountPercent(row.formularios, row.formularios_pct), true, (row) => row.formularios, true],
     ], 'No hay datos de portales para los filtros seleccionados.');
 }
 
@@ -285,12 +278,13 @@ function renderRows(rootId, rows, columns, emptyMessage) {
     }
 
     rows.forEach((row) => {
-        const cells = columns.map(([formatter, numeric], index) => {
+        const cells = columns.map(([formatter, numeric, sortFormatter, html], index) => {
             const value = formatter(row) ?? '-';
             const className = numeric ? ' class="num"' : '';
-            const content = index === 0 ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value);
+            const content = html ? value : (index === 0 ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value));
+            const sortValue = sortFormatter ? ` data-sort-value="${escapeHtml(sortFormatter(row) ?? '')}"` : '';
 
-            return `<td${className}>${content}</td>`;
+            return `<td${className}${sortValue}>${content}</td>`;
         }).join('');
 
         root.insertAdjacentHTML('beforeend', `<tr>${cells}</tr>`);
@@ -342,8 +336,10 @@ function sortRowsByColumn(table, columnIndex, direction) {
     const rows = [...tbody.querySelectorAll('tr')];
 
     rows.sort((a, b) => {
-        const aValue = parseSortableValue(a.children[columnIndex]?.textContent);
-        const bValue = parseSortableValue(b.children[columnIndex]?.textContent);
+        const aCell = a.children[columnIndex];
+        const bCell = b.children[columnIndex];
+        const aValue = parseSortableValue(aCell?.dataset.sortValue || aCell?.textContent);
+        const bValue = parseSortableValue(bCell?.dataset.sortValue || bCell?.textContent);
 
         if (aValue.empty && bValue.empty) {
             return 0;
@@ -374,7 +370,8 @@ function parseSortableValue(value) {
         return { empty: true, type: 'text', value: '' };
     }
 
-    const normalized = raw
+    const primary = raw.split('(')[0].trim();
+    const normalized = primary
         .replaceAll('%', '')
         .replace(/\s+/g, '')
         .replace(/^\+/, '');
@@ -403,7 +400,6 @@ function updateSortIndicators(table, state) {
 function renderFilterOptions(filters) {
     fillSelect('commercial', filters.commercials || [], 'id', 'name');
     fillSelect('leadDelegation', (filters.lead_delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name');
-    fillSelect('leadGroup', (filters.lead_groups || []).map((item) => ({ id: item, name: item })), 'id', 'name');
     fillSelect('commercialDelegation', (filters.commercial_delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name');
     fillSelect('zone', (filters.zones || []).map((item) => ({ id: item, name: item })), 'id', 'name');
     fillSelect('portal', (filters.portals || []).map((item) => ({ id: item, name: item })), 'id', 'name');
@@ -430,12 +426,9 @@ function currentFilters() {
     const params = new URLSearchParams();
 
     setParam(params, 'period', document.getElementById('period')?.value);
-    setParam(params, 'channel', document.getElementById('channel')?.value);
     setParam(params, 'portal', document.getElementById('portal')?.value);
-    setParam(params, 'status', document.getElementById('status')?.value);
     setParam(params, 'lead_type', document.getElementById('leadType')?.value);
     setParam(params, 'lead_delegation', document.getElementById('leadDelegation')?.value);
-    setParam(params, 'lead_group', document.getElementById('leadGroup')?.value);
     setParam(params, 'commercial_delegation', document.getElementById('commercialDelegation')?.value);
     setParam(params, 'zone', document.getElementById('zone')?.value);
     setParam(params, 'commercial', document.getElementById('commercial')?.value);
@@ -531,6 +524,27 @@ function formatPercent(value) {
     return `${Number(value).toFixed(1)}%`;
 }
 
+function formatCountPercent(count, percent) {
+    return `<span class="metric-value">${escapeHtml(formatNumber(count))}</span><span class="metric-percent">(${escapeHtml(formatPercent(percent))})</span>`;
+}
+
+function formatComparisonValue(row, key) {
+    const value = row[key];
+    const percent = row[`${key}_pct`];
+
+    return row.is_compact ? formatCountPercent(value, percent) : escapeHtml(formatMetric(value, false));
+}
+
+function formatComparisonDiff(row) {
+    const count = formatDiff(row.diferencia, false);
+
+    if (!row.is_compact || row.diferencia_pct_puntos === null || row.diferencia_pct_puntos === undefined) {
+        return escapeHtml(count);
+    }
+
+    return `<span class="metric-value">${escapeHtml(count)}</span><span class="metric-percent">(${escapeHtml(formatDiff(row.diferencia_pct_puntos, true))})</span>`;
+}
+
 function formatMetric(value, isPercentage) {
     return isPercentage ? formatPercent(value) : formatNumber(value);
 }
@@ -553,6 +567,24 @@ function formatSigned(value) {
     const sign = number > 0 ? '+' : '';
 
     return `${sign}${number.toFixed(1)}`;
+}
+
+function normalizePriority(value) {
+    const priority = String(value || 'media')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+    if (priority === 'alta') {
+        return 'alta';
+    }
+
+    if (priority === 'baja') {
+        return 'baja';
+    }
+
+    return 'media';
 }
 
 function escapeHtml(value) {

@@ -57,11 +57,7 @@ class DashboardFiltersTest extends TestCase
 
         $filters = $this->getJson('/informes/leads/data/summary')->json('filters');
 
-        $this->assertContains('lead_groups', array_keys($filters));
-        $this->assertContains('Grupo Madrid', $filters['lead_groups']);
-        $this->assertContains('Grupo Barcelona', $filters['lead_groups']);
-        $this->assertContains('Grupo Valencia', $filters['lead_groups']);
-        $this->assertNotContains('Torrejón', $filters['lead_groups']);
+        $this->assertNotContains('lead_groups', array_keys($filters));
         $this->assertNotContains('Grupo Madrid', $filters['lead_delegations']);
         $this->assertNotContains('leadsmadrid@hrmotor.com', $filters['lead_delegations']);
         $this->assertNotContains('Grupo Madrid', $filters['commercial_delegations']);
@@ -70,7 +66,6 @@ class DashboardFiltersTest extends TestCase
             'Zona Mediterraneo',
             'Zona Norte',
             'Zona Sur y Centro',
-            'Sin clasificar',
         ], $filters['zones']);
     }
 }

@@ -26,18 +26,20 @@ class DashboardZoneFilterTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_zona_filtra_por_lead_en_summary_portales_y_delegaciones(): void
+    public function test_zona_filtra_por_delegacion_comercial_en_summary_portales_y_delegaciones(): void
     {
-        $this->lead('00Q-sur', 'Potencial', ['delegacion_encargada_text' => 'Torrejón de Ardoz', 'portal_text' => 'Web']);
-        $this->lead('00Q-cat', 'Potencial', ['delegacion_encargada_text' => 'Sant Boi', 'portal_text' => 'Web']);
+        $this->commercial('005-sur', 'Comercial Sur', 'HR MOTOR TORREJON');
+        $this->commercial('005-cat', 'Comercial Cat', 'HR MOTOR SANT BOI');
+        $this->lead('00Q-sur', 'Potencial', ['owner_id' => '005-sur', 'owner_name' => 'Comercial Sur', 'delegacion_encargada_text' => 'Sant Boi', 'portal_text' => 'Web']);
+        $this->lead('00Q-cat', 'Potencial', ['owner_id' => '005-cat', 'owner_name' => 'Comercial Cat', 'delegacion_encargada_text' => 'Torrejón de Ardoz', 'portal_text' => 'Web']);
 
         $summary = $this->getJson('/informes/leads/data/summary?zone=Zona%20Sur%20y%20Centro');
         $delegations = collect($this->getJson('/informes/leads/data/delegations?zone=Zona%20Sur%20y%20Centro')->json('items'));
         $portals = collect($this->getJson('/informes/leads/data/portals?zone=Zona%20Sur%20y%20Centro')->json('items'));
 
         $this->assertSame(1, $summary->json('kpis.leads_totales'));
-        $this->assertSame('Torrejón', $delegations->first()['delegacion']);
-        $this->assertSame('Grupo Madrid', $delegations->first()['lead_group']);
+        $this->assertSame('Sant Boi', $delegations->first()['delegacion']);
+        $this->assertSame('Zona Sur y Centro', $delegations->first()['zone']);
         $this->assertSame(1, $portals->firstWhere('portal', 'Web')['leads_totales']);
     }
 

@@ -94,10 +94,11 @@ class MonthlyCommercialReportBuilder
                 'portales_baja_conversion' => [],
             ],
             'resumen_ejecutivo' => [
-                'prioridades' => array_map(fn (string $text) => [
-                    'titulo' => 'Resumen operativo',
-                    'sugerencia' => $text,
-                ], $summary['insights']),
+                'prioridades' => array_map(fn (array $item) => [
+                    'titulo' => $item['titulo'] ?? 'Resumen operativo',
+                    'sugerencia' => $item['recomendacion'] ?? ($item['problema_detectado'] ?? ''),
+                    'prioridad' => $item['prioridad'] ?? 'media',
+                ], $summary['executive_insights'] ?? []),
             ],
         ];
     }
