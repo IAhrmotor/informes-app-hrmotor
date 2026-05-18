@@ -16,6 +16,14 @@ class LeadDashboardAiInsightsServiceTest extends TestCase
         Cache::clear();
     }
 
+    protected function tearDown(): void
+    {
+        config()->set('openai.enabled', false);
+        config()->set('openai.api_key', null);
+
+        parent::tearDown();
+    }
+
     public function test_si_openai_esta_desactivado_usa_fallback(): void
     {
         config()->set('openai.enabled', false);

@@ -23,6 +23,17 @@
         <div class="badge" id="updatedBadge">Cargando datos de Salesforce...</div>
     </header>
 
+    <nav class="report-switch" aria-label="Informes comerciales">
+        <a href="{{ route('reports.leads.index') }}" class="active">
+            <strong>Leads</strong>
+            <span>Captación y seguimiento de leads</span>
+        </a>
+        <a href="{{ route('reports.reservations-sales.index') }}">
+            <strong>Reservas / Ventas</strong>
+            <span>Oportunidades, reservas y contratos</span>
+        </a>
+    </nav>
+
     <section class="filters card">
         <div class="filter-group">
             <label for="period">Periodo</label>

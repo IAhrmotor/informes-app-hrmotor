@@ -6,6 +6,7 @@ use App\Models\SalesforceLead;
 use App\Models\SalesforceUser;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class ExecutiveInsightsTest extends TestCase
@@ -16,6 +17,9 @@ class ExecutiveInsightsTest extends TestCase
     {
         parent::setUp();
 
+        config()->set('openai.enabled', false);
+        config()->set('openai.api_key', null);
+        Cache::clear();
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-13 12:00:00'));
 
         SalesforceUser::create([

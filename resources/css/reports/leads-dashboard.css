@@ -81,6 +81,41 @@ h2 {
     white-space: nowrap;
 }
 
+.report-switch {
+    display: flex;
+    gap: 12px;
+    margin: 0 0 18px;
+}
+
+.report-switch a {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 220px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 12px 14px;
+    background: #fff;
+    color: var(--text);
+    text-decoration: none;
+    box-shadow: var(--shadow);
+}
+
+.report-switch a.active {
+    border-color: #111827;
+    background: #111827;
+    color: #fff;
+}
+
+.report-switch span {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.report-switch a.active span {
+    color: #e5e7eb;
+}
+
 .card {
     background: var(--card);
     border: 1px solid var(--line);
@@ -371,12 +406,12 @@ th[data-sortable="true"] {
 }
 
 .metric-value {
-    font-weight: 100;
+    font-weight: 800;
 }
 
 .metric-percent {
-    font-weight: 700;
-    font-size: .86em;
+    font-weight: 800;
+    font-size: .92em;
     margin-left: 4px;
     white-space: nowrap;
     color: #344054;
@@ -598,6 +633,10 @@ th.num {
     .badge {
         display: inline-block;
         margin-top: 14px;
+    }
+
+    .report-switch {
+        flex-direction: column;
     }
 }
 

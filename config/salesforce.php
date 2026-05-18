@@ -4,6 +4,7 @@ return [
     'auth_mode' => env('SALESFORCE_AUTH_MODE', 'client_credentials'),
 
     'api_version' => env('SALESFORCE_API_VERSION', 'v60.0'),
+    'timeout' => (int) env('SALESFORCE_TIMEOUT', 120),
 
     'token_url' => env('SALESFORCE_TOKEN_URL', 'https://login.salesforce.com/services/oauth2/token'),
     'authorize_url' => env('SALESFORCE_AUTHORIZE_URL', 'https://login.salesforce.com/services/oauth2/authorize'),
