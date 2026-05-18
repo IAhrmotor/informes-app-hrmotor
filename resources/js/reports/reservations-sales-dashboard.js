@@ -4,7 +4,6 @@ const tableSortState = new Map();
 document.addEventListener('DOMContentLoaded', async () => {
     bindTabs();
     bindFilters();
-    bindCommercialPanelOrder();
     bindTableSorting();
     toggleCustomPeriods();
     await reloadAllData();
@@ -27,13 +26,8 @@ function bindTabs() {
 function bindFilters() {
     [
         'period',
-        'portal',
-        'leadType',
-        'leadDelegation',
-        'commercialDelegation',
-        'zone',
-        'commercial',
-        'expositionMode',
+        'dateCriterion',
+        'opportunityType',
         'currentStart',
         'currentEnd',
         'comparisonStart',
@@ -49,53 +43,22 @@ function bindFilters() {
     });
 }
 
-function bindCommercialPanelOrder() {
-    const select = document.getElementById('commercialPanelsOrder');
-    const storedOrder = localStorage.getItem('commercialPanelsOrder');
-
-    if (select && storedOrder && [...select.options].some((option) => option.value === storedOrder)) {
-        select.value = storedOrder;
-    }
-
-    applyCommercialPanelOrder();
-
-    select?.addEventListener('change', () => {
-        localStorage.setItem('commercialPanelsOrder', select.value);
-        applyCommercialPanelOrder();
-    });
-}
-
-function applyCommercialPanelOrder() {
-    const container = document.getElementById('commercialPanels');
-    const order = document.getElementById('commercialPanelsOrder')?.value || 'zones,delegations,commercials';
-
-    order.split(',').forEach((key) => {
-        const panel = container?.querySelector(`[data-commercial-section="${key}"]`);
-
-        if (panel) {
-            container.appendChild(panel);
-        }
-    });
-}
-
 async function reloadAllData() {
     setLoadingState(true);
 
     try {
-        const summary = await fetchJson(`/informes/leads/data/summary?${currentFilters()}`);
+        const filters = currentFilters();
+        const summary = await fetchJson(`/informes/reservas-ventas/data/summary?${filters}`);
         renderSummary(summary);
-        renderFilterOptions(summary.filters || {});
 
-        const [commercials, delegations, portals] = await Promise.all([
-            fetchJson(`/informes/leads/data/commercials?${currentFilters()}`),
-            fetchJson(`/informes/leads/data/delegations?${currentFilters()}`),
-            fetchJson(`/informes/leads/data/portals?${currentFilters()}`),
+        const [commercials, portals] = await Promise.all([
+            fetchJson(`/informes/reservas-ventas/data/commercials?${filters}`),
+            fetchJson(`/informes/reservas-ventas/data/portals?${filters}`),
         ]);
 
         renderCommercialZones(commercials.zones || []);
         renderCommercialDelegations(commercials.delegations || []);
         renderCommercials(commercials.commercials || commercials.items || []);
-        renderDelegations(delegations.items || []);
         renderPortals(portals.items || []);
     } catch (error) {
         showLoadError(error);
@@ -113,24 +76,20 @@ function renderSummary(data) {
 
     const empty = document.getElementById('emptyMessage');
     empty.classList.toggle('is-hidden', Boolean(data.ok));
-    empty.textContent = data.message || 'No hay datos sincronizados para el periodo seleccionado.';
+    empty.textContent = data.message || 'No hay oportunidades sincronizadas para el periodo seleccionado.';
 
     renderKpis(data.kpis || {});
     renderComparison(data.comparativa || []);
-    renderInsights(data.insights || []);
+    renderInsights(data.executive_insights || data.insights || []);
 }
 
 function renderKpis(kpis) {
     const root = document.getElementById('summaryKpis');
     const cards = [
-        ['Leads totales', formatNumber(kpis.leads_totales), 'Muestra del periodo'],
-        ['Convertidos', formatNumber(kpis.convertidos), `${formatPercent(kpis.conversion_pct)} sobre total`],
-        ['Descartados', formatNumber(kpis.descartados), `${formatPercent(kpis.descarte_pct)} sobre total`],
-        ['Potenciales', formatNumber(kpis.potenciales), 'Bolsa viva'],
-        ['Potenciales sin trabajar', formatNumber(kpis.potenciales_sin_trabajar), 'Solo Status Potencial'],
-        ['Gestionados', formatNumber(kpis.gestionados), `${formatPercent(kpis.gestionados_pct)} sobre total`],
-        ['Llamadas', formatNumber(kpis.llamadas), `${formatPercent(kpis.llamadas_pct)} del total`],
-        ['Formularios', formatNumber(kpis.formularios), `${formatPercent(kpis.formularios_pct)} del total`],
+        ['Oportunidades totales', formatNumber(kpis.oportunidades_totales), 'Muestra del periodo'],
+        ['Reservas vivas', formatNumber(kpis.reservas_vivas), `${formatPercent(kpis.reservas_vivas_pct)} sobre total`],
+        ['Oportunidades caídas', formatNumber(kpis.oportunidades_caidas), `${formatPercent(kpis.oportunidades_caidas_pct)} sobre total`],
+        ['Contratos CV firmados', formatNumber(kpis.cv_firmados), `${formatPercent(kpis.cv_firmados_pct)} sobre total`],
     ];
 
     root.innerHTML = '';
@@ -202,69 +161,46 @@ function renderInsights(items) {
     });
 }
 
-function renderCommercials(rows) {
-    renderRows('commercialRows', rows, [
-        [(row) => row.comercial],
-        [(row) => row.commercial_delegation || '-'],
-        [(row) => row.zone || '-'],
-        [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
-        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
-        [(row) => formatNumber(row.potenciales), true],
-        [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
-    ], 'No hay datos de comerciales para los filtros seleccionados.');
-}
-
 function renderCommercialZones(rows) {
     renderRows('commercialZoneRows', rows, [
         [(row) => row.zone || '-'],
-        [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
-        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
-        [(row) => formatNumber(row.potenciales), true],
-        [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
+        [(row) => formatNumber(row.oportunidades_totales), true],
+        [(row) => formatCountPercent(row.reservas_vivas, row.reservas_vivas_pct), true, (row) => row.reservas_vivas, true],
+        [(row) => formatCountPercent(row.oportunidades_caidas, row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas, true],
+        [(row) => formatCountPercent(row.cv_firmados, row.cv_firmados_pct), true, (row) => row.cv_firmados, true],
     ], 'No hay datos de zonas para los filtros seleccionados.');
 }
 
 function renderCommercialDelegations(rows) {
     renderRows('commercialDelegationRows', rows, [
-        [(row) => row.commercial_delegation],
+        [(row) => row.commercial_delegation || '-'],
         [(row) => row.zone || '-'],
-        [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
-        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
-        [(row) => formatNumber(row.potenciales), true],
-        [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
-    ], 'No hay datos de delegaciones comerciales para los filtros seleccionados.');
+        [(row) => formatNumber(row.oportunidades_totales), true],
+        [(row) => formatCountPercent(row.reservas_vivas, row.reservas_vivas_pct), true, (row) => row.reservas_vivas, true],
+        [(row) => formatCountPercent(row.oportunidades_caidas, row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas, true],
+        [(row) => formatCountPercent(row.cv_firmados, row.cv_firmados_pct), true, (row) => row.cv_firmados, true],
+    ], 'No hay datos de delegaciones para los filtros seleccionados.');
 }
 
-function renderDelegations(rows) {
-    renderRows('delegationRows', rows, [
-        [(row) => row.delegacion],
+function renderCommercials(rows) {
+    renderRows('commercialRows', rows, [
+        [(row) => row.comercial || '-'],
+        [(row) => row.commercial_delegation || '-'],
         [(row) => row.zone || '-'],
-        [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
-        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
-        [(row) => formatNumber(row.potenciales), true],
-        [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
-    ], 'No hay datos de delegaciones para los filtros seleccionados.');
+        [(row) => formatNumber(row.oportunidades_totales), true],
+        [(row) => formatCountPercent(row.reservas_vivas, row.reservas_vivas_pct), true, (row) => row.reservas_vivas, true],
+        [(row) => formatCountPercent(row.oportunidades_caidas, row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas, true],
+        [(row) => formatCountPercent(row.cv_firmados, row.cv_firmados_pct), true, (row) => row.cv_firmados, true],
+    ], 'No hay datos de comerciales para los filtros seleccionados.');
 }
 
 function renderPortals(rows) {
     renderRows('portalRows', rows, [
-        [(row) => row.portal],
-        [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
-        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
-        [(row) => formatNumber(row.potenciales), true],
-        [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
-        [(row) => formatCountPercent(row.llamadas, row.llamadas_pct), true, (row) => row.llamadas, true],
-        [(row) => formatCountPercent(row.formularios, row.formularios_pct), true, (row) => row.formularios, true],
+        [(row) => row.portal || '-'],
+        [(row) => formatNumber(row.oportunidades_totales), true],
+        [(row) => formatCountPercent(row.reservas_vivas, row.reservas_vivas_pct), true, (row) => row.reservas_vivas, true],
+        [(row) => formatCountPercent(row.oportunidades_caidas, row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas, true],
+        [(row) => formatCountPercent(row.cv_firmados, row.cv_firmados_pct), true, (row) => row.cv_firmados, true],
     ], 'No hay datos de portales para los filtros seleccionados.');
 }
 
@@ -397,42 +333,12 @@ function updateSortIndicators(table, state) {
     });
 }
 
-function renderFilterOptions(filters) {
-    fillSelect('commercial', filters.commercials || [], 'id', 'name');
-    fillSelect('leadDelegation', (filters.lead_delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name');
-    fillSelect('commercialDelegation', (filters.commercial_delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name');
-    fillSelect('zone', (filters.zones || []).map((item) => ({ id: item, name: item })), 'id', 'name');
-    fillSelect('portal', (filters.portals || []).map((item) => ({ id: item, name: item })), 'id', 'name');
-}
-
-function fillSelect(id, items, valueKey, labelKey) {
-    const select = document.getElementById(id);
-    const current = select.value;
-    const first = select.querySelector('option')?.outerHTML || '<option value="">Todos</option>';
-
-    select.innerHTML = first;
-
-    items.forEach((item) => {
-        const option = document.createElement('option');
-        option.value = item[valueKey];
-        option.textContent = item[labelKey];
-        select.appendChild(option);
-    });
-
-    select.value = [...select.options].some((option) => option.value === current) ? current : '';
-}
-
 function currentFilters() {
     const params = new URLSearchParams();
 
     setParam(params, 'period', document.getElementById('period')?.value);
-    setParam(params, 'portal', document.getElementById('portal')?.value);
-    setParam(params, 'lead_type', document.getElementById('leadType')?.value);
-    setParam(params, 'lead_delegation', document.getElementById('leadDelegation')?.value);
-    setParam(params, 'commercial_delegation', document.getElementById('commercialDelegation')?.value);
-    setParam(params, 'zone', document.getElementById('zone')?.value);
-    setParam(params, 'commercial', document.getElementById('commercial')?.value);
-    setParam(params, 'exposition_mode', document.getElementById('expositionMode')?.value);
+    setParam(params, 'date_criterion', document.getElementById('dateCriterion')?.value);
+    setParam(params, 'opportunity_type', document.getElementById('opportunityType')?.value);
 
     if (document.getElementById('period')?.value === 'custom') {
         setParam(params, 'current_start', document.getElementById('currentStart')?.value);
@@ -546,7 +452,7 @@ function formatComparisonValue(row, key) {
     const value = row[key];
     const percent = row[`${key}_pct`];
 
-    return row.is_compact ? formatCountPercent(value, percent) : escapeHtml(formatMetric(value, false));
+    return row.is_compact ? formatCountPercent(value, percent) : escapeHtml(formatNumber(value));
 }
 
 function formatComparisonDiff(row) {
@@ -557,10 +463,6 @@ function formatComparisonDiff(row) {
     }
 
     return `<span class="metric-value">${escapeHtml(count)}</span><span class="metric-percent">(${escapeHtml(formatDiff(row.diferencia_pct_puntos, true))})</span>`;
-}
-
-function formatMetric(value, isPercentage) {
-    return isPercentage ? formatPercent(value) : formatNumber(value);
 }
 
 function formatDiff(value, isPercentage) {
@@ -574,13 +476,6 @@ function formatDiff(value, isPercentage) {
     return isPercentage
         ? `${sign}${number.toFixed(1)} pp`
         : `${sign}${fmt.format(number)}`;
-}
-
-function formatSigned(value) {
-    const number = Number(value);
-    const sign = number > 0 ? '+' : '';
-
-    return `${sign}${number.toFixed(1)}`;
 }
 
 function normalizePriority(value) {

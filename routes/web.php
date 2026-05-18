@@ -3,6 +3,8 @@
 use App\Http\Controllers\Reports\Leads\LeadDashboardController;
 use App\Http\Controllers\Reports\Leads\LeadDashboardDataController;
 use App\Http\Controllers\Reports\Leads\MonthlyCommercialReportDataController;
+use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardController;
+use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -35,4 +37,13 @@ Route::prefix('informes/leads')
         Route::get('/data/monthly-commercial/portals', [MonthlyCommercialReportDataController::class, 'portals'])->name('data.monthly-commercial.portals');
         Route::get('/data/monthly-commercial/delegations', [MonthlyCommercialReportDataController::class, 'delegations'])->name('data.monthly-commercial.delegations');
         Route::get('/data/monthly-commercial/delegation-pending', [MonthlyCommercialReportDataController::class, 'delegationPending'])->name('data.monthly-commercial.delegation-pending');
+    });
+
+Route::prefix('informes/reservas-ventas')
+    ->name('reports.reservations-sales.')
+    ->group(function () {
+        Route::get('/', [ReservationsSalesDashboardController::class, 'index'])->name('index');
+        Route::get('/data/summary', [ReservationsSalesDashboardDataController::class, 'summary'])->name('data.summary');
+        Route::get('/data/commercials', [ReservationsSalesDashboardDataController::class, 'commercials'])->name('data.commercials');
+        Route::get('/data/portals', [ReservationsSalesDashboardDataController::class, 'portals'])->name('data.portals');
     });

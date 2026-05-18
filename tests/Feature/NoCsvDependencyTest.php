@@ -10,8 +10,11 @@ class NoCsvDependencyTest extends TestCase
     {
         $files = [
             app_path('Http/Controllers/Reports/Leads/LeadDashboardDataController.php'),
+            app_path('Http/Controllers/Reports/ReservationsSales/ReservationsSalesDashboardDataController.php'),
             app_path('Services/Reports/Leads/SalesforceLeadDashboardDatasetService.php'),
+            app_path('Services/Reports/ReservationsSales/ReservationsSalesDashboardDatasetService.php'),
             resource_path('js/reports/leads-dashboard.js'),
+            resource_path('js/reports/reservations-sales-dashboard.js'),
         ];
 
         foreach ($files as $file) {

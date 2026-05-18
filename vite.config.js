@@ -11,6 +11,7 @@ export default defineConfig({
                 'resources/js/app.js',
                 'resources/css/reports/leads-dashboard.css',
                 'resources/js/reports/leads-dashboard.js',
+                'resources/js/reports/reservations-sales-dashboard.js',
             ],
             refresh: true,
             fonts: [

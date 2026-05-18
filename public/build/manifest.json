@@ -52,7 +52,7 @@
     "src": "_instrument-sans-600-normal-DMks36a2.woff"
   },
   "resources/css/app.css": {
-    "file": "assets/app-DyD6lJSK.css",
+    "file": "assets/app-GeMn-H22.css",
     "name": "app",
     "names": [
       "app.css"
@@ -61,7 +61,7 @@
     "isEntry": true
   },
   "resources/css/reports/leads-dashboard.css": {
-    "file": "assets/leads-dashboard-o_SIWVHk.css",
+    "file": "assets/leads-dashboard-rNk3p_28.css",
     "name": "leads-dashboard",
     "names": [
       "leads-dashboard.css"
@@ -76,9 +76,15 @@
     "isEntry": true
   },
   "resources/js/reports/leads-dashboard.js": {
-    "file": "assets/leads-dashboard-CmZaEzI-.js",
+    "file": "assets/leads-dashboard-PjUCQBbr.js",
     "name": "leads-dashboard",
     "src": "resources/js/reports/leads-dashboard.js",
+    "isEntry": true
+  },
+  "resources/js/reports/reservations-sales-dashboard.js": {
+    "file": "assets/reservations-sales-dashboard-C0bjx02Z.js",
+    "name": "reservations-sales-dashboard",
+    "src": "resources/js/reports/reservations-sales-dashboard.js",
     "isEntry": true
   }
 }

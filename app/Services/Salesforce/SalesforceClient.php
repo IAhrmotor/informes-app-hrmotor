@@ -37,6 +37,7 @@ class SalesforceClient
     private function sendQuery(array $auth, string $soql): Response
     {
         return Http::withToken($auth['access_token'])
+            ->timeout((int) config('salesforce.timeout', 120))
             ->acceptJson()
             ->get($this->queryUrl($auth), [
                 'q' => $soql,
@@ -61,6 +62,7 @@ class SalesforceClient
             $url = rtrim($auth['instance_url'], '/').$nextRecordsUrl;
 
             $response = Http::withToken($auth['access_token'])
+                ->timeout((int) config('salesforce.timeout', 120))
                 ->acceptJson()
                 ->get($url);
 
@@ -69,6 +71,7 @@ class SalesforceClient
                 $auth = $this->authService->accessToken();
 
                 $response = Http::withToken($auth['access_token'])
+                    ->timeout((int) config('salesforce.timeout', 120))
                     ->acceptJson()
                     ->get(rtrim($auth['instance_url'], '/').$nextRecordsUrl);
             }
