@@ -370,6 +370,18 @@ th[data-sortable="true"] {
     font-size: 11px;
 }
 
+.metric-value {
+    font-weight: 100;
+}
+
+.metric-percent {
+    font-weight: 700;
+    font-size: .86em;
+    margin-left: 4px;
+    white-space: nowrap;
+    color: #344054;
+}
+
 td {
     padding: 12px 14px;
     border-bottom: 1px solid #f1f5f9;
@@ -446,8 +458,9 @@ th.num {
 
 .insights {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    align-items: stretch;
 }
 
 .empty-state {
@@ -483,6 +496,58 @@ th.num {
     border-radius: 16px;
     padding: 15px;
     background: #f8fafc;
+    min-height: 100%;
+}
+
+.priority-alta {
+    border-color: #ef4444;
+    background: #fff5f5;
+}
+
+.priority-media {
+    border-color: #f59e0b;
+    background: #fffbeb;
+}
+
+.priority-baja {
+    border-color: #2563eb;
+    background: #eff6ff;
+}
+
+.priority-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 9px;
+}
+
+.priority-badge {
+    border-radius: 999px;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 850;
+    padding: 3px 8px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.priority-alta .priority-badge {
+    background: #dc2626;
+}
+
+.priority-media .priority-badge {
+    background: #f59e0b;
+    color: #111827;
+}
+
+.priority-baja {
+    border-color: #16a34a;
+    background: #f0fdf4;
+}
+
+.priority-baja .priority-badge {
+    background: #16a34a;
 }
 
 .priority-item strong {

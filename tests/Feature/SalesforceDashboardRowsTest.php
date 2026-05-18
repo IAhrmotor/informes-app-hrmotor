@@ -77,6 +77,8 @@ class SalesforceDashboardRowsTest extends TestCase
 
     public function test_delegaciones_usa_prioridad_salesforce_y_sin_clasificar_si_no_hay_valor(): void
     {
+        $this->commercial('005-owner', 'Comercial Owner', 'Compra/Venta', true, 'HR MOTOR TORREJON');
+
         $this->lead('00Q1', 'Potencial', [
             'medio_nuevo' => 'Llamada',
             'fuente_nuevo' => 'Google Maps',
@@ -92,7 +94,6 @@ class SalesforceDashboardRowsTest extends TestCase
         $rows = collect($this->getJson('/informes/leads/data/delegations')->json('items'));
 
         $this->assertSame(2, $rows->firstWhere('delegacion', 'Madrid General')['leads_totales']);
-        $this->assertSame('Grupo Madrid', $rows->firstWhere('delegacion', 'Madrid General')['lead_group']);
         $this->assertSame('Zona Sur y Centro', $rows->firstWhere('delegacion', 'Madrid General')['zone']);
         $this->assertSame(1, $rows->firstWhere('delegacion', 'Sin clasificar')['potenciales_sin_trabajar']);
     }
@@ -107,10 +108,10 @@ class SalesforceDashboardRowsTest extends TestCase
 
         $this->assertSame(2, $response->json('kpis.leads_totales'));
         $this->assertSame(1, $response->json('kpis.convertidos'));
-        $conversion = collect($response->json('comparativa'))->firstWhere('key', 'conversion_pct');
-        $this->assertEquals(50.0, $conversion['periodo_actual']);
-        $this->assertEquals(0.0, $conversion['periodo_comparado']);
-        $this->assertEquals(50.0, $conversion['diferencia']);
+        $conversion = collect($response->json('comparativa'))->firstWhere('key', 'convertidos');
+        $this->assertEquals(50.0, $conversion['periodo_actual_pct']);
+        $this->assertEquals(0.0, $conversion['periodo_comparado_pct']);
+        $this->assertEquals(50.0, $conversion['diferencia_pct_puntos']);
     }
 
     public function test_filtros_y_tabla_delegaciones_no_exponen_brutos_ni_emails(): void
@@ -123,7 +124,6 @@ class SalesforceDashboardRowsTest extends TestCase
 
         $summary = $this->getJson('/informes/leads/data/summary');
         $leadDelegations = $summary->json('filters.lead_delegations');
-        $leadGroups = $summary->json('filters.lead_groups');
         $commercialDelegations = $summary->json('filters.commercial_delegations');
         $zones = $summary->json('filters.zones');
 
@@ -135,9 +135,7 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertNotContains('Tudela', $leadDelegations);
         $this->assertNotContains('Web Alicante', $leadDelegations);
         $this->assertNotContains('Llamada directa', $leadDelegations);
-        $this->assertContains('Grupo Madrid', $leadGroups);
-        $this->assertContains('Grupo Navarra', $leadGroups);
-        $this->assertNotContains('Madrid General', $leadGroups);
+        $this->assertArrayNotHasKey('lead_groups', $summary->json('filters'));
         $this->assertNotContains('Grupo Madrid', $commercialDelegations);
         $this->assertNotContains('Madrid General', $commercialDelegations);
         $this->assertContains('Zona Sur y Centro', $zones);
@@ -147,7 +145,6 @@ class SalesforceDashboardRowsTest extends TestCase
         $rows = collect($this->getJson('/informes/leads/data/delegations')->json('items'));
 
         $this->assertSame(2, $rows->firstWhere('delegacion', 'Madrid General')['leads_totales']);
-        $this->assertSame('Grupo Madrid', $rows->firstWhere('delegacion', 'Madrid General')['lead_group']);
         $this->assertSame(1, $rows->firstWhere('delegacion', 'Fontellas')['leads_totales']);
         $this->assertSame(2, $rows->firstWhere('delegacion', 'Sin clasificar')['leads_totales']);
     }

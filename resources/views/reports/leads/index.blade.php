@@ -35,38 +35,11 @@
         </div>
 
         <div class="filter-group">
-            <label for="channel">Canal</label>
-            <select id="channel">
-                <option value="">Todos</option>
-                <option value="Llamada">Llamada</option>
-                <option value="Formulario">Formulario</option>
-            </select>
-        </div>
-
-        <div class="filter-group">
-            <label for="portal">Portal</label>
-            <select id="portal">
-                <option value="">Todos</option>
-            </select>
-        </div>
-
-        <div class="filter-group">
-            <label for="status">Estado</label>
-            <select id="status">
-                <option value="">Todos</option>
-                <option value="Potencial">Potencial</option>
-                <option value="Convertido">Convertido</option>
-                <option value="Descartado">Descartado</option>
-            </select>
-        </div>
-
-        <div class="filter-group">
             <label for="leadType">Tipo de Lead</label>
             <select id="leadType">
                 <option value="all">Todos</option>
                 <option value="Tasación">Tasación</option>
                 <option value="Venta">Venta</option>
-                <option value="Venta con cambio">Venta con cambio</option>
             </select>
         </div>
 
@@ -74,13 +47,6 @@
             <label for="leadDelegation">Delegación del lead</label>
             <select id="leadDelegation">
                 <option value="">Todas</option>
-            </select>
-        </div>
-
-        <div class="filter-group">
-            <label for="leadGroup">Grupo del lead</label>
-            <select id="leadGroup">
-                <option value="">Todos</option>
             </select>
         </div>
 
@@ -95,6 +61,13 @@
             <label for="zone">Zona</label>
             <select id="zone">
                 <option value="">Todas</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="portal">Portal</label>
+            <select id="portal">
+                <option value="">Todos</option>
             </select>
         </div>
 
@@ -183,7 +156,6 @@
                             <th class="num">Periodo actual</th>
                             <th class="num">Periodo comparado</th>
                             <th class="num">Diferencia</th>
-                            <th class="num">Variación</th>
                         </tr>
                         </thead>
                         <tbody id="comparisonRows"></tbody>
@@ -220,13 +192,10 @@
                             <th>Zona</th>
                             <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
-                            <th class="num">% conversión</th>
                             <th class="num">Descartados</th>
-                            <th class="num">% descarte</th>
                             <th class="num">Potenciales</th>
                             <th class="num">Potenciales sin trabajar</th>
                             <th class="num">Gestionados</th>
-                            <th class="num">% gestionados</th>
                         </tr>
                         </thead>
                         <tbody id="commercialZoneRows"></tbody>
@@ -249,13 +218,10 @@
                             <th>Zona</th>
                             <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
-                            <th class="num">% conversión</th>
                             <th class="num">Descartados</th>
-                            <th class="num">% descarte</th>
                             <th class="num">Potenciales</th>
                             <th class="num">Potenciales sin trabajar</th>
                             <th class="num">Gestionados</th>
-                            <th class="num">% gestionados</th>
                         </tr>
                         </thead>
                         <tbody id="commercialDelegationRows"></tbody>
@@ -279,13 +245,10 @@
                             <th>Zona</th>
                             <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
-                            <th class="num">% conversión</th>
                             <th class="num">Descartados</th>
-                            <th class="num">% descarte</th>
                             <th class="num">Potenciales</th>
                             <th class="num">Potenciales sin trabajar</th>
                             <th class="num">Gestionados</th>
-                            <th class="num">% gestionados</th>
                         </tr>
                         </thead>
                         <tbody id="commercialRows"></tbody>
@@ -300,7 +263,7 @@
                 <div class="panel-title">
                     <div>
                         <h2>Delegaciones por reparto de leads</h2>
-                        <div class="small">Agrupación por zona, grupo comercial y delegación normalizada</div>
+                        <div class="small">Agrupación por delegación normalizada del lead</div>
                     </div>
                 </div>
                 <div class="table-wrap">
@@ -308,19 +271,13 @@
                         <thead>
                         <tr>
                             <th>Delegación del lead</th>
-                            <th>Grupo del lead</th>
-                            <th>Zona</th>
+                            <th>Zona comercial</th>
                             <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
-                            <th class="num">% conversión</th>
                             <th class="num">Descartados</th>
-                            <th class="num">% descarte</th>
                             <th class="num">Potenciales</th>
                             <th class="num">Potenciales sin trabajar</th>
                             <th class="num">Gestionados</th>
-                            <th class="num">% gestionados</th>
-                            <th class="num">Llamadas</th>
-                            <th class="num">Formularios</th>
                         </tr>
                         </thead>
                         <tbody id="delegationRows"></tbody>
@@ -334,7 +291,7 @@
                 <div class="panel-title">
                     <div>
                         <h2>Portales / Procedencia</h2>
-                        <div class="small">Canal por Medio Nuevo y portal por reglas Salesforce fase 1</div>
+                        <div class="small">Procedencia comercial desde Salesforce</div>
                     </div>
                 </div>
                 <div class="table-wrap">
@@ -343,18 +300,13 @@
                         <tr>
                             <th>Portal / Procedencia</th>
                             <th class="num">Leads totales</th>
-                            <th class="num">Llamadas</th>
-                            <th class="num">Formularios</th>
-                            <th class="num">% llamadas</th>
-                            <th class="num">% formularios</th>
                             <th class="num">Convertidos</th>
-                            <th class="num">% conversión</th>
                             <th class="num">Descartados</th>
-                            <th class="num">% descarte</th>
                             <th class="num">Potenciales</th>
                             <th class="num">Potenciales sin trabajar</th>
                             <th class="num">Gestionados</th>
-                            <th class="num">% gestionados</th>
+                            <th class="num">Llamadas</th>
+                            <th class="num">Formularios</th>
                         </tr>
                         </thead>
                         <tbody id="portalRows"></tbody>

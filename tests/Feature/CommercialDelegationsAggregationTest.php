@@ -39,7 +39,7 @@ class CommercialDelegationsAggregationTest extends TestCase
             'delegacion_encargada_text' => 'Madrid',
         ]);
 
-        $rows = collect($this->getJson('/informes/leads/data/commercials?lead_group=Grupo%20Barcelona')->json('delegations'));
+        $rows = collect($this->getJson('/informes/leads/data/commercials?lead_delegation=Sant%20Boi')->json('delegations'));
 
         $this->assertCount(1, $rows);
         $this->assertSame('Torrejón', $rows->first()['commercial_delegation']);
