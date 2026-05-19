@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 
 class DebugReservasVentasReportCommand extends Command
 {
-    protected $signature = 'reports:debug-reservas-ventas';
+    protected $signature = 'reports:debug-reservas-ventas {--unclassified-portals : Muestra ejemplos de portales sin clasificar}';
 
     protected $description = 'Muestra diagnostico de datos sincronizados para Reservas / Ventas.';
 
@@ -28,8 +28,11 @@ class DebugReservasVentasReportCommand extends Command
         $this->table(['RecordType.Name', 'Total'], $this->counts('record_type_name'));
         $this->table(['StageName', 'Total'], $this->counts('stage_name'));
         $this->table(['Portal original', 'Total'], $this->counts('portal_original'));
+        $this->table(['Fuente origen Opportunity', 'Total'], $this->counts('opportunity_source_raw'));
+        $this->table(['Fuente origen normalizada', 'Total'], $this->counts('opportunity_source_normalized'));
         $this->table(['Portal resuelto', 'Total'], $this->counts('portal_resolved'));
         $this->table(['Origen resolucion portal', 'Total'], $this->counts('portal_resolution_source'));
+        $this->table(['Valores no mapeados', 'Total'], $this->unmappedPortalValues());
         $this->table(['Delegacion comercial', 'Total'], $this->commercialDelegationCounts($normalizer));
         $this->table(['Zona', 'Total'], $this->zoneCounts($normalizer));
 
@@ -42,6 +45,24 @@ class DebugReservasVentasReportCommand extends Command
                 $query->whereNull('stage_name')->orWhereRaw('LOWER(stage_name) <> ?', ['cerrada perdida']);
             })
             ->count());
+        $this->line('Total Sin clasificar: '.SalesforceOpportunity::query()->where('portal_resolved', 'Sin clasificar')->count());
+
+        if ($this->option('unclassified-portals')) {
+            $this->newLine();
+            $this->table([
+                'salesforce_id',
+                'name',
+                'account_name',
+                'account_phone',
+                'account_person_email',
+                'account_company_email',
+                'portal_original',
+                'opportunity_source_raw',
+                'opportunity_source_normalized',
+                'portal_resolution_source',
+                'portal_resolution_debug',
+            ], $this->unclassifiedExamples());
+        }
 
         return self::SUCCESS;
     }
@@ -55,6 +76,42 @@ class DebugReservasVentasReportCommand extends Command
             ->limit(15)
             ->get()
             ->map(fn ($row) => [$row->{$field} ?: 'NULL', $row->total])
+            ->all();
+    }
+
+    private function unmappedPortalValues(): array
+    {
+        return SalesforceOpportunity::query()
+            ->select('portal_original', DB::raw('count(*) as total'))
+            ->where('portal_resolved', 'Sin clasificar')
+            ->groupBy('portal_original')
+            ->orderByDesc('total')
+            ->limit(15)
+            ->get()
+            ->map(fn ($row) => [$row->portal_original ?: 'NULL', $row->total])
+            ->all();
+    }
+
+    private function unclassifiedExamples(): array
+    {
+        return SalesforceOpportunity::query()
+            ->where('portal_resolved', 'Sin clasificar')
+            ->orderByDesc('updated_at')
+            ->limit(20)
+            ->get()
+            ->map(fn (SalesforceOpportunity $opportunity) => [
+                $opportunity->salesforce_id,
+                $opportunity->name,
+                $opportunity->account_name,
+                $opportunity->account_phone,
+                $opportunity->account_person_email,
+                $opportunity->account_company_email,
+                $opportunity->portal_original,
+                $opportunity->opportunity_source_raw,
+                $opportunity->opportunity_source_normalized,
+                $opportunity->portal_resolution_source,
+                json_encode($opportunity->portal_resolution_debug, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ])
             ->all();
     }
 

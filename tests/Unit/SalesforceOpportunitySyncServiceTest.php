@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Models\SalesforceOpportunity;
+use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
 use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
@@ -109,7 +110,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             }
         };
 
-        $service = new SalesforceOpportunitySyncService($client);
+        $service = new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class));
         $result = $service->sync(
             CarbonImmutable::parse('2026-04-01 00:00:00', 'UTC'),
             CarbonImmutable::parse('2026-06-01 00:00:00', 'UTC'),

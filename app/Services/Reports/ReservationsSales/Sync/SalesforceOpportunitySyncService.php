@@ -3,6 +3,7 @@
 namespace App\Services\Reports\ReservationsSales\Sync;
 
 use App\Models\SalesforceOpportunity;
+use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -16,6 +17,7 @@ class SalesforceOpportunitySyncService
 
     public function __construct(
         private readonly SalesforceClient $client,
+        private readonly OpportunityPortalNormalizer $portalNormalizer,
     ) {
     }
 
@@ -28,7 +30,9 @@ class SalesforceOpportunitySyncService
         $stats = [
             'opportunity' => 0,
             'lead' => 0,
+            'opportunity_source' => 0,
             'fallback_exposicion' => 0,
+            'fallback_web' => 0,
             'unclassified' => 0,
             'reservas_vivas' => 0,
             'caidas' => 0,
@@ -83,6 +87,23 @@ class SalesforceOpportunitySyncService
         return $this->buildSoql($periodStart, $periodEnd, true);
     }
 
+    public function testSoql(): string
+    {
+        return <<<'SOQL'
+SELECT Id, Name, CreatedDate, StageName FROM Opportunity WHERE IsDeleted = false ORDER BY CreatedDate DESC LIMIT 5
+SOQL;
+    }
+
+    public function resolvePortalForRecord(array $opportunity, Collection $leads): array
+    {
+        return $this->resolvePortal($opportunity, $leads);
+    }
+
+    public function relatedLeadMatchesForOpportunities(array $opportunities): Collection
+    {
+        return $this->relatedLeadMatches($opportunities);
+    }
+
     private function buildSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $includeCompanyEmail): string
     {
         $startDateTime = $this->soqlDateTime($periodStart);
@@ -107,6 +128,7 @@ SELECT
     Account.Phone,
     Account.PersonEmail,
 {$companyEmailSelect}    Portal__c,
+    Fuente_de_Origen__c,
     OPO_CAS_Reserva__c,
     OPO_FEC_Fecha_de_reserva__c,
     OPO_CAS_Contrato_CV_firmado__c,
@@ -127,8 +149,7 @@ SOQL;
         CarbonInterface $periodStart,
         CarbonInterface $periodEnd,
         bool &$includeCompanyEmail,
-    ): array
-    {
+    ): array {
         try {
             return $this->client->query($soql);
         } catch (RuntimeException $exception) {
@@ -146,6 +167,7 @@ SOQL;
     private function saveRecord(array $record, Collection $leadMatches, array &$stats): void
     {
         $portal = $this->resolvePortal($record, $leadMatches);
+        $source = $this->portalNormalizer->normalize(data_get($record, 'Fuente_de_Origen__c'));
         $stage = (string) data_get($record, 'StageName', '');
         $isClosedLost = strcasecmp($stage, 'Cerrada Perdida') === 0;
         $reservation = (bool) data_get($record, 'OPO_CAS_Reserva__c', false);
@@ -168,6 +190,8 @@ SOQL;
                 'account_person_email' => data_get($record, 'Account.PersonEmail'),
                 'account_company_email' => data_get($record, 'Account.AC_C_EMA_email__c'),
                 'portal_original' => data_get($record, 'Portal__c'),
+                'opportunity_source_raw' => data_get($record, 'Fuente_de_Origen__c'),
+                'opportunity_source_normalized' => $source['portal'],
                 'portal_resolved' => $portal['portal'],
                 'portal_resolution_source' => $portal['source'],
                 'portal_resolution_lead_id' => $portal['lead_id'],
@@ -184,13 +208,6 @@ SOQL;
         $stats['reservas_vivas'] += $reservation && ! $cvSigned && ! $isClosedLost ? 1 : 0;
         $stats['caidas'] += $isClosedLost ? 1 : 0;
         $stats['cv_firmados'] += $cvSigned && ! $isClosedLost ? 1 : 0;
-    }
-
-    public function testSoql(): string
-    {
-        return <<<'SOQL'
-SELECT Id, Name, CreatedDate, StageName FROM Opportunity WHERE IsDeleted = false ORDER BY CreatedDate DESC LIMIT 5
-SOQL;
     }
 
     private function relatedLeadMatches(array $opportunities): Collection
@@ -269,10 +286,24 @@ SOQL);
 
     private function resolvePortal(array $opportunity, Collection $leads): array
     {
-        $original = $this->clean(data_get($opportunity, 'Portal__c'));
+        $rawPortal = $this->portalNormalizer->clean(data_get($opportunity, 'Portal__c'));
+        $normalizedPortal = $this->portalNormalizer->normalize($rawPortal);
+        $sourceRaw = $this->portalNormalizer->clean(data_get($opportunity, 'Fuente_de_Origen__c'));
+        $sourceNormalized = $this->portalNormalizer->normalize($sourceRaw);
+        $debug = [
+            'rawPortal' => $rawPortal,
+            'normalizedPortal' => $normalizedPortal['portal'],
+            'opportunitySourceRaw' => $sourceRaw,
+            'opportunitySourceNormalized' => $sourceNormalized['portal'],
+            'selectedLeadId' => null,
+            'selectedLeadPortalRaw' => null,
+            'reason' => null,
+        ];
 
-        if ($original && $this->normalizeComparable($original) !== $this->normalizeComparable('Exposición')) {
-            return ['portal' => $original, 'source' => 'opportunity', 'lead_id' => null, 'debug' => []];
+        if ($normalizedPortal['is_valid_final'] && $normalizedPortal['is_conclusive']) {
+            $debug['reason'] = 'opportunity_portal_conclusive';
+
+            return ['portal' => $normalizedPortal['portal'], 'source' => 'opportunity', 'lead_id' => null, 'debug' => $debug];
         }
 
         $emails = collect([data_get($opportunity, 'Account.PersonEmail'), data_get($opportunity, 'Account.AC_C_EMA_email__c')])
@@ -292,33 +323,51 @@ SOQL);
 
                 return $emailMatch || $phoneMatch;
             })
-            ->first(function (array $lead): bool {
-                $portal = $this->leadPortal($lead);
-
-                return filled($portal) && $this->normalizeComparable($portal) !== $this->normalizeComparable('Exposición');
-            });
+            ->first(fn (array $lead): bool => $this->portalNormalizer->isValidForLead($this->leadPortal($lead)));
 
         if ($candidate) {
+            $leadPortalRaw = $this->leadPortal($candidate);
+            $leadPortal = $this->portalNormalizer->normalize($leadPortalRaw);
+            $debug['selectedLeadId'] = data_get($candidate, 'Id');
+            $debug['selectedLeadPortalRaw'] = $leadPortalRaw;
+            $debug['reason'] = 'lead_related_valid_portal';
+
             return [
-                'portal' => $this->leadPortal($candidate),
+                'portal' => $leadPortal['portal'],
                 'source' => 'lead',
                 'lead_id' => data_get($candidate, 'Id'),
-                'debug' => ['lead_created_date' => data_get($candidate, 'CreatedDate')],
+                'debug' => array_merge($debug, ['lead_created_date' => data_get($candidate, 'CreatedDate')]),
             ];
         }
 
-        if ($original) {
-            return ['portal' => $original, 'source' => 'fallback_exposicion', 'lead_id' => null, 'debug' => []];
+        if ($this->portalNormalizer->isUsefulSource($sourceRaw)) {
+            $debug['reason'] = 'opportunity_source_valid';
+
+            return ['portal' => $sourceNormalized['portal'], 'source' => 'opportunity_source', 'lead_id' => null, 'debug' => $debug];
         }
 
-        return ['portal' => 'Sin clasificar', 'source' => 'unclassified', 'lead_id' => null, 'debug' => []];
+        if ($this->portalNormalizer->isFallbackExpositionRaw($rawPortal)) {
+            $debug['reason'] = 'fallback_exposicion_no_alternative';
+
+            return ['portal' => OpportunityPortalNormalizer::EXPOSITION, 'source' => 'fallback_exposicion', 'lead_id' => null, 'debug' => $debug];
+        }
+
+        if ($this->portalNormalizer->isFallbackWebRaw($rawPortal)) {
+            $debug['reason'] = 'fallback_web_non_conclusive_portal';
+
+            return ['portal' => OpportunityPortalNormalizer::WEB, 'source' => 'fallback_web', 'lead_id' => null, 'debug' => $debug];
+        }
+
+        $debug['reason'] = 'unclassified_no_valid_source';
+
+        return ['portal' => OpportunityPortalNormalizer::UNCLASSIFIED, 'source' => 'unclassified', 'lead_id' => null, 'debug' => $debug];
     }
 
     private function leadPortal(array $lead): ?string
     {
-        return $this->clean(data_get($lead, 'Portal_Text__c'))
-            ?? $this->clean(data_get($lead, 'LEA_SEL_Fuente_Origen__c'))
-            ?? $this->clean(data_get($lead, 'Fuente_Nuevo__c'));
+        return $this->portalNormalizer->clean(data_get($lead, 'Portal_Text__c'))
+            ?? $this->portalNormalizer->clean(data_get($lead, 'LEA_SEL_Fuente_Origen__c'))
+            ?? $this->portalNormalizer->clean(data_get($lead, 'Fuente_Nuevo__c'));
     }
 
     private function soqlDateTime(CarbonInterface $date): string
@@ -331,24 +380,12 @@ SOQL);
         return blank($value) ? null : CarbonImmutable::parse($value);
     }
 
-    private function clean(mixed $value): ?string
-    {
-        $value = trim((string) $value);
-
-        return $value !== '' ? $value : null;
-    }
-
     private function normalizePhone(mixed $value): ?string
     {
         $value = preg_replace('/\D+/', '', (string) $value);
         $value = preg_replace('/^34(?=\d{9}$)/', '', $value ?? '');
 
         return $value !== '' ? $value : null;
-    }
-
-    private function normalizeComparable(string $value): string
-    {
-        return Str::of($value)->lower()->ascii()->replaceMatches('/\s+/', '')->toString();
     }
 
     private function escape(string $value): string

@@ -55,7 +55,9 @@ class SalesforceSyncOpportunitiesCommand extends Command
             $this->line('Opportunities guardadas: '.$result['saved']);
             $this->line('Con Portal__c util: '.$stats['opportunity']);
             $this->line('Portal reconstruido desde Lead: '.$stats['lead']);
+            $this->line('Portal desde Fuente_de_Origen__c: '.$stats['opportunity_source']);
             $this->line('Fallback Exposicion: '.$stats['fallback_exposicion']);
+            $this->line('Fallback Web: '.$stats['fallback_web']);
             $this->line('Sin clasificar: '.$stats['unclassified']);
             $this->line('Reservas vivas: '.$stats['reservas_vivas']);
             $this->line('Caidas: '.$stats['caidas']);
