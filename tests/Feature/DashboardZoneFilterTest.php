@@ -39,7 +39,6 @@ class DashboardZoneFilterTest extends TestCase
 
         $this->assertSame(1, $summary->json('kpis.leads_totales'));
         $this->assertSame('Sant Boi', $delegations->first()['delegacion']);
-        $this->assertSame('Zona Sur y Centro', $delegations->first()['zone']);
         $this->assertSame(1, $portals->firstWhere('portal', 'Web')['leads_totales']);
     }
 

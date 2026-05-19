@@ -238,9 +238,7 @@ class SalesforceLeadDashboardDatasetService
                 ], $lead);
             }
 
-            $this->addGroup($delegationGroups, $lead['commercial_zone'].'|'.$lead['lead_delegation'], $lead['lead_delegation'], [
-                'zone' => $lead['commercial_zone'],
-            ], $lead);
+            $this->addGroup($delegationGroups, $lead['lead_delegation'], $lead['lead_delegation'], [], $lead);
 
             $this->addGroup($portalGroups, $lead['portal'], $lead['portal'], [], $lead);
         }
@@ -812,7 +810,7 @@ class SalesforceLeadDashboardDatasetService
 
     private function cacheKey(array $filters, array $periods): string
     {
-        return 'lead-dashboard-v6:'.md5(json_encode([
+        return 'lead-dashboard-v7:'.md5(json_encode([
             'filters' => $filters,
             'periods' => [
                 'current' => $this->periodPayload($periods['current']),
