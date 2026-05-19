@@ -244,7 +244,6 @@ function renderCommercialDelegations(rows) {
 function renderDelegations(rows) {
     renderRows('delegationRows', rows, [
         [(row) => row.delegacion],
-        [(row) => row.zone || '-'],
         [(row) => formatNumber(row.leads_totales), true],
         [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
         [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],

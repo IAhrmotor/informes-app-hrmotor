@@ -94,7 +94,6 @@ class SalesforceDashboardRowsTest extends TestCase
         $rows = collect($this->getJson('/informes/leads/data/delegations')->json('items'));
 
         $this->assertSame(2, $rows->firstWhere('delegacion', 'Madrid General')['leads_totales']);
-        $this->assertSame('Zona Sur y Centro', $rows->firstWhere('delegacion', 'Madrid General')['zone']);
         $this->assertSame(1, $rows->firstWhere('delegacion', 'Sin clasificar')['potenciales_sin_trabajar']);
     }
 

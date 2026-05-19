@@ -264,7 +264,6 @@
                         <thead>
                         <tr>
                             <th>Delegación del lead</th>
-                            <th>Zona comercial</th>
                             <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
                             <th class="num">Descartados</th>

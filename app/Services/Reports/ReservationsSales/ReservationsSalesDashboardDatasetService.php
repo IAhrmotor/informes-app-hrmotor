@@ -51,7 +51,7 @@ class ReservationsSalesDashboardDatasetService
         $periods = $this->periods($filters);
 
         return Cache::remember(
-            'reservas-ventas-dashboard-v1:'.md5(json_encode([
+            'reservas-ventas-dashboard-v2:'.md5(json_encode([
                 'filters' => $filters,
                 'periods' => $this->periodPayloads($periods),
                 'version' => $this->dataVersion(),
@@ -119,7 +119,7 @@ class ReservationsSalesDashboardDatasetService
             'zones' => $this->finalizeGroups($zones, 'zone'),
             'delegations' => $this->finalizeGroups($delegations, 'commercial_delegation'),
             'commercials' => $this->finalizeGroups($commercials, 'comercial'),
-            'portals' => $this->finalizeGroups($portals, 'portal'),
+            'portals' => $this->finalizeGroups($portals, 'portal', $bucket['oportunidades_totales']),
         ];
     }
 
@@ -232,12 +232,12 @@ class ReservationsSalesDashboardDatasetService
         $this->addToBucket($groups[$key]['bucket'], $row);
     }
 
-    private function finalizeGroups(array $groups, string $labelKey): array
+    private function finalizeGroups(array $groups, string $labelKey, int|float|null $percentageTotal = null): array
     {
         $rows = [];
 
         foreach ($groups as $group) {
-            $rows[] = array_merge($group['extra'], $this->finalizeBucket($group['bucket']), [
+            $rows[] = array_merge($group['extra'], $this->finalizeBucket($group['bucket'], $percentageTotal), [
                 $labelKey => $group['label'],
                 'nombre' => $group['label'],
                 'comercial' => $group['label'],
@@ -250,9 +250,9 @@ class ReservationsSalesDashboardDatasetService
         return array_values($rows);
     }
 
-    private function finalizeBucket(array $bucket): array
+    private function finalizeBucket(array $bucket, int|float|null $percentageTotal = null): array
     {
-        $total = $bucket['oportunidades_totales'];
+        $total = $percentageTotal ?? $bucket['oportunidades_totales'];
 
         return array_merge($bucket, [
             'reservas_vivas_pct' => $this->percentage($bucket['reservas_vivas'], $total),
