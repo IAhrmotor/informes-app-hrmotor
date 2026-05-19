@@ -4,6 +4,7 @@ namespace App\Services\Reports\ReservationsSales;
 
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
+use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -16,6 +17,7 @@ class ReservationsSalesDashboardDatasetService
 
     public function __construct(
         private readonly LeadDelegationNormalizer $delegationNormalizer,
+        private readonly OpportunityPortalNormalizer $portalNormalizer,
         private readonly ReservationsSalesAiInsightsService $aiInsights,
     ) {
     }
@@ -145,13 +147,14 @@ class ReservationsSalesDashboardDatasetService
         $isClosedLost = strcasecmp($stage, 'Cerrada Perdida') === 0;
         $reservation = (bool) $opportunity->reservation;
         $cvSigned = (bool) $opportunity->cv_signed;
+        $portal = $this->portalNormalizer->normalize($opportunity->portal_resolved);
 
         return [
             'owner_id' => $opportunity->owner_id,
             'owner_name' => $opportunity->owner_name,
             'commercial_delegation' => $delegation['delegation'],
             'zone' => $delegation['zone'],
-            'portal' => $opportunity->portal_resolved ?: 'Sin clasificar',
+            'portal' => $portal['is_valid_final'] ? $portal['portal'] : OpportunityPortalNormalizer::UNCLASSIFIED,
             'is_reserva_viva' => $reservation && ! $cvSigned && ! $isClosedLost,
             'is_caida' => $isClosedLost,
             'is_cv_firmado' => $cvSigned && ! $isClosedLost,

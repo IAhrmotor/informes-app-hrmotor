@@ -22,6 +22,8 @@ class SalesforceOpportunity extends Model
         'account_person_email',
         'account_company_email',
         'portal_original',
+        'opportunity_source_raw',
+        'opportunity_source_normalized',
         'portal_resolved',
         'portal_resolution_source',
         'portal_resolution_lead_id',
