@@ -3,8 +3,9 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-
-    <title>Reservas / Ventas - Dashboard comercial Salesforce</title>
+    <title>Reservas / Ventas | HR Motor - Informes comerciales</title>
+    <link rel="icon" href="/brand/favicon.ico" sizes="any">
+    <link rel="shortcut icon" href="/brand/favicon.ico">
 
     @vite([
         'resources/css/reports/leads-dashboard.css',
@@ -13,26 +14,7 @@
 </head>
 <body>
 <div class="wrap">
-    <header class="header">
-        <div>
-            <div class="eyebrow">Direccion</div>
-            <h1>Reservas / Ventas</h1>
-            <p class="sub">Oportunidades, reservas y contratos desde Salesforce</p>
-        </div>
-
-        <div class="badge" id="updatedBadge">Cargando datos de Salesforce...</div>
-    </header>
-
-    <nav class="report-switch" aria-label="Informes comerciales">
-        <a href="{{ route('reports.leads.index') }}">
-            <strong>Leads</strong>
-            <span>Captacion y seguimiento de leads</span>
-        </a>
-        <a href="{{ route('reports.reservations-sales.index') }}" class="active">
-            <strong>Reservas / Ventas</strong>
-            <span>Oportunidades, reservas y contratos</span>
-        </a>
-    </nav>
+    @include('reports.partials.report-header', ['currentReport' => 'reservations-sales', 'subtitle' => 'Reservas / Ventas'])
 
     <section class="filters card">
         <div class="filter-group">
