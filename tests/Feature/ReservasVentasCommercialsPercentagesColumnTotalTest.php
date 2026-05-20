@@ -7,7 +7,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
-class ReservasVentasOtherPercentagesStillByRowTest extends TestCase
+class ReservasVentasCommercialsPercentagesColumnTotalTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -19,55 +19,58 @@ class ReservasVentasOtherPercentagesStillByRowTest extends TestCase
         config(['openai.enabled' => false]);
     }
 
-    public function test_comerciales_delegaciones_y_zonas_siguen_calculando_porcentajes_sobre_su_fila(): void
+    public function test_zonas_delegaciones_y_comerciales_calculan_porcentajes_sobre_total_de_su_columna(): void
     {
-        $this->opportunities('006-alc-reserva', 5, [
-            'owner_id' => '005-alc',
-            'owner_name' => 'Comercial Alcobendas',
-            'owner_delegation' => 'Alcobendas',
-            'stage_name' => 'Reserva',
-            'reservation' => true,
-        ]);
-        $this->opportunities('006-alc-caida', 2, [
-            'owner_id' => '005-alc',
-            'owner_name' => 'Comercial Alcobendas',
-            'owner_delegation' => 'Alcobendas',
-            'stage_name' => 'Cerrada Perdida',
-        ]);
-        $this->opportunities('006-alc-cv', 1, [
-            'owner_id' => '005-alc',
-            'owner_name' => 'Comercial Alcobendas',
-            'owner_delegation' => 'Alcobendas',
-            'stage_name' => 'Contrato',
-            'reservation' => true,
-            'cv_signed' => true,
-        ]);
-        $this->opportunities('006-alc-neutra', 2, [
-            'owner_id' => '005-alc',
-            'owner_name' => 'Comercial Alcobendas',
-            'owner_delegation' => 'Alcobendas',
-        ]);
-        $this->opportunities('006-bilbao-neutra', 90, [
-            'owner_id' => '005-bilbao',
-            'owner_name' => 'Comercial Bilbao',
-            'owner_delegation' => 'Bilbao',
-        ]);
+        $this->commercialMetrics('juan', 'Comercial Juan', 'Alcobendas', 40, 12, 8);
+        $this->commercialMetrics('ana', 'Comercial Ana', 'Bilbao', 304, 108, 72);
 
         $response = $this->getJson('/informes/reservas-ventas/data/commercials?'.$this->query());
 
         $zone = collect($response->json('zones'))->firstWhere('zone', 'Zona Sur y Centro');
         $delegation = collect($response->json('delegations'))->firstWhere('commercial_delegation', 'Alcobendas');
-        $commercial = collect($response->json('commercials'))->firstWhere('comercial', 'Comercial Alcobendas');
+        $commercial = collect($response->json('commercials'))->firstWhere('comercial', 'Comercial Juan');
 
         foreach ([$zone, $delegation, $commercial] as $row) {
-            $this->assertSame(10, $row['oportunidades_totales']);
-            $this->assertSame(5, $row['reservas_vivas']);
-            $this->assertSame(2, $row['oportunidades_caidas']);
-            $this->assertSame(1, $row['cv_firmados']);
-            $this->assertSame(50.0, (float) $row['reservas_vivas_pct']);
-            $this->assertSame(20.0, (float) $row['oportunidades_caidas_pct']);
+            $this->assertSame(40, $row['reservas_vivas']);
+            $this->assertSame(12, $row['oportunidades_caidas']);
+            $this->assertSame(8, $row['cv_firmados']);
+            $this->assertSame(11.63, (float) $row['reservas_vivas_pct']);
+            $this->assertSame(10.0, (float) $row['oportunidades_caidas_pct']);
             $this->assertSame(10.0, (float) $row['cv_firmados_pct']);
         }
+    }
+
+    private function commercialMetrics(
+        string $ownerKey,
+        string $ownerName,
+        string $ownerDelegation,
+        int $reservas,
+        int $caidas,
+        int $cvFirmados
+    ): void {
+        $ownerId = "005-$ownerKey";
+
+        $this->opportunities("006-$ownerKey-reserva", $reservas, [
+            'owner_id' => $ownerId,
+            'owner_name' => $ownerName,
+            'owner_delegation' => $ownerDelegation,
+            'stage_name' => 'Reserva',
+            'reservation' => true,
+        ]);
+        $this->opportunities("006-$ownerKey-caida", $caidas, [
+            'owner_id' => $ownerId,
+            'owner_name' => $ownerName,
+            'owner_delegation' => $ownerDelegation,
+            'stage_name' => 'Cerrada Perdida',
+        ]);
+        $this->opportunities("006-$ownerKey-cv", $cvFirmados, [
+            'owner_id' => $ownerId,
+            'owner_name' => $ownerName,
+            'owner_delegation' => $ownerDelegation,
+            'stage_name' => 'Contrato',
+            'reservation' => true,
+            'cv_signed' => true,
+        ]);
     }
 
     private function opportunities(string $prefix, int $count, array $attributes = []): void
@@ -95,7 +98,11 @@ class ReservasVentasOtherPercentagesStillByRowTest extends TestCase
             ], $attributes);
         }
 
-        SalesforceOpportunity::query()->insert($rows);
+        foreach (array_chunk($rows, 200) as $chunk) {
+            if ($chunk !== []) {
+                SalesforceOpportunity::query()->insert($chunk);
+            }
+        }
     }
 
     private function query(): string

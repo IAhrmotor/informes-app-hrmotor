@@ -7,7 +7,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
-class ReservasVentasPortalPercentagesGlobalTotalTest extends TestCase
+class ReservasVentasZeroColumnTotalTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -19,39 +19,20 @@ class ReservasVentasPortalPercentagesGlobalTotalTest extends TestCase
         config(['openai.enabled' => false]);
     }
 
-    public function test_portales_calculan_porcentajes_sobre_total_global_filtrado(): void
+    public function test_total_de_columna_cero_devuelve_porcentaje_cero_en_tablas(): void
     {
-        $this->opportunities('006-coches-reserva', 20, [
-            'portal_resolved' => 'Coches.net',
-            'stage_name' => 'Reserva',
-            'reservation' => true,
-        ]);
-        $this->opportunities('006-coches-caida', 10, [
-            'portal_resolved' => 'Coches.net',
-            'stage_name' => 'Cerrada Perdida',
-        ]);
-        $this->opportunities('006-coches-cv', 5, [
-            'portal_resolved' => 'Coches.net',
-            'stage_name' => 'Contrato',
-            'reservation' => true,
-            'cv_signed' => true,
-        ]);
-        $this->opportunities('006-coches-neutra', 65, ['portal_resolved' => 'Coches.net']);
-        $this->opportunities('006-web-neutra', 900, ['portal_resolved' => 'Web']);
+        $this->opportunities('006-web-neutra', 3, ['portal_resolved' => 'Web']);
+        $this->opportunities('006-coches-neutra', 2, ['portal_resolved' => 'Coches.net']);
 
         $row = collect($this->getJson('/informes/reservas-ventas/data/portals?'.$this->query())->json('items'))
-            ->firstWhere('portal', 'Coches.net');
+            ->firstWhere('portal', 'Web');
 
-        $this->assertSame(100, $row['oportunidades_totales']);
-        $this->assertSame(20, $row['reservas_vivas']);
-        $this->assertSame(10, $row['oportunidades_caidas']);
-        $this->assertSame(5, $row['cv_firmados']);
-        $this->assertSame(2.0, (float) $row['reservas_vivas_pct']);
-        $this->assertSame(1.0, (float) $row['oportunidades_caidas_pct']);
-        $this->assertSame(0.5, (float) $row['cv_firmados_pct']);
-        $this->assertNotSame(20.0, (float) $row['reservas_vivas_pct']);
-        $this->assertNotSame(10.0, (float) $row['oportunidades_caidas_pct']);
-        $this->assertNotSame(5.0, (float) $row['cv_firmados_pct']);
+        $this->assertSame(0, $row['reservas_vivas']);
+        $this->assertSame(0, $row['oportunidades_caidas']);
+        $this->assertSame(0, $row['cv_firmados']);
+        $this->assertSame(0.0, (float) $row['reservas_vivas_pct']);
+        $this->assertSame(0.0, (float) $row['oportunidades_caidas_pct']);
+        $this->assertSame(0.0, (float) $row['cv_firmados_pct']);
     }
 
     private function opportunities(string $prefix, int $count, array $attributes = []): void
@@ -79,7 +60,9 @@ class ReservasVentasPortalPercentagesGlobalTotalTest extends TestCase
             ], $attributes);
         }
 
-        SalesforceOpportunity::query()->insert($rows);
+        foreach (array_chunk($rows, 200) as $chunk) {
+            SalesforceOpportunity::query()->insert($chunk);
+        }
     }
 
     private function query(): string

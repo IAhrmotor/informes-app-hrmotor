@@ -51,7 +51,7 @@ class ReservationsSalesDashboardDatasetService
         $periods = $this->periods($filters);
 
         return Cache::remember(
-            'reservas-ventas-dashboard-v2:'.md5(json_encode([
+            'reservas-ventas-dashboard-v3:'.md5(json_encode([
                 'filters' => $filters,
                 'periods' => $this->periodPayloads($periods),
                 'version' => $this->dataVersion(),
@@ -119,7 +119,7 @@ class ReservationsSalesDashboardDatasetService
             'zones' => $this->finalizeGroups($zones, 'zone'),
             'delegations' => $this->finalizeGroups($delegations, 'commercial_delegation'),
             'commercials' => $this->finalizeGroups($commercials, 'comercial'),
-            'portals' => $this->finalizeGroups($portals, 'portal', $bucket['oportunidades_totales']),
+            'portals' => $this->finalizeGroups($portals, 'portal'),
         ];
     }
 
@@ -232,12 +232,12 @@ class ReservationsSalesDashboardDatasetService
         $this->addToBucket($groups[$key]['bucket'], $row);
     }
 
-    private function finalizeGroups(array $groups, string $labelKey, int|float|null $percentageTotal = null): array
+    private function finalizeGroups(array $groups, string $labelKey): array
     {
         $rows = [];
 
         foreach ($groups as $group) {
-            $rows[] = array_merge($group['extra'], $this->finalizeBucket($group['bucket'], $percentageTotal), [
+            $rows[] = array_merge($group['extra'], $group['bucket'], [
                 $labelKey => $group['label'],
                 'nombre' => $group['label'],
                 'comercial' => $group['label'],
@@ -245,14 +245,31 @@ class ReservationsSalesDashboardDatasetService
             ]);
         }
 
+        $rows = $this->applyColumnPercentages($rows);
+
         usort($rows, fn (array $a, array $b) => ($b['oportunidades_totales'] ?? 0) <=> ($a['oportunidades_totales'] ?? 0));
 
         return array_values($rows);
     }
 
-    private function finalizeBucket(array $bucket, int|float|null $percentageTotal = null): array
+    private function applyColumnPercentages(array $rows): array
     {
-        $total = $percentageTotal ?? $bucket['oportunidades_totales'];
+        $totals = [
+            'reservas_vivas' => array_sum(array_column($rows, 'reservas_vivas')),
+            'oportunidades_caidas' => array_sum(array_column($rows, 'oportunidades_caidas')),
+            'cv_firmados' => array_sum(array_column($rows, 'cv_firmados')),
+        ];
+
+        return array_map(fn (array $row) => array_merge($row, [
+            'reservas_vivas_pct' => $this->columnPercentage($row['reservas_vivas'], $totals['reservas_vivas']),
+            'oportunidades_caidas_pct' => $this->columnPercentage($row['oportunidades_caidas'], $totals['oportunidades_caidas']),
+            'cv_firmados_pct' => $this->columnPercentage($row['cv_firmados'], $totals['cv_firmados']),
+        ]), $rows);
+    }
+
+    private function finalizeBucket(array $bucket): array
+    {
+        $total = $bucket['oportunidades_totales'];
 
         return array_merge($bucket, [
             'reservas_vivas_pct' => $this->percentage($bucket['reservas_vivas'], $total),
@@ -351,6 +368,11 @@ class ReservationsSalesDashboardDatasetService
     private function percentage(int|float $value, int|float $total): ?float
     {
         return $total > 0 ? round(($value / $total) * 100, 2) : null;
+    }
+
+    private function columnPercentage(int|float $value, int|float $total): float
+    {
+        return $total > 0 ? round(($value / $total) * 100, 2) : 0.0;
     }
 
     private function parseDate(?string $value, CarbonImmutable $fallback): CarbonImmutable
