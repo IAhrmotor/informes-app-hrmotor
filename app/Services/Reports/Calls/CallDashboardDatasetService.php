@@ -16,6 +16,7 @@ class CallDashboardDatasetService
     public function __construct(
         private readonly CallMetricsAggregator $aggregator,
         private readonly LeadDelegationNormalizer $delegationNormalizer,
+        private readonly CallClassificationRules $rules,
     ) {
     }
 
@@ -32,6 +33,10 @@ class CallDashboardDatasetService
             'ok' => true,
             'teams' => $payload['teams'],
             'agents' => $payload['agents'],
+            'commercials' => $payload['commercials'],
+            'customer_service' => $payload['customer_service'],
+            'contact_center' => $payload['contact_center'],
+            'appraisers' => $payload['appraisers'],
             'items' => $payload['agents'],
         ];
     }
@@ -91,6 +96,10 @@ class CallDashboardDatasetService
             ],
             'teams' => $current['teams'],
             'agents' => $current['agents'],
+            'commercials' => $current['commercials'],
+            'customer_service' => $current['customer_service'],
+            'contact_center' => $current['contact_center'],
+            'appraisers' => $current['appraisers'],
             'zones' => $current['zones'],
             'delegations' => $current['delegations'],
             'portals' => $current['portals'],
@@ -107,10 +116,8 @@ class CallDashboardDatasetService
         $portals = [];
 
         $this->baseQuery($period)
-            ->when($filters['team'], fn (Builder $query) => $query->where('operational_team', $filters['team']))
             ->when($filters['direction'], fn (Builder $query) => $query->where('direction', $filters['direction']))
             ->when($filters['status'], fn (Builder $query) => $query->where('call_status', $filters['status']))
-            ->when($filters['origin'], fn (Builder $query) => $query->where('call_origin', $filters['origin']))
             ->when($filters['delegation'], fn (Builder $query) => $query->where('delegation', $filters['delegation']))
             ->when($filters['zone'], fn (Builder $query) => $query->where('zone', $filters['zone']))
             ->when($filters['portal'], fn (Builder $query) => $query->where('portal_resolved', $filters['portal']))
@@ -121,34 +128,51 @@ class CallDashboardDatasetService
                 });
             })
             ->orderBy('id')
-            ->chunkById(1000, function ($rows) use (&$bucket, &$teams, &$agents, &$zones, &$delegations, &$portals): void {
+            ->chunkById(1000, function ($rows) use ($filters, &$bucket, &$teams, &$agents, &$zones, &$delegations, &$portals): void {
                 foreach ($rows as $call) {
+                    if (! $this->matchesComputedFilters($call, $filters)) {
+                        continue;
+                    }
+
+                    $origin = $this->effectiveOrigin($call);
+                    $team = $this->effectiveTeam($call);
                     $this->aggregator->add($bucket, $call);
 
-                    $this->addGroup($teams, $call->operational_team ?: 'unclassified', $this->teamLabel($call->operational_team), [
-                        'team' => $call->operational_team ?: 'unclassified',
-                    ], $call);
-                    $this->addGroup($agents, ($call->operational_user_id ?: $call->operational_user_name) ?: 'unclassified', $call->operational_user_name ?: 'Sin clasificar', [
-                        'team' => $call->operational_team ?: 'unclassified',
-                        'team_label' => $this->teamLabel($call->operational_team),
-                        'delegation' => $call->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED,
-                        'zone' => $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED,
-                    ], $call);
-                    $this->addGroup($zones, $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED, $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED, [], $call);
-                    $this->addGroup($delegations, ($call->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED).'|'.($call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED), $call->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED, [
-                        'zone' => $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED,
-                    ], $call);
-                    $this->addGroup($portals, $call->portal_resolved ?: CallPortalNormalizer::UNCLASSIFIED, $call->portal_resolved ?: CallPortalNormalizer::UNCLASSIFIED, [
-                        'call_origin' => $call->call_origin ?: 'portal',
-                        'call_origin_label' => $this->originLabel($call->call_origin),
-                    ], $call);
+                    if ($this->rules->isOperationalTeam($team)) {
+                        $this->addGroup($teams, $team, $this->teamLabel($team), [
+                            'team' => $team,
+                        ], $call);
+                        $this->addGroup($agents, ($call->operational_user_id ?: $call->operational_user_name) ?: 'unclassified', $call->operational_user_name ?: 'Sin clasificar', [
+                            'team' => $team,
+                            'team_label' => $this->teamLabel($team),
+                            'delegation' => $call->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED,
+                            'zone' => $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED,
+                        ], $call);
+                        $this->addGroup($zones, $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED, $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED, [], $call);
+                        $this->addGroup($delegations, ($call->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED).'|'.($call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED), $call->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED, [
+                            'zone' => $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED,
+                        ], $call);
+                    }
+
+                    if ($origin === 'portal') {
+                        $this->addGroup($portals, $call->portal_resolved ?: CallPortalNormalizer::UNCLASSIFIED, $call->portal_resolved ?: CallPortalNormalizer::UNCLASSIFIED, [
+                            'call_origin' => 'portal',
+                            'call_origin_label' => $this->originLabel('portal'),
+                        ], $call);
+                    }
                 }
             });
+
+        $agents = $this->finalizeGroups($agents, 'user_name');
 
         return [
             'bucket' => $this->aggregator->finalize($bucket),
             'teams' => $this->finalizeGroups($teams, 'team_label'),
-            'agents' => $this->finalizeGroups($agents, 'user_name'),
+            'agents' => $agents,
+            'commercials' => $this->filterAgentsByTeam($agents, 'commercial'),
+            'customer_service' => $this->filterAgentsByTeam($agents, 'customer_service'),
+            'contact_center' => $this->filterAgentsByTeam($agents, 'contact_center'),
+            'appraisers' => $this->filterAgentsByTeam($agents, 'appraiser'),
             'zones' => $this->finalizeGroups($zones, 'zone'),
             'delegations' => $this->finalizeGroups($delegations, 'delegation'),
             'portals' => $this->finalizeGroups($portals, 'portal'),
@@ -160,6 +184,33 @@ class CallDashboardDatasetService
         return SalesforceCall::query()
             ->where('created_date', '>=', $period['start'])
             ->where('created_date', '<', $period['end']);
+    }
+
+    private function matchesComputedFilters(SalesforceCall $call, array $filters): bool
+    {
+        if ($filters['team'] && $this->effectiveTeam($call) !== $filters['team']) {
+            return false;
+        }
+
+        if ($filters['origin'] && $this->effectiveOrigin($call) !== $filters['origin']) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function effectiveTeam(SalesforceCall $call): string
+    {
+        return $this->rules->effectiveTeam(
+            $call->operational_team,
+            $call->operational_user_name ?: $call->owner_name,
+            $call->owner_profile_name,
+        );
+    }
+
+    private function effectiveOrigin(SalesforceCall $call): string
+    {
+        return $this->rules->effectiveOrigin($call->call_origin, $call->portales_raw);
     }
 
     private function addGroup(array &$groups, string $key, string $label, array $extra, SalesforceCall $call): void
@@ -187,6 +238,11 @@ class CallDashboardDatasetService
         usort($rows, fn (array $a, array $b) => ($b['total_calls'] ?? 0) <=> ($a['total_calls'] ?? 0));
 
         return array_values($rows);
+    }
+
+    private function filterAgentsByTeam(array $agents, string $team): array
+    {
+        return array_values(array_filter($agents, fn (array $agent) => ($agent['team'] ?? null) === $team));
     }
 
     private function comparison(array $current, array $previous): array
@@ -227,6 +283,11 @@ class CallDashboardDatasetService
 
     private function filters(Request $request): array
     {
+        $origin = $request->string('origin')->toString();
+        if ($origin === 'switchboard') {
+            $origin = 'commercial_direct';
+        }
+
         return [
             'period' => $request->string('period')->toString() ?: 'last_30_days',
             'current_start' => $request->string('current_start')->toString(),
@@ -236,7 +297,7 @@ class CallDashboardDatasetService
             'team' => $request->string('team')->toString(),
             'direction' => $request->string('direction')->toString(),
             'status' => $request->string('status')->toString(),
-            'origin' => $request->string('origin')->toString(),
+            'origin' => $origin,
             'delegation' => $request->string('delegation')->toString(),
             'zone' => $request->string('zone')->toString(),
             'portal' => $request->string('portal')->toString(),
@@ -287,7 +348,7 @@ class CallDashboardDatasetService
     private function filterOptions(): array
     {
         return [
-            'teams' => collect(['commercial', 'customer_service', 'contact_center', 'system', 'unclassified'])
+            'teams' => collect(['commercial', 'customer_service', 'contact_center', 'appraiser', 'system'])
                 ->map(fn (string $id) => ['id' => $id, 'name' => $this->teamLabel($id)])
                 ->all(),
             'directions' => [
@@ -300,8 +361,7 @@ class CallDashboardDatasetService
                 ['id' => 'not_answered', 'name' => 'No atendida'],
             ],
             'origins' => [
-                ['id' => 'commercial_direct', 'name' => 'Comercial directo'],
-                ['id' => 'switchboard', 'name' => 'Centralita'],
+                ['id' => 'commercial_direct', 'name' => 'Llamada directa a comercial'],
                 ['id' => 'portal', 'name' => 'Portal / Procedencia'],
             ],
             'delegations' => $this->sortLabels(SalesforceCall::query()->distinct()->pluck('delegation')->filter()->all()),
@@ -309,17 +369,29 @@ class CallDashboardDatasetService
                 ->merge(SalesforceCall::query()->distinct()->pluck('zone'))
                 ->filter()
                 ->all()),
-            'portals' => $this->sortLabels(SalesforceCall::query()->distinct()->pluck('portal_resolved')->filter()->all()),
+            'portals' => $this->sortLabels(SalesforceCall::query()
+                ->where('call_origin', 'portal')
+                ->distinct()
+                ->pluck('portal_resolved')
+                ->reject(fn ($portal) => in_array($portal, [CallPortalNormalizer::COMMERCIAL_DIRECT, 'Llamada directa'], true))
+                ->filter()
+                ->all()),
             'users' => SalesforceCall::query()
-                ->select(['operational_user_id', 'operational_user_name'])
+                ->select(['operational_user_id', 'operational_user_name', 'operational_team', 'owner_name', 'owner_profile_name'])
                 ->whereNotNull('operational_user_name')
                 ->distinct()
                 ->orderBy('operational_user_name')
                 ->get()
+                ->filter(fn (SalesforceCall $call) => $this->rules->isOperationalTeam($this->rules->effectiveTeam(
+                    $call->operational_team,
+                    $call->operational_user_name,
+                    $call->owner_profile_name,
+                )))
                 ->map(fn (SalesforceCall $call) => [
                     'id' => $call->operational_user_id ?: $call->operational_user_name,
                     'name' => $call->operational_user_name,
                 ])
+                ->unique('id')
                 ->values()
                 ->all(),
         ];
@@ -341,6 +413,7 @@ class CallDashboardDatasetService
             'commercial' => 'Comerciales',
             'customer_service' => 'Atencion al Cliente',
             'contact_center' => 'Contact Center',
+            'appraiser' => 'Tasadores',
             'system' => 'Sistema / Sin agente',
             default => 'Sin clasificar',
         };
@@ -349,8 +422,7 @@ class CallDashboardDatasetService
     private function originLabel(?string $origin): string
     {
         return match ($origin) {
-            'commercial_direct' => 'Comercial directo',
-            'switchboard' => 'Centralita',
+            'commercial_direct' => 'Llamada directa a comercial',
             default => 'Portal / Procedencia',
         };
     }

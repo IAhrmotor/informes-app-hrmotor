@@ -49,6 +49,7 @@ class CallDashboardEndpointTest extends TestCase
             'owner_team' => 'commercial',
             'delegation' => 'Alcobendas',
             'zone' => 'Zona Sur y Centro',
+            'portales_raw' => 'Web',
             'call_origin' => 'portal',
             'portal_resolved' => 'Web',
             'call_status' => 'answered',

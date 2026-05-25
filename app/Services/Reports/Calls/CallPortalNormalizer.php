@@ -7,7 +7,6 @@ use Illuminate\Support\Str;
 class CallPortalNormalizer
 {
     public const COMMERCIAL_DIRECT = 'Comercial directo';
-    public const SWITCHBOARD = 'Llamada directa';
     public const UNCLASSIFIED = 'Sin clasificar';
 
     public function normalize(?string $value): array
@@ -21,7 +20,7 @@ class CallPortalNormalizer
         $key = $this->key($raw);
 
         if ($key === 'llamada directa') {
-            return $this->result($raw, self::SWITCHBOARD, 'switchboard', 'switchboard');
+            return $this->result($raw, self::COMMERCIAL_DIRECT, 'commercial_direct', 'commercial_direct');
         }
 
         return $this->result($raw, $this->portalForKey($key), 'portal', 'portales_field');

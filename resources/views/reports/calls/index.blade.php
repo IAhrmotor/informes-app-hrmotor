@@ -141,33 +141,8 @@
             <section class="card panel">
                 <div class="panel-title">
                     <div>
-                        <h2>Equipos</h2>
-                        <div class="small">Comerciales, Atencion al Cliente, Contact Center y sistema</div>
-                    </div>
-                </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                        <tr>
-                            <th>Equipo</th>
-                            <th class="num">Total llamadas</th>
-                            <th class="num">Atendidas</th>
-                            <th class="num">No atendidas/perdidas</th>
-                            <th class="num">Entrantes</th>
-                            <th class="num">Salientes</th>
-                            <th class="num">Tiempo medio conversacion</th>
-                        </tr>
-                        </thead>
-                        <tbody id="teamRows"></tbody>
-                    </table>
-                </div>
-            </section>
-
-            <section class="card panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Usuarios / agentes</h2>
-                        <div class="small">Responsable operativo resuelto desde agente destino u owner</div>
+                        <h2>Comerciales</h2>
+                        <div class="small">Llamadas asignadas a comerciales</div>
                     </div>
                 </div>
                 <div class="table-wrap">
@@ -175,7 +150,6 @@
                         <thead>
                         <tr>
                             <th>Usuario/agente</th>
-                            <th>Equipo</th>
                             <th>Delegacion</th>
                             <th>Zona</th>
                             <th class="num">Total llamadas</th>
@@ -186,7 +160,88 @@
                             <th class="num">Tiempo medio conversacion</th>
                         </tr>
                         </thead>
-                        <tbody id="agentRows"></tbody>
+                        <tbody id="commercialRows"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Atencion al Cliente</h2>
+                        <div class="small">Agentes de atencion y casos especiales clasificados</div>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Usuario/agente</th>
+                            <th>Delegacion</th>
+                            <th>Zona</th>
+                            <th class="num">Total llamadas</th>
+                            <th class="num">Atendidas</th>
+                            <th class="num">No atendidas/perdidas</th>
+                            <th class="num">Entrantes</th>
+                            <th class="num">Salientes</th>
+                            <th class="num">Tiempo medio conversacion</th>
+                        </tr>
+                        </thead>
+                        <tbody id="customerServiceRows"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Contact Center</h2>
+                        <div class="small">Agentes de contact center detectados por mapping</div>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Usuario/agente</th>
+                            <th>Delegacion</th>
+                            <th>Zona</th>
+                            <th class="num">Total llamadas</th>
+                            <th class="num">Atendidas</th>
+                            <th class="num">No atendidas/perdidas</th>
+                            <th class="num">Entrantes</th>
+                            <th class="num">Salientes</th>
+                            <th class="num">Tiempo medio conversacion</th>
+                        </tr>
+                        </thead>
+                        <tbody id="contactCenterRows"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Tasadores</h2>
+                        <div class="small">Usuarios operativos no clasificados como comerciales o agentes</div>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Usuario/agente</th>
+                            <th>Delegacion</th>
+                            <th>Zona</th>
+                            <th class="num">Total llamadas</th>
+                            <th class="num">Atendidas</th>
+                            <th class="num">No atendidas/perdidas</th>
+                            <th class="num">Entrantes</th>
+                            <th class="num">Salientes</th>
+                            <th class="num">Tiempo medio conversacion</th>
+                        </tr>
+                        </thead>
+                        <tbody id="appraiserRows"></tbody>
                     </table>
                 </div>
             </section>
@@ -258,7 +313,6 @@
                         <thead>
                         <tr>
                             <th>Portal / Procedencia</th>
-                            <th>Origen llamada</th>
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>

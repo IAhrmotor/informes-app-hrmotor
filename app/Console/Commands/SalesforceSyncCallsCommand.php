@@ -49,7 +49,6 @@ class SalesforceSyncCallsCommand extends Command
             $this->line('Entrantes: '.$stats['inbound']);
             $this->line('Salientes: '.$stats['outbound']);
             $this->line('Comercial directo: '.$stats['commercial_direct']);
-            $this->line('Centralita: '.$stats['switchboard']);
             $this->line('Portal/procedencia: '.$stats['portal']);
 
             foreach ($stats['teams'] as $team => $total) {

@@ -13,7 +13,6 @@ class CallDurationAdjustmentTest extends TestCase
         $service = app(SalesforceCallSyncService::class);
 
         $this->assertSame(75, $service->adjustedDuration(80, 'commercial_direct'));
-        $this->assertSame(70, $service->adjustedDuration(80, 'switchboard'));
         $this->assertSame(70, $service->adjustedDuration(80, 'portal'));
         $this->assertSame(0, $service->adjustedDuration(4, 'commercial_direct'));
         $this->assertSame(0, $service->adjustedDuration(4, 'portal'));

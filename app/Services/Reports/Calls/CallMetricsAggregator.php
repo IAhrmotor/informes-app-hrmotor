@@ -4,12 +4,16 @@ namespace App\Services\Reports\Calls;
 
 class CallMetricsAggregator
 {
+    public function __construct(
+        private readonly CallClassificationRules $rules,
+    ) {
+    }
+
     public function emptyBucket(): array
     {
         return [
             'total_calls' => 0,
             'commercial_direct_calls' => 0,
-            'switchboard_calls' => 0,
             'portal_calls' => 0,
             'answered' => 0,
             'not_answered' => 0,
@@ -19,6 +23,7 @@ class CallMetricsAggregator
             'answered_commercial' => 0,
             'answered_customer_service' => 0,
             'answered_contact_center' => 0,
+            'answered_appraiser' => 0,
             'adjusted_duration_answered_sum' => 0,
             'answered_duration_count' => 0,
         ];
@@ -26,14 +31,17 @@ class CallMetricsAggregator
 
     public function add(array &$bucket, mixed $call): void
     {
-        $origin = (string) data_get($call, 'call_origin', 'portal');
+        $origin = $this->rules->effectiveOrigin(data_get($call, 'call_origin'), data_get($call, 'portales_raw'));
         $direction = (string) data_get($call, 'direction', 'unknown');
-        $team = (string) data_get($call, 'operational_team', 'unclassified');
+        $team = $this->rules->effectiveTeam(
+            data_get($call, 'operational_team'),
+            data_get($call, 'operational_user_name'),
+            data_get($call, 'owner_profile_name'),
+        );
         $isAnswered = (bool) data_get($call, 'is_answered', false);
 
         $bucket['total_calls']++;
         $bucket['commercial_direct_calls'] += $origin === 'commercial_direct' ? 1 : 0;
-        $bucket['switchboard_calls'] += $origin === 'switchboard' ? 1 : 0;
         $bucket['portal_calls'] += $origin === 'portal' ? 1 : 0;
         $bucket['answered'] += $isAnswered ? 1 : 0;
         $bucket['not_answered'] += $isAnswered ? 0 : 1;
@@ -43,6 +51,7 @@ class CallMetricsAggregator
         $bucket['answered_commercial'] += $isAnswered && $team === 'commercial' ? 1 : 0;
         $bucket['answered_customer_service'] += $isAnswered && $team === 'customer_service' ? 1 : 0;
         $bucket['answered_contact_center'] += $isAnswered && $team === 'contact_center' ? 1 : 0;
+        $bucket['answered_appraiser'] += $isAnswered && $team === 'appraiser' ? 1 : 0;
 
         if ($isAnswered) {
             $bucket['adjusted_duration_answered_sum'] += max(0, (int) data_get($call, 'adjusted_duration_seconds', 0));

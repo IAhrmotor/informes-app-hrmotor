@@ -76,4 +76,17 @@ class CallAgentResolverTest extends TestCase
         $this->assertSame('Alcobendas', $commercial['delegation']);
         $this->assertSame('Zona Sur y Centro', $commercial['zone']);
     }
+
+    public function test_resuelve_tasadores_y_casos_especiales_de_atencion_al_cliente(): void
+    {
+        $resolver = app(CallAgentResolver::class);
+
+        $appraiser = $resolver->resolve(['id' => '005-appraiser', 'name' => 'Tasador Uno', 'profile_name' => 'Standard User'], [], 'commercial_direct');
+        $this->assertSame('appraiser', $appraiser['operational_team']);
+
+        foreach (['Vanessa SanJuan', 'Vanessa San Juan', 'Vanesa SanJuan', 'Vanesa San Juan', 'Callcenter Fontellas', 'Call Center Fontellas'] as $name) {
+            $resolved = $resolver->resolve(['id' => '005-special-'.$name, 'name' => $name, 'profile_name' => 'Standard User'], [], 'commercial_direct');
+            $this->assertSame('customer_service', $resolved['operational_team']);
+        }
+    }
 }

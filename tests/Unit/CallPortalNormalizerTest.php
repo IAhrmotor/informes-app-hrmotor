@@ -13,7 +13,7 @@ class CallPortalNormalizerTest extends TestCase
 
         $cases = [
             [null, 'Comercial directo', 'commercial_direct'],
-            ['Llamada directa', 'Llamada directa', 'switchboard'],
+            ['Llamada directa', 'Comercial directo', 'commercial_direct'],
             ['Web Alcobendas', 'Web', 'portal'],
             ['Web Rivas', 'Web', 'portal'],
             ['Web San Sebastian', 'Web', 'portal'],
