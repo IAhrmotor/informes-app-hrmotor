@@ -83,7 +83,7 @@ class SalesforceCallSyncServiceTest extends TestCase
         $this->assertSame('inbound', $call->direction);
         $this->assertSame(70, $call->adjusted_duration_seconds);
         $this->assertSame('contact_center', $call->operational_team);
-        $this->assertSame('Alcobendas', $call->delegation);
-        $this->assertSame('Zona Sur y Centro', $call->zone);
+        $this->assertSame('Contact Center', $call->delegation);
+        $this->assertSame('Contact Center', $call->zone);
     }
 }

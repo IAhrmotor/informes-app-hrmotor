@@ -14,7 +14,11 @@ class CallMetricsAggregator
         return [
             'total_calls' => 0,
             'commercial_direct_calls' => 0,
+            'commercial_direct_answered' => 0,
+            'commercial_direct_lost' => 0,
             'portal_calls' => 0,
+            'portal_answered' => 0,
+            'portal_lost' => 0,
             'answered' => 0,
             'not_answered' => 0,
             'inbound' => 0,
@@ -38,13 +42,18 @@ class CallMetricsAggregator
             data_get($call, 'operational_user_name'),
             data_get($call, 'owner_profile_name'),
         );
-        $isAnswered = (bool) data_get($call, 'is_answered', false);
+        $isAnswered = data_get($call, 'call_status') === 'answered' || (bool) data_get($call, 'is_answered', false);
+        $isLost = ! $isAnswered || data_get($call, 'call_status') === 'not_answered' || (bool) data_get($call, 'is_lost', false);
 
         $bucket['total_calls']++;
         $bucket['commercial_direct_calls'] += $origin === 'commercial_direct' ? 1 : 0;
+        $bucket['commercial_direct_answered'] += $origin === 'commercial_direct' && $isAnswered ? 1 : 0;
+        $bucket['commercial_direct_lost'] += $origin === 'commercial_direct' && $isLost ? 1 : 0;
         $bucket['portal_calls'] += $origin === 'portal' ? 1 : 0;
+        $bucket['portal_answered'] += $origin === 'portal' && $isAnswered ? 1 : 0;
+        $bucket['portal_lost'] += $origin === 'portal' && $isLost ? 1 : 0;
         $bucket['answered'] += $isAnswered ? 1 : 0;
-        $bucket['not_answered'] += $isAnswered ? 0 : 1;
+        $bucket['not_answered'] += $isLost ? 1 : 0;
         $bucket['inbound'] += $direction === 'inbound' ? 1 : 0;
         $bucket['outbound'] += $direction === 'outbound' ? 1 : 0;
         $bucket['unknown_direction'] += $direction === 'unknown' ? 1 : 0;
@@ -65,8 +74,14 @@ class CallMetricsAggregator
         $durationCount = $bucket['answered_duration_count'];
 
         return array_merge($bucket, [
+            'answered_calls' => $bucket['answered'],
+            'lost_calls' => $bucket['not_answered'],
             'answered_pct' => $this->percentage($bucket['answered'], $total),
             'not_answered_pct' => $this->percentage($bucket['not_answered'], $total),
+            'commercial_direct_answered_pct' => $this->percentage($bucket['commercial_direct_answered'], $bucket['commercial_direct_calls']),
+            'commercial_direct_lost_pct' => $this->percentage($bucket['commercial_direct_lost'], $bucket['commercial_direct_calls']),
+            'portal_answered_pct' => $this->percentage($bucket['portal_answered'], $bucket['portal_calls']),
+            'portal_lost_pct' => $this->percentage($bucket['portal_lost'], $bucket['portal_calls']),
             'inbound_pct' => $this->percentage($bucket['inbound'], $total),
             'outbound_pct' => $this->percentage($bucket['outbound'], $total),
             'average_talk_seconds' => $durationCount > 0

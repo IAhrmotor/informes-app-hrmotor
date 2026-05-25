@@ -130,10 +130,8 @@ class CallsUpdatedDashboardBehaviorTest extends TestCase
             ->all();
 
         $this->assertContains('Vanessa SanJuan', $names);
-        $this->assertContains('Vanessa San Juan', $names);
-        $this->assertContains('Vanesa SanJuan', $names);
         $this->assertContains('Callcenter Fontellas', $names);
-        $this->assertContains('Call Center Fontellas', $names);
+        $this->assertCount(2, $names);
     }
 
     public function test_usuarios_sistema_cuentan_en_summary_pero_no_en_tablas_operativas(): void
@@ -155,11 +153,15 @@ class CallsUpdatedDashboardBehaviorTest extends TestCase
             ->assertJsonPath('kpis.total_calls', 4);
 
         $agents = collect($this->getJson('/informes/llamadas/data/agents')->assertOk()->json('agents'))->pluck('user_name');
+        $zones = $this->getJson('/informes/llamadas/data/delegations')->assertOk()->json('zones');
+        $delegations = $this->getJson('/informes/llamadas/data/delegations')->assertOk()->json('delegations');
 
         $this->assertFalse($agents->contains('Carlos Torres'));
         $this->assertFalse($agents->contains('Platform Integration User'));
         $this->assertFalse($agents->contains('API User'));
         $this->assertFalse($agents->contains('Administrador'));
+        $this->assertEmpty($zones);
+        $this->assertEmpty($delegations);
     }
 
     public function test_filtro_origen_soporta_comercial_portal_y_switchboard_legacy(): void
@@ -191,6 +193,155 @@ class CallsUpdatedDashboardBehaviorTest extends TestCase
         $this->getJson('/informes/llamadas/data/summary?origin=switchboard')
             ->assertOk()
             ->assertJsonPath('kpis.total_calls', 2);
+    }
+
+    public function test_atencion_y_contact_center_aparecen_como_zonas_y_delegaciones_propias(): void
+    {
+        $this->callRow('customer-service', [
+            'operational_user_name' => 'Carolina Gayarre',
+            'operational_team' => 'customer_service',
+            'delegation' => 'Sin clasificar',
+            'zone' => 'Sin clasificar',
+        ]);
+        $this->callRow('contact-center', [
+            'operational_user_name' => 'Vanesa German',
+            'operational_team' => 'contact_center',
+            'delegation' => 'Sin clasificar',
+            'zone' => 'Sin clasificar',
+        ]);
+
+        $payload = $this->getJson('/informes/llamadas/data/delegations')->assertOk()->json();
+        $zones = collect($payload['zones'])->pluck('zone');
+        $delegations = collect($payload['delegations'])->pluck('delegation');
+
+        $this->assertTrue($zones->contains('Atención al Cliente'));
+        $this->assertTrue($zones->contains('Contact Center'));
+        $this->assertTrue($delegations->contains('Atención al Cliente'));
+        $this->assertTrue($delegations->contains('Contact Center'));
+        $this->assertFalse($zones->contains('Sin clasificar'));
+        $this->assertFalse($delegations->contains('Sin clasificar'));
+    }
+
+    public function test_deduplica_contact_center_por_nombre_normalizado(): void
+    {
+        foreach (['Vanesa German', 'Vanesa Germán', 'AG1 - Vanesa Germán'] as $index => $name) {
+            $this->callRow('vanesa-'.$index, [
+                'operational_user_name' => $name,
+                'destination_agent_name' => $name,
+                'operational_team' => 'contact_center',
+                'adjusted_duration_seconds' => 30,
+            ]);
+        }
+
+        foreach (['Yuleidis Garcia', 'Yuleidis García', 'AG23 - Yuleidis García'] as $index => $name) {
+            $this->callRow('yuleidis-'.$index, [
+                'operational_user_name' => $name,
+                'destination_agent_name' => $name,
+                'operational_team' => 'contact_center',
+                'adjusted_duration_seconds' => 60,
+            ]);
+        }
+
+        $rows = collect($this->getJson('/informes/llamadas/data/agents')->assertOk()->json('contact_center'));
+
+        $this->assertCount(2, $rows);
+        $this->assertSame(3, $rows->firstWhere('user_name', 'Vanesa German')['total_calls']);
+        $this->assertSame(3, $rows->firstWhere('user_name', 'Yuleidis Garcia')['total_calls']);
+        $this->assertEquals(30.0, $rows->firstWhere('user_name', 'Vanesa German')['average_talk_seconds']);
+        $this->assertEquals(60.0, $rows->firstWhere('user_name', 'Yuleidis Garcia')['average_talk_seconds']);
+    }
+
+    public function test_summary_devuelve_atendidas_y_perdidas_por_origen(): void
+    {
+        foreach (range(1, 10) as $index) {
+            $this->callRow('direct-answered-'.$index, [
+                'portales_raw' => null,
+                'call_origin' => 'commercial_direct',
+                'call_status' => 'answered',
+                'is_answered' => true,
+                'is_lost' => false,
+            ]);
+        }
+        foreach (range(1, 5) as $index) {
+            $this->callRow('direct-lost-'.$index, [
+                'portales_raw' => 'Llamada directa',
+                'call_origin' => 'switchboard',
+                'call_status' => 'not_answered',
+                'is_answered' => false,
+                'is_lost' => true,
+            ]);
+        }
+        foreach (range(1, 7) as $index) {
+            $this->callRow('portal-answered-'.$index, [
+                'portales_raw' => 'Web Pamplona',
+                'call_origin' => 'portal',
+                'portal_resolved' => 'Web',
+                'call_status' => 'answered',
+                'is_answered' => true,
+                'is_lost' => false,
+            ]);
+        }
+        foreach (range(1, 3) as $index) {
+            $this->callRow('portal-lost-'.$index, [
+                'portales_raw' => 'Google Maps Gijón',
+                'call_origin' => 'portal',
+                'portal_resolved' => 'Google Maps',
+                'call_status' => 'not_answered',
+                'is_answered' => false,
+                'is_lost' => true,
+            ]);
+        }
+
+        $kpis = $this->getJson('/informes/llamadas/data/summary')->assertOk()->json('kpis');
+
+        $this->assertSame(25, $kpis['total_calls']);
+        $this->assertSame(17, $kpis['answered_calls']);
+        $this->assertSame(8, $kpis['lost_calls']);
+        $this->assertSame(15, $kpis['commercial_direct_calls']);
+        $this->assertSame(10, $kpis['commercial_direct_answered']);
+        $this->assertSame(5, $kpis['commercial_direct_lost']);
+        $this->assertSame(10, $kpis['portal_calls']);
+        $this->assertSame(7, $kpis['portal_answered']);
+        $this->assertSame(3, $kpis['portal_lost']);
+    }
+
+    public function test_filtro_zona_incluye_equipos_de_servicio(): void
+    {
+        $this->callRow('customer-service', [
+            'operational_user_name' => 'Carolina Gayarre',
+            'operational_team' => 'customer_service',
+            'delegation' => 'Sin clasificar',
+            'zone' => 'Sin clasificar',
+        ]);
+        $this->callRow('contact-center', [
+            'operational_user_name' => 'Vanesa German',
+            'operational_team' => 'contact_center',
+            'delegation' => 'Sin clasificar',
+            'zone' => 'Sin clasificar',
+        ]);
+
+        $this->getJson('/informes/llamadas/data/delegations?zone='.urlencode('Atención al Cliente'))
+            ->assertOk()
+            ->assertJsonPath('zones.0.zone', 'Atención al Cliente')
+            ->assertJsonCount(1, 'zones');
+
+        $this->getJson('/informes/llamadas/data/delegations?zone=Contact+Center')
+            ->assertOk()
+            ->assertJsonPath('zones.0.zone', 'Contact Center')
+            ->assertJsonCount(1, 'zones');
+    }
+
+    public function test_no_muestra_centralita_ni_switchboard_en_front_o_filtros(): void
+    {
+        $this->get('/informes/llamadas')
+            ->assertOk()
+            ->assertDontSee('Centralita')
+            ->assertDontSee('switchboard');
+
+        $origins = collect($this->getJson('/informes/llamadas/data/summary')->assertOk()->json('filters.origins'));
+
+        $this->assertFalse($origins->pluck('name')->contains('Centralita'));
+        $this->assertFalse($origins->pluck('id')->contains('switchboard'));
     }
 
     private function callRow(string $id, array $overrides = []): void

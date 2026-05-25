@@ -3,25 +3,33 @@
 namespace App\Console\Commands;
 
 use App\Models\SalesforceCall;
+use App\Models\SalesforceUser;
 use App\Services\Reports\Calls\CallClassificationRules;
 use App\Services\Reports\Calls\CallPortalNormalizer;
+use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use Illuminate\Console\Command;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 
 class ReprocessCallsClassificationCommand extends Command
 {
     protected $signature = 'reports:reprocess-calls-classification';
 
-    protected $description = 'Recalcula origen, portal y equipo operativo de llamadas ya sincronizadas.';
+    protected $description = 'Recalcula origen, portal, equipo operativo, delegacion y zona de llamadas ya sincronizadas.';
 
-    public function handle(CallPortalNormalizer $portalNormalizer, CallClassificationRules $rules): int
+    public function handle(
+        CallPortalNormalizer $portalNormalizer,
+        CallClassificationRules $rules,
+        LeadDelegationNormalizer $delegationNormalizer,
+    ): int
     {
         $before = $this->originCounts();
         $updated = 0;
+        $users = $this->salesforceUsers();
 
         SalesforceCall::query()
             ->orderBy('id')
-            ->chunkById(1000, function ($calls) use ($portalNormalizer, $rules, &$updated): void {
+            ->chunkById(1000, function ($calls) use ($portalNormalizer, $rules, $delegationNormalizer, $users, &$updated): void {
                 foreach ($calls as $call) {
                     $portal = $portalNormalizer->normalize($call->portales_raw);
                     $origin = $portal['origin'];
@@ -29,21 +37,27 @@ class ReprocessCallsClassificationCommand extends Command
                         ? (int) $call->call_duration_seconds
                         : (int) $call->parsed_duration_seconds;
 
+                    $team = $rules->effectiveTeam(
+                        $call->operational_team,
+                        $call->operational_user_name ?: $call->owner_name,
+                        $call->owner_profile_name,
+                    );
+                    $ownerTeam = $rules->effectiveTeam(
+                        $call->owner_team,
+                        $call->owner_name,
+                        $call->owner_profile_name,
+                    );
+                    $delegationZone = $this->delegationZone($call, $team, $users, $delegationNormalizer, $rules);
+
                     $call->forceFill([
                         'call_origin' => $origin,
                         'portal_resolved' => $portal['portal'],
                         'portal_resolution_source' => $portal['source'],
                         'adjusted_duration_seconds' => max(0, $duration - ($origin === 'commercial_direct' ? 5 : 10)),
-                        'operational_team' => $rules->effectiveTeam(
-                            $call->operational_team,
-                            $call->operational_user_name ?: $call->owner_name,
-                            $call->owner_profile_name,
-                        ),
-                        'owner_team' => $rules->effectiveTeam(
-                            $call->owner_team,
-                            $call->owner_name,
-                            $call->owner_profile_name,
-                        ),
+                        'operational_team' => $team,
+                        'owner_team' => $ownerTeam,
+                        'delegation' => $delegationZone['delegation'],
+                        'zone' => $delegationZone['zone'],
                     ])->save();
 
                     $updated++;
@@ -63,8 +77,33 @@ class ReprocessCallsClassificationCommand extends Command
                 $after[$origin] ?? 0,
             ])
             ->all());
+        $this->newLine();
+        $this->table(['Equipo', 'Total'], $this->teamCounts());
+        $this->line('Delegacion Sin clasificar restante: '.SalesforceCall::query()->where('delegation', LeadDelegationNormalizer::UNCLASSIFIED)->count());
+        $this->line('Zona Sin clasificar restante: '.SalesforceCall::query()->where('zone', LeadDelegationNormalizer::UNCLASSIFIED)->count());
 
         return self::SUCCESS;
+    }
+
+    private function delegationZone(
+        SalesforceCall $call,
+        string $team,
+        Collection $users,
+        LeadDelegationNormalizer $delegationNormalizer,
+        CallClassificationRules $rules,
+    ): array {
+        if (in_array($team, ['customer_service', 'contact_center'], true)) {
+            return $rules->effectiveDelegationZone($team, null, null);
+        }
+
+        $user = $users->get($call->operational_user_id) ?: $users->get($call->owner_id);
+        $normalized = $delegationNormalizer->normalize(data_get($user, 'user_delegation'));
+
+        return $rules->effectiveDelegationZone(
+            $team,
+            $normalized['delegation'] ?? $call->delegation,
+            $normalized['zone'] ?? $call->zone,
+        );
     }
 
     private function originCounts(): array
@@ -90,6 +129,28 @@ class ReprocessCallsClassificationCommand extends Command
             'switchboard' => (int) ($counts['switchboard'] ?? 0),
             'otros' => $others,
         ];
+    }
+
+    private function teamCounts(): array
+    {
+        return SalesforceCall::query()
+            ->selectRaw('operational_team, count(*) as total')
+            ->groupBy('operational_team')
+            ->pluck('total', 'operational_team')
+            ->pipe(fn ($counts) => collect(['commercial', 'customer_service', 'contact_center', 'appraiser', 'system', 'unclassified'])
+                ->map(fn (string $team) => [$team, (int) ($counts[$team] ?? 0)])
+                ->all());
+    }
+
+    private function salesforceUsers(): Collection
+    {
+        return SalesforceUser::query()
+            ->get()
+            ->keyBy('salesforce_id')
+            ->map(fn (SalesforceUser $user) => [
+                'salesforce_id' => $user->salesforce_id,
+                'user_delegation' => $user->user_delegation,
+            ]);
     }
 
     private function invalidateDashboardCache(): void

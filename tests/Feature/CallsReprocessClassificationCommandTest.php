@@ -69,6 +69,8 @@ class CallsReprocessClassificationCommandTest extends TestCase
         $this->assertSame('portal', $portal->call_origin);
         $this->assertSame('Web', $portal->portal_resolved);
         $this->assertSame('customer_service', $portal->operational_team);
+        $this->assertSame('Atención al Cliente', $portal->delegation);
+        $this->assertSame('Atención al Cliente', $portal->zone);
         $this->assertSame(0, SalesforceCall::where('call_origin', 'switchboard')->count());
         $this->assertGreaterThan(1, Cache::get('salesforce_calls_dashboard_cache_version'));
     }

@@ -37,8 +37,8 @@ class CallDashboardFiltersTest extends TestCase
             'direction' => 'inbound',
             'call_status' => 'answered',
             'call_origin' => 'portal',
-            'delegation' => 'Alcobendas',
-            'zone' => 'Zona Sur y Centro',
+            'delegation' => 'Contact Center',
+            'zone' => 'Contact Center',
             'portal_resolved' => 'Web',
         ]);
         $this->callRow('00T-other', [
@@ -66,8 +66,8 @@ class CallDashboardFiltersTest extends TestCase
             'direction' => 'inbound',
             'status' => 'answered',
             'origin' => 'portal',
-            'delegation' => 'Alcobendas',
-            'zone' => 'Zona Sur y Centro',
+            'delegation' => 'Contact Center',
+            'zone' => 'Contact Center',
             'portal' => 'Web',
             'user' => '005-match',
         ]);
