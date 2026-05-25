@@ -3,6 +3,8 @@
 use App\Http\Controllers\Reports\Leads\LeadDashboardController;
 use App\Http\Controllers\Reports\Leads\LeadDashboardDataController;
 use App\Http\Controllers\Reports\Leads\MonthlyCommercialReportDataController;
+use App\Http\Controllers\Reports\Calls\CallDashboardController;
+use App\Http\Controllers\Reports\Calls\CallDashboardDataController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
 use Illuminate\Support\Facades\Route;
@@ -46,4 +48,14 @@ Route::prefix('informes/reservas-ventas')
         Route::get('/data/summary', [ReservationsSalesDashboardDataController::class, 'summary'])->name('data.summary');
         Route::get('/data/commercials', [ReservationsSalesDashboardDataController::class, 'commercials'])->name('data.commercials');
         Route::get('/data/portals', [ReservationsSalesDashboardDataController::class, 'portals'])->name('data.portals');
+    });
+
+Route::prefix('informes/llamadas')
+    ->name('reports.calls.')
+    ->group(function () {
+        Route::get('/', [CallDashboardController::class, 'index'])->name('index');
+        Route::get('/data/summary', [CallDashboardDataController::class, 'summary'])->name('data.summary');
+        Route::get('/data/agents', [CallDashboardDataController::class, 'agents'])->name('data.agents');
+        Route::get('/data/delegations', [CallDashboardDataController::class, 'delegations'])->name('data.delegations');
+        Route::get('/data/portals', [CallDashboardDataController::class, 'portals'])->name('data.portals');
     });

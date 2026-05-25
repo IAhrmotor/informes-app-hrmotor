@@ -26,4 +26,8 @@
         <strong>Reservas / Ventas</strong>
         <span>Reservas, ventas y contratos</span>
     </a>
+    <a href="{{ route('reports.calls.index') }}" @class(['active' => $currentReport === 'calls'])>
+        <strong>Llamadas</strong>
+        <span>Actividad telefonica y atencion</span>
+    </a>
 </nav>

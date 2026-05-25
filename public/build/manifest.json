@@ -75,6 +75,12 @@
     "src": "resources/js/app.js",
     "isEntry": true
   },
+  "resources/js/reports/calls-dashboard.js": {
+    "file": "assets/calls-dashboard-DF3pBthh.js",
+    "name": "calls-dashboard",
+    "src": "resources/js/reports/calls-dashboard.js",
+    "isEntry": true
+  },
   "resources/js/reports/leads-dashboard.js": {
     "file": "assets/leads-dashboard-CmeR_Uqv.js",
     "name": "leads-dashboard",

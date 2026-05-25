@@ -29,6 +29,7 @@ class DatabaseSeeder extends Seeder
 
             MasterFormSenderMappingsSeeder::class,
             MasterCallDelegationMappingsSeeder::class,
+            CallAgentMappingsSeeder::class,
 
             // Demo data for testing purposes only, not to be used in production
             DemoLeadsSeeder::class,
