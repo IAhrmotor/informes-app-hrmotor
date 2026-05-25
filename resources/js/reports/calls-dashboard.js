@@ -62,8 +62,10 @@ async function reloadAllData() {
             fetchJson(`/informes/llamadas/data/portals?${currentFilters()}`),
         ]);
 
-        renderTeams(agents.teams || []);
-        renderAgents(agents.agents || agents.items || []);
+        renderAgentGroup('commercialRows', agents.commercials || []);
+        renderAgentGroup('customerServiceRows', agents.customer_service || []);
+        renderAgentGroup('contactCenterRows', agents.contact_center || []);
+        renderAgentGroup('appraiserRows', agents.appraisers || []);
         renderZones(delegations.zones || []);
         renderDelegations(delegations.delegations || delegations.items || []);
         renderPortals(portals.items || []);
@@ -94,8 +96,7 @@ function renderKpis(kpis) {
     const root = document.getElementById('summaryKpis');
     const cards = [
         ['Total llamadas', formatNumber(kpis.total_calls), 'Interacciones registradas'],
-        ['Directas a comercial', formatNumber(kpis.commercial_direct_calls), 'Comercial directo'],
-        ['Centralita', formatNumber(kpis.switchboard_calls), 'Llamada directa'],
+        ['Directas a comercial', formatNumber(kpis.commercial_direct_calls), 'Llamada directa a comercial'],
         ['Portales', formatNumber(kpis.portal_calls), 'Procedencia clasificada'],
         ['Atendidas', formatNumber(kpis.answered), `${formatPercent(kpis.answered_pct)} sobre total`],
         ['No atendidas/perdidas', formatNumber(kpis.not_answered), `${formatPercent(kpis.not_answered_pct)} sobre total`],
@@ -105,6 +106,7 @@ function renderKpis(kpis) {
         ['Atendidas comerciales', formatNumber(kpis.answered_commercial), 'Equipo comerciales'],
         ['Atendidas atencion', formatNumber(kpis.answered_customer_service), 'Atencion al Cliente'],
         ['Atendidas contact center', formatNumber(kpis.answered_contact_center), 'Contact Center'],
+        ['Atendidas tasadores', formatNumber(kpis.answered_appraiser), 'Tasadores'],
     ];
 
     root.innerHTML = '';
@@ -144,14 +146,9 @@ function renderInsights(items) {
     });
 }
 
-function renderTeams(rows) {
-    renderMetricRows('teamRows', rows, [[(row) => row.team_label]], 'No hay datos de equipos para los filtros seleccionados.');
-}
-
-function renderAgents(rows) {
-    renderMetricRows('agentRows', rows, [
+function renderAgentGroup(rootId, rows) {
+    renderMetricRows(rootId, rows, [
         [(row) => row.user_name || '-'],
-        [(row) => row.team_label || '-'],
         [(row) => row.delegation || '-'],
         [(row) => row.zone || '-'],
     ], 'No hay datos de usuarios/agentes para los filtros seleccionados.');
@@ -171,7 +168,6 @@ function renderDelegations(rows) {
 function renderPortals(rows) {
     renderMetricRows('portalRows', rows, [
         [(row) => row.portal || '-'],
-        [(row) => row.call_origin_label || '-'],
     ], 'No hay datos de portales para los filtros seleccionados.');
 }
 

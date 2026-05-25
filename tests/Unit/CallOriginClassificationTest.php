@@ -12,7 +12,7 @@ class CallOriginClassificationTest extends TestCase
         $normalizer = app(CallPortalNormalizer::class);
 
         $this->assertSame('commercial_direct', $normalizer->normalize(null)['origin']);
-        $this->assertSame('switchboard', $normalizer->normalize('Llamada directa')['origin']);
+        $this->assertSame('commercial_direct', $normalizer->normalize('Llamada directa')['origin']);
         $this->assertSame('portal', $normalizer->normalize('Web Alcobendas')['origin']);
         $this->assertSame('portal', $normalizer->normalize('Google Maps Gijon')['origin']);
     }

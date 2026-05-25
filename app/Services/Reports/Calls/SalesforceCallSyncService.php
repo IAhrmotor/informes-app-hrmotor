@@ -36,7 +36,6 @@ class SalesforceCallSyncService
             'inbound' => 0,
             'outbound' => 0,
             'commercial_direct' => 0,
-            'switchboard' => 0,
             'portal' => 0,
             'teams' => [],
         ];

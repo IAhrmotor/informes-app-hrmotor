@@ -20,6 +20,7 @@ class CallAgentResolver
 
     public function __construct(
         private readonly LeadDelegationNormalizer $delegationNormalizer,
+        private readonly CallClassificationRules $rules,
     ) {
     }
 
@@ -59,13 +60,7 @@ class CallAgentResolver
 
     public function normalizeName(?string $name): string
     {
-        return Str::of((string) $name)
-            ->lower()
-            ->ascii()
-            ->replaceMatches('/[^a-z0-9]+/', ' ')
-            ->replaceMatches('/\s+/', ' ')
-            ->trim()
-            ->toString();
+        return $this->rules->normalizeName($name);
     }
 
     private function mappingForParsed(array $parsed): ?array
@@ -85,6 +80,16 @@ class CallAgentResolver
             if ($mapping) {
                 return $mapping;
             }
+
+            if ($this->rules->isCustomerServiceSpecialName($parsed['destination_agent_name'] ?? null)) {
+                return [
+                    'salesforce_user_id' => null,
+                    'agent_code' => $code,
+                    'user_name' => $parsed['destination_agent_name'],
+                    'normalized_name' => $name,
+                    'team_type' => 'customer_service',
+                ];
+            }
         }
 
         return null;
@@ -102,10 +107,12 @@ class CallAgentResolver
             }
         }
 
-        if (in_array($nameKey, ['carlos torres', 'platform integration user', 'api user'], true)
-            || str_contains($profile, 'System Administrator')
-            || str_contains($profile, 'Administrator')) {
+        if ($this->rules->isSystemIdentity($name, $profile)) {
             return 'system';
+        }
+
+        if ($this->rules->isCustomerServiceSpecialName($name)) {
+            return 'customer_service';
         }
 
         if (in_array($profile, self::COMMERCIAL_PROFILES, true)) {
@@ -114,7 +121,7 @@ class CallAgentResolver
 
         $mapping = $this->mappings()->firstWhere('normalized_name', $nameKey);
 
-        return $mapping['team_type'] ?? 'unclassified';
+        return $mapping['team_type'] ?? 'appraiser';
     }
 
     private function result(
