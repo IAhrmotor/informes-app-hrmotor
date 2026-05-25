@@ -132,14 +132,19 @@ class CallAgentResolver
         ?array $delegationSource,
     ): array {
         $delegation = $this->delegationNormalizer->normalize(data_get($delegationSource, 'user_delegation'));
+        $effective = $this->rules->effectiveDelegationZone(
+            $operationalTeam,
+            $delegation['delegation'] ?? LeadDelegationNormalizer::UNCLASSIFIED,
+            $delegation['zone'] ?? LeadDelegationNormalizer::UNCLASSIFIED,
+        );
 
         return [
             'operational_user_id' => $operationalUserId,
             'operational_user_name' => $operationalUserName ?: 'Sin clasificar',
             'operational_team' => $operationalTeam,
             'owner_team' => $ownerTeam,
-            'delegation' => $delegation['delegation'] ?? LeadDelegationNormalizer::UNCLASSIFIED,
-            'zone' => $delegation['zone'] ?? LeadDelegationNormalizer::UNCLASSIFIED,
+            'delegation' => $effective['delegation'],
+            'zone' => $effective['zone'],
         ];
     }
 

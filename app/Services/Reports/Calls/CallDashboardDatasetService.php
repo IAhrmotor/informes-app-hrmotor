@@ -2,16 +2,20 @@
 
 namespace App\Services\Reports\Calls;
 
+use App\Models\CallAgentMapping;
 use App\Models\SalesforceCall;
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 class CallDashboardDatasetService
 {
     private const CACHE_TTL_MINUTES = 10;
+
+    private ?array $agentDisplayNames = null;
 
     public function __construct(
         private readonly CallMetricsAggregator $aggregator,
@@ -118,15 +122,7 @@ class CallDashboardDatasetService
         $this->baseQuery($period)
             ->when($filters['direction'], fn (Builder $query) => $query->where('direction', $filters['direction']))
             ->when($filters['status'], fn (Builder $query) => $query->where('call_status', $filters['status']))
-            ->when($filters['delegation'], fn (Builder $query) => $query->where('delegation', $filters['delegation']))
-            ->when($filters['zone'], fn (Builder $query) => $query->where('zone', $filters['zone']))
             ->when($filters['portal'], fn (Builder $query) => $query->where('portal_resolved', $filters['portal']))
-            ->when($filters['user'], function (Builder $query) use ($filters): void {
-                $query->where(function (Builder $nested) use ($filters): void {
-                    $nested->where('operational_user_id', $filters['user'])
-                        ->orWhere('operational_user_name', $filters['user']);
-                });
-            })
             ->orderBy('id')
             ->chunkById(1000, function ($rows) use ($filters, &$bucket, &$teams, &$agents, &$zones, &$delegations, &$portals): void {
                 foreach ($rows as $call) {
@@ -136,21 +132,22 @@ class CallDashboardDatasetService
 
                     $origin = $this->effectiveOrigin($call);
                     $team = $this->effectiveTeam($call);
+                    $delegationZone = $this->effectiveDelegationZone($call, $team);
                     $this->aggregator->add($bucket, $call);
 
                     if ($this->rules->isOperationalTeam($team)) {
                         $this->addGroup($teams, $team, $this->teamLabel($team), [
                             'team' => $team,
                         ], $call);
-                        $this->addGroup($agents, ($call->operational_user_id ?: $call->operational_user_name) ?: 'unclassified', $call->operational_user_name ?: 'Sin clasificar', [
+                        $this->addGroup($agents, $this->userGroupKey($call, $team), $this->displayUserName($call), [
                             'team' => $team,
                             'team_label' => $this->teamLabel($team),
-                            'delegation' => $call->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED,
-                            'zone' => $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED,
+                            'delegation' => $delegationZone['delegation'],
+                            'zone' => $delegationZone['zone'],
                         ], $call);
-                        $this->addGroup($zones, $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED, $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED, [], $call);
-                        $this->addGroup($delegations, ($call->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED).'|'.($call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED), $call->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED, [
-                            'zone' => $call->zone ?: LeadDelegationNormalizer::UNCLASSIFIED,
+                        $this->addGroup($zones, $delegationZone['zone'], $delegationZone['zone'], [], $call);
+                        $this->addGroup($delegations, $delegationZone['delegation'].'|'.$delegationZone['zone'], $delegationZone['delegation'], [
+                            'zone' => $delegationZone['zone'],
                         ], $call);
                     }
 
@@ -196,6 +193,26 @@ class CallDashboardDatasetService
             return false;
         }
 
+        $team = $this->effectiveTeam($call);
+        $delegationZone = $this->effectiveDelegationZone($call, $team);
+
+        if ($filters['delegation'] && $delegationZone['delegation'] !== $filters['delegation']) {
+            return false;
+        }
+
+        if ($filters['zone'] && $delegationZone['zone'] !== $filters['zone']) {
+            return false;
+        }
+
+        if ($filters['user'] && ! in_array($filters['user'], [
+            $this->userGroupKey($call, $team),
+            (string) $call->operational_user_id,
+            (string) $call->operational_user_name,
+            $this->displayUserName($call),
+        ], true)) {
+            return false;
+        }
+
         return true;
     }
 
@@ -211,6 +228,85 @@ class CallDashboardDatasetService
     private function effectiveOrigin(SalesforceCall $call): string
     {
         return $this->rules->effectiveOrigin($call->call_origin, $call->portales_raw);
+    }
+
+    private function effectiveDelegationZone(SalesforceCall $call, string $team): array
+    {
+        return $this->rules->effectiveDelegationZone($team, $call->delegation, $call->zone);
+    }
+
+    private function userGroupKey(SalesforceCall $call, string $team): string
+    {
+        return $this->rules->userGroupKey(
+            $team,
+            $call->operational_user_id,
+            $this->displayUserName($call),
+            $call->destination_agent_name,
+            $call->owner_name,
+            $call->owner_profile_name,
+        );
+    }
+
+    private function displayUserName(SalesforceCall $call): string
+    {
+        $mapped = $this->mappedAgentName($call);
+
+        if ($mapped !== null) {
+            return $mapped;
+        }
+
+        return $this->rules->displayUserName(
+            $call->operational_user_name,
+            $call->destination_agent_name,
+            $call->owner_name,
+        );
+    }
+
+    private function mappedAgentName(SalesforceCall $call): ?string
+    {
+        $names = $this->agentDisplayNames();
+        $code = filled($call->destination_agent_code) ? Str::upper($call->destination_agent_code) : null;
+
+        if ($code && isset($names['by_code'][$code])) {
+            return $names['by_code'][$code];
+        }
+
+        foreach ([$call->operational_user_name, $call->destination_agent_name, $call->owner_name] as $candidate) {
+            $key = $this->rules->normalizeName($candidate);
+
+            if ($key !== '' && isset($names['by_name'][$key])) {
+                return $names['by_name'][$key];
+            }
+        }
+
+        return null;
+    }
+
+    private function agentDisplayNames(): array
+    {
+        if ($this->agentDisplayNames !== null) {
+            return $this->agentDisplayNames;
+        }
+
+        $byCode = [];
+        $byName = [];
+
+        CallAgentMapping::query()
+            ->where('active', true)
+            ->get()
+            ->each(function (CallAgentMapping $mapping) use (&$byCode, &$byName): void {
+                if (filled($mapping->agent_code)) {
+                    $byCode[Str::upper($mapping->agent_code)] = $mapping->user_name;
+                }
+
+                $key = $mapping->normalized_name ?: $this->rules->normalizeName($mapping->user_name);
+
+                if ($key !== '') {
+                    $byName[$key] = $mapping->user_name;
+                }
+            });
+
+        return $this->agentDisplayNames = ['by_code' => $byCode, 'by_name' => $byName];
     }
 
     private function addGroup(array &$groups, string $key, string $label, array $extra, SalesforceCall $call): void
@@ -364,8 +460,15 @@ class CallDashboardDatasetService
                 ['id' => 'commercial_direct', 'name' => 'Llamada directa a comercial'],
                 ['id' => 'portal', 'name' => 'Portal / Procedencia'],
             ],
-            'delegations' => $this->sortLabels(SalesforceCall::query()->distinct()->pluck('delegation')->filter()->all()),
+            'delegations' => $this->sortLabels(collect([
+                CallClassificationRules::CUSTOMER_SERVICE_LABEL,
+                CallClassificationRules::CONTACT_CENTER_LABEL,
+            ])
+                ->merge(SalesforceCall::query()->distinct()->pluck('delegation'))
+                ->filter()
+                ->all()),
             'zones' => $this->sortLabels(collect($this->delegationNormalizer->knownZones())
+                ->merge([CallClassificationRules::CUSTOMER_SERVICE_LABEL, CallClassificationRules::CONTACT_CENTER_LABEL])
                 ->merge(SalesforceCall::query()->distinct()->pluck('zone'))
                 ->filter()
                 ->all()),
@@ -377,21 +480,24 @@ class CallDashboardDatasetService
                 ->filter()
                 ->all()),
             'users' => SalesforceCall::query()
-                ->select(['operational_user_id', 'operational_user_name', 'operational_team', 'owner_name', 'owner_profile_name'])
-                ->whereNotNull('operational_user_name')
-                ->distinct()
+                ->select(['operational_user_id', 'operational_user_name', 'destination_agent_name', 'destination_agent_code', 'operational_team', 'owner_name', 'owner_profile_name'])
                 ->orderBy('operational_user_name')
                 ->get()
-                ->filter(fn (SalesforceCall $call) => $this->rules->isOperationalTeam($this->rules->effectiveTeam(
-                    $call->operational_team,
-                    $call->operational_user_name,
-                    $call->owner_profile_name,
-                )))
-                ->map(fn (SalesforceCall $call) => [
-                    'id' => $call->operational_user_id ?: $call->operational_user_name,
-                    'name' => $call->operational_user_name,
-                ])
+                ->map(function (SalesforceCall $call): ?array {
+                    $team = $this->effectiveTeam($call);
+
+                    if (! $this->rules->isOperationalTeam($team)) {
+                        return null;
+                    }
+
+                    return [
+                        'id' => $this->userGroupKey($call, $team),
+                        'name' => $this->displayUserName($call),
+                    ];
+                })
+                ->filter()
                 ->unique('id')
+                ->sortBy(fn (array $user) => Str::ascii($user['name']))
                 ->values()
                 ->all(),
         ];
@@ -402,7 +508,7 @@ class CallDashboardDatasetService
         return collect($labels)
             ->filter()
             ->unique()
-            ->sortBy(fn (string $label) => $label === LeadDelegationNormalizer::UNCLASSIFIED ? 'zzzzzz' : \Illuminate\Support\Str::ascii($label))
+            ->sortBy(fn (string $label) => $label === LeadDelegationNormalizer::UNCLASSIFIED ? 'zzzzzz' : Str::ascii($label))
             ->values()
             ->all();
     }
