@@ -2,13 +2,12 @@
 
 namespace App\Services\Reports\Calls;
 
-use App\Models\CallAgentMapping;
-use App\Models\SalesforceCall;
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class CallDashboardDatasetService
@@ -16,6 +15,8 @@ class CallDashboardDatasetService
     private const CACHE_TTL_MINUTES = 10;
 
     private ?array $agentDisplayNames = null;
+
+    private array $matchingUserIdentityCache = [];
 
     public function __construct(
         private readonly CallMetricsAggregator $aggregator,
@@ -26,228 +27,649 @@ class CallDashboardDatasetService
 
     public function summary(Request $request): array
     {
-        return $this->payload($request)['summary'];
+        $filters = $this->filters($request);
+        $periods = $this->periods($filters);
+
+        return $this->rememberEndpoint('summary', $filters, $periods, fn () => $this->buildSummary($filters, $periods));
     }
 
     public function agentRows(Request $request): array
     {
-        $payload = $this->payload($request);
+        $filters = $this->filters($request);
+        $periods = $this->periods($filters);
 
-        return [
-            'ok' => true,
-            'teams' => $payload['teams'],
-            'agents' => $payload['agents'],
-            'commercials' => $payload['commercials'],
-            'customer_service' => $payload['customer_service'],
-            'contact_center' => $payload['contact_center'],
-            'appraisers' => $payload['appraisers'],
-            'items' => $payload['agents'],
-        ];
+        return $this->rememberEndpoint('agents', $filters, $periods, fn () => $this->buildAgentPayload($filters, $periods));
     }
 
     public function delegationRows(Request $request): array
     {
-        $payload = $this->payload($request);
+        $filters = $this->filters($request);
+        $periods = $this->periods($filters);
 
-        return [
-            'ok' => true,
-            'zones' => $payload['zones'],
-            'delegations' => $payload['delegations'],
-            'items' => $payload['delegations'],
-        ];
+        return $this->rememberEndpoint('delegations', $filters, $periods, fn () => $this->buildDelegationPayload($filters, $periods));
     }
 
     public function portalRows(Request $request): array
     {
-        return ['ok' => true, 'items' => $this->payload($request)['portals']];
+        $filters = $this->filters($request);
+        $periods = $this->periods($filters);
+
+        return $this->rememberEndpoint('portals', $filters, $periods, fn () => $this->buildPortalPayload($filters, $periods));
     }
 
     public function payload(Request $request): array
     {
-        $filters = $this->filters($request);
-        $periods = $this->periods($filters);
+        $summary = $this->summary($request);
+        $agents = $this->agentRows($request);
+        $delegations = $this->delegationRows($request);
+        $portals = $this->portalRows($request);
 
+        return [
+            'summary' => $summary,
+            'teams' => $agents['teams'],
+            'agents' => $agents['agents'],
+            'commercials' => $agents['commercials'],
+            'customer_service' => $agents['customer_service'],
+            'contact_center' => $agents['contact_center'],
+            'appraisers' => $agents['appraisers'],
+            'zones' => $delegations['zones'],
+            'delegations' => $delegations['delegations'],
+            'portals' => $portals['items'],
+        ];
+    }
+
+    private function rememberEndpoint(string $endpoint, array $filters, array $periods, callable $callback): array
+    {
         return Cache::remember(
-            'calls-dashboard-v1:'.md5(json_encode([
+            'calls-dashboard:'.$endpoint.':'.md5(json_encode([
+                'endpoint' => $endpoint,
                 'filters' => $filters,
                 'periods' => [
                     'current' => $this->periodPayload($periods['current']),
                     'previous' => $this->periodPayload($periods['previous']),
                 ],
                 'version' => $this->dataVersion(),
-            ])),
+            ], JSON_UNESCAPED_UNICODE)),
             now()->addMinutes(self::CACHE_TTL_MINUTES),
-            fn () => $this->buildPayload($filters, $periods)
+            $callback
         );
     }
 
-    private function buildPayload(array $filters, array $periods): array
+    private function buildSummary(array $filters, array $periods): array
     {
-        $current = $this->aggregate($filters, $periods['current']);
-        $previous = $this->aggregate($filters, $periods['previous']);
+        $current = $this->summaryBucket($filters, $periods['current']);
+        $previous = $this->summaryBucket($filters, $periods['previous']);
 
         return [
-            'summary' => [
-                'ok' => $current['bucket']['total_calls'] > 0 || $previous['bucket']['total_calls'] > 0,
-                'message' => $current['bucket']['total_calls'] > 0 ? null : 'No hay llamadas sincronizadas para el periodo seleccionado.',
-                'periodo_actual' => $this->periodPayload($periods['current']),
-                'periodo_comparado' => $this->periodPayload($periods['previous']),
-                'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
-                'kpis' => $current['bucket'],
-                'comparativa' => $this->comparison($current['bucket'], $previous['bucket']),
-                'insights' => $this->insights($current),
-                'filters' => $this->filterOptions(),
-            ],
-            'teams' => $current['teams'],
-            'agents' => $current['agents'],
-            'commercials' => $current['commercials'],
-            'customer_service' => $current['customer_service'],
-            'contact_center' => $current['contact_center'],
-            'appraisers' => $current['appraisers'],
-            'zones' => $current['zones'],
-            'delegations' => $current['delegations'],
-            'portals' => $current['portals'],
+            'ok' => $current['total_calls'] > 0 || $previous['total_calls'] > 0,
+            'message' => $current['total_calls'] > 0 ? null : 'No hay llamadas sincronizadas para el periodo seleccionado.',
+            'periodo_actual' => $this->periodPayload($periods['current']),
+            'periodo_comparado' => $this->periodPayload($periods['previous']),
+            'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
+            'kpis' => $current,
+            'comparativa' => $this->comparison($current, $previous),
+            'insights' => $this->insights(['bucket' => $current]),
+            'filters' => $this->filterOptions(),
         ];
     }
 
-    private function aggregate(array $filters, array $period): array
+    private function buildAgentPayload(array $filters, array $periods): array
     {
-        $bucket = $this->aggregator->emptyBucket();
-        $teams = [];
-        $agents = [];
-        $zones = [];
-        $delegations = [];
-        $portals = [];
-
-        $this->baseQuery($period)
-            ->when($filters['direction'], fn (Builder $query) => $query->where('direction', $filters['direction']))
-            ->when($filters['status'], fn (Builder $query) => $query->where('call_status', $filters['status']))
-            ->when($filters['portal'], fn (Builder $query) => $query->where('portal_resolved', $filters['portal']))
-            ->orderBy('id')
-            ->chunkById(1000, function ($rows) use ($filters, &$bucket, &$teams, &$agents, &$zones, &$delegations, &$portals): void {
-                foreach ($rows as $call) {
-                    if (! $this->matchesComputedFilters($call, $filters)) {
-                        continue;
-                    }
-
-                    $origin = $this->effectiveOrigin($call);
-                    $team = $this->effectiveTeam($call);
-                    $delegationZone = $this->effectiveDelegationZone($call, $team);
-                    $this->aggregator->add($bucket, $call);
-
-                    if ($this->rules->isOperationalTeam($team)) {
-                        $this->addGroup($teams, $team, $this->teamLabel($team), [
-                            'team' => $team,
-                        ], $call);
-                        $this->addGroup($agents, $this->userGroupKey($call, $team), $this->displayUserName($call), [
-                            'team' => $team,
-                            'team_label' => $this->teamLabel($team),
-                            'delegation' => $delegationZone['delegation'],
-                            'zone' => $delegationZone['zone'],
-                        ], $call);
-                        $this->addGroup($zones, $delegationZone['zone'], $delegationZone['zone'], [], $call);
-                        $this->addGroup($delegations, $delegationZone['delegation'].'|'.$delegationZone['zone'], $delegationZone['delegation'], [
-                            'zone' => $delegationZone['zone'],
-                        ], $call);
-                    }
-
-                    if ($origin === 'portal') {
-                        $this->addGroup($portals, $call->portal_resolved ?: CallPortalNormalizer::UNCLASSIFIED, $call->portal_resolved ?: CallPortalNormalizer::UNCLASSIFIED, [
-                            'call_origin' => 'portal',
-                            'call_origin_label' => $this->originLabel('portal'),
-                        ], $call);
-                    }
-                }
-            });
-
-        $agents = $this->finalizeGroups($agents, 'user_name');
+        $agents = $this->agentMetricRows($filters, $periods['current']);
 
         return [
-            'bucket' => $this->aggregator->finalize($bucket),
-            'teams' => $this->finalizeGroups($teams, 'team_label'),
+            'ok' => true,
+            'teams' => $this->teamMetricRows($filters, $periods['current']),
             'agents' => $agents,
             'commercials' => $this->filterAgentsByTeam($agents, 'commercial'),
             'customer_service' => $this->filterAgentsByTeam($agents, 'customer_service'),
             'contact_center' => $this->filterAgentsByTeam($agents, 'contact_center'),
             'appraisers' => $this->filterAgentsByTeam($agents, 'appraiser'),
-            'zones' => $this->finalizeGroups($zones, 'zone'),
-            'delegations' => $this->finalizeGroups($delegations, 'delegation'),
-            'portals' => $this->finalizeGroups($portals, 'portal'),
+            'items' => $agents,
         ];
     }
 
-    private function baseQuery(array $period): Builder
+    private function buildDelegationPayload(array $filters, array $periods): array
     {
-        return SalesforceCall::query()
+        $zones = $this->zoneMetricRows($filters, $periods['current']);
+        $delegations = $this->delegationMetricRows($filters, $periods['current']);
+
+        return [
+            'ok' => true,
+            'zones' => $zones,
+            'delegations' => $delegations,
+            'items' => $delegations,
+        ];
+    }
+
+    private function buildPortalPayload(array $filters, array $periods): array
+    {
+        return [
+            'ok' => true,
+            'items' => $this->portalMetricRows($filters, $periods['current']),
+        ];
+    }
+
+    private function summaryBucket(array $filters, array $period): array
+    {
+        $row = $this->baseFilteredQuery($filters, $period)
+            ->selectRaw($this->metricsSelectSql())
+            ->first();
+
+        return $this->finalizeBucket($this->bucketFromRow($row));
+    }
+
+    private function teamMetricRows(array $filters, array $period): array
+    {
+        $teamSql = $this->effectiveTeamSql();
+
+        $rows = $this->baseFilteredQuery($filters, $period)
+            ->whereRaw($this->operationalTeamConditionSql())
+            ->selectRaw($teamSql.' as team')
+            ->selectRaw($this->metricsSelectSql())
+            ->groupByRaw($teamSql)
+            ->get();
+
+        $groups = [];
+
+        foreach ($rows as $row) {
+            $team = (string) $row->team;
+
+            $this->addAggregatedGroup($groups, $team, $this->teamLabel($team), [
+                'team' => $team,
+            ], $this->bucketFromRow($row), 0);
+        }
+
+        return $this->finalizeGroups($groups, 'team_label');
+    }
+
+    private function agentMetricRows(array $filters, array $period): array
+    {
+        $teamSql = $this->effectiveTeamSql();
+        $delegationSql = $this->effectiveDelegationSql();
+        $zoneSql = $this->effectiveZoneSql();
+
+        $rows = $this->baseFilteredQuery($filters, $period)
+            ->whereRaw($this->operationalTeamConditionSql())
+            ->selectRaw($teamSql.' as team')
+            ->addSelect([
+                'operational_user_id',
+                'operational_user_name',
+                'destination_agent_name',
+                'destination_agent_code',
+                'owner_name',
+                'owner_profile_name',
+            ])
+            ->selectRaw('MIN(id) as first_id')
+            ->selectRaw($this->preferredLabelSql($delegationSql).' as delegation')
+            ->selectRaw($this->preferredLabelSql($zoneSql).' as zone')
+            ->selectRaw($this->metricsSelectSql())
+            ->groupByRaw($teamSql)
+            ->groupBy([
+                'operational_user_id',
+                'operational_user_name',
+                'destination_agent_name',
+                'destination_agent_code',
+                'owner_name',
+                'owner_profile_name',
+            ])
+            ->orderBy('first_id')
+            ->get();
+
+        $groups = [];
+
+        foreach ($rows as $row) {
+            $team = (string) $row->team;
+
+            if (! $this->rules->isOperationalTeam($team)) {
+                continue;
+            }
+
+            $displayName = $this->displayUserName($row);
+            $key = $this->userGroupKey($row, $team);
+
+            $this->addAggregatedGroup($groups, $key, $displayName, [
+                'team' => $team,
+                'team_label' => $this->teamLabel($team),
+                'delegation' => $row->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED,
+                'zone' => $row->zone ?: LeadDelegationNormalizer::UNCLASSIFIED,
+            ], $this->bucketFromRow($row), (int) $row->first_id);
+        }
+
+        return $this->finalizeGroups($groups, 'user_name');
+    }
+
+    private function zoneMetricRows(array $filters, array $period): array
+    {
+        $zoneSql = $this->effectiveZoneSql();
+
+        $rows = $this->baseFilteredQuery($filters, $period)
+            ->whereRaw($this->operationalTeamConditionSql())
+            ->selectRaw($zoneSql.' as zone')
+            ->selectRaw($this->metricsSelectSql())
+            ->groupByRaw($zoneSql)
+            ->get();
+
+        $groups = [];
+
+        foreach ($rows as $row) {
+            $zone = $row->zone ?: LeadDelegationNormalizer::UNCLASSIFIED;
+
+            $this->addAggregatedGroup($groups, $zone, $zone, [], $this->bucketFromRow($row), 0);
+        }
+
+        return $this->finalizeGroups($groups, 'zone');
+    }
+
+    private function delegationMetricRows(array $filters, array $period): array
+    {
+        $delegationSql = $this->effectiveDelegationSql();
+        $zoneSql = $this->effectiveZoneSql();
+
+        $rows = $this->baseFilteredQuery($filters, $period)
+            ->whereRaw($this->operationalTeamConditionSql())
+            ->selectRaw($delegationSql.' as delegation')
+            ->selectRaw($zoneSql.' as zone')
+            ->selectRaw($this->metricsSelectSql())
+            ->groupByRaw($delegationSql)
+            ->groupByRaw($zoneSql)
+            ->get();
+
+        $groups = [];
+
+        foreach ($rows as $row) {
+            $delegation = $row->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED;
+            $zone = $row->zone ?: LeadDelegationNormalizer::UNCLASSIFIED;
+
+            $this->addAggregatedGroup($groups, $delegation.'|'.$zone, $delegation, [
+                'zone' => $zone,
+            ], $this->bucketFromRow($row), 0);
+        }
+
+        return $this->finalizeGroups($groups, 'delegation');
+    }
+
+    private function portalMetricRows(array $filters, array $period): array
+    {
+        $portalSql = $this->portalSql();
+
+        $rows = $this->baseFilteredQuery($filters, $period)
+            ->where('call_origin', 'portal')
+            ->where(function (QueryBuilder $query): void {
+                $query->whereNull('portal_resolved')
+                    ->orWhereNotIn('portal_resolved', [
+                        CallPortalNormalizer::COMMERCIAL_DIRECT,
+                        'Llamada directa',
+                    ]);
+            })
+            ->selectRaw($portalSql.' as portal')
+            ->selectRaw($this->metricsSelectSql())
+            ->groupByRaw($portalSql)
+            ->get();
+
+        $groups = [];
+
+        foreach ($rows as $row) {
+            $portal = $row->portal ?: CallPortalNormalizer::UNCLASSIFIED;
+
+            $this->addAggregatedGroup($groups, $portal, $portal, [
+                'call_origin' => 'portal',
+                'call_origin_label' => $this->originLabel('portal'),
+            ], $this->bucketFromRow($row), 0);
+        }
+
+        return $this->finalizeGroups($groups, 'portal');
+    }
+
+    private function baseFilteredQuery(array $filters, array $period, bool $includeUser = true): QueryBuilder
+    {
+        return $this->applyBaseFilters(DB::table('salesforce_calls'), $filters, $period, $includeUser);
+    }
+
+    private function applyBaseFilters(QueryBuilder $query, array $filters, array $period, bool $includeUser = true): QueryBuilder
+    {
+        $query
             ->where('created_date', '>=', $period['start'])
             ->where('created_date', '<', $period['end']);
+
+        if ($filters['direction'] !== '') {
+            $query->where('direction', $filters['direction']);
+        }
+
+        if ($filters['status'] !== '') {
+            $query->where('call_status', $filters['status']);
+        }
+
+        if ($filters['portal'] !== '') {
+            $query->where('portal_resolved', $filters['portal']);
+        }
+
+        if ($filters['team'] !== '') {
+            $query->whereRaw($this->effectiveTeamSql().' = ?', [$filters['team']]);
+        }
+
+        if ($filters['origin'] !== '') {
+            $query->whereRaw($this->effectiveOriginSql().' = ?', [$filters['origin']]);
+        }
+
+        if ($filters['delegation'] !== '') {
+            $query->whereRaw($this->effectiveDelegationSql().' = ?', [$filters['delegation']]);
+        }
+
+        if ($filters['zone'] !== '') {
+            $query->whereRaw($this->effectiveZoneSql().' = ?', [$filters['zone']]);
+        }
+
+        if ($includeUser && $filters['user'] !== '') {
+            $this->applyUserFilter($query, $filters, $period);
+        }
+
+        return $query;
     }
 
-    private function matchesComputedFilters(SalesforceCall $call, array $filters): bool
+    private function applyUserFilter(QueryBuilder $query, array $filters, array $period): void
     {
-        if ($filters['team'] && $this->effectiveTeam($call) !== $filters['team']) {
-            return false;
+        $filter = $filters['user'];
+        $team = $this->teamFromUserFilter($filter);
+        $identities = $this->matchingUserIdentities($filters, $period);
+
+        if ($team !== null) {
+            $query->whereRaw($this->effectiveTeamSql().' = ?', [$team]);
         }
 
-        if ($filters['origin'] && $this->effectiveOrigin($call) !== $filters['origin']) {
-            return false;
-        }
+        $query->where(function (QueryBuilder $query) use ($filter, $identities): void {
+            $query
+                ->where('operational_user_id', $filter)
+                ->orWhere('operational_user_name', $filter)
+                ->orWhere('destination_agent_name', $filter)
+                ->orWhere('owner_name', $filter);
 
-        $team = $this->effectiveTeam($call);
-        $delegationZone = $this->effectiveDelegationZone($call, $team);
+            foreach ($identities as $identity) {
+                foreach (['operational_user_id', 'operational_user_name', 'destination_agent_name', 'owner_name'] as $column) {
+                    $value = data_get($identity, $column);
 
-        if ($filters['delegation'] && $delegationZone['delegation'] !== $filters['delegation']) {
-            return false;
-        }
-
-        if ($filters['zone'] && $delegationZone['zone'] !== $filters['zone']) {
-            return false;
-        }
-
-        if ($filters['user'] && ! in_array($filters['user'], [
-            $this->userGroupKey($call, $team),
-            (string) $call->operational_user_id,
-            (string) $call->operational_user_name,
-            $this->displayUserName($call),
-        ], true)) {
-            return false;
-        }
-
-        return true;
+                    if (filled($value)) {
+                        $query->orWhere($column, $value);
+                    }
+                }
+            }
+        });
     }
 
-    private function effectiveTeam(SalesforceCall $call): string
+    private function matchingUserIdentities(array $filters, array $period): array
     {
-        return $this->rules->effectiveTeam(
-            $call->operational_team,
-            $call->operational_user_name ?: $call->owner_name,
-            $call->owner_profile_name,
-        );
+        $filter = $filters['user'];
+        $cacheKey = md5(json_encode([
+            'filter' => $filter,
+            'filters' => array_merge($filters, ['user' => '']),
+            'period' => $this->periodPayload($period),
+        ], JSON_UNESCAPED_UNICODE));
+
+        if (array_key_exists($cacheKey, $this->matchingUserIdentityCache)) {
+            return $this->matchingUserIdentityCache[$cacheKey];
+        }
+
+        $teamFilter = $this->teamFromUserFilter($filter);
+        $lookupFilters = array_merge($filters, ['user' => '']);
+
+        if ($teamFilter !== null && $lookupFilters['team'] === '') {
+            $lookupFilters['team'] = $teamFilter;
+        }
+
+        $rows = $this->identityRowsQuery($lookupFilters, $period)->get();
+        $matches = [];
+
+        foreach ($rows as $row) {
+            $team = (string) $row->team;
+            $displayName = $this->displayUserName($row);
+            $key = $this->userGroupKey($row, $team);
+
+            if ($key === $filter
+                || (string) $row->operational_user_id === $filter
+                || (string) $row->operational_user_name === $filter
+                || (string) $row->destination_agent_name === $filter
+                || (string) $row->owner_name === $filter
+                || $displayName === $filter
+            ) {
+                $matches[] = $row;
+            }
+        }
+
+        return $this->matchingUserIdentityCache[$cacheKey] = $matches;
     }
 
-    private function effectiveOrigin(SalesforceCall $call): string
+    private function identityRowsQuery(?array $filters = null, ?array $period = null): QueryBuilder
     {
-        return $this->rules->effectiveOrigin($call->call_origin, $call->portales_raw);
+        $teamSql = $this->effectiveTeamSql();
+        $query = DB::table('salesforce_calls');
+
+        if ($filters !== null && $period !== null) {
+            $query = $this->applyBaseFilters($query, $filters, $period, false);
+        }
+
+        return $query
+            ->whereRaw($this->operationalTeamConditionSql())
+            ->selectRaw($teamSql.' as team')
+            ->addSelect([
+                'operational_user_id',
+                'operational_user_name',
+                'destination_agent_name',
+                'destination_agent_code',
+                'owner_name',
+                'owner_profile_name',
+            ])
+            ->selectRaw('MIN(id) as first_id')
+            ->groupByRaw($teamSql)
+            ->groupBy([
+                'operational_user_id',
+                'operational_user_name',
+                'destination_agent_name',
+                'destination_agent_code',
+                'owner_name',
+                'owner_profile_name',
+            ])
+            ->orderBy('first_id');
     }
 
-    private function effectiveDelegationZone(SalesforceCall $call, string $team): array
+    private function teamFromUserFilter(string $filter): ?string
     {
-        return $this->rules->effectiveDelegationZone($team, $call->delegation, $call->zone);
+        if (! str_contains($filter, '|')) {
+            return null;
+        }
+
+        $team = Str::before($filter, '|');
+
+        return $this->rules->isOperationalTeam($team) ? $team : null;
     }
 
-    private function userGroupKey(SalesforceCall $call, string $team): string
+    private function metricsSelectSql(): string
+    {
+        $originSql = $this->effectiveOriginSql();
+        $teamSql = $this->effectiveTeamSql();
+        $answeredSql = $this->answeredConditionSql();
+        $lostSql = $this->lostConditionSql();
+
+        return implode(",\n", [
+            'COUNT(*) as total_calls',
+            "SUM(CASE WHEN {$originSql} = 'commercial_direct' THEN 1 ELSE 0 END) as commercial_direct_calls",
+            "SUM(CASE WHEN {$originSql} = 'commercial_direct' AND {$answeredSql} THEN 1 ELSE 0 END) as commercial_direct_answered",
+            "SUM(CASE WHEN {$originSql} = 'commercial_direct' AND {$lostSql} THEN 1 ELSE 0 END) as commercial_direct_lost",
+            "SUM(CASE WHEN {$originSql} = 'portal' THEN 1 ELSE 0 END) as portal_calls",
+            "SUM(CASE WHEN {$originSql} = 'portal' AND {$answeredSql} THEN 1 ELSE 0 END) as portal_answered",
+            "SUM(CASE WHEN {$originSql} = 'portal' AND {$lostSql} THEN 1 ELSE 0 END) as portal_lost",
+            "SUM(CASE WHEN {$answeredSql} THEN 1 ELSE 0 END) as answered",
+            "SUM(CASE WHEN {$lostSql} THEN 1 ELSE 0 END) as not_answered",
+            "SUM(CASE WHEN direction = 'inbound' THEN 1 ELSE 0 END) as inbound",
+            "SUM(CASE WHEN direction = 'outbound' THEN 1 ELSE 0 END) as outbound",
+            "SUM(CASE WHEN direction = 'unknown' THEN 1 ELSE 0 END) as unknown_direction",
+            "SUM(CASE WHEN {$answeredSql} AND {$teamSql} = 'commercial' THEN 1 ELSE 0 END) as answered_commercial",
+            "SUM(CASE WHEN {$answeredSql} AND {$teamSql} = 'customer_service' THEN 1 ELSE 0 END) as answered_customer_service",
+            "SUM(CASE WHEN {$answeredSql} AND {$teamSql} = 'contact_center' THEN 1 ELSE 0 END) as answered_contact_center",
+            "SUM(CASE WHEN {$answeredSql} AND {$teamSql} = 'appraiser' THEN 1 ELSE 0 END) as answered_appraiser",
+            "SUM(CASE WHEN {$answeredSql} AND adjusted_duration_seconds IS NOT NULL THEN adjusted_duration_seconds ELSE 0 END) as adjusted_duration_answered_sum",
+            "SUM(CASE WHEN {$answeredSql} AND adjusted_duration_seconds IS NOT NULL THEN 1 ELSE 0 END) as answered_duration_count",
+            "AVG(CASE WHEN {$answeredSql} THEN adjusted_duration_seconds ELSE NULL END) as avg_talk_seconds",
+        ]);
+    }
+
+    private function answeredConditionSql(): string
+    {
+        return "(COALESCE(call_status = 'answered', 0) OR COALESCE(is_answered, 0) = 1)";
+    }
+
+    private function lostConditionSql(): string
+    {
+        $answeredSql = $this->answeredConditionSql();
+
+        return "((NOT {$answeredSql}) OR call_status = 'not_answered' OR COALESCE(is_lost, 0) = 1)";
+    }
+
+    private function effectiveOriginSql(): string
+    {
+        return "CASE
+            WHEN call_origin = 'switchboard' THEN 'commercial_direct'
+            WHEN call_origin = 'commercial_direct' THEN 'commercial_direct'
+            WHEN portales_raw IS NULL OR TRIM(portales_raw) = '' OR LOWER(TRIM(portales_raw)) = 'llamada directa' THEN 'commercial_direct'
+            ELSE 'portal'
+        END";
+    }
+
+    private function effectiveTeamSql(): string
+    {
+        $nameSql = "LOWER(TRIM(COALESCE(NULLIF(operational_user_name, ''), NULLIF(owner_name, ''), '')))";
+        $compactNameSql = "REPLACE({$nameSql}, ' ', '')";
+        $profileSql = "LOWER(COALESCE(owner_profile_name, ''))";
+
+        return "CASE
+            WHEN {$nameSql} IN ('carlos torres', 'platform integration user', 'api user')
+                OR {$profileSql} LIKE '%administrator%'
+                THEN 'system'
+            WHEN {$compactNameSql} IN ('vanessasanjuan', 'vanesasanjuan', 'callcenterfontellas')
+                THEN 'customer_service'
+            WHEN operational_team IN ('commercial', 'customer_service', 'contact_center', 'appraiser', 'system')
+                THEN operational_team
+            ELSE 'appraiser'
+        END";
+    }
+
+    private function effectiveDelegationSql(): string
+    {
+        $teamSql = $this->effectiveTeamSql();
+
+        return "CASE
+            WHEN {$teamSql} = 'customer_service' THEN ".$this->sqlString(CallClassificationRules::CUSTOMER_SERVICE_LABEL)."
+            WHEN {$teamSql} = 'contact_center' THEN ".$this->sqlString(CallClassificationRules::CONTACT_CENTER_LABEL)."
+            ELSE COALESCE(NULLIF(delegation, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')
+        END';
+    }
+
+    private function effectiveZoneSql(): string
+    {
+        $teamSql = $this->effectiveTeamSql();
+
+        return "CASE
+            WHEN {$teamSql} = 'customer_service' THEN ".$this->sqlString(CallClassificationRules::CUSTOMER_SERVICE_LABEL)."
+            WHEN {$teamSql} = 'contact_center' THEN ".$this->sqlString(CallClassificationRules::CONTACT_CENTER_LABEL)."
+            ELSE COALESCE(NULLIF(zone, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')
+        END';
+    }
+
+    private function operationalTeamConditionSql(): string
+    {
+        return $this->effectiveTeamSql()." IN ('commercial', 'customer_service', 'contact_center', 'appraiser')";
+    }
+
+    private function preferredLabelSql(string $labelSql): string
+    {
+        return 'COALESCE(MAX(NULLIF('.$labelSql.', '.$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')), '.$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')';
+    }
+
+    private function portalSql(): string
+    {
+        return 'COALESCE(NULLIF(portal_resolved, \'\'), '.$this->sqlString(CallPortalNormalizer::UNCLASSIFIED).')';
+    }
+
+    private function sqlString(string $value): string
+    {
+        return "'".str_replace("'", "''", $value)."'";
+    }
+
+    private function bucketFromRow(mixed $row): array
+    {
+        $bucket = $this->aggregator->emptyBucket();
+
+        foreach (array_keys($bucket) as $key) {
+            $bucket[$key] = (int) (data_get($row, $key, 0) ?? 0);
+        }
+
+        return $bucket;
+    }
+
+    private function finalizeBucket(array $bucket): array
+    {
+        $result = $this->aggregator->finalize(array_merge($this->aggregator->emptyBucket(), $bucket));
+        $result['avg_talk_seconds'] = $result['average_talk_seconds'];
+        $result['inbound_calls'] = $result['inbound'];
+        $result['outbound_calls'] = $result['outbound'];
+        $result['answered_by_commercial'] = $result['answered_commercial'];
+        $result['answered_by_customer_service'] = $result['answered_customer_service'];
+        $result['answered_by_contact_center'] = $result['answered_contact_center'];
+        $result['answered_by_appraiser'] = $result['answered_appraiser'];
+
+        return $result;
+    }
+
+    private function addAggregatedGroup(array &$groups, string $key, string $label, array $extra, array $bucket, int $firstId): void
+    {
+        if (! isset($groups[$key])) {
+            $groups[$key] = [
+                'label' => $label,
+                'extra' => $extra,
+                'bucket' => $this->aggregator->emptyBucket(),
+                'first_id' => $firstId,
+            ];
+        }
+
+        foreach ($bucket as $metric => $value) {
+            $groups[$key]['bucket'][$metric] = ($groups[$key]['bucket'][$metric] ?? 0) + (int) $value;
+        }
+    }
+
+    private function finalizeGroups(array $groups, string $labelKey): array
+    {
+        $rows = [];
+
+        foreach ($groups as $group) {
+            $rows[] = array_merge($group['extra'], $this->finalizeBucket($group['bucket']), [
+                $labelKey => $group['label'],
+                'nombre' => $group['label'],
+            ]);
+        }
+
+        usort($rows, fn (array $a, array $b) => [-(int) ($a['total_calls'] ?? 0), Str::ascii((string) ($a[$labelKey] ?? ''))]
+            <=> [-(int) ($b['total_calls'] ?? 0), Str::ascii((string) ($b[$labelKey] ?? ''))]);
+
+        return array_values($rows);
+    }
+
+    private function filterAgentsByTeam(array $agents, string $team): array
+    {
+        return array_values(array_filter($agents, fn (array $agent) => ($agent['team'] ?? null) === $team));
+    }
+
+    private function userGroupKey(mixed $call, string $team): string
     {
         return $this->rules->userGroupKey(
             $team,
-            $call->operational_user_id,
+            data_get($call, 'operational_user_id'),
             $this->displayUserName($call),
-            $call->destination_agent_name,
-            $call->owner_name,
-            $call->owner_profile_name,
+            data_get($call, 'destination_agent_name'),
+            data_get($call, 'owner_name'),
+            data_get($call, 'owner_profile_name'),
         );
     }
 
-    private function displayUserName(SalesforceCall $call): string
+    private function displayUserName(mixed $call): string
     {
         $mapped = $this->mappedAgentName($call);
 
@@ -256,22 +678,22 @@ class CallDashboardDatasetService
         }
 
         return $this->rules->displayUserName(
-            $call->operational_user_name,
-            $call->destination_agent_name,
-            $call->owner_name,
+            data_get($call, 'operational_user_name'),
+            data_get($call, 'destination_agent_name'),
+            data_get($call, 'owner_name'),
         );
     }
 
-    private function mappedAgentName(SalesforceCall $call): ?string
+    private function mappedAgentName(mixed $call): ?string
     {
         $names = $this->agentDisplayNames();
-        $code = filled($call->destination_agent_code) ? Str::upper($call->destination_agent_code) : null;
+        $code = filled(data_get($call, 'destination_agent_code')) ? Str::upper(data_get($call, 'destination_agent_code')) : null;
 
         if ($code && isset($names['by_code'][$code])) {
             return $names['by_code'][$code];
         }
 
-        foreach ([$call->operational_user_name, $call->destination_agent_name, $call->owner_name] as $candidate) {
+        foreach ([data_get($call, 'operational_user_name'), data_get($call, 'destination_agent_name'), data_get($call, 'owner_name')] as $candidate) {
             $key = $this->rules->normalizeName($candidate);
 
             if ($key !== '' && isset($names['by_name'][$key])) {
@@ -291,10 +713,10 @@ class CallDashboardDatasetService
         $byCode = [];
         $byName = [];
 
-        CallAgentMapping::query()
+        DB::table('call_agent_mappings')
             ->where('active', true)
             ->get()
-            ->each(function (CallAgentMapping $mapping) use (&$byCode, &$byName): void {
+            ->each(function (mixed $mapping) use (&$byCode, &$byName): void {
                 if (filled($mapping->agent_code)) {
                     $byCode[Str::upper($mapping->agent_code)] = $mapping->user_name;
                 }
@@ -307,38 +729,6 @@ class CallDashboardDatasetService
             });
 
         return $this->agentDisplayNames = ['by_code' => $byCode, 'by_name' => $byName];
-    }
-
-    private function addGroup(array &$groups, string $key, string $label, array $extra, SalesforceCall $call): void
-    {
-        $groups[$key] ??= [
-            'label' => $label,
-            'extra' => $extra,
-            'bucket' => $this->aggregator->emptyBucket(),
-        ];
-
-        $this->aggregator->add($groups[$key]['bucket'], $call);
-    }
-
-    private function finalizeGroups(array $groups, string $labelKey): array
-    {
-        $rows = [];
-
-        foreach ($groups as $group) {
-            $rows[] = array_merge($group['extra'], $this->aggregator->finalize($group['bucket']), [
-                $labelKey => $group['label'],
-                'nombre' => $group['label'],
-            ]);
-        }
-
-        usort($rows, fn (array $a, array $b) => ($b['total_calls'] ?? 0) <=> ($a['total_calls'] ?? 0));
-
-        return array_values($rows);
-    }
-
-    private function filterAgentsByTeam(array $agents, string $team): array
-    {
-        return array_values(array_filter($agents, fn (array $agent) => ($agent['team'] ?? null) === $team));
     }
 
     private function comparison(array $current, array $previous): array
@@ -384,8 +774,15 @@ class CallDashboardDatasetService
             $origin = 'commercial_direct';
         }
 
+        $period = $request->string('period')->toString() ?: 'last_30_days';
+        $period = match ($period) {
+            'month_current' => 'current_month',
+            'month_previous' => 'previous_month',
+            default => $period,
+        };
+
         return [
-            'period' => $request->string('period')->toString() ?: 'last_30_days',
+            'period' => $period,
             'current_start' => $request->string('current_start')->toString(),
             'current_end' => $request->string('current_end')->toString(),
             'comparison_start' => $request->string('comparison_start')->toString(),
@@ -443,64 +840,88 @@ class CallDashboardDatasetService
 
     private function filterOptions(): array
     {
-        return [
-            'teams' => collect(['commercial', 'customer_service', 'contact_center', 'appraiser', 'system'])
-                ->map(fn (string $id) => ['id' => $id, 'name' => $this->teamLabel($id)])
-                ->all(),
-            'directions' => [
-                ['id' => 'inbound', 'name' => 'Entrante'],
-                ['id' => 'outbound', 'name' => 'Saliente'],
-                ['id' => 'unknown', 'name' => 'Sin clasificar'],
-            ],
-            'statuses' => [
-                ['id' => 'answered', 'name' => 'Atendida'],
-                ['id' => 'not_answered', 'name' => 'No atendida'],
-            ],
-            'origins' => [
-                ['id' => 'commercial_direct', 'name' => 'Llamada directa a comercial'],
-                ['id' => 'portal', 'name' => 'Portal / Procedencia'],
-            ],
-            'delegations' => $this->sortLabels(collect([
-                CallClassificationRules::CUSTOMER_SERVICE_LABEL,
-                CallClassificationRules::CONTACT_CENTER_LABEL,
-            ])
-                ->merge(SalesforceCall::query()->distinct()->pluck('delegation'))
-                ->filter()
-                ->all()),
-            'zones' => $this->sortLabels(collect($this->delegationNormalizer->knownZones())
-                ->merge([CallClassificationRules::CUSTOMER_SERVICE_LABEL, CallClassificationRules::CONTACT_CENTER_LABEL])
-                ->merge(SalesforceCall::query()->distinct()->pluck('zone'))
-                ->filter()
-                ->all()),
-            'portals' => $this->sortLabels(SalesforceCall::query()
-                ->where('call_origin', 'portal')
-                ->distinct()
-                ->pluck('portal_resolved')
-                ->reject(fn ($portal) => in_array($portal, [CallPortalNormalizer::COMMERCIAL_DIRECT, 'Llamada directa'], true))
-                ->filter()
-                ->all()),
-            'users' => SalesforceCall::query()
-                ->select(['operational_user_id', 'operational_user_name', 'destination_agent_name', 'destination_agent_code', 'operational_team', 'owner_name', 'owner_profile_name'])
-                ->orderBy('operational_user_name')
-                ->get()
-                ->map(function (SalesforceCall $call): ?array {
-                    $team = $this->effectiveTeam($call);
+        return Cache::remember(
+            'calls-dashboard:filters:'.md5((string) $this->dataVersion()),
+            now()->addMinutes(self::CACHE_TTL_MINUTES),
+            fn () => [
+                'teams' => collect(['commercial', 'customer_service', 'contact_center', 'appraiser', 'system'])
+                    ->map(fn (string $id) => ['id' => $id, 'name' => $this->teamLabel($id)])
+                    ->all(),
+                'directions' => [
+                    ['id' => 'inbound', 'name' => 'Entrante'],
+                    ['id' => 'outbound', 'name' => 'Saliente'],
+                    ['id' => 'unknown', 'name' => 'Sin clasificar'],
+                ],
+                'statuses' => [
+                    ['id' => 'answered', 'name' => 'Atendida'],
+                    ['id' => 'not_answered', 'name' => 'No atendida'],
+                ],
+                'origins' => [
+                    ['id' => 'commercial_direct', 'name' => 'Llamada directa a comercial'],
+                    ['id' => 'portal', 'name' => 'Portal / Procedencia'],
+                ],
+                'delegations' => $this->sortLabels(collect([
+                    CallClassificationRules::CUSTOMER_SERVICE_LABEL,
+                    CallClassificationRules::CONTACT_CENTER_LABEL,
+                ])->merge($this->distinctEffectiveLabels($this->effectiveDelegationSql()))->all()),
+                'zones' => $this->sortLabels(collect($this->delegationNormalizer->knownZones())
+                    ->merge([CallClassificationRules::CUSTOMER_SERVICE_LABEL, CallClassificationRules::CONTACT_CENTER_LABEL])
+                    ->merge($this->distinctEffectiveLabels($this->effectiveZoneSql()))
+                    ->all()),
+                'portals' => $this->sortLabels(DB::table('salesforce_calls')
+                    ->where('call_origin', 'portal')
+                    ->where(function (QueryBuilder $query): void {
+                        $query->whereNull('portal_resolved')
+                            ->orWhereNotIn('portal_resolved', [
+                                CallPortalNormalizer::COMMERCIAL_DIRECT,
+                                'Llamada directa',
+                            ]);
+                    })
+                    ->distinct()
+                    ->pluck('portal_resolved')
+                    ->filter()
+                    ->all()),
+                'users' => $this->userFilterOptions(),
+            ]
+        );
+    }
 
-                    if (! $this->rules->isOperationalTeam($team)) {
-                        return null;
-                    }
+    private function distinctEffectiveLabels(string $labelSql): array
+    {
+        return DB::table('salesforce_calls')
+            ->selectRaw($labelSql.' as label')
+            ->whereRaw($this->operationalTeamConditionSql())
+            ->groupByRaw($labelSql)
+            ->pluck('label')
+            ->filter()
+            ->all();
+    }
 
-                    return [
-                        'id' => $this->userGroupKey($call, $team),
-                        'name' => $this->displayUserName($call),
-                    ];
-                })
-                ->filter()
-                ->unique('id')
-                ->sortBy(fn (array $user) => Str::ascii($user['name']))
-                ->values()
-                ->all(),
-        ];
+    private function userFilterOptions(): array
+    {
+        $options = [];
+
+        foreach ($this->identityRowsQuery()->get() as $row) {
+            $team = (string) $row->team;
+
+            if (! $this->rules->isOperationalTeam($team)) {
+                continue;
+            }
+
+            $key = filled($row->operational_user_id)
+                ? (string) $row->operational_user_id
+                : $this->userGroupKey($row, $team);
+
+            $options[$key] ??= [
+                'id' => $key,
+                'name' => $this->displayUserName($row),
+            ];
+        }
+
+        return collect($options)
+            ->sortBy(fn (array $user) => Str::ascii($user['name']))
+            ->values()
+            ->all();
     }
 
     private function sortLabels(iterable $labels): array
@@ -540,14 +961,9 @@ class CallDashboardDatasetService
         return sprintf('%02d:%02d', intdiv($seconds, 60), $seconds % 60);
     }
 
-    private function dataVersion(): array
+    private function dataVersion(): int
     {
-        return [
-            'count' => SalesforceCall::query()->count(),
-            'max_id' => SalesforceCall::query()->max('id'),
-            'updated_at' => SalesforceCall::query()->max('updated_at'),
-            'dashboard_cache_version' => Cache::get('salesforce_calls_dashboard_cache_version', 1),
-        ];
+        return (int) Cache::get('salesforce_calls_dashboard_cache_version', 1);
     }
 
     private function periodPayload(array $period): array
@@ -573,7 +989,7 @@ class CallDashboardDatasetService
 
     private function lastUpdated(): ?CarbonImmutable
     {
-        $updated = SalesforceCall::query()->max('updated_at');
+        $updated = DB::table('salesforce_calls')->max('updated_at');
 
         return $updated ? CarbonImmutable::parse($updated) : null;
     }
