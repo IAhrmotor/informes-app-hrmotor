@@ -88,6 +88,7 @@ function renderKpis(kpis) {
     const cards = [
         ['Oportunidades totales', formatNumber(kpis.oportunidades_totales), 'Muestra del periodo'],
         ['Reservas vivas', formatNumber(kpis.reservas_vivas), `${formatPercent(kpis.reservas_vivas_pct)} sobre total`],
+        ['Reservas vivas actuales Salesforce', formatNumber(kpis.reservas_vivas_actuales_salesforce), 'Sin filtro de fecha'],
         ['Oportunidades caídas', formatNumber(kpis.oportunidades_caidas), `${formatPercent(kpis.oportunidades_caidas_pct)} sobre total`],
         ['Contratos CV firmados', formatNumber(kpis.cv_firmados), `${formatPercent(kpis.cv_firmados_pct)} sobre total`],
     ];

@@ -65,14 +65,20 @@ class ReservationsSalesDashboardDatasetService
     {
         $current = $this->aggregate($filters, $periods['current']);
         $previous = $this->aggregate($filters, $periods['previous']);
+        $current['bucket']['reservas_vivas_actuales_salesforce'] = $this->globalLiveReservations($filters);
         $comparison = $this->comparison($current['bucket'], $previous['bucket']);
         $aiPayload = $this->aiPayload($filters, $periods, $current['bucket'], $comparison, $current);
         $insights = $this->aiInsights->generate($aiPayload);
 
         return [
             'summary' => [
-                'ok' => $current['bucket']['oportunidades_totales'] > 0 || $previous['bucket']['oportunidades_totales'] > 0,
-                'message' => $current['bucket']['oportunidades_totales'] > 0 ? null : 'No hay oportunidades sincronizadas para el periodo seleccionado.',
+                'ok' => $current['bucket']['oportunidades_totales'] > 0
+                    || $previous['bucket']['oportunidades_totales'] > 0
+                    || $current['bucket']['reservas_vivas_actuales_salesforce'] > 0,
+                'message' => (
+                    $current['bucket']['oportunidades_totales'] > 0
+                    || $current['bucket']['reservas_vivas_actuales_salesforce'] > 0
+                ) ? null : 'No hay oportunidades sincronizadas para el periodo seleccionado.',
                 'periodo_actual' => $this->periodPayload($periods['current']),
                 'periodo_comparado' => $this->periodPayload($periods['previous']),
                 'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
@@ -129,7 +135,7 @@ class ReservationsSalesDashboardDatasetService
         $field = $this->dateField($filters['date_criterion']);
 
         $query->where($field, '>=', $period['start'])
-            ->where($field, '<=', $period['end']);
+            ->where($field, '<', $period['end']);
 
         if (in_array($filters['opportunity_type'], ['Tasacion', 'Tasación'], true)) {
             $query->where('record_type_name', 'Tasacion');
@@ -138,6 +144,22 @@ class ReservationsSalesDashboardDatasetService
         }
 
         return $query;
+    }
+
+    private function globalLiveReservations(array $filters): int
+    {
+        $query = SalesforceOpportunity::query()
+            ->where('reservation', true)
+            ->where('cv_signed', false)
+            ->whereRaw("LOWER(COALESCE(stage_name, '')) <> 'cerrada perdida'");
+
+        if (str_starts_with($filters['opportunity_type'], 'Tasaci') || $filters['opportunity_type'] === 'Tasacion') {
+            $query->where('record_type_name', 'Tasacion');
+        } elseif ($filters['opportunity_type'] === 'Venta') {
+            $query->whereIn('record_type_name', ['Venta', 'Cambio']);
+        }
+
+        return $query->count();
     }
 
     private function decorate(SalesforceOpportunity $opportunity): array
@@ -180,9 +202,9 @@ class ReservationsSalesDashboardDatasetService
 
         if ($filters['period'] === 'custom') {
             $currentStart = $this->parseDate($filters['current_start'], $now->subDays(30))->startOfDay();
-            $currentEnd = $this->parseDate($filters['current_end'], $now)->endOfDay();
-            $comparisonStart = $this->parseDate($filters['comparison_start'], $currentStart->subDays((int) floor($currentStart->diffInDays($currentEnd)) + 1))->startOfDay();
-            $comparisonEnd = $this->parseDate($filters['comparison_end'], $currentStart->subDay())->endOfDay();
+            $currentEnd = $this->parseDate($filters['current_end'], $now)->addDay()->startOfDay();
+            $comparisonStart = $this->parseDate($filters['comparison_start'], $currentStart->subDays((int) floor($currentStart->diffInDays($currentEnd->subDay())) + 1))->startOfDay();
+            $comparisonEnd = $this->parseDate($filters['comparison_end'], $currentStart->subDay())->addDay()->startOfDay();
 
             return [
                 'current' => ['start' => $currentStart, 'end' => $currentEnd],
@@ -204,11 +226,11 @@ class ReservationsSalesDashboardDatasetService
 
         if ($filters['period'] === 'previous_month') {
             $currentStart = $now->subMonthNoOverflow()->startOfMonth();
-            $currentEnd = $now->subMonthNoOverflow()->endOfMonth();
+            $currentEnd = $now->startOfMonth();
 
             return [
                 'current' => ['start' => $currentStart, 'end' => $currentEnd],
-                'previous' => ['start' => $currentStart->subMonthNoOverflow()->startOfMonth(), 'end' => $currentStart->subMonthNoOverflow()->endOfMonth()],
+                'previous' => ['start' => $currentStart->subMonthNoOverflow()->startOfMonth(), 'end' => $currentStart],
             ];
         }
 
@@ -390,9 +412,14 @@ class ReservationsSalesDashboardDatasetService
 
     private function periodPayload(array $period): array
     {
+        $end = CarbonImmutable::parse($period['end']);
+        $displayEnd = $end->isStartOfDay() && $end->greaterThan(CarbonImmutable::parse($period['start']))
+            ? $end->subDay()
+            : $end;
+
         return [
             'inicio' => CarbonImmutable::parse($period['start'])->toDateString(),
-            'fin' => CarbonImmutable::parse($period['end'])->toDateString(),
+            'fin' => $displayEnd->toDateString(),
         ];
     }
 

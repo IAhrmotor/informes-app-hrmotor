@@ -76,6 +76,12 @@ class CallPortalNormalizer
             return 'Autocasion';
         }
 
+        if ($key === 'autoscout' || $key === 'autoscout24'
+            || str_starts_with($key, 'autoscout ')
+            || str_starts_with($key, 'autoscout24 ')) {
+            return 'Autoscout';
+        }
+
         if ($key === 'wallapop' || str_starts_with($key, 'wallapop ')) {
             return 'Wallapop';
         }

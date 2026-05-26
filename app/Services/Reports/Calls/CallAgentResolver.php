@@ -63,6 +63,11 @@ class CallAgentResolver
         return $this->rules->normalizeName($name);
     }
 
+    public function normalizedUserKey(?string ...$names): string
+    {
+        return $this->rules->normalizedUserKey(...$names);
+    }
+
     private function mappingForParsed(array $parsed): ?array
     {
         $code = filled($parsed['destination_agent_code'] ?? null) ? Str::upper((string) $parsed['destination_agent_code']) : null;

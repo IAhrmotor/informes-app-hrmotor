@@ -46,6 +46,8 @@ class SalesforceSyncCallsCommand extends Command
             $this->line('Llamadas guardadas: '.$result['saved']);
             $this->line('Atendidas: '.$stats['answered']);
             $this->line('No atendidas/perdidas: '.$stats['not_answered']);
+            $this->line('Abandonadas: '.$stats['abandoned']);
+            $this->line('Desbordes: '.$stats['overflows']);
             $this->line('Entrantes: '.$stats['inbound']);
             $this->line('Salientes: '.$stats['outbound']);
             $this->line('Comercial directo: '.$stats['commercial_direct']);

@@ -8,6 +8,7 @@ class CallClassificationRules
 {
     public const CUSTOMER_SERVICE_LABEL = 'Atención al Cliente';
     public const CONTACT_CENTER_LABEL = 'Contact Center';
+    public const OVERFLOW_REASON_PORTAL_ATTENDED_BY_SUPPORT = 'portal_attended_by_support_team';
 
     public function normalizeName(?string $name): string
     {
@@ -99,10 +100,6 @@ class CallClassificationRules
             return 'system';
         }
 
-        if (filled($operationalUserId)) {
-            return ($team ?: 'unknown').'|id:'.$operationalUserId;
-        }
-
         $nameKey = $this->normalizedCanonicalUserKey($operationalUserName, $destinationAgentName, $ownerName);
 
         if ($nameKey !== '') {
@@ -110,6 +107,45 @@ class CallClassificationRules
         }
 
         return ($team ?: 'unknown').'|'.($operationalUserId ?: 'sin-clasificar');
+    }
+
+    public function normalizedUserKey(?string ...$names): string
+    {
+        return $this->normalizedCanonicalUserKey(...$names);
+    }
+
+    public function canonicalUserName(?string ...$names): string
+    {
+        $key = $this->normalizedCanonicalUserKey(...$names);
+
+        return match ($key) {
+            '' => 'Sin clasificar',
+            'vanesa sanjuan' => 'Vanessa SanJuan',
+            'callcenter fontellas' => 'Callcenter Fontellas',
+            default => Str::of($key)->title()->toString(),
+        };
+    }
+
+    public function isOverflow(?string $origin, ?string $status, ?string $portal, ?string $team): bool
+    {
+        return $origin === 'portal'
+            && $status === 'answered'
+            && in_array($team, ['contact_center', 'customer_service'], true)
+            && ! $this->isOverflowExcludedPortal($portal);
+    }
+
+    public function overflowReason(?string $origin, ?string $status, ?string $portal, ?string $team): ?string
+    {
+        return $this->isOverflow($origin, $status, $portal, $team)
+            ? self::OVERFLOW_REASON_PORTAL_ATTENDED_BY_SUPPORT
+            : null;
+    }
+
+    public function isOverflowExcludedPortal(?string $portal): bool
+    {
+        $portalKey = $this->normalizeName($portal);
+
+        return in_array($portalKey, ['web', 'google maps'], true);
     }
 
     public function displayUserName(?string $operationalUserName, ?string $destinationAgentName, ?string $ownerName): string

@@ -155,6 +155,7 @@
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
                             <th class="num">Tiempo medio conversacion</th>
@@ -182,6 +183,7 @@
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
                             <th class="num">Tiempo medio conversacion</th>
@@ -209,6 +211,7 @@
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
                             <th class="num">Tiempo medio conversacion</th>
@@ -236,6 +239,7 @@
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
                             <th class="num">Tiempo medio conversacion</th>
@@ -263,6 +267,7 @@
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
                             <th class="num">Tiempo medio conversacion</th>
@@ -289,6 +294,7 @@
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
                             <th class="num">Tiempo medio conversacion</th>
@@ -316,6 +322,7 @@
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
                             <th class="num">Tiempo medio conversacion</th>

@@ -32,6 +32,18 @@ class SalesforceLeadDashboardDatasetService
     // Dirección quiere que los no clasificados cuenten en KPIs generales por ahora.
     private const INCLUDE_UNCLASSIFIED_IN_TOTALS = true;
 
+    private const TECHNICAL_OWNER_IDS = [
+        '0052X00000AP4U5QAL',
+        '0057R00000AKkz0QAD',
+        '0057R00000CQGZaQAP',
+    ];
+
+    private const TECHNICAL_OWNER_NAMES = [
+        'admin adesso',
+        'api user',
+        'carlos torres',
+    ];
+
     private ?Collection $commercialUsersCache = null;
     private ?Collection $portalMapCache = null;
     public function __construct(
@@ -170,7 +182,11 @@ class SalesforceLeadDashboardDatasetService
         $hasRecentActivity = $lastActivityAt !== null
             && $lastActivityAt->lessThanOrEqualTo($referenceDate)
             && $lastActivityAt->greaterThanOrEqualTo($referenceDate->subDays(3));
-        $potentialWithoutWork = $isPotential && ($totalActivities === 0 || ! $hasRecentActivity);
+        $isUnassigned = $isPotential && $this->isTechnicalOwner(
+            data_get($lead, 'owner_id'),
+            data_get($lead, 'owner_name'),
+        );
+        $potentialWithoutWork = $isPotential && ! $isUnassigned && ($totalActivities === 0 || ! $hasRecentActivity);
         $managed = $isConverted || $isDiscarded || ($isPotential && $hasRecentActivity);
 
         return [
@@ -182,6 +198,7 @@ class SalesforceLeadDashboardDatasetService
             'is_descartado' => $isDiscarded,
             'is_potencial' => $isPotential,
             'is_potencial_sin_trabajar' => $potentialWithoutWork,
+            'is_lead_sin_asignar' => $isUnassigned,
             'is_gestionado' => $managed,
             'is_llamada' => $channel === 'Llamada',
             'is_formulario' => $channel === 'Formulario',
@@ -382,6 +399,23 @@ class SalesforceLeadDashboardDatasetService
         return $recordTypeName === $filter;
     }
 
+    private function isTechnicalOwner(mixed $ownerId, mixed $ownerName): bool
+    {
+        return in_array((string) $ownerId, self::TECHNICAL_OWNER_IDS, true)
+            || in_array($this->normalizeOwnerName($ownerName), self::TECHNICAL_OWNER_NAMES, true);
+    }
+
+    private function normalizeOwnerName(mixed $ownerName): string
+    {
+        return Str::of((string) $ownerName)
+            ->lower()
+            ->ascii()
+            ->replaceMatches('/[^a-z0-9]+/', ' ')
+            ->replaceMatches('/\s+/', ' ')
+            ->trim()
+            ->toString();
+    }
+
     private function zoneFieldForContext(array $filters): string
     {
         if (($filters['context'] ?? 'summary') === 'commercials') {
@@ -505,6 +539,7 @@ class SalesforceLeadDashboardDatasetService
         $bucket['descartados'] += $lead['is_descartado'] ? 1 : 0;
         $bucket['potenciales'] += $lead['is_potencial'] ? 1 : 0;
         $bucket['potenciales_sin_trabajar'] += $lead['is_potencial_sin_trabajar'] ? 1 : 0;
+        $bucket['leads_unassigned'] += $lead['is_lead_sin_asignar'] ? 1 : 0;
         $bucket['gestionados'] += $lead['is_gestionado'] ? 1 : 0;
         $bucket['llamadas'] += $lead['is_llamada'] ? 1 : 0;
         $bucket['formularios'] += $lead['is_formulario'] ? 1 : 0;
@@ -531,6 +566,7 @@ class SalesforceLeadDashboardDatasetService
             'descartados' => 0,
             'potenciales' => 0,
             'potenciales_sin_trabajar' => 0,
+            'leads_unassigned' => 0,
             'gestionados' => 0,
             'llamadas' => 0,
             'formularios' => 0,
@@ -545,6 +581,7 @@ class SalesforceLeadDashboardDatasetService
             ['key' => 'descartados', 'label' => 'Descartados', 'percent_key' => 'descarte_pct'],
             ['key' => 'potenciales', 'label' => 'Potenciales'],
             ['key' => 'potenciales_sin_trabajar', 'label' => 'Potenciales sin trabajar'],
+            ['key' => 'leads_unassigned', 'label' => 'Leads sin asignar'],
             ['key' => 'gestionados', 'label' => 'Gestionados', 'percent_key' => 'gestionados_pct'],
             ['key' => 'llamadas', 'label' => 'Llamadas', 'percent_key' => 'llamadas_pct'],
             ['key' => 'formularios', 'label' => 'Formularios', 'percent_key' => 'formularios_pct'],
@@ -599,6 +636,7 @@ class SalesforceLeadDashboardDatasetService
                 'descarte_pct',
                 'potenciales',
                 'potenciales_sin_trabajar',
+                'leads_unassigned',
                 'gestionados',
                 'gestionados_pct',
             ])->all(),
@@ -655,6 +693,7 @@ class SalesforceLeadDashboardDatasetService
             ['key' => 'descarte_pct', 'label' => '% descarte', 'ratio' => true],
             ['key' => 'potenciales', 'label' => 'Potenciales', 'ratio' => false],
             ['key' => 'potenciales_sin_trabajar', 'label' => 'Potenciales sin trabajar', 'ratio' => false],
+            ['key' => 'leads_unassigned', 'label' => 'Leads sin asignar', 'ratio' => false],
             ['key' => 'gestionados', 'label' => 'Gestionados', 'ratio' => false],
             ['key' => 'gestionados_pct', 'label' => '% gestionados', 'ratio' => true],
             ['key' => 'llamadas', 'label' => 'Llamadas', 'ratio' => false],
