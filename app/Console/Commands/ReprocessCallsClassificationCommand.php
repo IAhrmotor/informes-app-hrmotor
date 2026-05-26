@@ -10,6 +10,7 @@ use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 class ReprocessCallsClassificationCommand extends Command
 {
@@ -33,6 +34,7 @@ class ReprocessCallsClassificationCommand extends Command
                 foreach ($calls as $call) {
                     $portal = $portalNormalizer->normalize($call->portales_raw);
                     $origin = $portal['origin'];
+                    $callStatus = $this->classifyStatus($call->result_raw, $call->call_status);
                     $duration = is_numeric($call->call_duration_seconds)
                         ? (int) $call->call_duration_seconds
                         : (int) $call->parsed_duration_seconds;
@@ -48,16 +50,28 @@ class ReprocessCallsClassificationCommand extends Command
                         $call->owner_profile_name,
                     );
                     $delegationZone = $this->delegationZone($call, $team, $users, $delegationNormalizer, $rules);
+                    $normalizedUserKey = $rules->normalizedUserKey(
+                        $call->operational_user_name,
+                        $call->destination_agent_name,
+                        $call->owner_name,
+                    );
+                    $isOverflow = $rules->isOverflow($origin, $callStatus, $portal['portal'], $team);
 
                     $call->forceFill([
                         'call_origin' => $origin,
                         'portal_resolved' => $portal['portal'],
                         'portal_resolution_source' => $portal['source'],
+                        'call_status' => $callStatus,
+                        'is_answered' => $callStatus === 'answered',
+                        'is_lost' => $callStatus !== 'answered',
                         'adjusted_duration_seconds' => max(0, $duration - ($origin === 'commercial_direct' ? 5 : 10)),
                         'operational_team' => $team,
+                        'normalized_user_key' => $normalizedUserKey,
                         'owner_team' => $ownerTeam,
                         'delegation' => $delegationZone['delegation'],
                         'zone' => $delegationZone['zone'],
+                        'is_overflow' => $isOverflow,
+                        'overflow_reason' => $rules->overflowReason($origin, $callStatus, $portal['portal'], $team),
                     ])->save();
 
                     $updated++;
@@ -68,7 +82,7 @@ class ReprocessCallsClassificationCommand extends Command
         $after = $this->originCounts();
 
         $this->info('Reproceso de clasificacion de llamadas completado.');
-        $this->line('Llamadas actualizadas: '.$updated);
+        $this->line('Procesadas: '.$updated);
         $this->newLine();
         $this->table(['Origen', 'Antes', 'Despues'], collect(['commercial_direct', 'portal', 'switchboard', 'otros'])
             ->map(fn (string $origin) => [
@@ -77,6 +91,8 @@ class ReprocessCallsClassificationCommand extends Command
                 $after[$origin] ?? 0,
             ])
             ->all());
+        $this->newLine();
+        $this->table(['Metrica', 'Total'], $this->summaryCounts());
         $this->newLine();
         $this->table(['Equipo', 'Total'], $this->teamCounts());
         $this->line('Delegacion Sin clasificar restante: '.SalesforceCall::query()->where('delegation', LeadDelegationNormalizer::UNCLASSIFIED)->count());
@@ -140,6 +156,36 @@ class ReprocessCallsClassificationCommand extends Command
             ->pipe(fn ($counts) => collect(['commercial', 'customer_service', 'contact_center', 'appraiser', 'system', 'unclassified'])
                 ->map(fn (string $team) => [$team, (int) ($counts[$team] ?? 0)])
                 ->all());
+    }
+
+    private function summaryCounts(): array
+    {
+        return [
+            ['procesadas', SalesforceCall::query()->count()],
+            ['directas comercial', SalesforceCall::query()->where('call_origin', 'commercial_direct')->count()],
+            ['portales', SalesforceCall::query()->where('call_origin', 'portal')->count()],
+            ['answered', SalesforceCall::query()->where('call_status', 'answered')->count()],
+            ['not_answered', SalesforceCall::query()->where('call_status', 'not_answered')->count()],
+            ['abandoned', SalesforceCall::query()->whereRaw("UPPER(TRIM(COALESCE(result_raw, ''))) = 'ABANDONED'")->count()],
+            ['overflows', SalesforceCall::query()->where('is_overflow', true)->count()],
+            ['customer_service', SalesforceCall::query()->where('operational_team', 'customer_service')->count()],
+            ['contact_center', SalesforceCall::query()->where('operational_team', 'contact_center')->count()],
+            ['appraisers', SalesforceCall::query()->where('operational_team', 'appraiser')->count()],
+            ['commercials', SalesforceCall::query()->where('operational_team', 'commercial')->count()],
+            ['system', SalesforceCall::query()->where('operational_team', 'system')->count()],
+            ['unclassified', SalesforceCall::query()->where('operational_team', 'unclassified')->count()],
+        ];
+    }
+
+    private function classifyStatus(?string $resultRaw, ?string $currentStatus): string
+    {
+        $result = Str::of((string) $resultRaw)->upper()->trim()->toString();
+
+        if ($result !== '') {
+            return $result === 'ANSWERED' ? 'answered' : 'not_answered';
+        }
+
+        return $currentStatus === 'answered' ? 'answered' : 'not_answered';
     }
 
     private function salesforceUsers(): Collection

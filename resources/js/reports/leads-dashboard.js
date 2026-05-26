@@ -127,6 +127,7 @@ function renderKpis(kpis) {
         ['Convertidos', formatNumber(kpis.convertidos), `${formatPercent(kpis.conversion_pct)} sobre total`],
         ['Descartados', formatNumber(kpis.descartados), `${formatPercent(kpis.descarte_pct)} sobre total`],
         ['Potenciales', formatNumber(kpis.potenciales), 'Bolsa viva'],
+        ['Leads sin asignar', formatNumber(kpis.leads_unassigned), 'Bolsa viva tecnica'],
         ['Potenciales sin trabajar', formatNumber(kpis.potenciales_sin_trabajar), 'Solo Status Potencial'],
         ['Gestionados', formatNumber(kpis.gestionados), `${formatPercent(kpis.gestionados_pct)} sobre total`],
         ['Llamadas', formatNumber(kpis.llamadas), `${formatPercent(kpis.llamadas_pct)} del total`],

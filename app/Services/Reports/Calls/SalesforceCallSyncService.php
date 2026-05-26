@@ -33,6 +33,8 @@ class SalesforceCallSyncService
         $stats = [
             'answered' => 0,
             'not_answered' => 0,
+            'abandoned' => 0,
+            'overflows' => 0,
             'inbound' => 0,
             'outbound' => 0,
             'commercial_direct' => 0,
@@ -194,6 +196,17 @@ SOQL;
             'name' => data_get($record, 'Owner.Name'),
             'profile_name' => data_get($record, 'Owner.Profile.Name'),
         ], $parsed, $portal['origin']);
+        $normalizedUserKey = $this->agentResolver->normalizedUserKey(
+            $agent['operational_user_name'] ?? null,
+            $parsed['destination_agent_name'] ?? null,
+            data_get($record, 'Owner.Name'),
+        );
+        $isOverflow = $this->isOverflow(
+            $portal['origin'],
+            $callStatus,
+            $portal['portal'],
+            $agent['operational_team'] ?? null,
+        );
 
         return SalesforceCall::updateOrCreate(
             ['salesforce_id' => data_get($record, 'Id')],
@@ -226,6 +239,10 @@ SOQL;
                 'call_status' => $callStatus,
                 'is_answered' => $callStatus === 'answered',
                 'is_lost' => $callStatus !== 'answered',
+                'is_overflow' => $isOverflow,
+                'overflow_reason' => $isOverflow
+                    ? 'portal_attended_by_support_team'
+                    : null,
                 'fixed_phone' => $parsed['fixed_phone'],
                 'client_phone' => $parsed['client_phone'],
                 'destination_raw' => $parsed['destination_raw'],
@@ -233,6 +250,7 @@ SOQL;
                 'destination_agent_name' => $parsed['destination_agent_name'],
                 'operational_user_id' => $agent['operational_user_id'],
                 'operational_user_name' => $agent['operational_user_name'],
+                'normalized_user_key' => $normalizedUserKey,
                 'operational_team' => $agent['operational_team'],
                 'owner_team' => $agent['owner_team'],
                 'delegation' => $agent['delegation'],
@@ -349,9 +367,27 @@ SOQL));
     private function addStats(array &$stats, SalesforceCall $call): void
     {
         $stats[$call->is_answered ? 'answered' : 'not_answered']++;
+        $stats['abandoned'] += Str::of((string) $call->result_raw)->upper()->trim()->toString() === 'ABANDONED' ? 1 : 0;
+        $stats['overflows'] += $call->is_overflow ? 1 : 0;
         $stats[$call->direction] = ($stats[$call->direction] ?? 0) + 1;
         $stats[$call->call_origin] = ($stats[$call->call_origin] ?? 0) + 1;
         $stats['teams'][$call->operational_team] = ($stats['teams'][$call->operational_team] ?? 0) + 1;
+    }
+
+    private function isOverflow(?string $origin, ?string $status, ?string $portal, ?string $team): bool
+    {
+        $portalKey = Str::of((string) $portal)
+            ->lower()
+            ->ascii()
+            ->replaceMatches('/[^a-z0-9]+/', ' ')
+            ->replaceMatches('/\s+/', ' ')
+            ->trim()
+            ->toString();
+
+        return $origin === 'portal'
+            && $status === 'answered'
+            && in_array($team, ['contact_center', 'customer_service'], true)
+            && ! in_array($portalKey, ['web', 'google maps'], true);
     }
 
     private function invalidateDashboardCache(): void

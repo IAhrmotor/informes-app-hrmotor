@@ -195,6 +195,7 @@ class CallDashboardDatasetService
             ->addSelect([
                 'operational_user_id',
                 'operational_user_name',
+                'normalized_user_key',
                 'destination_agent_name',
                 'destination_agent_code',
                 'owner_name',
@@ -208,6 +209,7 @@ class CallDashboardDatasetService
             ->groupBy([
                 'operational_user_id',
                 'operational_user_name',
+                'normalized_user_key',
                 'destination_agent_name',
                 'destination_agent_code',
                 'owner_name',
@@ -381,11 +383,12 @@ class CallDashboardDatasetService
             $query
                 ->where('operational_user_id', $filter)
                 ->orWhere('operational_user_name', $filter)
+                ->orWhere('normalized_user_key', $filter)
                 ->orWhere('destination_agent_name', $filter)
                 ->orWhere('owner_name', $filter);
 
             foreach ($identities as $identity) {
-                foreach (['operational_user_id', 'operational_user_name', 'destination_agent_name', 'owner_name'] as $column) {
+                foreach (['operational_user_id', 'operational_user_name', 'normalized_user_key', 'destination_agent_name', 'owner_name'] as $column) {
                     $value = data_get($identity, $column);
 
                     if (filled($value)) {
@@ -427,6 +430,7 @@ class CallDashboardDatasetService
             if ($key === $filter
                 || (string) $row->operational_user_id === $filter
                 || (string) $row->operational_user_name === $filter
+                || (string) $row->normalized_user_key === $filter
                 || (string) $row->destination_agent_name === $filter
                 || (string) $row->owner_name === $filter
                 || $displayName === $filter
@@ -453,6 +457,7 @@ class CallDashboardDatasetService
             ->addSelect([
                 'operational_user_id',
                 'operational_user_name',
+                'normalized_user_key',
                 'destination_agent_name',
                 'destination_agent_code',
                 'owner_name',
@@ -463,6 +468,7 @@ class CallDashboardDatasetService
             ->groupBy([
                 'operational_user_id',
                 'operational_user_name',
+                'normalized_user_key',
                 'destination_agent_name',
                 'destination_agent_code',
                 'owner_name',
@@ -488,6 +494,8 @@ class CallDashboardDatasetService
         $teamSql = $this->effectiveTeamSql();
         $answeredSql = $this->answeredConditionSql();
         $lostSql = $this->lostConditionSql();
+        $overflowSql = $this->overflowConditionSql();
+        $overflowDenominatorSql = $this->overflowDenominatorConditionSql();
 
         return implode(",\n", [
             'COUNT(*) as total_calls',
@@ -508,6 +516,8 @@ class CallDashboardDatasetService
             "SUM(CASE WHEN {$answeredSql} AND {$teamSql} = 'appraiser' THEN 1 ELSE 0 END) as answered_appraiser",
             "SUM(CASE WHEN {$answeredSql} AND adjusted_duration_seconds IS NOT NULL THEN adjusted_duration_seconds ELSE 0 END) as adjusted_duration_answered_sum",
             "SUM(CASE WHEN {$answeredSql} AND adjusted_duration_seconds IS NOT NULL THEN 1 ELSE 0 END) as answered_duration_count",
+            "SUM(CASE WHEN {$overflowSql} THEN 1 ELSE 0 END) as overflow_count",
+            "SUM(CASE WHEN {$overflowDenominatorSql} THEN 1 ELSE 0 END) as overflow_denominator",
             "AVG(CASE WHEN {$answeredSql} THEN adjusted_duration_seconds ELSE NULL END) as avg_talk_seconds",
         ]);
     }
@@ -522,6 +532,35 @@ class CallDashboardDatasetService
         $answeredSql = $this->answeredConditionSql();
 
         return "((NOT {$answeredSql}) OR call_status = 'not_answered' OR COALESCE(is_lost, 0) = 1)";
+    }
+
+    private function overflowConditionSql(): string
+    {
+        $originSql = $this->effectiveOriginSql();
+        $teamSql = $this->effectiveTeamSql();
+        $answeredSql = $this->answeredConditionSql();
+        $portalSql = $this->overflowPortalKeySql();
+
+        return "(COALESCE(is_overflow, 0) = 1 OR ({$originSql} = 'portal'
+            AND {$answeredSql}
+            AND {$portalSql} NOT IN ('web', 'google maps')
+            AND {$teamSql} IN ('contact_center', 'customer_service')))";
+    }
+
+    private function overflowDenominatorConditionSql(): string
+    {
+        $originSql = $this->effectiveOriginSql();
+        $answeredSql = $this->answeredConditionSql();
+        $portalSql = $this->overflowPortalKeySql();
+
+        return "({$originSql} = 'portal'
+            AND {$answeredSql}
+            AND {$portalSql} NOT IN ('web', 'google maps'))";
+    }
+
+    private function overflowPortalKeySql(): string
+    {
+        return "LOWER(TRIM(COALESCE(portal_resolved, '')))";
     }
 
     private function effectiveOriginSql(): string
@@ -615,6 +654,8 @@ class CallDashboardDatasetService
         $result['answered_by_customer_service'] = $result['answered_customer_service'];
         $result['answered_by_contact_center'] = $result['answered_contact_center'];
         $result['answered_by_appraiser'] = $result['answered_appraiser'];
+        $result['overflow_count'] = $result['overflow_count'] ?? 0;
+        $result['overflows'] = $result['overflow_count'];
 
         return $result;
     }
@@ -662,7 +703,7 @@ class CallDashboardDatasetService
         return $this->rules->userGroupKey(
             $team,
             data_get($call, 'operational_user_id'),
-            $this->displayUserName($call),
+            data_get($call, 'normalized_user_key') ?: $this->displayUserName($call),
             data_get($call, 'destination_agent_name'),
             data_get($call, 'owner_name'),
             data_get($call, 'owner_profile_name'),
@@ -674,10 +715,10 @@ class CallDashboardDatasetService
         $mapped = $this->mappedAgentName($call);
 
         if ($mapped !== null) {
-            return $mapped;
+            return $this->rules->canonicalUserName($mapped);
         }
 
-        return $this->rules->displayUserName(
+        return $this->rules->canonicalUserName(
             data_get($call, 'operational_user_name'),
             data_get($call, 'destination_agent_name'),
             data_get($call, 'owner_name'),
@@ -737,6 +778,7 @@ class CallDashboardDatasetService
             ['key' => 'total_calls', 'label' => 'Total llamadas'],
             ['key' => 'answered', 'label' => 'Atendidas'],
             ['key' => 'not_answered', 'label' => 'No atendidas'],
+            ['key' => 'overflow_count', 'label' => 'Desbordes'],
             ['key' => 'inbound', 'label' => 'Entrantes'],
             ['key' => 'outbound', 'label' => 'Salientes'],
             ['key' => 'average_talk_seconds', 'label' => 'Tiempo medio conversacion', 'seconds' => true],
@@ -763,6 +805,7 @@ class CallDashboardDatasetService
         return [
             'Atendidas: '.$bucket['answered'].' de '.$bucket['total_calls'].' llamadas.',
             'No atendidas o perdidas: '.$bucket['not_answered'].'.',
+            'Desbordes: '.$bucket['overflow_count'].'.',
             'Tiempo medio de conversacion: '.$this->secondsText($bucket['average_talk_seconds']).'.',
         ];
     }
@@ -844,7 +887,7 @@ class CallDashboardDatasetService
             'calls-dashboard:filters:'.md5((string) $this->dataVersion()),
             now()->addMinutes(self::CACHE_TTL_MINUTES),
             fn () => [
-                'teams' => collect(['commercial', 'customer_service', 'contact_center', 'appraiser', 'system'])
+                'teams' => collect(['commercial', 'customer_service', 'contact_center', 'appraiser'])
                     ->map(fn (string $id) => ['id' => $id, 'name' => $this->teamLabel($id)])
                     ->all(),
                 'directions' => [
@@ -908,9 +951,7 @@ class CallDashboardDatasetService
                 continue;
             }
 
-            $key = filled($row->operational_user_id)
-                ? (string) $row->operational_user_id
-                : $this->userGroupKey($row, $team);
+            $key = $this->userGroupKey($row, $team);
 
             $options[$key] ??= [
                 'id' => $key,

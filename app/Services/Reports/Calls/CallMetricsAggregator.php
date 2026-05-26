@@ -30,6 +30,8 @@ class CallMetricsAggregator
             'answered_appraiser' => 0,
             'adjusted_duration_answered_sum' => 0,
             'answered_duration_count' => 0,
+            'overflow_count' => 0,
+            'overflow_denominator' => 0,
         ];
     }
 
@@ -44,6 +46,11 @@ class CallMetricsAggregator
         );
         $isAnswered = data_get($call, 'call_status') === 'answered' || (bool) data_get($call, 'is_answered', false);
         $isLost = ! $isAnswered || data_get($call, 'call_status') === 'not_answered' || (bool) data_get($call, 'is_lost', false);
+        $isOverflowDenominator = $origin === 'portal'
+            && $isAnswered
+            && ! $this->rules->isOverflowExcludedPortal(data_get($call, 'portal_resolved'));
+        $isOverflow = (bool) data_get($call, 'is_overflow', false)
+            || $this->rules->isOverflow($origin, data_get($call, 'call_status'), data_get($call, 'portal_resolved'), $team);
 
         $bucket['total_calls']++;
         $bucket['commercial_direct_calls'] += $origin === 'commercial_direct' ? 1 : 0;
@@ -61,6 +68,8 @@ class CallMetricsAggregator
         $bucket['answered_customer_service'] += $isAnswered && $team === 'customer_service' ? 1 : 0;
         $bucket['answered_contact_center'] += $isAnswered && $team === 'contact_center' ? 1 : 0;
         $bucket['answered_appraiser'] += $isAnswered && $team === 'appraiser' ? 1 : 0;
+        $bucket['overflow_count'] += $isOverflow ? 1 : 0;
+        $bucket['overflow_denominator'] += $isOverflowDenominator ? 1 : 0;
 
         if ($isAnswered) {
             $bucket['adjusted_duration_answered_sum'] += max(0, (int) data_get($call, 'adjusted_duration_seconds', 0));
@@ -87,6 +96,8 @@ class CallMetricsAggregator
             'average_talk_seconds' => $durationCount > 0
                 ? round($bucket['adjusted_duration_answered_sum'] / $durationCount, 2)
                 : 0.0,
+            'overflows' => $bucket['overflow_count'],
+            'overflow_pct' => $this->percentage($bucket['overflow_count'], $bucket['overflow_denominator']),
         ]);
     }
 
