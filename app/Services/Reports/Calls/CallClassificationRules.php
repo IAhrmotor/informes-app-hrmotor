@@ -99,6 +99,10 @@ class CallClassificationRules
             return 'system';
         }
 
+        if (filled($operationalUserId)) {
+            return ($team ?: 'unknown').'|id:'.$operationalUserId;
+        }
+
         $nameKey = $this->normalizedCanonicalUserKey($operationalUserName, $destinationAgentName, $ownerName);
 
         if ($nameKey !== '') {
