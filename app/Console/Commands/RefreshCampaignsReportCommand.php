@@ -1,0 +1,79 @@
+<?php
+
+namespace App\Console\Commands;
+
+use App\Models\CampaignReportSnapshot;
+use App\Services\Campaigns\CampaignDashboardDatasetService;
+use Carbon\CarbonImmutable;
+use Illuminate\Console\Command;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Throwable;
+
+class RefreshCampaignsReportCommand extends Command
+{
+    protected $signature = 'reports:refresh-campaigns
+        {--days=30 : Dias del periodo del informe}
+        {--window=30 : Ventana de atribucion en dias}
+        {--store : Guarda snapshot en base de datos}';
+
+    protected $description = 'Calcula el informe de campanas y opcionalmente guarda un snapshot.';
+
+    public function handle(CampaignDashboardDatasetService $dataset): int
+    {
+        $days = max((int) $this->option('days'), 1);
+        $window = max((int) $this->option('window'), 1);
+        $end = CarbonImmutable::now()->endOfDay();
+        $start = $end->subDays($days)->startOfDay();
+
+        try {
+            $this->invalidateCache();
+
+            $request = Request::create('/informes/campanas/data/summary', 'GET', [
+                'start_date' => $start->toDateString(),
+                'end_date' => $end->toDateString(),
+                'attribution_window_days' => $window,
+            ]);
+
+            $payload = $dataset->payload($request);
+
+            foreach ($payload['summary']['warnings'] ?? [] as $warning) {
+                $this->warn($warning);
+            }
+
+            if ($this->option('store')) {
+                $snapshot = CampaignReportSnapshot::query()->create([
+                    'period_start' => $start->toDateString(),
+                    'period_end' => $end->toDateString(),
+                    'attribution_window_days' => $window,
+                    'filters_hash' => md5(json_encode($request->query())),
+                    'summary' => $payload['summary'],
+                    'campaigns' => $payload['campaigns'],
+                    'rankings' => $payload['rankings'],
+                    'warnings' => $payload['summary']['warnings'] ?? [],
+                ]);
+
+                $this->line('Snapshot id: '.$snapshot->id);
+            }
+
+            $kpis = $payload['summary']['kpis'];
+            $this->line('Campanas: '.count($payload['campaigns']));
+            $this->line('Inversion total: '.$kpis['spend']);
+            $this->line('Leads Salesforce: '.$kpis['leads_salesforce']);
+            $this->line('Reservas: '.$kpis['reservations']);
+            $this->line('Ventas: '.$kpis['sales']);
+
+            return self::SUCCESS;
+        } catch (Throwable $exception) {
+            $this->error('Error refrescando informe de campanas.');
+            $this->line($exception->getMessage());
+
+            return self::FAILURE;
+        }
+    }
+
+    private function invalidateCache(): void
+    {
+        Cache::forever('campaign_dashboard_cache_version', ((int) Cache::get('campaign_dashboard_cache_version', 1)) + 1);
+    }
+}

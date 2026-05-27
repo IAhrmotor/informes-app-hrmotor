@@ -27,7 +27,7 @@ class SalesforceMonthlyLeadsSyncService
                 throw $exception;
             }
 
-            $warnings[] = 'La query de Lead con campos opcionales fallo. Revisa API names: Medio_Nuevo__c, Fuente_Nuevo__c, Remitente_Lead__c, Delegacion_Encargada_Bueno__c, Delegacion_Encargada__c. Error: '.$exception->getMessage();
+            $warnings[] = 'La query de Lead con campos opcionales fallo. Revisa API names de dashboard/campanas. Error: '.$exception->getMessage();
             $soql = $this->baseSoql($periodStart, $periodEnd);
             $records = $this->client->query($soql);
         }
@@ -55,6 +55,18 @@ class SalesforceMonthlyLeadsSyncService
                     'fecha_asignacion' => $this->parseDateTime(data_get($record, 'Fecha_Asignacion__c')),
                     'fuente_origen' => data_get($record, 'LEA_SEL_Fuente_Origen__c'),
                     'medio_origen' => data_get($record, 'LEA_SEL_Medio_Origen__c'),
+                    'campaign_acquired' => data_get($record, 'Campa_a_Adquirida__c'),
+                    'acquired_id' => data_get($record, 'Id_Adquirido__c'),
+                    'content_acquired' => data_get($record, 'Contenido_Adquirido__c'),
+                    'vehicle_interest' => data_get($record, 'LEA_BUS_Vehiculo_de_interes__c'),
+                    'phone' => data_get($record, 'Phone'),
+                    'mobile_phone' => data_get($record, 'MobilePhone'),
+                    'email' => data_get($record, 'Email'),
+                    'is_converted' => (bool) data_get($record, 'IsConverted', false),
+                    'converted_date' => $this->parseDateTime(data_get($record, 'ConvertedDate')),
+                    'converted_account_id' => data_get($record, 'ConvertedAccountId'),
+                    'converted_contact_id' => data_get($record, 'ConvertedContactId'),
+                    'converted_opportunity_id' => data_get($record, 'ConvertedOpportunityId'),
                     'medio_nuevo' => data_get($record, 'Medio_Nuevo__c'),
                     'fuente_nuevo' => data_get($record, 'Fuente_Nuevo__c'),
                     'remitente_lead' => data_get($record, 'Remitente_Lead__c'),
@@ -99,6 +111,18 @@ class SalesforceMonthlyLeadsSyncService
     Remitente_Lead__c,
     Delegacion_Encargada_Bueno__c,
     Delegacion_Encargada__c,
+    Campa_a_Adquirida__c,
+    Id_Adquirido__c,
+    Contenido_Adquirido__c,
+    LEA_BUS_Vehiculo_de_interes__c,
+    Phone,
+    MobilePhone,
+    Email,
+    IsConverted,
+    ConvertedDate,
+    ConvertedAccountId,
+    ConvertedContactId,
+    ConvertedOpportunityId,
 SOQL
             : '';
 

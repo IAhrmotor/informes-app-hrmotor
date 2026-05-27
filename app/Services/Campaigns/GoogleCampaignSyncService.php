@@ -1,0 +1,82 @@
+<?php
+
+namespace App\Services\Campaigns;
+
+use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Throwable;
+
+class GoogleCampaignSyncService
+{
+    public function __construct(
+        private readonly GoogleAdsClient $client,
+        private readonly CampaignMetricsRepository $metrics,
+    ) {
+    }
+
+    public function sync(CarbonInterface $start, CarbonInterface $end): array
+    {
+        $warnings = $this->client->missingConfigurationWarnings();
+
+        if ($warnings !== []) {
+            foreach ($warnings as $warning) {
+                Log::warning($warning);
+            }
+
+            return [
+                'configured' => false,
+                'processed' => 0,
+                'saved' => 0,
+                'warnings' => $warnings,
+            ];
+        }
+
+        $processed = 0;
+        $saved = 0;
+
+        foreach ($this->client->customerIds() as $customerId) {
+            try {
+                $rows = $this->client->searchDailyMetrics($customerId, $start, $end);
+            } catch (Throwable $exception) {
+                $warnings[] = "No se ha podido actualizar la inversion de Google Ads ({$customerId}). ".$exception->getMessage();
+                Log::warning(end($warnings));
+
+                continue;
+            }
+
+            foreach ($rows as $row) {
+                $processed++;
+                $this->metrics->upsert([
+                    'platform' => 'google_ads',
+                    'metric_date' => data_get($row, 'segments.date'),
+                    'account_id' => $customerId,
+                    'campaign_id' => (string) data_get($row, 'campaign.id'),
+                    'campaign_name' => data_get($row, 'campaign.name'),
+                    'ad_group_id' => (string) data_get($row, 'adGroup.id'),
+                    'ad_group_name' => data_get($row, 'adGroup.name'),
+                    'spend' => round(((float) data_get($row, 'metrics.costMicros', 0)) / 1000000, 2),
+                    'impressions' => (int) data_get($row, 'metrics.impressions', 0),
+                    'clicks' => (int) data_get($row, 'metrics.clicks', 0),
+                    'platform_conversions' => (float) data_get($row, 'metrics.conversions', 0),
+                    'raw_payload' => $row,
+                ]);
+                $saved++;
+            }
+        }
+
+        $this->invalidateCache();
+
+        return [
+            'configured' => true,
+            'processed' => $processed,
+            'saved' => $saved,
+            'warnings' => $warnings,
+        ];
+    }
+
+    private function invalidateCache(): void
+    {
+        Cache::forever('campaign_dashboard_cache_version', ((int) Cache::get('campaign_dashboard_cache_version', 1)) + 1);
+    }
+}

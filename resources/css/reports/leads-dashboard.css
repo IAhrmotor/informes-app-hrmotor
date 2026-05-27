@@ -90,6 +90,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: flex-end;
+    gap: 10px;
 }
 
 .header {
@@ -144,6 +145,29 @@ h2 {
     font-weight: 750;
     font-size: 13px;
     white-space: nowrap;
+}
+
+.logout-form {
+    margin: 0;
+}
+
+.logout-button {
+    border: 1px solid rgba(125, 73, 78, .24);
+    border-radius: 999px;
+    padding: 10px 14px;
+    background: #fff;
+    color: var(--brand-accent);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 800;
+    white-space: nowrap;
+    transition: background .16s ease, border-color .16s ease, color .16s ease;
+}
+
+.logout-button:hover {
+    border-color: rgba(237, 27, 47, .45);
+    background: #fff5f6;
+    color: #b91c1c;
 }
 
 .report-switch {
@@ -730,7 +754,6 @@ th.num {
 
     .badge {
         display: inline-block;
-        margin-top: 14px;
     }
 
     .report-switch {
@@ -766,8 +789,15 @@ th.num {
         font-size: 11px;
     }
 
-    .header-actions,
-    .badge {
+    .header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+        justify-content: stretch;
+    }
+
+    .badge,
+    .logout-form,
+    .logout-button {
         width: 100%;
     }
 

@@ -13,6 +13,7 @@ export default defineConfig({
                 'resources/js/reports/leads-dashboard.js',
                 'resources/js/reports/reservations-sales-dashboard.js',
                 'resources/js/reports/calls-dashboard.js',
+                'resources/js/reports/campaigns-dashboard.js',
             ],
             refresh: true,
             fonts: [

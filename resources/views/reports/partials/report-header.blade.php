@@ -14,6 +14,12 @@
 
     <div class="header-actions">
         <div class="badge" id="updatedBadge">Cargando datos de Salesforce...</div>
+        @if (config('services.informes_auth.enabled'))
+            <form method="POST" action="{{ route('logout') }}" class="logout-form">
+                @csrf
+                <button type="submit" class="logout-button">Cerrar sesión</button>
+            </form>
+        @endif
     </div>
 </header>
 
@@ -29,5 +35,9 @@
     <a href="{{ route('reports.calls.index') }}" @class(['active' => $currentReport === 'calls'])>
         <strong>Llamadas</strong>
         <span>Actividad telefonica y atencion</span>
+    </a>
+    <a href="{{ route('reports.campaigns.index') }}" @class(['active' => $currentReport === 'campaigns'])>
+        <strong>Campañas</strong>
+        <span>Rentabilidad digital</span>
     </a>
 </nav>
