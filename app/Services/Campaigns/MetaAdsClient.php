@@ -3,6 +3,7 @@
 namespace App\Services\Campaigns;
 
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -30,16 +31,25 @@ class MetaAdsClient
 
     public function insights(string $accountId, CarbonInterface $start, CarbonInterface $end): array
     {
+        $apiVersion = trim((string) config('services.meta_ads.api_version', 'v25.0'));
+        $accessToken = trim((string) config('services.meta_ads.access_token'));
+
+        $accountId = trim($accountId);
         $account = str_starts_with($accountId, 'act_') ? $accountId : 'act_'.$accountId;
+
+        if (blank($accessToken)) {
+            throw new RuntimeException('Meta Ads API error: META_ACCESS_TOKEN no está configurado.');
+        }
+
         $url = sprintf(
             'https://graph.facebook.com/%s/%s/insights',
-            config('services.meta_ads.api_version', 'v22.0'),
+            $apiVersion,
             $account
         );
 
-        $params = [
-            'access_token' => config('services.meta_ads.access_token'),
-            'level' => 'ad',
+        $baseParams = [
+            'access_token' => $accessToken,
+            'level' => 'campaign',
             'time_increment' => 1,
             'time_range' => json_encode([
                 'since' => $start->toDateString(),
@@ -52,32 +62,51 @@ class MetaAdsClient
                 'account_name',
                 'campaign_id',
                 'campaign_name',
-                'adset_id',
-                'adset_name',
-                'ad_id',
-                'ad_name',
                 'spend',
                 'impressions',
                 'clicks',
-                'actions',
             ]),
             'limit' => 500,
         ];
 
         $rows = [];
+        $after = null;
 
         do {
-            $response = Http::timeout(120)->get($url, $params);
+            $params = $baseParams;
+
+            if (filled($after)) {
+                $params['after'] = $after;
+            }
+
+            $response = Http::timeout(120)
+                ->retry(2, 1000)
+                ->get($url, $params);
 
             if ($response->failed()) {
+                Log::error('Meta Ads response error', [
+                    'status' => $response->status(),
+                    'body' => $response->json(),
+                    'url' => $url,
+                    'account_resolved' => $account,
+                    'level' => $params['level'] ?? null,
+                    'fields' => $params['fields'] ?? null,
+                    'after' => $params['after'] ?? null,
+                    'token_start' => substr($accessToken, 0, 8),
+                    'token_end' => substr($accessToken, -8),
+                    'token_length' => strlen($accessToken),
+                ]);
+
                 throw new RuntimeException('Meta Ads API error: '.$response->body());
             }
 
             $payload = $response->json();
+
             $rows = array_merge($rows, $payload['data'] ?? []);
-            $url = data_get($payload, 'paging.next');
-            $params = [];
-        } while (filled($url));
+
+            $after = data_get($payload, 'paging.cursors.after');
+            $hasNextPage = filled(data_get($payload, 'paging.next')) && filled($after);
+        } while ($hasNextPage);
 
         return $rows;
     }

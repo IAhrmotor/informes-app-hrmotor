@@ -36,7 +36,7 @@ return [
     ],
 
     'meta_ads' => [
-        'api_version' => env('META_API_VERSION', 'v22.0'),
+        'api_version' => env('META_API_VERSION', 'v25.0'),
         'access_token' => env('META_ACCESS_TOKEN'),
         'ad_account_ids' => array_values(array_filter(array_map('trim', explode(',', env('META_AD_ACCOUNT_IDS', ''))))),
         'app_id' => env('META_APP_ID'),
