@@ -58,6 +58,9 @@
             <label for="user">Usuario/agente</label>
             <select id="user"><option value="">Todos</option></select>
         </div>
+        <div class="filter-actions">
+            <button type="button" class="filter-reset" id="resetFilters">Limpiar filtros</button>
+        </div>
     </section>
 
     <section class="filters card custom-periods is-hidden" id="customPeriods">
@@ -91,16 +94,6 @@
             <div class="notice" id="loadingMessage">Cargando datos de Salesforce...</div>
             <div class="notice is-hidden" id="emptyMessage">No hay llamadas sincronizadas para el periodo seleccionado.</div>
 
-            <section class="card panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Resumen ejecutivo</h2>
-                        <div class="small">Actividad telefonica y atencion por equipo</div>
-                    </div>
-                </div>
-                <div class="insights" id="insights"></div>
-            </section>
-
             <section class="period-strip">
                 <div class="card period-card">
                     <span>Periodo actual</span>
@@ -112,7 +105,71 @@
                 </div>
             </section>
 
+            <section class="call-center-grid">
+                <article class="card panel call-center-panel">
+                    <div class="panel-title">
+                        <div>
+                            <h2>Atencion global</h2>
+                            <div class="small">Atendidas frente a perdidas</div>
+                        </div>
+                    </div>
+                    <div class="donut-grid" id="answeredLostChart"></div>
+                </article>
+
+                <article class="card panel call-center-panel">
+                    <div class="panel-title">
+                        <div>
+                            <h2>Origen operativo</h2>
+                            <div class="small">Directas a comercial frente a portales</div>
+                        </div>
+                    </div>
+                    <div class="donut-grid" id="originChart"></div>
+                </article>
+
+                <article class="card panel call-center-panel">
+                    <div class="panel-title">
+                        <div>
+                            <h2>Atendidas por equipo</h2>
+                            <div class="small">Carga atendida por grupo operativo</div>
+                        </div>
+                    </div>
+                    <div class="dashboard-bars" id="teamBars"></div>
+                </article>
+            </section>
+
+            <section class="origin-summary" id="originBreakdown"></section>
+
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Evolucion diaria</h2>
+                        <div class="small">Llamadas por dia del periodo actual</div>
+                    </div>
+                </div>
+                <div class="daily-chart" id="dailyEvolution"></div>
+            </section>
+
             <section class="kpis dashboard-kpis" id="summaryKpis"></section>
+
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Rankings operativos</h2>
+                        <div class="small">Portales, agentes y desbordes destacados</div>
+                    </div>
+                </div>
+                <div class="priority-grid" id="callsRankings"></div>
+            </section>
+
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Conclusiones automaticas</h2>
+                        <div class="small">Reglas basadas en KPIs reales del periodo</div>
+                    </div>
+                </div>
+                <div class="insights" id="insights"></div>
+            </section>
 
             <section class="card panel">
                 <div class="panel-title">
@@ -151,13 +208,13 @@
                         <tr>
                             <th>Usuario/agente</th>
                             <th>Delegacion</th>
-                            <th>Zona</th>
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
-                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
+                            <th class="num">Directas atendidas</th>
+                            <th class="num">Portales atendidas</th>
                             <th class="num">Tiempo medio conversacion</th>
                         </tr>
                         </thead>
@@ -178,14 +235,12 @@
                         <thead>
                         <tr>
                             <th>Usuario/agente</th>
-                            <th>Delegacion</th>
-                            <th>Zona</th>
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
-                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Tiempo medio conversacion</th>
                         </tr>
                         </thead>
@@ -206,14 +261,12 @@
                         <thead>
                         <tr>
                             <th>Usuario/agente</th>
-                            <th>Delegacion</th>
-                            <th>Zona</th>
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
-                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Tiempo medio conversacion</th>
                         </tr>
                         </thead>
@@ -234,12 +287,9 @@
                         <thead>
                         <tr>
                             <th>Usuario/agente</th>
-                            <th>Delegacion</th>
-                            <th>Zona</th>
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
-                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
                             <th class="num">Tiempo medio conversacion</th>
@@ -267,9 +317,9 @@
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
-                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Tiempo medio conversacion</th>
                         </tr>
                         </thead>
@@ -290,13 +340,12 @@
                         <thead>
                         <tr>
                             <th>Delegacion</th>
-                            <th>Zona</th>
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
-                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
                             <th class="num">Salientes</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Tiempo medio conversacion</th>
                         </tr>
                         </thead>
@@ -322,9 +371,8 @@
                             <th class="num">Total llamadas</th>
                             <th class="num">Atendidas</th>
                             <th class="num">No atendidas/perdidas</th>
-                            <th class="num">Desbordes</th>
                             <th class="num">Entrantes</th>
-                            <th class="num">Salientes</th>
+                            <th class="num">Desbordes</th>
                             <th class="num">Tiempo medio conversacion</th>
                         </tr>
                         </thead>

@@ -95,6 +95,18 @@ class CallAgentResolver
                     'team_type' => 'customer_service',
                 ];
             }
+
+            $forcedTeam = $this->rules->forcedTeamForName($parsed['destination_agent_name'] ?? null);
+
+            if ($forcedTeam !== null) {
+                return [
+                    'salesforce_user_id' => null,
+                    'agent_code' => $code,
+                    'user_name' => $parsed['destination_agent_name'],
+                    'normalized_name' => $name,
+                    'team_type' => $forcedTeam,
+                ];
+            }
         }
 
         return null;
@@ -116,6 +128,12 @@ class CallAgentResolver
             return 'system';
         }
 
+        $forcedTeam = $this->rules->forcedTeamForName($name);
+
+        if ($forcedTeam !== null) {
+            return $forcedTeam;
+        }
+
         if ($this->rules->isCustomerServiceSpecialName($name)) {
             return 'customer_service';
         }
@@ -126,6 +144,7 @@ class CallAgentResolver
 
         $mapping = $this->mappings()->firstWhere('normalized_name', $nameKey);
 
+        // Fallback temporal hasta disponer del mapping explicito completo de tasadores.
         return $mapping['team_type'] ?? 'appraiser';
     }
 

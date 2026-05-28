@@ -71,6 +71,7 @@ class SalesforceCallSyncServiceTest extends TestCase
             app(\App\Services\Reports\Calls\CallDescriptionParser::class),
             app(\App\Services\Reports\Calls\CallPortalNormalizer::class),
             app(\App\Services\Reports\Calls\CallAgentResolver::class),
+            app(\App\Services\Reports\Calls\CallClassificationRules::class),
         );
 
         $result = $service->sync(CarbonImmutable::parse('2026-05-10'), CarbonImmutable::parse('2026-05-11'));

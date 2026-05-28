@@ -32,6 +32,7 @@ class SalesforceCall extends Model
         'call_origin',
         'portal_resolved',
         'portal_resolution_source',
+        'poll_value',
         'result_raw',
         'call_status',
         'is_answered',

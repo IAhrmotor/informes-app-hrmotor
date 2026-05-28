@@ -106,6 +106,9 @@
             <label for="vehicleInterest">Vehiculo/anuncio</label>
             <select id="vehicleInterest"><option value="">Todos</option></select>
         </div>
+        <div class="filter-actions">
+            <button type="button" class="filter-reset" id="resetFilters">Limpiar filtros</button>
+        </div>
     </section>
 
     <nav class="tabs-main" aria-label="Pestanas del informe">

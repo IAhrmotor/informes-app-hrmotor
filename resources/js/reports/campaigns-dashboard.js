@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setDefaultDates();
     bindTabs();
     bindFilters();
+    bindResetFilters();
     bindSorting();
     await reloadAllData();
 });
@@ -21,6 +22,38 @@ function bindTabs() {
             button.classList.add('active');
             document.getElementById(button.dataset.panel)?.classList.add('active');
         });
+    });
+}
+
+function bindResetFilters() {
+    document.getElementById('resetFilters')?.addEventListener('click', async () => {
+        [
+            'platform',
+            'accountId',
+            'sourceAcquired',
+            'mediumAcquired',
+            'campaignAcquired',
+            'campaignId',
+            'campaignName',
+            'delegation',
+            'zone',
+            'leadStatus',
+            'hasOpportunity',
+            'hasReservation',
+            'hasSale',
+            'commercialUser',
+            'vehicleInterest',
+        ].forEach((id) => {
+            const element = document.getElementById(id);
+
+            if (element) {
+                element.value = '';
+            }
+        });
+
+        document.getElementById('attributionWindow').value = '30';
+        setDefaultDates();
+        await reloadAllData();
     });
 }
 

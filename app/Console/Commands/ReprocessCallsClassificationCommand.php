@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\SalesforceCall;
 use App\Models\SalesforceUser;
 use App\Services\Reports\Calls\CallClassificationRules;
+use App\Services\Reports\Calls\CallDescriptionParser;
 use App\Services\Reports\Calls\CallPortalNormalizer;
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use Illuminate\Console\Command;
@@ -20,6 +21,7 @@ class ReprocessCallsClassificationCommand extends Command
 
     public function handle(
         CallPortalNormalizer $portalNormalizer,
+        CallDescriptionParser $parser,
         CallClassificationRules $rules,
         LeadDelegationNormalizer $delegationNormalizer,
     ): int
@@ -30,8 +32,9 @@ class ReprocessCallsClassificationCommand extends Command
 
         SalesforceCall::query()
             ->orderBy('id')
-            ->chunkById(1000, function ($calls) use ($portalNormalizer, $rules, $delegationNormalizer, $users, &$updated): void {
+            ->chunkById(1000, function ($calls) use ($portalNormalizer, $parser, $rules, $delegationNormalizer, $users, &$updated): void {
                 foreach ($calls as $call) {
+                    $parsed = $parser->parse($call->description);
                     $portal = $portalNormalizer->normalize($call->portales_raw);
                     $origin = $portal['origin'];
                     $callStatus = $this->classifyStatus($call->result_raw, $call->call_status);
@@ -55,12 +58,14 @@ class ReprocessCallsClassificationCommand extends Command
                         $call->destination_agent_name,
                         $call->owner_name,
                     );
-                    $isOverflow = $rules->isOverflow($origin, $callStatus, $portal['portal'], $team);
+                    $pollValue = $parsed['poll_value'];
+                    $isOverflow = $rules->isOverflow($origin, $callStatus, $portal['portal'], $team, $pollValue, $call->result_raw);
 
                     $call->forceFill([
                         'call_origin' => $origin,
                         'portal_resolved' => $portal['portal'],
                         'portal_resolution_source' => $portal['source'],
+                        'poll_value' => $pollValue,
                         'call_status' => $callStatus,
                         'is_answered' => $callStatus === 'answered',
                         'is_lost' => $callStatus !== 'answered',
@@ -71,7 +76,10 @@ class ReprocessCallsClassificationCommand extends Command
                         'delegation' => $delegationZone['delegation'],
                         'zone' => $delegationZone['zone'],
                         'is_overflow' => $isOverflow,
-                        'overflow_reason' => $rules->overflowReason($origin, $callStatus, $portal['portal'], $team),
+                        'overflow_reason' => $rules->overflowReason($origin, $callStatus, $portal['portal'], $team, $pollValue, $call->result_raw),
+                        'parse_debug' => array_merge($call->parse_debug ?? [], [
+                            'reprocessed_poll_value' => $pollValue,
+                        ]),
                     ])->save();
 
                     $updated++;

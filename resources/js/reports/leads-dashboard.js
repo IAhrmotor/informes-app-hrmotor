@@ -4,6 +4,7 @@ const tableSortState = new Map();
 document.addEventListener('DOMContentLoaded', async () => {
     bindTabs();
     bindFilters();
+    bindResetFilters();
     bindCommercialPanelOrder();
     bindTableSorting();
     toggleCustomPeriods();
@@ -21,6 +22,34 @@ function bindTabs() {
             button.classList.add('active');
             document.getElementById(panelId)?.classList.add('active');
         });
+    });
+}
+
+function bindResetFilters() {
+    document.getElementById('resetFilters')?.addEventListener('click', async () => {
+        [
+            'portal',
+            'leadDelegation',
+            'commercialDelegation',
+            'zone',
+            'commercial',
+            'currentStart',
+            'currentEnd',
+            'comparisonStart',
+            'comparisonEnd',
+        ].forEach((id) => {
+            const element = document.getElementById(id);
+
+            if (element) {
+                element.value = '';
+            }
+        });
+
+        document.getElementById('period').value = 'last_30_days';
+        document.getElementById('leadType').value = 'all';
+        document.getElementById('expositionMode').value = 'with';
+        toggleCustomPeriods();
+        await reloadAllData();
     });
 }
 

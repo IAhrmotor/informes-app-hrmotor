@@ -20,6 +20,7 @@ class SalesforceCallSyncService
         private readonly CallDescriptionParser $parser,
         private readonly CallPortalNormalizer $portalNormalizer,
         private readonly CallAgentResolver $agentResolver,
+        private readonly CallClassificationRules $rules,
     ) {
     }
 
@@ -206,6 +207,8 @@ SOQL;
             $callStatus,
             $portal['portal'],
             $agent['operational_team'] ?? null,
+            $parsed['poll_value'] ?? null,
+            $parsed['result_raw'] ?? null,
         );
 
         return SalesforceCall::updateOrCreate(
@@ -235,14 +238,20 @@ SOQL;
                 'call_origin' => $portal['origin'],
                 'portal_resolved' => $portal['portal'],
                 'portal_resolution_source' => $portal['source'],
+                'poll_value' => $parsed['poll_value'],
                 'result_raw' => $parsed['result_raw'],
                 'call_status' => $callStatus,
                 'is_answered' => $callStatus === 'answered',
                 'is_lost' => $callStatus !== 'answered',
                 'is_overflow' => $isOverflow,
-                'overflow_reason' => $isOverflow
-                    ? 'portal_attended_by_support_team'
-                    : null,
+                'overflow_reason' => $this->rules->overflowReason(
+                    $portal['origin'],
+                    $callStatus,
+                    $portal['portal'],
+                    $agent['operational_team'] ?? null,
+                    $parsed['poll_value'] ?? null,
+                    $parsed['result_raw'] ?? null,
+                ),
                 'fixed_phone' => $parsed['fixed_phone'],
                 'client_phone' => $parsed['client_phone'],
                 'destination_raw' => $parsed['destination_raw'],
@@ -374,20 +383,16 @@ SOQL));
         $stats['teams'][$call->operational_team] = ($stats['teams'][$call->operational_team] ?? 0) + 1;
     }
 
-    private function isOverflow(?string $origin, ?string $status, ?string $portal, ?string $team): bool
+    private function isOverflow(
+        ?string $origin,
+        ?string $status,
+        ?string $portal,
+        ?string $team,
+        ?string $pollValue = null,
+        ?string $resultRaw = null,
+    ): bool
     {
-        $portalKey = Str::of((string) $portal)
-            ->lower()
-            ->ascii()
-            ->replaceMatches('/[^a-z0-9]+/', ' ')
-            ->replaceMatches('/\s+/', ' ')
-            ->trim()
-            ->toString();
-
-        return $origin === 'portal'
-            && $status === 'answered'
-            && in_array($team, ['contact_center', 'customer_service'], true)
-            && ! in_array($portalKey, ['web', 'google maps'], true);
+        return $this->rules->isOverflow($origin, $status, $portal, $team, $pollValue, $resultRaw);
     }
 
     private function invalidateDashboardCache(): void

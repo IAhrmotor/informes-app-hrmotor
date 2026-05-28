@@ -99,6 +99,8 @@ class CallDashboardDatasetService
     {
         $current = $this->summaryBucket($filters, $periods['current']);
         $previous = $this->summaryBucket($filters, $periods['previous']);
+        $charts = $this->summaryCharts($filters, $periods['current'], $current);
+        $rankings = $this->summaryRankings($filters, $periods['current']);
 
         return [
             'ok' => $current['total_calls'] > 0 || $previous['total_calls'] > 0,
@@ -108,7 +110,9 @@ class CallDashboardDatasetService
             'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
             'kpis' => $current,
             'comparativa' => $this->comparison($current, $previous),
-            'insights' => $this->insights(['bucket' => $current]),
+            'charts' => $charts,
+            'rankings' => $rankings,
+            'insights' => $this->insights($current, $previous, $rankings),
             'filters' => $this->filterOptions(),
         ];
     }
@@ -266,26 +270,20 @@ class CallDashboardDatasetService
     private function delegationMetricRows(array $filters, array $period): array
     {
         $delegationSql = $this->effectiveDelegationSql();
-        $zoneSql = $this->effectiveZoneSql();
 
         $rows = $this->baseFilteredQuery($filters, $period)
             ->whereRaw($this->operationalTeamConditionSql())
             ->selectRaw($delegationSql.' as delegation')
-            ->selectRaw($zoneSql.' as zone')
             ->selectRaw($this->metricsSelectSql())
             ->groupByRaw($delegationSql)
-            ->groupByRaw($zoneSql)
             ->get();
 
         $groups = [];
 
         foreach ($rows as $row) {
             $delegation = $row->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED;
-            $zone = $row->zone ?: LeadDelegationNormalizer::UNCLASSIFIED;
 
-            $this->addAggregatedGroup($groups, $delegation.'|'.$zone, $delegation, [
-                'zone' => $zone,
-            ], $this->bucketFromRow($row), 0);
+            $this->addAggregatedGroup($groups, $delegation, $delegation, [], $this->bucketFromRow($row), 0);
         }
 
         return $this->finalizeGroups($groups, 'delegation');
@@ -293,8 +291,6 @@ class CallDashboardDatasetService
 
     private function portalMetricRows(array $filters, array $period): array
     {
-        $portalSql = $this->portalSql();
-
         $rows = $this->baseFilteredQuery($filters, $period)
             ->where('call_origin', 'portal')
             ->where(function (QueryBuilder $query): void {
@@ -304,9 +300,9 @@ class CallDashboardDatasetService
                         'Llamada directa',
                     ]);
             })
-            ->selectRaw($portalSql.' as portal')
+            ->selectRaw("COALESCE(NULLIF(portal_resolved, ''), 'Sin clasificar') as portal")
             ->selectRaw($this->metricsSelectSql())
-            ->groupByRaw($portalSql)
+            ->groupByRaw("COALESCE(NULLIF(portal_resolved, ''), 'Sin clasificar')")
             ->get();
 
         $groups = [];
@@ -351,15 +347,19 @@ class CallDashboardDatasetService
         }
 
         if ($filters['origin'] !== '') {
-            $query->whereRaw($this->effectiveOriginSql().' = ?', [$filters['origin']]);
+            if ($filters['origin'] === 'commercial_direct') {
+                $query->whereIn('call_origin', ['commercial_direct', 'switchboard']);
+            } else {
+                $query->where('call_origin', $filters['origin']);
+            }
         }
 
         if ($filters['delegation'] !== '') {
-            $query->whereRaw($this->effectiveDelegationSql().' = ?', [$filters['delegation']]);
+            $query->where('delegation', $filters['delegation']);
         }
 
         if ($filters['zone'] !== '') {
-            $query->whereRaw($this->effectiveZoneSql().' = ?', [$filters['zone']]);
+            $query->where('zone', $filters['zone']);
         }
 
         if ($includeUser && $filters['user'] !== '') {
@@ -444,7 +444,6 @@ class CallDashboardDatasetService
 
     private function identityRowsQuery(?array $filters = null, ?array $period = null): QueryBuilder
     {
-        $teamSql = $this->effectiveTeamSql();
         $query = DB::table('salesforce_calls');
 
         if ($filters !== null && $period !== null) {
@@ -453,7 +452,7 @@ class CallDashboardDatasetService
 
         return $query
             ->whereRaw($this->operationalTeamConditionSql())
-            ->selectRaw($teamSql.' as team')
+            ->selectRaw($this->effectiveTeamSql().' as team')
             ->addSelect([
                 'operational_user_id',
                 'operational_user_name',
@@ -464,7 +463,7 @@ class CallDashboardDatasetService
                 'owner_profile_name',
             ])
             ->selectRaw('MIN(id) as first_id')
-            ->groupByRaw($teamSql)
+            ->groupByRaw($this->effectiveTeamSql())
             ->groupBy([
                 'operational_user_id',
                 'operational_user_name',
@@ -524,7 +523,7 @@ class CallDashboardDatasetService
 
     private function answeredConditionSql(): string
     {
-        return "(COALESCE(call_status = 'answered', 0) OR COALESCE(is_answered, 0) = 1)";
+        return "({$this->notAbandonedConditionSql()} AND (COALESCE(call_status = 'answered', 0) OR COALESCE(is_answered, 0) = 1))";
     }
 
     private function lostConditionSql(): string
@@ -536,26 +535,12 @@ class CallDashboardDatasetService
 
     private function overflowConditionSql(): string
     {
-        $originSql = $this->effectiveOriginSql();
-        $teamSql = $this->effectiveTeamSql();
-        $answeredSql = $this->answeredConditionSql();
-        $portalSql = $this->overflowPortalKeySql();
-
-        return "(COALESCE(is_overflow, 0) = 1 OR ({$originSql} = 'portal'
-            AND {$answeredSql}
-            AND {$portalSql} NOT IN ('web', 'google maps')
-            AND {$teamSql} IN ('contact_center', 'customer_service')))";
+        return "COALESCE(is_overflow, 0) = 1";
     }
 
     private function overflowDenominatorConditionSql(): string
     {
-        $originSql = $this->effectiveOriginSql();
-        $answeredSql = $this->answeredConditionSql();
-        $portalSql = $this->overflowPortalKeySql();
-
-        return "({$originSql} = 'portal'
-            AND {$answeredSql}
-            AND {$portalSql} NOT IN ('web', 'google maps'))";
+        return "COALESCE(is_overflow, 0) = 1";
     }
 
     private function overflowPortalKeySql(): string
@@ -563,54 +548,41 @@ class CallDashboardDatasetService
         return "LOWER(TRIM(COALESCE(portal_resolved, '')))";
     }
 
+    private function overflowPollConditionSql(): string
+    {
+        return "(poll_value IS NULL OR TRIM(COALESCE(poll_value, '')) IN ('', '1', '2'))";
+    }
+
+    private function notAbandonedConditionSql(): string
+    {
+        return "UPPER(TRIM(COALESCE(result_raw, ''))) <> 'ABANDONED'";
+    }
+
     private function effectiveOriginSql(): string
     {
         return "CASE
             WHEN call_origin = 'switchboard' THEN 'commercial_direct'
-            WHEN call_origin = 'commercial_direct' THEN 'commercial_direct'
-            WHEN portales_raw IS NULL OR TRIM(portales_raw) = '' OR LOWER(TRIM(portales_raw)) = 'llamada directa' THEN 'commercial_direct'
-            ELSE 'portal'
+            WHEN call_origin IS NULL OR TRIM(call_origin) = '' THEN 'commercial_direct'
+            ELSE call_origin
         END";
     }
 
     private function effectiveTeamSql(): string
     {
-        $nameSql = "LOWER(TRIM(COALESCE(NULLIF(operational_user_name, ''), NULLIF(owner_name, ''), '')))";
-        $compactNameSql = "REPLACE({$nameSql}, ' ', '')";
-        $profileSql = "LOWER(COALESCE(owner_profile_name, ''))";
-
         return "CASE
-            WHEN {$nameSql} IN ('carlos torres', 'platform integration user', 'api user')
-                OR {$profileSql} LIKE '%administrator%'
-                THEN 'system'
-            WHEN {$compactNameSql} IN ('vanessasanjuan', 'vanesasanjuan', 'callcenterfontellas')
-                THEN 'customer_service'
-            WHEN operational_team IN ('commercial', 'customer_service', 'contact_center', 'appraiser', 'system')
-                THEN operational_team
+            WHEN operational_team IN ('commercial', 'customer_service', 'contact_center', 'appraiser', 'system') THEN operational_team
             ELSE 'appraiser'
         END";
     }
 
     private function effectiveDelegationSql(): string
     {
-        $teamSql = $this->effectiveTeamSql();
-
-        return "CASE
-            WHEN {$teamSql} = 'customer_service' THEN ".$this->sqlString(CallClassificationRules::CUSTOMER_SERVICE_LABEL)."
-            WHEN {$teamSql} = 'contact_center' THEN ".$this->sqlString(CallClassificationRules::CONTACT_CENTER_LABEL)."
-            ELSE COALESCE(NULLIF(delegation, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')
-        END';
+        return "COALESCE(NULLIF(delegation, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')';
     }
 
     private function effectiveZoneSql(): string
     {
-        $teamSql = $this->effectiveTeamSql();
-
-        return "CASE
-            WHEN {$teamSql} = 'customer_service' THEN ".$this->sqlString(CallClassificationRules::CUSTOMER_SERVICE_LABEL)."
-            WHEN {$teamSql} = 'contact_center' THEN ".$this->sqlString(CallClassificationRules::CONTACT_CENTER_LABEL)."
-            ELSE COALESCE(NULLIF(zone, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')
-        END';
+        return "COALESCE(NULLIF(zone, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')';
     }
 
     private function operationalTeamConditionSql(): string
@@ -621,11 +593,6 @@ class CallDashboardDatasetService
     private function preferredLabelSql(string $labelSql): string
     {
         return 'COALESCE(MAX(NULLIF('.$labelSql.', '.$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')), '.$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')';
-    }
-
-    private function portalSql(): string
-    {
-        return 'COALESCE(NULLIF(portal_resolved, \'\'), '.$this->sqlString(CallPortalNormalizer::UNCLASSIFIED).')';
     }
 
     private function sqlString(string $value): string
@@ -648,6 +615,9 @@ class CallDashboardDatasetService
     {
         $result = $this->aggregator->finalize(array_merge($this->aggregator->emptyBucket(), $bucket));
         $result['avg_talk_seconds'] = $result['average_talk_seconds'];
+        $result['attention_rate'] = $result['answered_pct'];
+        $result['direct_answered'] = $result['commercial_direct_answered'];
+        $result['direct_lost'] = $result['commercial_direct_lost'];
         $result['inbound_calls'] = $result['inbound'];
         $result['outbound_calls'] = $result['outbound'];
         $result['answered_by_commercial'] = $result['answered_commercial'];
@@ -658,6 +628,79 @@ class CallDashboardDatasetService
         $result['overflows'] = $result['overflow_count'];
 
         return $result;
+    }
+
+    private function summaryCharts(array $filters, array $period, array $bucket): array
+    {
+        return [
+            'answered_vs_lost' => [
+                ['label' => 'Atendidas', 'value' => $bucket['answered']],
+                ['label' => 'Perdidas', 'value' => $bucket['not_answered']],
+            ],
+            'direct_vs_portal' => [
+                ['label' => 'Directas a comercial', 'value' => $bucket['commercial_direct_calls']],
+                ['label' => 'Portales', 'value' => $bucket['portal_calls']],
+            ],
+            'answered_by_team' => [
+                ['label' => 'Comerciales', 'value' => $bucket['answered_commercial']],
+                ['label' => 'Atencion al Cliente', 'value' => $bucket['answered_customer_service']],
+                ['label' => 'Contact Center', 'value' => $bucket['answered_contact_center']],
+                ['label' => 'Tasadores', 'value' => $bucket['answered_appraiser']],
+            ],
+            'daily_evolution' => $this->dailyEvolutionRows($filters, $period),
+        ];
+    }
+
+    private function summaryRankings(array $filters, array $period): array
+    {
+        $portals = $this->portalMetricRows($filters, $period);
+        $agents = $this->agentMetricRows($filters, $period);
+
+        $commercials = array_values(array_filter(
+            $agents,
+            function (array $row): bool {
+                return ($row['team'] ?? $row['team_type'] ?? null) === 'commercial';
+            }
+        ));
+
+        return [
+            'top_portals_by_calls' => $this->topRows($portals, 'total_calls'),
+            'top_portals_by_lost' => $this->topRows($portals, 'not_answered'),
+            'top_agents_by_answered' => $this->topRows($agents, 'answered'),
+            'top_teams_by_answered' => [],
+            'top_commercials_by_calls' => $this->topRows($commercials, 'total_calls'),
+            'top_commercials_by_answered' => $this->topRows($commercials, 'answered'),
+            'top_delegations_by_calls' => [],
+            'top_delegations_by_lost' => [],
+            'top_overflows_by_portal' => $this->topRows($portals, 'overflow_count'),
+        ];
+    }
+
+    private function dailyEvolutionRows(array $filters, array $period): array
+    {
+        $rows = $this->baseFilteredQuery($filters, $period)
+            ->selectRaw('DATE(created_date) as date')
+            ->selectRaw($this->metricsSelectSql())
+            ->groupByRaw('DATE(created_date)')
+            ->orderBy('date')
+            ->get();
+
+        return $rows
+            ->map(fn (mixed $row) => array_merge($this->finalizeBucket($this->bucketFromRow($row)), [
+                'date' => (string) $row->date,
+            ]))
+            ->values()
+            ->all();
+    }
+
+    private function topRows(array $rows, string $metric, int $limit = 5): array
+    {
+        return collect($rows)
+            ->filter(fn (array $row) => (int) ($row[$metric] ?? 0) > 0)
+            ->sortByDesc(fn (array $row) => (int) ($row[$metric] ?? 0))
+            ->take($limit)
+            ->values()
+            ->all();
     }
 
     private function addAggregatedGroup(array &$groups, string $key, string $label, array $extra, array $bucket, int $firstId): void
@@ -794,19 +837,52 @@ class CallDashboardDatasetService
         ], $metrics);
     }
 
-    private function insights(array $current): array
+    private function insights(array $current, array $previous, array $rankings): array
     {
-        $bucket = $current['bucket'];
-
-        if ($bucket['total_calls'] === 0) {
+        if ($current['total_calls'] === 0) {
             return ['No hay llamadas sincronizadas para el periodo seleccionado.'];
         }
 
-        return [
-            'Atendidas: '.$bucket['answered'].' de '.$bucket['total_calls'].' llamadas.',
-            'No atendidas o perdidas: '.$bucket['not_answered'].'.',
-            'Desbordes: '.$bucket['overflow_count'].'.',
-            'Tiempo medio de conversacion: '.$this->secondsText($bucket['average_talk_seconds']).'.',
+        $insights = [];
+        $lostPortal = $rankings['top_portals_by_lost'][0] ?? null;
+        $answeredTeam = $rankings['top_teams_by_answered'][0] ?? null;
+        $overflowPortal = $rankings['top_overflows_by_portal'][0] ?? null;
+
+        if ($lostPortal !== null) {
+            $insights[] = 'El portal '.$lostPortal['portal'].' concentra el mayor volumen de llamadas perdidas: '.$lostPortal['not_answered'].'.';
+        }
+
+        if ($answeredTeam !== null) {
+            $insights[] = 'El equipo '.$answeredTeam['team_label'].' atiende el mayor volumen de llamadas: '.$answeredTeam['answered'].'.';
+        }
+
+        if ($overflowPortal !== null) {
+            $insights[] = 'El portal '.$overflowPortal['portal'].' genera mas desbordes: '.$overflowPortal['overflow_count'].'.';
+        }
+
+        if ($current['commercial_direct_calls'] > 0 && $current['portal_calls'] > 0) {
+            $directRate = $current['commercial_direct_answered_pct'];
+            $portalRate = $current['portal_answered_pct'];
+            $better = $directRate >= $portalRate ? 'directas a comercial' : 'de portal';
+            $insights[] = 'Las llamadas '.$better.' tienen mejor ratio de atencion (directas '.$directRate.'%, portales '.$portalRate.'%).';
+        }
+
+        if ($previous['total_calls'] > 0) {
+            $deltaLost = round($current['not_answered_pct'] - $previous['not_answered_pct'], 2);
+            $trend = $deltaLost > 0 ? 'aumenta' : ($deltaLost < 0 ? 'disminuye' : 'se mantiene');
+            $insights[] = 'El porcentaje de llamadas perdidas '.$trend.' frente al periodo comparado ('.$this->signedPercent($deltaLost).' pp).';
+        }
+
+        if ($previous['average_talk_seconds'] > 0) {
+            $deltaSeconds = round($current['average_talk_seconds'] - $previous['average_talk_seconds'], 2);
+            $trend = $deltaSeconds > 0 ? 'sube' : ($deltaSeconds < 0 ? 'baja' : 'se mantiene');
+            $insights[] = 'El tiempo medio de conversacion '.$trend.' frente al periodo comparado ('.$this->secondsText(abs($deltaSeconds)).').';
+        }
+
+        return $insights ?: [
+            'Atendidas: '.$current['answered'].' de '.$current['total_calls'].' llamadas.',
+            'No atendidas o perdidas: '.$current['not_answered'].'.',
+            'Desbordes: '.$current['overflow_count'].'.',
         ];
     }
 
@@ -906,10 +982,11 @@ class CallDashboardDatasetService
                 'delegations' => $this->sortLabels(collect([
                     CallClassificationRules::CUSTOMER_SERVICE_LABEL,
                     CallClassificationRules::CONTACT_CENTER_LABEL,
-                ])->merge($this->distinctEffectiveLabels($this->effectiveDelegationSql()))->all()),
+                    CallClassificationRules::APPRAISER_LABEL,
+                ])->merge($this->distinctColumnValues('delegation'))->all()),
                 'zones' => $this->sortLabels(collect($this->delegationNormalizer->knownZones())
-                    ->merge([CallClassificationRules::CUSTOMER_SERVICE_LABEL, CallClassificationRules::CONTACT_CENTER_LABEL])
-                    ->merge($this->distinctEffectiveLabels($this->effectiveZoneSql()))
+                    ->merge([CallClassificationRules::CUSTOMER_SERVICE_LABEL, CallClassificationRules::CONTACT_CENTER_LABEL, CallClassificationRules::APPRAISER_LABEL])
+                    ->merge($this->distinctColumnValues('zone'))
                     ->all()),
                 'portals' => $this->sortLabels(DB::table('salesforce_calls')
                     ->where('call_origin', 'portal')
@@ -929,12 +1006,14 @@ class CallDashboardDatasetService
         );
     }
 
-    private function distinctEffectiveLabels(string $labelSql): array
+    private function distinctColumnValues(string $column): array
     {
         return DB::table('salesforce_calls')
-            ->selectRaw($labelSql.' as label')
-            ->whereRaw($this->operationalTeamConditionSql())
-            ->groupByRaw($labelSql)
+            ->selectRaw($column.' as label')
+            ->whereNotNull($column)
+            ->where($column, '<>', '')
+            ->groupBy($column)
+            ->orderBy($column)
             ->pluck('label')
             ->filter()
             ->all();
@@ -1000,6 +1079,11 @@ class CallDashboardDatasetService
         $seconds = (int) round($seconds);
 
         return sprintf('%02d:%02d', intdiv($seconds, 60), $seconds % 60);
+    }
+
+    private function signedPercent(float $value): string
+    {
+        return ($value > 0 ? '+' : '').number_format($value, 2, '.', '');
     }
 
     private function dataVersion(): int

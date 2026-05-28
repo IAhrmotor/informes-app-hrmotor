@@ -4,6 +4,7 @@ const tableSortState = new Map();
 document.addEventListener('DOMContentLoaded', async () => {
     bindTabs();
     bindFilters();
+    bindResetFilters();
     bindTableSorting();
     toggleCustomPeriods();
     await reloadAllData();
@@ -47,6 +48,35 @@ function bindFilters() {
     });
 }
 
+function bindResetFilters() {
+    document.getElementById('resetFilters')?.addEventListener('click', async () => {
+        [
+            'team',
+            'direction',
+            'status',
+            'origin',
+            'delegation',
+            'zone',
+            'portal',
+            'user',
+            'currentStart',
+            'currentEnd',
+            'comparisonStart',
+            'comparisonEnd',
+        ].forEach((id) => {
+            const element = document.getElementById(id);
+
+            if (element) {
+                element.value = '';
+            }
+        });
+
+        document.getElementById('period').value = 'last_30_days';
+        toggleCustomPeriods();
+        await reloadAllData();
+    });
+}
+
 async function reloadAllData() {
     setLoadingState(true);
 
@@ -62,10 +92,10 @@ async function reloadAllData() {
             fetchJson(`/informes/llamadas/data/portals?${currentFilters()}`),
         ]);
 
-        renderAgentGroup('commercialRows', agents.commercials || []);
-        renderAgentGroup('customerServiceRows', agents.customer_service || []);
-        renderAgentGroup('contactCenterRows', agents.contact_center || []);
-        renderAgentGroup('appraiserRows', agents.appraisers || []);
+        renderCommercialAgents(agents.commercials || []);
+        renderSupportAgents('customerServiceRows', agents.customer_service || [], 'No hay datos de Atencion al Cliente para los filtros seleccionados.');
+        renderSupportAgents('contactCenterRows', agents.contact_center || [], 'No hay datos de Contact Center para los filtros seleccionados.');
+        renderAppraiserAgents(agents.appraisers || []);
         renderZones(delegations.zones || []);
         renderDelegations(delegations.delegations || delegations.items || []);
         renderPortals(portals.items || []);
@@ -88,6 +118,7 @@ function renderSummary(data) {
     empty.textContent = data.message || 'No hay llamadas sincronizadas para el periodo seleccionado.';
 
     renderKpis(data.kpis || {});
+    renderDashboardVisuals(data);
     renderComparison(data.comparativa || []);
     renderInsights(data.insights || []);
 }
@@ -95,29 +126,15 @@ function renderSummary(data) {
 function renderKpis(kpis) {
     const root = document.getElementById('summaryKpis');
     const cards = [
-        ['Global - Total', formatNumber(kpis.total_calls), 'Interacciones registradas'],
-        ['Global - Atendidas', formatNumber(kpis.answered_calls ?? kpis.answered), `${formatPercent(kpis.answered_pct)} sobre total`],
-        ['Global - Perdidas', formatNumber(kpis.lost_calls ?? kpis.not_answered), `${formatPercent(kpis.not_answered_pct)} sobre total`],
-        ['Directas - Total', formatNumber(kpis.commercial_direct_calls), 'Llamada directa a comercial'],
-        ['Directas - Atendidas', formatNumber(kpis.commercial_direct_answered), `${formatPercent(kpis.commercial_direct_answered_pct)} sobre directas`],
-        ['Directas - Perdidas', formatNumber(kpis.commercial_direct_lost), `${formatPercent(kpis.commercial_direct_lost_pct)} sobre directas`],
-        ['Portales - Total', formatNumber(kpis.portal_calls), 'Procedencia clasificada'],
-        ['Portales - Atendidas', formatNumber(kpis.portal_answered), `${formatPercent(kpis.portal_answered_pct)} sobre portales`],
-        ['Portales - Perdidas', formatNumber(kpis.portal_lost), `${formatPercent(kpis.portal_lost_pct)} sobre portales`],
-        ['Desbordes', formatNumber(kpis.overflow_count), `${formatPercent(kpis.overflow_pct)} sobre portal atendido no Web/Maps`],
-        ['Entrantes', formatNumber(kpis.inbound), `${formatPercent(kpis.inbound_pct)} sobre total`],
-        ['Salientes', formatNumber(kpis.outbound), `${formatPercent(kpis.outbound_pct)} sobre total`],
-        ['Tiempo medio', formatSeconds(kpis.average_talk_seconds), 'Solo llamadas atendidas'],
-        ['Atendidas comerciales', formatNumber(kpis.answered_commercial), 'Equipo comerciales'],
-        ['Atendidas atencion', formatNumber(kpis.answered_customer_service), 'Atencion al Cliente'],
-        ['Atendidas contact center', formatNumber(kpis.answered_contact_center), 'Contact Center'],
-        ['Atendidas tasadores', formatNumber(kpis.answered_appraiser), 'Tasadores'],
+        ['Tiempo medio conversacion', formatSeconds(kpis.average_talk_seconds), 'Solo llamadas atendidas', 'TM'],
+        ['Desbordes', formatNumber(kpis.overflow_count), `${formatPercent(kpis.overflow_pct)} sobre base operativa`, 'OV'],
     ];
 
     root.innerHTML = '';
-    cards.forEach(([label, value, hint]) => {
+    cards.forEach(([label, value, hint, icon]) => {
         root.insertAdjacentHTML('beforeend', `
-            <div class="card kpi">
+            <div class="card kpi call-kpi">
+                <div class="ico">${escapeHtml(icon)}</div>
                 <div>
                     <div class="kpi-label">${escapeHtml(label)}</div>
                     <div class="kpi-value">${escapeHtml(value)}</div>
@@ -126,6 +143,142 @@ function renderKpis(kpis) {
             </div>
         `);
     });
+}
+
+function renderDashboardVisuals(data) {
+    const kpis = data.kpis || {};
+    const charts = data.charts || {};
+    const rankings = data.rankings || {};
+
+    renderDonut('answeredLostChart', charts.answered_vs_lost || [], ['#202a45', '#d52233']);
+    renderDonut('originChart', charts.direct_vs_portal || [], ['#202a45', '#64748b']);
+    renderBars('teamBars', charts.answered_by_team || []);
+    renderOriginBreakdown(kpis);
+    renderDailyEvolution(charts.daily_evolution || []);
+    renderRankings(rankings);
+}
+
+function renderDonut(rootId, items, colors) {
+    const root = document.getElementById(rootId);
+    const total = items.reduce((sum, item) => sum + Number(item.value || 0), 0);
+    let cursor = 0;
+    const gradient = items.map((item, index) => {
+        const value = total > 0 ? (Number(item.value || 0) / total) * 100 : 0;
+        const start = cursor;
+        cursor += value;
+        return `${colors[index % colors.length]} ${start}% ${cursor}%`;
+    }).join(', ');
+
+    root.innerHTML = `
+        <div class="donut" style="background: conic-gradient(${gradient || '#e5e7eb 0 100%'})">
+            <span>${escapeHtml(total > 0 ? formatNumber(total) : '-')}</span>
+        </div>
+        <div class="donut-legend">
+            ${items.map((item, index) => `
+                <div class="legend-row">
+                    <span><i style="background:${colors[index % colors.length]}"></i>${escapeHtml(item.label)}</span>
+                    <strong>${formatCountPercentOfTotal(item.value, total)}</strong>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function renderBars(rootId, items) {
+    const root = document.getElementById(rootId);
+    const max = Math.max(1, ...items.map((item) => Number(item.value || 0)));
+    const total = items.reduce((sum, item) => sum + Number(item.value || 0), 0);
+
+    root.innerHTML = items.length
+        ? items.map((item) => {
+            const pct = Math.max(2, (Number(item.value || 0) / max) * 100);
+
+            return `
+                <div class="bar-metric">
+                    <div class="bar-metric-head">
+                        <span>${escapeHtml(item.label)}</span>
+                        <strong>${formatCountPercentOfTotal(item.value, total)}</strong>
+                    </div>
+                    <div class="bar-track"><span style="width:${pct}%"></span></div>
+                </div>
+            `;
+        }).join('')
+        : '<div class="empty-state">Sin datos</div>';
+}
+
+function renderOriginBreakdown(kpis) {
+    const root = document.getElementById('originBreakdown');
+    const groups = [
+        ['Global', kpis.total_calls, kpis.answered, kpis.not_answered],
+        ['Directas a comercial', kpis.commercial_direct_calls, kpis.commercial_direct_answered, kpis.commercial_direct_lost],
+        ['Portales', kpis.portal_calls, kpis.portal_answered, kpis.portal_lost],
+    ];
+
+    root.innerHTML = groups.map(([label, total, answered, lost]) => `
+        <article class="card origin-card">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(formatNumber(total))}</strong>
+            <div class="origin-card-row"><em>Atendidas</em><b>${formatCountPercentOfTotal(answered, total)}</b></div>
+            <div class="origin-card-row"><em>Perdidas</em><b>${formatCountPercentOfTotal(lost, total)}</b></div>
+        </article>
+    `).join('');
+}
+
+function renderDailyEvolution(rows) {
+    const root = document.getElementById('dailyEvolution');
+    const max = Math.max(1, ...rows.map((row) => Number(row.total_calls || 0)));
+
+    root.innerHTML = rows.length
+        ? rows.map((row) => {
+            const height = Math.max(8, (Number(row.total_calls || 0) / max) * 100);
+
+            const total = formatNumber(row.total_calls);
+            const date = formatDate(row.date);
+
+            return `
+                <div
+                    class="daily-bar"
+                    title="${escapeHtml(date)}: ${escapeHtml(total)} llamadas"
+                    data-tooltip="${escapeHtml(date)} · ${escapeHtml(total)} llamadas"
+                    aria-label="${escapeHtml(date)} · ${escapeHtml(total)} llamadas"
+                >
+                    <span style="height:${height}%"></span>
+                    <small>${escapeHtml(shortDate(row.date))}</small>
+                </div>
+            `;
+        }).join('')
+        : '<div class="empty-state">Sin datos diarios</div>';
+}
+
+function renderRankings(rankings) {
+    const root = document.getElementById('callsRankings');
+    const safeRankings = rankings || {};
+    const groups = [
+        ['Top portales por llamadas', safeRankings.top_portals_by_calls || [], 'portal', 'total_calls'],
+        ['Top portales por perdidas', safeRankings.top_portals_by_lost || [], 'portal', 'not_answered'],
+        ['Top comerciales por llamadas', safeRankings.top_commercials_by_calls || [], 'user_name', 'total_calls'],
+        ['Top delegaciones por llamadas', safeRankings.top_delegations_by_calls || [], 'delegation', 'total_calls'],
+        ['Top agentes por atendidas', safeRankings.top_agents_by_answered || [], 'user_name', 'answered'],
+        ['Top desbordes por portal', safeRankings.top_overflows_by_portal || [], 'portal', 'overflow_count'],
+    ];
+
+    root.innerHTML = groups.map(([title, rows, labelKey, metricKey]) => {
+        const items = rows.length
+            ? rows.map((row) => `
+                <div class="portal-row">
+                    <span>${escapeHtml(row[labelKey] || '-')}</span>
+                    <strong>${escapeHtml(formatNumber(row[metricKey]))}</strong>
+                </div>
+            `).join('')
+            : '<div class="empty-state">Sin datos</div>';
+
+        return `
+            <article class="priority-item">
+                <div class="priority-head"><b>${escapeHtml(title)}</b></div>
+                <div class="portal-list">${items}</div>
+            </article>
+        `;
+    }).join('');
 }
 
 function renderComparison(rows) {
@@ -151,41 +304,86 @@ function renderInsights(items) {
     });
 }
 
-function renderAgentGroup(rootId, rows) {
-    renderMetricRows(rootId, rows, [
+function renderCommercialAgents(rows) {
+    renderMetricRows('commercialRows', rows, [
         [(row) => row.user_name || '-'],
         [(row) => row.delegation || '-'],
-        [(row) => row.zone || '-'],
-    ], 'No hay datos de usuarios/agentes para los filtros seleccionados.');
+    ], 'No hay datos de comerciales para los filtros seleccionados.', {
+        overflow: false,
+        directPortalAnswered: true,
+    });
+}
+
+function renderSupportAgents(rootId, rows, emptyMessage) {
+    renderMetricRows(rootId, rows, [
+        [(row) => row.user_name || '-'],
+    ], emptyMessage, {
+        overflow: true,
+    });
+}
+
+function renderAppraiserAgents(rows) {
+    renderMetricRows('appraiserRows', rows, [
+        [(row) => row.user_name || '-'],
+    ], 'No hay datos de tasadores para los filtros seleccionados.', {
+        overflow: false,
+    });
 }
 
 function renderZones(rows) {
-    renderMetricRows('zoneRows', rows, [[(row) => row.zone || '-']], 'No hay datos de zonas para los filtros seleccionados.');
+    renderMetricRows('zoneRows', rows, [[(row) => row.zone || '-']], 'No hay datos de zonas para los filtros seleccionados.', {
+        overflow: true,
+    });
 }
 
 function renderDelegations(rows) {
     renderMetricRows('delegationRows', rows, [
         [(row) => row.delegation || '-'],
-        [(row) => row.zone || '-'],
-    ], 'No hay datos de delegaciones para los filtros seleccionados.');
+    ], 'No hay datos de delegaciones para los filtros seleccionados.', {
+        overflow: true,
+    });
 }
 
 function renderPortals(rows) {
     renderMetricRows('portalRows', rows, [
         [(row) => row.portal || '-'],
-    ], 'No hay datos de portales para los filtros seleccionados.');
+    ], 'No hay datos de portales para los filtros seleccionados.', {
+        overflow: true,
+        outbound: false,
+    });
 }
 
-function renderMetricRows(rootId, rows, leadingColumns, emptyMessage) {
-    renderRows(rootId, rows, [
-        ...leadingColumns,
+function renderMetricRows(rootId, rows, leadingColumns, emptyMessage, options = {}) {
+    const includeOverflow = options.overflow !== false;
+    const includeOutbound = options.outbound !== false;
+    const includeDirectPortalAnswered = Boolean(options.directPortalAnswered);
+    const metricColumns = [
         [(row) => formatNumber(row.total_calls), true],
         [(row) => formatCountPercent(row.answered, row.answered_pct), true, (row) => row.answered, true],
         [(row) => formatCountPercent(row.not_answered, row.not_answered_pct), true, (row) => row.not_answered, true],
-        [(row) => formatCountPercent(row.overflow_count, row.overflow_pct), true, (row) => row.overflow_count, true],
         [(row) => formatCountPercent(row.inbound, row.inbound_pct), true, (row) => row.inbound, true],
-        [(row) => formatCountPercent(row.outbound, row.outbound_pct), true, (row) => row.outbound, true],
-        [(row) => formatSeconds(row.average_talk_seconds), true, (row) => row.average_talk_seconds, false],
+    ];
+
+    if (includeOutbound) {
+        metricColumns.push([(row) => formatCountPercent(row.outbound, row.outbound_pct), true, (row) => row.outbound, true]);
+    }
+
+    if (includeDirectPortalAnswered) {
+        metricColumns.push(
+            [(row) => formatNumber(row.commercial_direct_answered), true, (row) => row.commercial_direct_answered, false],
+            [(row) => formatNumber(row.portal_answered), true, (row) => row.portal_answered, false],
+        );
+    }
+
+    if (includeOverflow) {
+        metricColumns.push([(row) => formatCountPercent(row.overflow_count, row.overflow_pct), true, (row) => row.overflow_count, true]);
+    }
+
+    metricColumns.push([(row) => formatSeconds(row.average_talk_seconds), true, (row) => row.average_talk_seconds, false]);
+
+    renderRows(rootId, rows, [
+        ...leadingColumns,
+        ...metricColumns,
     ], emptyMessage);
 }
 
@@ -409,6 +607,16 @@ function formatDate(value) {
     return Number.isNaN(date.getTime()) ? value || '-' : new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
 }
 
+function shortDate(value) {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return value || '-';
+    }
+
+    return new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: '2-digit' }).format(date);
+}
+
 function formatDateTime(value) {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value || '-' : new Intl.DateTimeFormat('es-ES', {
@@ -439,6 +647,21 @@ function formatSeconds(value) {
 
 function formatCountPercent(count, percent) {
     return `<span class="metric-value">${escapeHtml(formatNumber(count))}</span><span class="metric-percent">(${escapeHtml(formatPercent(percent))})</span>`;
+}
+
+function formatCountPercentOfTotal(count, total) {
+    return `<span class="metric-value">${escapeHtml(formatNumber(count))}</span><span class="metric-percent">(${escapeHtml(formatPercent(percentOf(count, total)))})</span>`;
+}
+
+function percentOf(value, total) {
+    const numerator = Number(value || 0);
+    const denominator = Number(total || 0);
+
+    if (!denominator) {
+        return 0;
+    }
+
+    return (numerator / denominator) * 100;
 }
 
 function formatComparisonValue(value, seconds) {

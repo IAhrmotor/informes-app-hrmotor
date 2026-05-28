@@ -89,4 +89,28 @@ class CallAgentResolverTest extends TestCase
             $this->assertSame('customer_service', $resolved['operational_team']);
         }
     }
+
+    public function test_aplica_equipos_forzados_y_oculta_usuarios_sistema(): void
+    {
+        $resolver = app(CallAgentResolver::class);
+
+        foreach ([
+            ['Jose Ignacio Palomo', 'contact_center'],
+            ['José Ignacio Palomo', 'contact_center'],
+            ['AG17 - Jose Ignacio Palomo', 'contact_center'],
+            ['Maria Vidal', 'contact_center'],
+            ['Vanesa German', 'contact_center'],
+            ['Nuria Larrosa', 'contact_center'],
+            ['Yuleidis Garcia', 'contact_center'],
+            ['Carlos Melero', 'commercial'],
+            ['Manuel Santamargarita', 'commercial'],
+            ['Jorge Martin', 'commercial'],
+        ] as [$name, $team]) {
+            $resolved = $resolver->resolve(['id' => null, 'name' => $name, 'profile_name' => 'Standard User'], [], 'commercial_direct');
+            $this->assertSame($team, $resolved['operational_team'], $name);
+        }
+
+        $system = $resolver->resolve(['id' => null, 'name' => 'Carlos Soria', 'profile_name' => 'System Administrator'], [], 'commercial_direct');
+        $this->assertSame('system', $system['operational_team']);
+    }
 }

@@ -78,6 +78,9 @@
                 <option value="without">Excluir</option>
             </select>
         </div>
+        <div class="filter-actions">
+            <button type="button" class="filter-reset" id="resetFilters">Limpiar filtros</button>
+        </div>
     </section>
 
     <section class="filters card custom-periods is-hidden" id="customPeriods">

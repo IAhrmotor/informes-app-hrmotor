@@ -8,7 +8,61 @@ class CallClassificationRules
 {
     public const CUSTOMER_SERVICE_LABEL = 'Atención al Cliente';
     public const CONTACT_CENTER_LABEL = 'Contact Center';
+    public const APPRAISER_LABEL = 'Tasadores';
     public const OVERFLOW_REASON_PORTAL_ATTENDED_BY_SUPPORT = 'portal_attended_by_support_team';
+
+    private const FORCED_TEAM_BY_COMPACT_NAME = [
+    // Comerciales
+        'carlosmelero' => 'commercial',
+        'manuelsantamargarita' => 'commercial',
+        'jorgemartin' => 'commercial',
+
+        // Atención al Cliente
+        'carolinagayarre' => 'customer_service',
+        'marielaherrera' => 'customer_service',
+        'jessicaperez' => 'customer_service',
+        'laurahernandez' => 'customer_service',
+        'siomaraclemente' => 'customer_service',
+        'susanagomez' => 'customer_service',
+        'vanessasanjuan' => 'customer_service',
+        'callcenterfontellas' => 'customer_service',
+        'miriamgonzalez' => 'customer_service',
+        'glenisfalcon' => 'customer_service',
+        'jenniferguzman' => 'customer_service',
+
+        // Tasadores
+        'alexandragarcia' => 'appraiser',
+        'germanolsen' => 'appraiser',
+        'aimarvillalba' => 'appraiser',
+        'josemariabailon' => 'appraiser',
+
+        // Contact Center
+        'yuleidisgarcia' => 'contact_center',
+        'mariavidal' => 'contact_center',
+        'vanesagerman' => 'contact_center',
+        'joseignaciopalomo' => 'contact_center',
+        'nurialarrosa' => 'contact_center',
+    ];
+
+    private const HIDDEN_COMPACT_NAMES = [
+        'carlossoria',
+    ];
+
+    public function forcedTeamForName(?string $name): ?string
+    {
+        $compact = str_replace(' ', '', $this->normalizeName($name));
+
+        return self::FORCED_TEAM_BY_COMPACT_NAME[$compact] ?? null;
+    }
+
+    public function isHiddenOperationalUser(?string $name): bool
+    {
+        $compact = str_replace(' ', '', $this->normalizeName($name));
+
+        return in_array($compact, self::HIDDEN_COMPACT_NAMES, true);
+    }
+
+
 
     public function normalizeName(?string $name): string
     {
@@ -25,8 +79,10 @@ class CallClassificationRules
     {
         $nameKey = $this->normalizeName($name);
         $profile = (string) $profile;
+        $compact = str_replace(' ', '', $nameKey);
 
         return in_array($nameKey, ['carlos torres', 'platform integration user', 'api user'], true)
+            || in_array($compact, self::HIDDEN_COMPACT_NAMES, true)
             || str_contains($profile, 'System Administrator')
             || str_contains($profile, 'Administrator');
     }
@@ -42,6 +98,12 @@ class CallClassificationRules
     {
         if ($this->isSystemIdentity($name, $profile)) {
             return 'system';
+        }
+
+        $forcedTeam = $this->forcedTeamForName($name);
+
+        if ($forcedTeam !== null) {
+            return $forcedTeam;
         }
 
         if ($this->isCustomerServiceSpecialName($name)) {
@@ -80,6 +142,10 @@ class CallClassificationRules
             'contact_center' => [
                 'delegation' => self::CONTACT_CENTER_LABEL,
                 'zone' => self::CONTACT_CENTER_LABEL,
+            ],
+            'appraiser' => [
+                'delegation' => self::APPRAISER_LABEL,
+                'zone' => self::APPRAISER_LABEL,
             ],
             default => [
                 'delegation' => filled($delegation) ? $delegation : 'Sin clasificar',
@@ -126,19 +192,47 @@ class CallClassificationRules
         };
     }
 
-    public function isOverflow(?string $origin, ?string $status, ?string $portal, ?string $team): bool
-    {
-        return $origin === 'portal'
-            && $status === 'answered'
-            && in_array($team, ['contact_center', 'customer_service'], true)
-            && ! $this->isOverflowExcludedPortal($portal);
+    public function isOverflow(
+        ?string $origin,
+        ?string $status,
+        ?string $portal,
+        ?string $team,
+        ?string $pollValue = null,
+        ?string $resultRaw = null,
+    ): bool {
+        if ($this->normalizeName($resultRaw) === 'abandoned') {
+            return false;
+        }
+
+        if ($origin !== 'portal' || $status !== 'answered' || ! in_array($team, ['contact_center', 'customer_service'], true)) {
+            return false;
+        }
+
+        if (! $this->isOverflowExcludedPortal($portal)) {
+            return true;
+        }
+
+        return $this->isOverflowPollValue($pollValue);
     }
 
-    public function overflowReason(?string $origin, ?string $status, ?string $portal, ?string $team): ?string
-    {
-        return $this->isOverflow($origin, $status, $portal, $team)
+    public function overflowReason(
+        ?string $origin,
+        ?string $status,
+        ?string $portal,
+        ?string $team,
+        ?string $pollValue = null,
+        ?string $resultRaw = null,
+    ): ?string {
+        return $this->isOverflow($origin, $status, $portal, $team, $pollValue, $resultRaw)
             ? self::OVERFLOW_REASON_PORTAL_ATTENDED_BY_SUPPORT
             : null;
+    }
+
+    public function isOverflowPollValue(?string $pollValue): bool
+    {
+        $pollValue = trim((string) $pollValue);
+
+        return $pollValue === '' || in_array($pollValue, ['1', '2'], true);
     }
 
     public function isOverflowExcludedPortal(?string $portal): bool
@@ -183,6 +277,8 @@ class CallClassificationRules
             return match ($compact) {
                 'vanessasanjuan', 'vanesasanjuan' => 'vanesa sanjuan',
                 'callcenterfontellas' => 'callcenter fontellas',
+                'vanesagerman' => 'vanesa german',
+                'yuleidisgarcia' => 'yuleidis garcia',
                 default => $key,
             };
         }

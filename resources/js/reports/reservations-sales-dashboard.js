@@ -4,6 +4,7 @@ const tableSortState = new Map();
 document.addEventListener('DOMContentLoaded', async () => {
     bindTabs();
     bindFilters();
+    bindResetFilters();
     bindTableSorting();
     toggleCustomPeriods();
     await reloadAllData();
@@ -20,6 +21,29 @@ function bindTabs() {
             button.classList.add('active');
             document.getElementById(panelId)?.classList.add('active');
         });
+    });
+}
+
+function bindResetFilters() {
+    document.getElementById('resetFilters')?.addEventListener('click', async () => {
+        [
+            'currentStart',
+            'currentEnd',
+            'comparisonStart',
+            'comparisonEnd',
+        ].forEach((id) => {
+            const element = document.getElementById(id);
+
+            if (element) {
+                element.value = '';
+            }
+        });
+
+        document.getElementById('period').value = 'last_30_days';
+        document.getElementById('dateCriterion').value = 'created_date';
+        document.getElementById('opportunityType').value = 'all';
+        toggleCustomPeriods();
+        await reloadAllData();
     });
 }
 

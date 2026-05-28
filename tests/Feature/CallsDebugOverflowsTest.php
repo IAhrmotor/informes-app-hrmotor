@@ -28,6 +28,7 @@ class CallsDebugOverflowsTest extends TestCase
             'portal_resolved' => 'Coches.net',
             'result_raw' => 'ANSWERED',
             'call_status' => 'answered',
+            'poll_value' => '1',
             'operational_user_name' => 'Vanesa German',
             'operational_team' => 'contact_center',
             'is_overflow' => true,
@@ -37,6 +38,7 @@ class CallsDebugOverflowsTest extends TestCase
             ->expectsOutputToContain('Desbordes: 1')
             ->expectsOutputToContain('overflow-debug')
             ->expectsOutputToContain('Coches.net')
+            ->expectsOutputToContain('poll_value')
             ->assertExitCode(0);
     }
 }

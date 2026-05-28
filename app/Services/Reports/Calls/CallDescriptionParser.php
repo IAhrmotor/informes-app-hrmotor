@@ -29,6 +29,7 @@ class CallDescriptionParser
             'destination_agent_code' => $this->agentCode($destinationRaw),
             'destination_agent_name' => $this->agentName($destinationRaw) ?? $answeredBy,
             'queue_raw' => $this->field($description, 'Cola'),
+            'poll_value' => $this->pollValue($description),
             'parsed_duration_seconds' => $this->parseDuration($duration),
             'uid_raw' => $this->field($description, 'UID llamada'),
             'puid_raw' => $this->field($description, 'PUID llamada'),
@@ -56,6 +57,15 @@ class CallDescriptionParser
         }
 
         return $this->clean($matches[1] ?? null);
+    }
+
+    private function pollValue(string $description): ?string
+    {
+        if (! preg_match('/^\s*(?:poll|teclado|opci[oó]n)\s*:[ \t]*([123]?)[ \t]*$/miu', $description, $matches)) {
+            return null;
+        }
+
+        return trim((string) ($matches[1] ?? ''));
     }
 
     private function agentCode(?string $destination): ?string

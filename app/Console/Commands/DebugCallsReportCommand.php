@@ -33,6 +33,7 @@ class DebugCallsReportCommand extends Command
         $this->table(['Resultado raw', 'Total'], $this->counts('result_raw'));
         $this->table(['Estado llamada', 'Total'], $this->counts('call_status'));
         $this->table(['Direccion', 'Total'], $this->counts('direction'));
+        $this->table(['Poll', 'Total'], $this->counts('poll_value'));
         $this->table(['Equipo operativo', 'Total'], $this->counts('operational_team'));
         $this->table(['Delegacion', 'Total'], $this->counts('delegation'));
         $this->table(['Zona', 'Total'], $this->counts('zone'));
@@ -71,6 +72,7 @@ class DebugCallsReportCommand extends Command
                 'subject',
                 'portales_raw',
                 'portal_resolved',
+                'poll_value',
                 'call_status',
                 'operational_user_name',
                 'operational_team',
@@ -167,6 +169,7 @@ class DebugCallsReportCommand extends Command
                 $call->subject,
                 $call->portales_raw,
                 $call->portal_resolved,
+                $call->poll_value,
                 $call->call_status,
                 $call->operational_user_name,
                 $call->operational_team,

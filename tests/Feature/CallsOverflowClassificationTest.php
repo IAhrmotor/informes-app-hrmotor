@@ -48,12 +48,14 @@ class CallsOverflowClassificationTest extends TestCase
             'call_status' => 'answered',
             'result_raw' => 'ANSWERED',
             'operational_team' => 'customer_service',
+            'description' => 'poll: 3',
         ]);
         $this->callRow('case-d', [
             'portales_raw' => 'Google Maps',
             'call_status' => 'answered',
             'result_raw' => 'ANSWERED',
             'operational_team' => 'contact_center',
+            'description' => 'poll: 3',
         ]);
         $this->callRow('case-e', [
             'portales_raw' => 'Coches.net',

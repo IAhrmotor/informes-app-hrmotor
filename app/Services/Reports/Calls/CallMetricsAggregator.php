@@ -44,13 +44,21 @@ class CallMetricsAggregator
             data_get($call, 'operational_user_name'),
             data_get($call, 'owner_profile_name'),
         );
-        $isAnswered = data_get($call, 'call_status') === 'answered' || (bool) data_get($call, 'is_answered', false);
+        $isAbandoned = $this->rules->normalizeName(data_get($call, 'result_raw')) === 'abandoned';
+        $isAnswered = ! $isAbandoned && (data_get($call, 'call_status') === 'answered' || (bool) data_get($call, 'is_answered', false));
         $isLost = ! $isAnswered || data_get($call, 'call_status') === 'not_answered' || (bool) data_get($call, 'is_lost', false);
+        $portalExcluded = $this->rules->isOverflowExcludedPortal(data_get($call, 'portal_resolved'));
         $isOverflowDenominator = $origin === 'portal'
             && $isAnswered
-            && ! $this->rules->isOverflowExcludedPortal(data_get($call, 'portal_resolved'));
-        $isOverflow = (bool) data_get($call, 'is_overflow', false)
-            || $this->rules->isOverflow($origin, data_get($call, 'call_status'), data_get($call, 'portal_resolved'), $team);
+            && (! $portalExcluded || $this->rules->isOverflowPollValue(data_get($call, 'poll_value')));
+        $isOverflow = $this->rules->isOverflow(
+            $origin,
+            data_get($call, 'call_status'),
+            data_get($call, 'portal_resolved'),
+            $team,
+            data_get($call, 'poll_value'),
+            data_get($call, 'result_raw'),
+        );
 
         $bucket['total_calls']++;
         $bucket['commercial_direct_calls'] += $origin === 'commercial_direct' ? 1 : 0;

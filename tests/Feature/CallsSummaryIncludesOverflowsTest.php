@@ -49,6 +49,7 @@ class CallsSummaryIncludesOverflowsTest extends TestCase
             'call_origin' => 'portal',
             'portal_resolved' => 'Web',
             'operational_team' => 'customer_service',
+            'poll_value' => '3',
             'is_overflow' => false,
         ]);
 
