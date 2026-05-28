@@ -62,8 +62,11 @@ class CallAgentMappingsSeeder extends Seeder
             // Contact Center
             ['AG23', 'Yuleidis Garcia', 'contact_center'],
             ['AG16', 'Maria Vidal', 'contact_center'],
+            [null, 'Maria Vidal Perez', 'contact_center'],
             ['AG1', 'Vanesa German', 'contact_center'],
             ['AG17', 'Jose Ignacio Palomo', 'contact_center'],
+            [null, 'Jose Palomo Casas', 'contact_center'],
+            [null, 'Jose Ignacio Palomo Casas', 'contact_center'],
             ['AG18', 'Nuria Larrosa', 'contact_center'],
 
             // Comerciales forzados

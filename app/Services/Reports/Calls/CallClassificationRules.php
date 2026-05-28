@@ -39,8 +39,11 @@ class CallClassificationRules
         // Contact Center
         'yuleidisgarcia' => 'contact_center',
         'mariavidal' => 'contact_center',
+        'mariavidalperez' => 'contact_center',
         'vanesagerman' => 'contact_center',
         'joseignaciopalomo' => 'contact_center',
+        'josepalomocasas' => 'contact_center',
+        'joseignaciopalomocasas' => 'contact_center',
         'nurialarrosa' => 'contact_center',
     ];
 
@@ -279,6 +282,7 @@ class CallClassificationRules
                 'callcenterfontellas' => 'callcenter fontellas',
                 'vanesagerman' => 'vanesa german',
                 'yuleidisgarcia' => 'yuleidis garcia',
+                'joseignaciopalomo', 'josepalomocasas', 'joseignaciopalomocasas' => 'jose ignacio palomo',
                 default => $key,
             };
         }

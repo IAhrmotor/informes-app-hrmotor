@@ -31,6 +31,18 @@ class CallsAgentsAggregatesSqlTest extends TestCase
     public function test_agents_agrupa_por_usuario_equipo_y_excluye_sistema(): void
     {
         $this->callRow('commercial', ['operational_user_name' => 'Comercial Uno', 'operational_team' => 'commercial']);
+        $this->callRow('commercial-unclassified', [
+            'operational_user_name' => 'Jhon Frehiman Castro Espinosa',
+            'operational_team' => 'commercial',
+            'delegation' => 'Sin clasificar',
+            'zone' => 'Sin clasificar',
+        ]);
+        $this->callRow('palomo-old-commercial', [
+            'operational_user_name' => 'Jose Palomo Casas',
+            'operational_team' => 'commercial',
+            'delegation' => 'Sin clasificar',
+            'zone' => 'Sin clasificar',
+        ]);
         $this->callRow('customer', ['operational_user_name' => 'Carolina Gayarre', 'operational_team' => 'customer_service']);
         $this->callRow('appraiser', ['operational_user_name' => 'Tasador Uno', 'operational_team' => 'unclassified']);
         $this->callRow('system', [
@@ -61,10 +73,14 @@ class CallsAgentsAggregatesSqlTest extends TestCase
         $contactCenter = collect($payload['contact_center']);
 
         $this->assertSame('Comercial Uno', $payload['commercials'][0]['user_name']);
+        $this->assertCount(1, $payload['commercials']);
         $this->assertSame('Carolina Gayarre', $payload['customer_service'][0]['user_name']);
         $this->assertSame('Tasador Uno', $payload['appraisers'][0]['user_name']);
         $this->assertEmpty(collect($payload['agents'])->where('user_name', 'Platform Integration User')->all());
-        $this->assertCount(2, $contactCenter);
+        $this->assertEmpty(collect($payload['agents'])->where('user_name', 'Jhon Frehiman Castro Espinosa')->all());
+        $this->assertCount(3, $contactCenter);
+        $this->assertSame('Jose Ignacio Palomo', $contactCenter->firstWhere('user_name', 'Jose Ignacio Palomo')['user_name']);
+        $this->assertSame('Contact Center', $contactCenter->firstWhere('user_name', 'Jose Ignacio Palomo')['delegation']);
         $this->assertSame(3, $contactCenter->firstWhere('user_name', 'Vanesa German')['total_calls']);
         $this->assertSame(3, $contactCenter->firstWhere('user_name', 'Yuleidis Garcia')['total_calls']);
     }

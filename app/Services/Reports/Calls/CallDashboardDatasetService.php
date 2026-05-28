@@ -233,12 +233,18 @@ class CallDashboardDatasetService
 
             $displayName = $this->displayUserName($row);
             $key = $this->userGroupKey($row, $team);
+            $delegation = $row->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED;
+            $zone = $row->zone ?: LeadDelegationNormalizer::UNCLASSIFIED;
+
+            if ($team === 'commercial' && (! $this->isValidOperationalLabel($delegation) || ! $this->isValidOperationalLabel($zone))) {
+                continue;
+            }
 
             $this->addAggregatedGroup($groups, $key, $displayName, [
                 'team' => $team,
                 'team_label' => $this->teamLabel($team),
-                'delegation' => $row->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED,
-                'zone' => $row->zone ?: LeadDelegationNormalizer::UNCLASSIFIED,
+                'delegation' => $delegation,
+                'zone' => $zone,
             ], $this->bucketFromRow($row), (int) $row->first_id);
         }
 
@@ -491,6 +497,7 @@ class CallDashboardDatasetService
     {
         $originSql = $this->effectiveOriginSql();
         $teamSql = $this->effectiveTeamSql();
+        $commercialSql = $this->commercialMetricConditionSql();
         $answeredSql = $this->answeredConditionSql();
         $lostSql = $this->lostConditionSql();
         $overflowSql = $this->overflowConditionSql();
@@ -509,7 +516,7 @@ class CallDashboardDatasetService
             "SUM(CASE WHEN direction = 'inbound' THEN 1 ELSE 0 END) as inbound",
             "SUM(CASE WHEN direction = 'outbound' THEN 1 ELSE 0 END) as outbound",
             "SUM(CASE WHEN direction = 'unknown' THEN 1 ELSE 0 END) as unknown_direction",
-            "SUM(CASE WHEN {$answeredSql} AND {$teamSql} = 'commercial' THEN 1 ELSE 0 END) as answered_commercial",
+            "SUM(CASE WHEN {$answeredSql} AND {$commercialSql} THEN 1 ELSE 0 END) as answered_commercial",
             "SUM(CASE WHEN {$answeredSql} AND {$teamSql} = 'customer_service' THEN 1 ELSE 0 END) as answered_customer_service",
             "SUM(CASE WHEN {$answeredSql} AND {$teamSql} = 'contact_center' THEN 1 ELSE 0 END) as answered_contact_center",
             "SUM(CASE WHEN {$answeredSql} AND {$teamSql} = 'appraiser' THEN 1 ELSE 0 END) as answered_appraiser",
@@ -569,7 +576,22 @@ class CallDashboardDatasetService
 
     private function effectiveTeamSql(): string
     {
+        $nameSql = $this->effectiveUserNameSql();
+        $compactNameSql = "REPLACE(REPLACE(REPLACE({$nameSql}, ' ', ''), '-', ''), '.', '')";
+
         return "CASE
+            WHEN {$nameSql} LIKE '%palomo%' THEN 'contact_center'
+            WHEN {$compactNameSql} IN ('carlossoria') THEN 'system'
+            WHEN {$compactNameSql} IN (
+                'yuleidisgarcia',
+                'mariavidal',
+                'mariavidalperez',
+                'vanesagerman',
+                'joseignaciopalomo',
+                'josepalomocasas',
+                'joseignaciopalomocasas',
+                'nurialarrosa'
+            ) THEN 'contact_center'
             WHEN operational_team IN ('commercial', 'customer_service', 'contact_center', 'appraiser', 'system') THEN operational_team
             ELSE 'appraiser'
         END";
@@ -577,17 +599,79 @@ class CallDashboardDatasetService
 
     private function effectiveDelegationSql(): string
     {
-        return "COALESCE(NULLIF(delegation, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')';
+        $teamSql = $this->effectiveTeamSql();
+
+        return "CASE
+            WHEN {$teamSql} = 'customer_service' THEN ".$this->sqlString(CallClassificationRules::CUSTOMER_SERVICE_LABEL)."
+            WHEN {$teamSql} = 'contact_center' THEN ".$this->sqlString(CallClassificationRules::CONTACT_CENTER_LABEL)."
+            WHEN {$teamSql} = 'appraiser' THEN ".$this->sqlString(CallClassificationRules::APPRAISER_LABEL)."
+            ELSE COALESCE(NULLIF(delegation, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')
+        END';
     }
 
     private function effectiveZoneSql(): string
     {
-        return "COALESCE(NULLIF(zone, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')';
+        $teamSql = $this->effectiveTeamSql();
+
+        return "CASE
+            WHEN {$teamSql} = 'customer_service' THEN ".$this->sqlString(CallClassificationRules::CUSTOMER_SERVICE_LABEL)."
+            WHEN {$teamSql} = 'contact_center' THEN ".$this->sqlString(CallClassificationRules::CONTACT_CENTER_LABEL)."
+            WHEN {$teamSql} = 'appraiser' THEN ".$this->sqlString(CallClassificationRules::APPRAISER_LABEL)."
+            ELSE COALESCE(NULLIF(zone, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')
+        END';
     }
 
     private function operationalTeamConditionSql(): string
     {
-        return $this->effectiveTeamSql()." IN ('commercial', 'customer_service', 'contact_center', 'appraiser')";
+        $teamSql = $this->effectiveTeamSql();
+
+        return "({$teamSql} IN ('commercial', 'customer_service', 'contact_center', 'appraiser')
+            AND {$this->commercialOperationalConditionSql()})";
+    }
+
+    private function commercialOperationalConditionSql(): string
+    {
+        $teamSql = $this->effectiveTeamSql();
+
+        return "({$teamSql} <> 'commercial'
+            OR {$this->validCommercialLabelsConditionSql()})";
+    }
+
+    private function commercialMetricConditionSql(): string
+    {
+        return "({$this->effectiveTeamSql()} = 'commercial'
+            AND {$this->validCommercialLabelsConditionSql()})";
+    }
+
+    private function validCommercialLabelsConditionSql(): string
+    {
+        return "({$this->validOperationalLabelConditionSql('delegation')}
+            AND {$this->validOperationalLabelConditionSql('zone')})";
+    }
+
+    private function validOperationalLabelConditionSql(string $labelSql): string
+    {
+        $unclassified = $this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED);
+
+        return "({$labelSql} IS NOT NULL AND TRIM({$labelSql}) <> '' AND {$labelSql} <> {$unclassified})";
+    }
+
+    private function isValidOperationalLabel(?string $label): bool
+    {
+        $label = trim((string) $label);
+
+        return $label !== '' && $label !== LeadDelegationNormalizer::UNCLASSIFIED;
+    }
+
+    private function effectiveUserNameSql(): string
+    {
+        return "LOWER(TRIM(COALESCE(
+            NULLIF(normalized_user_key, ''),
+            NULLIF(operational_user_name, ''),
+            NULLIF(destination_agent_name, ''),
+            NULLIF(owner_name, ''),
+            ''
+        )))";
     }
 
     private function preferredLabelSql(string $labelSql): string
@@ -655,6 +739,7 @@ class CallDashboardDatasetService
     {
         $portals = $this->portalMetricRows($filters, $period);
         $agents = $this->agentMetricRows($filters, $period);
+        $delegations = $this->delegationRankingRows($filters, $period);
 
         $commercials = array_values(array_filter(
             $agents,
@@ -670,10 +755,33 @@ class CallDashboardDatasetService
             'top_teams_by_answered' => [],
             'top_commercials_by_calls' => $this->topRows($commercials, 'total_calls'),
             'top_commercials_by_answered' => $this->topRows($commercials, 'answered'),
-            'top_delegations_by_calls' => [],
-            'top_delegations_by_lost' => [],
+            'top_delegations_by_calls' => $this->topRows($delegations, 'total_calls'),
+            'top_delegations_by_lost' => $this->topRows($delegations, 'not_answered'),
             'top_overflows_by_portal' => $this->topRows($portals, 'overflow_count'),
         ];
+    }
+
+    private function delegationRankingRows(array $filters, array $period): array
+    {
+        $delegationSql = $this->effectiveDelegationSql();
+
+        return $this->baseFilteredQuery($filters, $period)
+            ->whereRaw($this->operationalTeamConditionSql())
+            ->whereRaw($this->validOperationalLabelConditionSql($delegationSql))
+            ->selectRaw($delegationSql.' as delegation')
+            ->selectRaw('COUNT(*) as total_calls')
+            ->selectRaw("SUM(CASE WHEN call_status = 'answered' THEN 1 ELSE 0 END) as answered")
+            ->selectRaw("SUM(CASE WHEN call_status = 'answered' THEN 0 ELSE 1 END) as not_answered")
+            ->groupByRaw($delegationSql)
+            ->get()
+            ->map(fn (mixed $row) => [
+                'delegation' => (string) $row->delegation,
+                'total_calls' => (int) $row->total_calls,
+                'answered' => (int) $row->answered,
+                'not_answered' => (int) $row->not_answered,
+            ])
+            ->values()
+            ->all();
     }
 
     private function dailyEvolutionRows(array $filters, array $period): array
@@ -738,7 +846,18 @@ class CallDashboardDatasetService
 
     private function filterAgentsByTeam(array $agents, string $team): array
     {
-        return array_values(array_filter($agents, fn (array $agent) => ($agent['team'] ?? null) === $team));
+        return array_values(array_filter($agents, function (array $agent) use ($team): bool {
+            if (($agent['team'] ?? null) !== $team) {
+                return false;
+            }
+
+            if ($team !== 'commercial') {
+                return true;
+            }
+
+            return $this->isValidOperationalLabel($agent['delegation'] ?? null)
+                && $this->isValidOperationalLabel($agent['zone'] ?? null);
+        }));
     }
 
     private function userGroupKey(mixed $call, string $team): string

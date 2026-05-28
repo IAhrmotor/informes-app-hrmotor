@@ -41,15 +41,23 @@ class CallsSummaryDashboardPayloadTest extends TestCase
             'portal_resolved' => 'Coches.net',
             'operational_team' => 'contact_center',
         ]);
+        $this->callRow('commercial-unclassified', [
+            'operational_user_name' => 'Natalia Rodriguez',
+            'operational_team' => 'commercial',
+            'delegation' => 'Sin clasificar',
+            'zone' => 'Sin clasificar',
+        ]);
 
-        $this->getJson('/informes/llamadas/data/summary')
+        $response = $this->getJson('/informes/llamadas/data/summary');
+
+        $response
             ->assertOk()
-            ->assertJsonPath('kpis.total_calls', 2)
-            ->assertJsonPath('kpis.answered_calls', 2)
+            ->assertJsonPath('kpis.total_calls', 3)
+            ->assertJsonPath('kpis.answered_calls', 3)
             ->assertJsonPath('kpis.lost_calls', 0)
-            ->assertJsonPath('kpis.commercial_direct_calls', 1)
+            ->assertJsonPath('kpis.commercial_direct_calls', 2)
             ->assertJsonPath('kpis.portal_calls', 1)
-            ->assertJsonPath('kpis.direct_answered', 1)
+            ->assertJsonPath('kpis.direct_answered', 2)
             ->assertJsonStructure([
                 'kpis' => [
                     'total_calls',
@@ -79,8 +87,18 @@ class CallsSummaryDashboardPayloadTest extends TestCase
                     'top_agents_by_answered',
                     'top_teams_by_answered',
                     'top_overflows_by_portal',
+                    'top_commercials_by_calls',
+                    'top_commercials_by_answered',
+                    'top_delegations_by_calls',
+                    'top_delegations_by_lost',
                 ],
                 'insights',
             ]);
+
+        $delegations = collect($response->json('rankings.top_delegations_by_calls'));
+
+        $this->assertTrue($delegations->pluck('delegation')->contains('Alcobendas'));
+        $this->assertTrue($delegations->pluck('delegation')->contains('Contact Center'));
+        $this->assertFalse($delegations->pluck('delegation')->contains('Sin clasificar'));
     }
 }

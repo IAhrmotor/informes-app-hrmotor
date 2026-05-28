@@ -97,8 +97,13 @@ class CallAgentResolverTest extends TestCase
         foreach ([
             ['Jose Ignacio Palomo', 'contact_center'],
             ['José Ignacio Palomo', 'contact_center'],
+            ['Jose Palomo Casas', 'contact_center'],
+            ['Jose Ignacio Palomo Casas', 'contact_center'],
             ['AG17 - Jose Ignacio Palomo', 'contact_center'],
+            ['AG17 - Jose Palomo Casas', 'contact_center'],
             ['Maria Vidal', 'contact_center'],
+            ['Maria Vidal Perez', 'contact_center'],
+            ['AG16 - Maria Vidal Perez', 'contact_center'],
             ['Vanesa German', 'contact_center'],
             ['Nuria Larrosa', 'contact_center'],
             ['Yuleidis Garcia', 'contact_center'],
