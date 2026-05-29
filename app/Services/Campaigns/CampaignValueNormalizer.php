@@ -51,7 +51,11 @@ class CampaignValueNormalizer
 
     public function flexibleCampaignKey(mixed $value): string
     {
-        return $this->compactKey($value);
+        return Str::of($this->key($value))
+            ->replaceMatches('/([a-z])([0-9])/', '$1 $2')
+            ->replaceMatches('/([0-9])([a-z])/', '$1 $2')
+            ->replaceMatches('/[^a-z0-9]+/', '')
+            ->toString();
     }
 
     public function isValidAttributionValue(mixed $value): bool

@@ -17,30 +17,40 @@ class CampaignPerformanceClassifier
         $reservations = (int) ($row['reservations'] ?? 0);
         $costPerSale = $row['cost_per_sale'] ?? null;
         $roas = $row['roas'] ?? null;
+        $sourceType = $row['campaign_source_type'] ?? 'platform_campaign';
 
-        if ($spend > 0 && $leads === 0) {
+        if ($sourceType === 'salesforce_origin') {
+            return 'Procedencia Salesforce';
+        }
+
+        if ($sourceType === 'platform_campaign' && $spend > 0 && $leads === 0) {
             return 'Revisar tracking';
         }
 
-        if ($leads > 0 && $spend <= 0.0) {
-            return 'Revisar inversión/tracking';
+        if ($sourceType === 'salesforce_campaign_without_spend' || ($leads > 0 && $spend <= 0.0)) {
+            return 'Revisar inversion/tracking';
         }
 
         if ($spend < self::LOW_SPEND_THRESHOLD && $leads < self::MIN_LEADS_TO_REVIEW) {
             return 'Sin datos suficientes';
         }
 
-        if ($sales > 0
-            && $costPerSale !== null
-            && $benchmarks['avg_cost_per_sale'] !== null
-            && $roas !== null
-            && $benchmarks['avg_roas'] !== null
-            && $costPerSale <= $benchmarks['avg_cost_per_sale']
-            && $roas >= $benchmarks['avg_roas']) {
-            return 'Potenciar';
+        if ($sourceType === 'platform_campaign' && $sales > 0) {
+            if ($costPerSale !== null
+                && $benchmarks['avg_cost_per_sale'] !== null
+                && $roas !== null
+                && $benchmarks['avg_roas'] !== null
+                && $costPerSale <= $benchmarks['avg_cost_per_sale']
+                && $roas >= $benchmarks['avg_roas']) {
+                return 'Potenciar';
+            }
+
+            if ($costPerSale !== null && $benchmarks['avg_cost_per_sale'] !== null && $costPerSale <= $benchmarks['avg_cost_per_sale']) {
+                return 'Potenciar';
+            }
         }
 
-        if ($spend >= self::HIGH_SPEND_THRESHOLD && $sales === 0 && $reservations === 0) {
+        if ($sourceType === 'platform_campaign' && $spend >= self::HIGH_SPEND_THRESHOLD && $leads > 0 && $sales === 0 && $reservations === 0) {
             return 'Parar';
         }
 

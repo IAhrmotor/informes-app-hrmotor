@@ -39,6 +39,7 @@ class CampaignAttribution extends Model
         'attribution_method',
         'attribution_confidence',
         'match_status',
+        'campaign_source_type',
         'attribution_window_days',
     ];
 

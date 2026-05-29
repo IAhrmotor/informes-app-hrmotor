@@ -691,6 +691,13 @@ h2 {
     gap: 12px;
 }
 
+.portal-row small {
+    display: block;
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 2px;
+}
+
 .portal-sub {
     display: flex;
     justify-content: space-between;

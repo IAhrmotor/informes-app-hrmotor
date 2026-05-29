@@ -64,6 +64,10 @@
             </div>
             <div class="campaign-advanced-grid">
         <div class="filter-group">
+            <label for="campaignSourceType">Tipo</label>
+            <select id="campaignSourceType"><option value="">Todos</option></select>
+        </div>
+        <div class="filter-group">
             <label for="sourceAcquired">Fuente adquirida</label>
             <select id="sourceAcquired"><option value="">Todas</option></select>
         </div>
@@ -198,6 +202,7 @@
                         <tr>
                             <th data-column="campaign" data-sortable="true" data-key="campaign_name">Campaña</th>
                             <th data-column="platform" data-sortable="true" data-key="platform">Plataforma</th>
+                            <th data-column="campaign_source_type_label" data-sortable="true" data-key="campaign_source_type_label">Tipo</th>
                             <th data-column="match_status" data-sortable="true" data-key="match_status">Estado de cruce</th>
                             <th data-column="classification" data-sortable="true" data-key="classification">Clasificacion</th>
                             <th data-column="spend" class="num" data-sortable="true" data-key="spend">Inversion</th>

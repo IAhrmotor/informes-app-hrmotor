@@ -36,11 +36,19 @@ class BuildCampaignAttributionCommand extends Command
         $this->line('Leads procesados: '.$result['processed_leads']);
         $this->line('Atribuciones guardadas: '.$result['saved_attributions']);
         $this->line('Cruces con plataforma: '.$result['matched_to_platform']);
+        $this->line('Candidatos con campaign_acquired: '.$result['candidates_with_campaign_acquired']);
+        $this->line('Candidatos solo source/medium: '.$result['candidates_only_source_medium']);
+        $this->line('Candidatos con acquired_id: '.$result['candidates_with_acquired_id']);
+        $this->line('Candidatos con content_acquired: '.$result['candidates_with_content_acquired']);
         $this->line('Match ad_id: '.$result['match_ad_id']);
         $this->line('Match adset/ad_group: '.$result['match_adset_or_adgroup']);
         $this->line('Match campaign_id: '.$result['match_campaign_id']);
+        $this->line('Match campaign_name exacto: '.$result['match_campaign_name_exact']);
+        $this->line('Match campaign_name flexible: '.$result['match_campaign_name_flexible']);
         $this->line('Match campaign_name: '.$result['match_campaign_name']);
         $this->line('Sin plataforma asociada: '.$result['salesforce_only']);
+        $this->line('Salesforce-only por campana: '.$result['source_type_salesforce_campaign_without_spend']);
+        $this->line('Salesforce-only por procedencia: '.$result['source_type_salesforce_origin']);
         $this->line('Oportunidades: '.$result['opportunities']);
         $this->line('Reservas: '.$result['reservations']);
         $this->line('Reservas caidas: '.$result['fallen_reservations']);
@@ -48,6 +56,26 @@ class BuildCampaignAttributionCommand extends Command
         $this->line('Tiempo total: '.$result['duration_seconds'].'s');
         $this->line('Memoria pico: '.$result['peak_memory_mb'].' MB');
 
+        $this->renderTop('Top 20 campaign_acquired', $result['top_campaign_acquired'] ?? []);
+        $this->renderTop('Top 20 source_acquired + medium_acquired', $result['top_source_medium'] ?? []);
+        $this->renderTop('Top 20 acquired_id', $result['top_acquired_id'] ?? []);
+        $this->renderTop('Top 20 content_acquired', $result['top_content_acquired'] ?? []);
+        $this->renderTop('Top 20 plataforma por spend', $result['top_platform_spend'] ?? []);
+
         return self::SUCCESS;
+    }
+
+    private function renderTop(string $title, array $rows): void
+    {
+        $this->newLine();
+        $this->line($title);
+
+        if ($rows === []) {
+            $this->line('Sin datos');
+
+            return;
+        }
+
+        $this->table(array_keys($rows[0]), $rows);
     }
 }

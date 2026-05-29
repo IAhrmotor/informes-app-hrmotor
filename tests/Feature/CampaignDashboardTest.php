@@ -8,7 +8,10 @@ use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
 use App\Services\Campaigns\CampaignAttributionBuilderService;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class CampaignDashboardTest extends TestCase
@@ -118,6 +121,7 @@ class CampaignDashboardTest extends TestCase
             'attribution_method' => 'ad_id_match',
             'attribution_confidence' => 'high',
             'match_status' => 'Cruzada por ID',
+            'campaign_source_type' => 'platform_campaign',
             'has_opportunity' => true,
             'has_reservation' => true,
             'has_sale' => true,
@@ -138,7 +142,13 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('kpis.sales', 1)
             ->assertJsonPath('kpis.sale_amount', null)
             ->assertJsonPath('kpis.roas', null)
-            ->assertJsonStructure(['diagnostics'])
+            ->assertJsonStructure(['diagnostics' => [
+                'platform_campaigns',
+                'salesforce_origins',
+                'crossed_campaigns',
+                'salesforce_only_by_campaign',
+                'salesforce_only_by_origin',
+            ]])
             ->json('kpis');
         $this->assertEquals(200.0, $summary['spend']);
 
@@ -146,6 +156,8 @@ class CampaignDashboardTest extends TestCase
             ->assertOk()
             ->assertJsonPath('items.0.campaign_name', 'Spring Sale')
             ->assertJsonPath('items.0.match_status', 'Cruzada por ID')
+            ->assertJsonPath('items.0.campaign_source_type', 'platform_campaign')
+            ->assertJsonPath('items.0.campaign_source_type_label', 'Campana plataforma')
             ->assertJsonPath('items.0.leads_salesforce', 1)
             ->json('items.0');
         $this->assertEquals(200.0, $campaign['cost_per_lead']);
@@ -154,6 +166,9 @@ class CampaignDashboardTest extends TestCase
             ->assertOk()
             ->streamedContent();
 
+        $this->assertStringContainsString('Tipo', $csv);
+        $this->assertStringContainsString('Estado de cruce', $csv);
+        $this->assertStringContainsString('Campana plataforma', $csv);
         $this->assertStringContainsString('Spring Sale', $csv);
         $this->assertStringNotContainsString('cliente@example.com', $csv);
         $this->assertStringNotContainsString('600 000 001', $csv);
@@ -189,7 +204,8 @@ class CampaignDashboardTest extends TestCase
             'platform' => 'salesforce',
             'campaign_name' => 'Campana solo Salesforce',
             'attribution_method' => 'salesforce_only',
-            'match_status' => 'Sin inversión asociada',
+            'match_status' => 'Sin inversion asociada',
+            'campaign_source_type' => 'salesforce_campaign_without_spend',
         ]);
 
         $query = http_build_query([
@@ -200,8 +216,9 @@ class CampaignDashboardTest extends TestCase
 
         $this->getJson('/informes/campanas/data/campaigns?'.$query)
             ->assertOk()
-            ->assertJsonPath('items.0.classification', 'Revisar inversión/tracking')
-            ->assertJsonPath('items.0.match_status', 'Sin inversión asociada');
+            ->assertJsonPath('items.0.classification', 'Revisar inversion/tracking')
+            ->assertJsonPath('items.0.match_status', 'Sin inversion asociada')
+            ->assertJsonPath('items.0.campaign_source_type', 'salesforce_campaign_without_spend');
     }
 
     public function test_platform_spend_without_salesforce_leads_is_review_tracking(): void
@@ -253,6 +270,117 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('items.0.ctr', null)
             ->assertJsonPath('items.0.cpc', null)
             ->assertJsonPath('items.0.cost_per_lead', null);
+    }
+
+    public function test_salesforce_source_medium_only_is_presented_as_origin_and_never_stop(): void
+    {
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-origin',
+            'name' => 'Lead Origen',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Potencial',
+            'record_type_name' => 'Venta',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'fuente_origen' => 'Google Maps',
+            'medio_origen' => 'Llamada',
+            'portal_text' => 'Google Maps',
+            'medio_nuevo' => 'Llamada',
+            'delegacion_encargada_text' => 'Alcobendas',
+        ]);
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01'),
+            30
+        );
+
+        $query = http_build_query([
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-31',
+            'attribution_window_days' => 30,
+        ]);
+
+        $this->getJson('/informes/campanas/data/campaigns?'.$query)
+            ->assertOk()
+            ->assertJsonPath('items.0.campaign_source_type', 'salesforce_origin')
+            ->assertJsonPath('items.0.campaign_source_type_label', 'Procedencia Salesforce')
+            ->assertJsonPath('items.0.display_campaign', 'Google Maps · Llamada')
+            ->assertJsonPath('items.0.match_status', 'Procedencia Salesforce')
+            ->assertJsonPath('items.0.classification', 'Procedencia Salesforce');
+    }
+
+    public function test_sale_amount_column_when_available_calculates_roas_and_roi(): void
+    {
+        Schema::table('salesforce_opportunities', function (Blueprint $table): void {
+            $table->decimal('sale_amount', 14, 2)->nullable();
+        });
+
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'meta',
+            'metric_date' => '2026-05-10',
+            'account_id' => 'act_1',
+            'campaign_id' => 'camp-amount',
+            'campaign_name' => 'Campaign Amount',
+            'ad_id' => 'ad-amount',
+            'spend' => 500,
+            'impressions' => 1000,
+            'clicks' => 100,
+        ]));
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-amount',
+            'name' => 'Lead Amount',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Convertido',
+            'record_type_name' => 'Venta',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'campaign_acquired' => 'Campaign Amount',
+            'acquired_id' => 'ad-amount',
+            'converted_opportunity_id' => '006-amount',
+            'phone' => '600 000 002',
+            'email' => 'amount@example.com',
+            'portal_text' => 'Meta',
+            'medio_nuevo' => 'Formulario',
+            'delegacion_encargada_text' => 'Alcobendas',
+        ]);
+
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-amount',
+            'name' => 'Oportunidad Amount',
+            'created_date' => '2026-05-11 10:00:00',
+            'record_type_name' => 'Venta',
+            'stage_name' => 'Contrato',
+            'account_phone' => '+34 600 000 002',
+            'account_person_email' => 'amount@example.com',
+            'reservation' => true,
+            'reservation_date' => '2026-05-12',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-15',
+        ]);
+
+        DB::table('salesforce_opportunities')
+            ->where('salesforce_id', '006-amount')
+            ->update(['sale_amount' => 15000]);
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01'),
+            30
+        );
+
+        $query = http_build_query([
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-31',
+            'attribution_window_days' => 30,
+        ]);
+
+        $this->getJson('/informes/campanas/data/summary?'.$query)
+            ->assertOk()
+            ->assertJsonPath('kpis.sale_amount', 15000)
+            ->assertJsonPath('kpis.roas', 30)
+            ->assertJsonPath('kpis.estimated_roi', 29);
     }
 
     private function metricRow(array $overrides = []): array

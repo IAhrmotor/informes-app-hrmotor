@@ -1,6 +1,6 @@
 const numberFormatter = new Intl.NumberFormat('es-ES');
 const moneyFormatter = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
-const columnsStorageKey = 'hrmotor_campaign_columns_v1';
+const columnsStorageKey = 'hrmotor_campaign_columns_v2';
 
 let campaignRows = [];
 let tableSort = { key: 'spend', direction: 'desc' };
@@ -9,6 +9,7 @@ let searchTimer = null;
 const columnDefinitions = [
     { key: 'campaign', label: 'Campaña', visible: true, formatter: (_value, row) => campaignLabel(row) },
     { key: 'platform', label: 'Plataforma', visible: true },
+    { key: 'campaign_source_type_label', label: 'Tipo', visible: true },
     { key: 'match_status', label: 'Estado de cruce', visible: true },
     { key: 'classification', label: 'Clasificacion', visible: true },
     { key: 'spend', label: 'Inversion', visible: true, numeric: true, formatter: formatMoney },
@@ -70,6 +71,7 @@ function bindResetFilters() {
             'platform',
             'accountId',
             'campaignSearch',
+            'campaignSourceType',
             'sourceAcquired',
             'mediumAcquired',
             'campaignAcquired',
@@ -104,6 +106,7 @@ function bindFilters() {
         'attributionWindow',
         'platform',
         'accountId',
+        'campaignSourceType',
         'sourceAcquired',
         'mediumAcquired',
         'campaignAcquired',
@@ -247,13 +250,32 @@ function renderDiagnostics(diagnostics) {
         ['Ultima atribucion', formatDateTime(diagnostics.last_attribution_build)],
         ['Filas Meta', formatNumber(diagnostics.meta_metric_rows)],
         ['Filas Google Ads', formatNumber(diagnostics.google_metric_rows)],
-        ['Leads con campana', formatNumber(diagnostics.salesforce_leads_with_campaign_period)],
+        ['Leads atribuibles Salesforce', formatNumber(diagnostics.salesforce_leads_with_campaign_period)],
         ['Candidatos validos', formatNumber(diagnostics.valid_candidate_leads)],
         ['Atribuciones', formatNumber(diagnostics.built_attributions)],
         ['Inversion sin leads', formatNumber(diagnostics.campaigns_spend_without_salesforce_leads)],
-        ['Salesforce sin inversion', formatNumber(diagnostics.campaigns_salesforce_without_spend)],
+        ['Salesforce sin inversion / procedencia sin coste', formatNumber(diagnostics.campaigns_salesforce_without_spend)],
         ['Cruzadas por ID', formatNumber(diagnostics.campaigns_matched_by_id)],
         ['Cruzadas por nombre', formatNumber(diagnostics.campaigns_matched_by_name)],
+        ['Candidatos con campana adquirida', formatNumber(diagnostics.candidates_with_campaign_acquired)],
+        ['Candidatos solo fuente/medio', formatNumber(diagnostics.candidates_only_source_medium)],
+        ['Candidatos con acquired_id', formatNumber(diagnostics.candidates_with_acquired_id)],
+        ['Candidatos con content_acquired', formatNumber(diagnostics.candidates_with_content_acquired)],
+        ['Match ad_id', formatNumber(diagnostics.match_ad_id)],
+        ['Match adset/adgroup', formatNumber(diagnostics.match_adset_or_adgroup)],
+        ['Match campaign_id', formatNumber(diagnostics.match_campaign_id)],
+        ['Match nombre exacto', formatNumber(diagnostics.match_campaign_name_exact)],
+        ['Match nombre flexible', formatNumber(diagnostics.match_campaign_name_flexible)],
+        ['Salesforce-only por campana', formatNumber(diagnostics.salesforce_only_by_campaign)],
+        ['Salesforce-only por procedencia', formatNumber(diagnostics.salesforce_only_by_origin)],
+        ['Campanas plataforma', formatNumber(diagnostics.platform_campaigns)],
+        ['Procedencias Salesforce', formatNumber(diagnostics.salesforce_origins)],
+        ['Campanas cruzadas', formatNumber(diagnostics.crossed_campaigns)],
+        ['Campanas sin cruce', formatNumber(diagnostics.campaigns_without_crossing)],
+        ['Leads en campanas plataforma', formatNumber(diagnostics.leads_platform_campaigns)],
+        ['Leads en procedencias Salesforce', formatNumber(diagnostics.leads_salesforce_origins)],
+        ['Ventas atribuidas', formatNumber(diagnostics.attributed_sales)],
+        ['Ventas con importe disponible', formatNumber(diagnostics.sales_with_amount_available)],
     ];
 
     root.innerHTML = items.map(([label, value]) => `
@@ -278,6 +300,7 @@ function renderRankings(rankings) {
         ['Muchos leads y pocas ventas', rankings.many_leads_few_sales || [], 'leads_salesforce', formatNumber],
         ['Revisar tracking', rankings.review_tracking || [], 'spend', formatMoney],
         ['Revisar inversion/tracking', rankings.review_investment_tracking || [], 'leads_salesforce', formatNumber],
+        ['Procedencia Salesforce', rankings.salesforce_origin || [], 'leads_salesforce', formatNumber],
         ['Potenciar', rankings.boost || [], 'spend', formatMoney],
         ['Revisar', rankings.review || [], 'spend', formatMoney],
         ['Parar', rankings.stop || [], 'spend', formatMoney],
@@ -288,7 +311,7 @@ function renderRankings(rankings) {
         const items = rows.length
             ? rows.map((row) => `
                 <div class="portal-row">
-                    <span>${escapeHtml(campaignLabel(row))}</span>
+                    <span>${escapeHtml(campaignLabel(row))}<small>${escapeHtml(row.campaign_source_type_label || '')}</small></span>
                     <strong>${escapeHtml(formatter(row[key]))}</strong>
                 </div>
             `).join('')
@@ -361,6 +384,7 @@ function sortedCampaignRows(rows) {
 
 function renderFilterOptions(filters) {
     populateSelect('platform', filters.platforms || [], 'Todas');
+    populateSelect('campaignSourceType', filters.source_types || [], 'Todos');
     populateSelect('accountId', (filters.accounts || []).map((account) => ({
         value: account.id,
         label: account.name ? `${account.name} (${account.id})` : account.id,
@@ -409,6 +433,7 @@ function currentFilters() {
     setParam(params, 'platform', document.getElementById('platform')?.value);
     setParam(params, 'account_id', document.getElementById('accountId')?.value);
     setParam(params, 'search', document.getElementById('campaignSearch')?.value);
+    setParam(params, 'campaign_source_type', document.getElementById('campaignSourceType')?.value);
     setParam(params, 'source_acquired', document.getElementById('sourceAcquired')?.value);
     setParam(params, 'medium_acquired', document.getElementById('mediumAcquired')?.value);
     setParam(params, 'campaign_acquired', document.getElementById('campaignAcquired')?.value);
@@ -514,7 +539,7 @@ function setParam(params, key, value) {
 }
 
 function campaignLabel(row) {
-    return row.campaign_name || row.campaign_acquired || row.campaign_id || '-';
+    return row.display_campaign || row.campaign_name || row.campaign_acquired || row.campaign_id || '-';
 }
 
 function periodText(period) {

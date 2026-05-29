@@ -17,6 +17,7 @@ class CampaignAttributionBuilderService
     public function __construct(
         private readonly CampaignValueNormalizer $normalizer,
         private readonly SalesforceLeadDashboardDatasetService $leadDataset,
+        private readonly CampaignSaleAmountResolver $saleAmountResolver,
     ) {
     }
 
@@ -70,7 +71,7 @@ class CampaignAttributionBuilderService
                 'opportunity_created_at' => $opportunity?->created_date,
                 'reservation_date' => $opportunityFlags['reservation_date'],
                 'sale_date' => $opportunityFlags['sale_date'],
-                'sale_amount' => null,
+                'sale_amount' => $opportunityFlags['sale_amount'],
                 'has_opportunity' => $opportunityFlags['has_opportunity'],
                 'has_reservation' => $opportunityFlags['has_reservation'],
                 'has_fallen_reservation' => $opportunityFlags['has_fallen_reservation'],
@@ -82,6 +83,7 @@ class CampaignAttributionBuilderService
                 'attribution_method' => $campaign['method'],
                 'attribution_confidence' => $campaign['confidence'],
                 'match_status' => $campaign['match_status'],
+                'campaign_source_type' => $campaign['campaign_source_type'],
                 'attribution_window_days' => $windowDays,
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -102,11 +104,16 @@ class CampaignAttributionBuilderService
         $this->flushAttributions($batch);
 
         if ($stats['salesforce_only'] > 0) {
-            $stats['warnings'][] = 'Hay campanas Salesforce sin inversion asociada. Revisar IDs/nombres de campana.';
+            $stats['warnings'][] = 'Hay campanas Salesforce sin inversion asociada o procedencias sin coste. Revisar IDs/nombres de campana.';
+        }
+
+        if ($stats['sales'] > 0 && $this->saleAmountResolver->localColumn() === null) {
+            $stats['warnings'][] = $this->saleAmountResolver->diagnosticMessage();
         }
 
         $stats['duration_seconds'] = round(microtime(true) - $startedAt, 2);
         $stats['peak_memory_mb'] = round(memory_get_peak_usage(true) / 1024 / 1024, 2);
+        $stats = array_merge($stats, $this->topDiagnostics($start, $end, $windowDays));
 
         $this->invalidateCache();
 
@@ -172,6 +179,7 @@ class CampaignAttributionBuilderService
                         continue;
                     }
 
+                    $this->countLeadAcquisitionShape($stats, $lead);
                     $leads->push($lead);
                 }
             }, 'id');
@@ -321,6 +329,7 @@ class CampaignAttributionBuilderService
                         'method' => $method,
                         'confidence' => 'high',
                         'match_status' => 'Cruzada por ID',
+                        'campaign_source_type' => 'platform_campaign',
                         'matched_to_platform' => true,
                     ]);
                 }
@@ -336,6 +345,7 @@ class CampaignAttributionBuilderService
                     'method' => 'campaign_name_match',
                     'confidence' => 'medium',
                     'match_status' => 'Cruzada por nombre',
+                    'campaign_source_type' => 'platform_campaign',
                     'matched_to_platform' => true,
                 ]);
             }
@@ -348,28 +358,46 @@ class CampaignAttributionBuilderService
                     'method' => 'campaign_name_match',
                     'confidence' => 'low',
                     'match_status' => 'Cruzada por nombre',
+                    'campaign_source_type' => 'platform_campaign',
                     'matched_to_platform' => true,
                 ]);
             }
         }
 
-        $campaignName = $this->firstValidValue(
-            $lead->campaign_acquired,
-            $lead->content_acquired,
-            $lead->acquired_id,
-            trim(implode(' ', array_filter([$lead->fuente_origen, $lead->medio_origen]))),
-        );
+        $hasCampaign = $this->normalizer->isValidAttributionValue($lead->campaign_acquired);
+        $hasOrigin = $this->normalizer->isValidAttributionValue($lead->fuente_origen)
+            || $this->normalizer->isValidAttributionValue($lead->medio_origen);
+        $sourceType = $hasCampaign ? 'salesforce_campaign_without_spend' : 'salesforce_origin';
+        $campaignName = $hasCampaign
+            ? $this->normalizer->clean($lead->campaign_acquired)
+            : $this->originLabel($lead->fuente_origen, $lead->medio_origen);
+
+        if (! $hasCampaign && ! $hasOrigin) {
+            $campaignName = $this->firstValidValue($lead->content_acquired, $lead->acquired_id);
+            $sourceType = 'salesforce_campaign_without_spend';
+        }
 
         return [
             'platform' => 'salesforce',
             'account_id' => null,
-            'campaign_id' => $this->normalizer->isValidAttributionValue($lead->acquired_id) ? $lead->acquired_id : null,
+            'campaign_id' => $sourceType === 'salesforce_campaign_without_spend' && $this->normalizer->isValidAttributionValue($lead->acquired_id) ? $lead->acquired_id : null,
             'campaign_name' => $campaignName,
             'method' => 'salesforce_only',
             'confidence' => 'low',
-            'match_status' => 'Sin inversión asociada',
+            'match_status' => $sourceType === 'salesforce_origin' ? 'Procedencia Salesforce' : 'Sin inversion asociada',
+            'campaign_source_type' => $sourceType,
             'matched_to_platform' => false,
         ];
+    }
+
+    private function originLabel(mixed $source, mixed $medium): ?string
+    {
+        $parts = array_filter([
+            $this->normalizer->isValidAttributionValue($source) ? $this->normalizer->clean($source) : null,
+            $this->normalizer->isValidAttributionValue($medium) ? $this->normalizer->clean($medium) : null,
+        ]);
+
+        return $parts === [] ? null : implode(' · ', $parts);
     }
 
     private function firstValidValue(mixed ...$values): ?string
@@ -392,7 +420,7 @@ class CampaignAttributionBuilderService
             ->values()
             ->all();
 
-        $columns = [
+        $columns = array_values(array_unique(array_merge([
             'salesforce_id',
             'created_date',
             'stage_name',
@@ -404,7 +432,7 @@ class CampaignAttributionBuilderService
             'reservation_date',
             'cv_signed',
             'cv_signed_date',
-        ];
+        ], $this->saleAmountResolver->opportunitySelectColumns())));
 
         $opportunities = DB::table('salesforce_opportunities')
             ->where(function ($query) use ($start, $end): void {
@@ -514,6 +542,7 @@ class CampaignAttributionBuilderService
                 'has_sale' => false,
                 'reservation_date' => null,
                 'sale_date' => null,
+                'sale_amount' => null,
             ];
         }
 
@@ -534,6 +563,7 @@ class CampaignAttributionBuilderService
             'has_sale' => $hasSale,
             'reservation_date' => $hasReservation ? $opportunity->reservation_date : null,
             'sale_date' => $hasSale ? $opportunity->cv_signed_date : null,
+            'sale_amount' => $hasSale ? $this->saleAmountResolver->resolve($opportunity) : null,
         ];
     }
 
@@ -606,6 +636,7 @@ class CampaignAttributionBuilderService
                 'attribution_method',
                 'attribution_confidence',
                 'match_status',
+                'campaign_source_type',
                 'attribution_window_days',
                 'updated_at',
             ]
@@ -618,13 +649,47 @@ class CampaignAttributionBuilderService
             'ad_id_match' => $stats['match_ad_id']++,
             'adset_or_adgroup_id_match' => $stats['match_adset_or_adgroup']++,
             'campaign_id_match' => $stats['match_campaign_id']++,
-            'campaign_name_match' => $stats['match_campaign_name']++,
+            'campaign_name_match' => $campaign['confidence'] === 'low'
+                ? $stats['match_campaign_name_flexible']++
+                : $stats['match_campaign_name_exact']++,
             'salesforce_only' => $stats['salesforce_only']++,
+            default => null,
+        };
+
+        $stats['match_campaign_name'] = $stats['match_campaign_name_exact'] + $stats['match_campaign_name_flexible'];
+
+        match ($campaign['campaign_source_type'] ?? null) {
+            'platform_campaign' => $stats['source_type_platform_campaign']++,
+            'salesforce_campaign_without_spend' => $stats['source_type_salesforce_campaign_without_spend']++,
+            'salesforce_origin' => $stats['source_type_salesforce_origin']++,
             default => null,
         };
 
         if ($campaign['matched_to_platform']) {
             $stats['matched_to_platform']++;
+        }
+    }
+
+    private function countLeadAcquisitionShape(array &$stats, object $lead): void
+    {
+        $hasCampaign = $this->normalizer->isValidAttributionValue($lead->campaign_acquired);
+        $hasSourceOrMedium = $this->normalizer->isValidAttributionValue($lead->fuente_origen)
+            || $this->normalizer->isValidAttributionValue($lead->medio_origen);
+
+        if ($hasCampaign) {
+            $stats['candidates_with_campaign_acquired']++;
+        }
+
+        if (! $hasCampaign && $hasSourceOrMedium) {
+            $stats['candidates_only_source_medium']++;
+        }
+
+        if ($this->normalizer->isValidAttributionValue($lead->acquired_id)) {
+            $stats['candidates_with_acquired_id']++;
+        }
+
+        if ($this->normalizer->isValidAttributionValue($lead->content_acquired)) {
+            $stats['candidates_with_content_acquired']++;
         }
     }
 
@@ -645,15 +710,89 @@ class CampaignAttributionBuilderService
             'match_adset_or_adgroup' => 0,
             'match_campaign_id' => 0,
             'match_campaign_name' => 0,
+            'match_campaign_name_exact' => 0,
+            'match_campaign_name_flexible' => 0,
             'salesforce_only' => 0,
+            'source_type_platform_campaign' => 0,
+            'source_type_salesforce_campaign_without_spend' => 0,
+            'source_type_salesforce_origin' => 0,
+            'candidates_with_campaign_acquired' => 0,
+            'candidates_only_source_medium' => 0,
+            'candidates_with_acquired_id' => 0,
+            'candidates_with_content_acquired' => 0,
             'opportunities' => 0,
             'reservations' => 0,
             'fallen_reservations' => 0,
             'sales' => 0,
             'duration_seconds' => 0.0,
             'peak_memory_mb' => 0.0,
+            'top_campaign_acquired' => [],
+            'top_source_medium' => [],
+            'top_acquired_id' => [],
+            'top_content_acquired' => [],
+            'top_platform_spend' => [],
             'warnings' => [],
         ];
+    }
+
+    private function topDiagnostics(CarbonInterface $start, CarbonInterface $end, int $windowDays): array
+    {
+        $attributions = DB::table('campaign_attributions')
+            ->where('lead_created_at', '>=', $start)
+            ->where('lead_created_at', '<', $end)
+            ->where('attribution_window_days', $windowDays);
+
+        return [
+            'top_campaign_acquired' => $this->topAttributionValues(clone $attributions, ['campaign_acquired']),
+            'top_source_medium' => $this->topAttributionValues(clone $attributions, ['source_acquired', 'medium_acquired']),
+            'top_acquired_id' => $this->topAttributionValues(clone $attributions, ['acquired_id']),
+            'top_content_acquired' => $this->topAttributionValues(clone $attributions, ['content_acquired']),
+            'top_platform_spend' => $this->topPlatformSpend($start, $end),
+        ];
+    }
+
+    private function topAttributionValues($query, array $columns): array
+    {
+        foreach ($columns as $column) {
+            $query->whereNotNull($column)->where($column, '<>', '');
+        }
+
+        return $query
+            ->select(array_merge($columns, [DB::raw('COUNT(*) as total')]))
+            ->groupBy(...$columns)
+            ->orderByDesc('total')
+            ->limit(20)
+            ->get()
+            ->map(function (object $row) use ($columns): array {
+                $label = implode(' + ', array_map(fn (string $column) => (string) ($row->{$column} ?? ''), $columns));
+
+                return ['valor' => $label, 'total' => (int) $row->total];
+            })
+            ->all();
+    }
+
+    private function topPlatformSpend(CarbonInterface $start, CarbonInterface $end): array
+    {
+        return DB::table('campaign_platform_daily_metrics')
+            ->where('metric_date', '>=', $start->toDateString())
+            ->where('metric_date', '<=', CarbonImmutable::parse($end)->toDateString())
+            ->select([
+                'platform',
+                'campaign_id',
+                'campaign_name',
+                DB::raw('SUM(COALESCE(spend, 0)) as spend'),
+            ])
+            ->groupBy('platform', 'campaign_id', 'campaign_name')
+            ->orderByDesc('spend')
+            ->limit(20)
+            ->get()
+            ->map(fn (object $row): array => [
+                'plataforma' => (string) $row->platform,
+                'campaign_id' => (string) $row->campaign_id,
+                'campaign_name' => (string) $row->campaign_name,
+                'spend' => round((float) $row->spend, 2),
+            ])
+            ->all();
     }
 
     private function invalidateCache(): void

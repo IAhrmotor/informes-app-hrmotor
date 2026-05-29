@@ -36,6 +36,7 @@ class CampaignDashboardDataController extends Controller
         $headers = [
             'Plataforma',
             'Cuenta',
+            'Tipo',
             'Fuente adquirida',
             'Medio adquirido',
             'Campana adquirida',
@@ -70,6 +71,7 @@ class CampaignDashboardDataController extends Controller
                 fputcsv($output, [
                     $row['platform'],
                     $row['account_id'],
+                    $row['campaign_source_type_label'],
                     $row['source_acquired'],
                     $row['medium_acquired'],
                     $row['campaign_acquired'],
