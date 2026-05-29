@@ -1,8 +1,44 @@
 const numberFormatter = new Intl.NumberFormat('es-ES');
 const moneyFormatter = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
+const columnsStorageKey = 'hrmotor_campaign_columns_v1';
 
 let campaignRows = [];
 let tableSort = { key: 'spend', direction: 'desc' };
+let searchTimer = null;
+
+const columnDefinitions = [
+    { key: 'campaign', label: 'Campaña', visible: true, formatter: (_value, row) => campaignLabel(row) },
+    { key: 'platform', label: 'Plataforma', visible: true },
+    { key: 'match_status', label: 'Estado de cruce', visible: true },
+    { key: 'classification', label: 'Clasificacion', visible: true },
+    { key: 'spend', label: 'Inversion', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'impressions', label: 'Impresiones', visible: true, numeric: true, formatter: formatNumber },
+    { key: 'clicks', label: 'Clicks', visible: true, numeric: true, formatter: formatNumber },
+    { key: 'ctr', label: 'CTR', visible: true, numeric: true, formatter: formatPercentRatio },
+    { key: 'cpc', label: 'CPC', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'platform_leads', label: 'Leads plataforma', visible: true, numeric: true, formatter: formatNullableNumber },
+    { key: 'leads_salesforce', label: 'Leads Salesforce', visible: true, numeric: true, formatter: formatNumber },
+    { key: 'opportunities', label: 'Oportunidades', visible: true, numeric: true, formatter: formatNumber },
+    { key: 'reservations', label: 'Reservas', visible: true, numeric: true, formatter: formatNumber },
+    { key: 'sales', label: 'Ventas', visible: true, numeric: true, formatter: formatNumber },
+    { key: 'sale_amount', label: 'Importe vendido', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_lead', label: 'CPL', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_sale', label: 'CPV', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'roas', label: 'ROAS', visible: true, numeric: true, formatter: formatMultiplier },
+    { key: 'account_id', label: 'Cuenta', visible: false },
+    { key: 'campaign_id', label: 'Campaign ID', visible: false },
+    { key: 'campaign_name', label: 'Campaign name', visible: false },
+    { key: 'source_acquired', label: 'Fuente adquirida', visible: false },
+    { key: 'medium_acquired', label: 'Medio adquirido', visible: false },
+    { key: 'campaign_acquired', label: 'Campaña adquirida', visible: false },
+    { key: 'cost_per_opportunity', label: 'CPO', visible: false, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_reservation', label: 'CPR', visible: false, numeric: true, formatter: formatMoney },
+    { key: 'estimated_roi', label: 'ROI estimado', visible: false, numeric: true, formatter: formatPercentRatio },
+    { key: 'lead_to_opportunity', label: 'Lead -> oportunidad', visible: false, numeric: true, formatter: formatPercentRatio },
+    { key: 'lead_to_sale', label: 'Lead -> venta', visible: false, numeric: true, formatter: formatPercentRatio },
+];
+
+let visibleColumns = loadVisibleColumns();
 
 document.addEventListener('DOMContentLoaded', async () => {
     setDefaultDates();
@@ -10,6 +46,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindFilters();
     bindResetFilters();
     bindSorting();
+    bindDrawer();
+    bindColumns();
+    applyColumnVisibility();
     await reloadAllData();
 });
 
@@ -30,6 +69,7 @@ function bindResetFilters() {
         [
             'platform',
             'accountId',
+            'campaignSearch',
             'sourceAcquired',
             'mediumAcquired',
             'campaignAcquired',
@@ -80,6 +120,11 @@ function bindFilters() {
     ].forEach((id) => {
         document.getElementById(id)?.addEventListener('change', reloadAllData);
     });
+
+    document.getElementById('campaignSearch')?.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(reloadAllData, 350);
+    });
 }
 
 function bindSorting() {
@@ -95,6 +140,29 @@ function bindSorting() {
     });
 }
 
+function bindDrawer() {
+    const drawer = document.getElementById('advancedFiltersDrawer');
+    const open = () => {
+        drawer?.classList.add('is-open');
+        drawer?.setAttribute('aria-hidden', 'false');
+    };
+    const close = () => {
+        drawer?.classList.remove('is-open');
+        drawer?.setAttribute('aria-hidden', 'true');
+    };
+
+    document.getElementById('advancedFiltersOpen')?.addEventListener('click', open);
+    document.getElementById('advancedFiltersClose')?.addEventListener('click', close);
+    document.getElementById('advancedFiltersCloseBackdrop')?.addEventListener('click', close);
+}
+
+function bindColumns() {
+    renderColumnsPopover();
+    document.getElementById('columnsToggle')?.addEventListener('click', () => {
+        document.getElementById('columnsPopover')?.classList.toggle('is-hidden');
+    });
+}
+
 async function reloadAllData() {
     setLoadingState(true);
 
@@ -106,11 +174,11 @@ async function reloadAllData() {
             fetchJson(`/informes/campanas/data/rankings?${query}`),
         ]);
 
-        renderSummary(summary);
+        renderSummary(summary || {});
         renderFilterOptions(summary.filters || {});
         campaignRows = campaigns.items || [];
         renderCampaignRows(campaignRows);
-        renderRankings(rankings.rankings || {});
+        renderRankings((rankings && rankings.rankings) || {});
         document.getElementById('exportCsv').href = `/informes/campanas/export/campaigns.csv?${query}`;
     } catch (error) {
         showLoadError(error);
@@ -131,6 +199,7 @@ function renderSummary(data) {
 
     renderWarnings(data.warnings || []);
     renderKpis(data.kpis || {});
+    renderDiagnostics(data.diagnostics || {});
 }
 
 function renderWarnings(warnings) {
@@ -150,8 +219,7 @@ function renderKpis(kpis) {
         ['Clicks', formatNumber(kpis.clicks), `Leads plataforma ${formatNullableNumber(kpis.platform_leads)}`],
         ['Leads Salesforce', formatNumber(kpis.leads_salesforce), `CPL ${formatMoney(kpis.cost_per_lead)}`],
         ['Oportunidades', formatNumber(kpis.opportunities), `CPO ${formatMoney(kpis.cost_per_opportunity)}`],
-        ['Reservas generadas', formatNumber(kpis.reservations), `CPR ${formatMoney(kpis.cost_per_reservation)}`],
-        ['Reservas vivas', formatNumber(kpis.live_reservations), `Caidas ${formatNumber(kpis.fallen_reservations)}`],
+        ['Reservas', formatNumber(kpis.reservations), `CPR ${formatMoney(kpis.cost_per_reservation)}`],
         ['Ventas', formatNumber(kpis.sales), `CPV ${formatMoney(kpis.cost_per_sale)}`],
         ['Importe vendido', formatMoney(kpis.sale_amount), `ROAS ${formatMultiplier(kpis.roas)}`],
         ['ROI estimado', formatPercentRatio(kpis.estimated_roi), `Lead -> venta ${formatPercentRatio(kpis.lead_to_sale)}`],
@@ -160,7 +228,7 @@ function renderKpis(kpis) {
     root.innerHTML = '';
     cards.forEach(([label, value, hint]) => {
         root.insertAdjacentHTML('beforeend', `
-            <div class="card kpi">
+            <div class="card kpi campaign-kpi">
                 <div>
                     <div class="kpi-label">${escapeHtml(label)}</div>
                     <div class="kpi-value">${escapeHtml(value)}</div>
@@ -169,6 +237,31 @@ function renderKpis(kpis) {
             </div>
         `);
     });
+}
+
+function renderDiagnostics(diagnostics) {
+    const root = document.getElementById('campaignDiagnostics');
+    const items = [
+        ['Ultima sync Meta', formatDateTime(diagnostics.last_meta_sync)],
+        ['Ultima sync Google Ads', formatDateTime(diagnostics.last_google_sync)],
+        ['Ultima atribucion', formatDateTime(diagnostics.last_attribution_build)],
+        ['Filas Meta', formatNumber(diagnostics.meta_metric_rows)],
+        ['Filas Google Ads', formatNumber(diagnostics.google_metric_rows)],
+        ['Leads con campana', formatNumber(diagnostics.salesforce_leads_with_campaign_period)],
+        ['Candidatos validos', formatNumber(diagnostics.valid_candidate_leads)],
+        ['Atribuciones', formatNumber(diagnostics.built_attributions)],
+        ['Inversion sin leads', formatNumber(diagnostics.campaigns_spend_without_salesforce_leads)],
+        ['Salesforce sin inversion', formatNumber(diagnostics.campaigns_salesforce_without_spend)],
+        ['Cruzadas por ID', formatNumber(diagnostics.campaigns_matched_by_id)],
+        ['Cruzadas por nombre', formatNumber(diagnostics.campaigns_matched_by_name)],
+    ];
+
+    root.innerHTML = items.map(([label, value]) => `
+        <div class="diagnostic-item">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+        </div>
+    `).join('');
 }
 
 function renderRankings(rankings) {
@@ -183,6 +276,8 @@ function renderRankings(rankings) {
         ['Peor coste por venta', rankings.worst_cost_per_sale || [], 'cost_per_sale', formatMoney],
         ['Mucho gasto y poca conversion', rankings.high_spend_low_conversion || [], 'spend', formatMoney],
         ['Muchos leads y pocas ventas', rankings.many_leads_few_sales || [], 'leads_salesforce', formatNumber],
+        ['Revisar tracking', rankings.review_tracking || [], 'spend', formatMoney],
+        ['Revisar inversion/tracking', rankings.review_investment_tracking || [], 'leads_salesforce', formatNumber],
         ['Potenciar', rankings.boost || [], 'spend', formatMoney],
         ['Revisar', rankings.review || [], 'spend', formatMoney],
         ['Parar', rankings.stop || [], 'spend', formatMoney],
@@ -211,49 +306,24 @@ function renderRankings(rankings) {
 function renderCampaignRows(rows) {
     const root = document.getElementById('campaignRows');
     const sortedRows = sortedCampaignRows(rows);
+    const columns = activeColumns();
     root.innerHTML = '';
+    applyColumnVisibility();
 
     if (!sortedRows.length) {
-        root.innerHTML = '<tr><td colspan="33">No hay campanas agregadas para los filtros seleccionados.</td></tr>';
+        root.innerHTML = `<tr><td colspan="${columns.length}">No hay campanas agregadas para los filtros seleccionados.</td></tr>`;
         return;
     }
 
     sortedRows.forEach((row) => {
-        const cells = [
-            [row.platform],
-            [row.account_id],
-            [row.source_acquired],
-            [row.medium_acquired],
-            [row.campaign_acquired],
-            [row.campaign_id],
-            [row.campaign_name],
-            [formatMoney(row.spend), true, row.spend],
-            [formatNumber(row.impressions), true, row.impressions],
-            [formatNumber(row.clicks), true, row.clicks],
-            [formatPercentRatio(row.ctr), true, row.ctr],
-            [formatMoney(row.cpc), true, row.cpc],
-            [formatNullableNumber(row.platform_leads), true, row.platform_leads],
-            [formatNumber(row.leads_salesforce), true, row.leads_salesforce],
-            [formatNumber(row.opportunities), true, row.opportunities],
-            [formatNumber(row.reservations), true, row.reservations],
-            [formatNumber(row.live_reservations), true, row.live_reservations],
-            [formatNumber(row.fallen_reservations), true, row.fallen_reservations],
-            [formatNumber(row.sales), true, row.sales],
-            [formatMoney(row.sale_amount), true, row.sale_amount],
-            [formatMoney(row.cost_per_lead), true, row.cost_per_lead],
-            [formatMoney(row.cost_per_opportunity), true, row.cost_per_opportunity],
-            [formatMoney(row.cost_per_reservation), true, row.cost_per_reservation],
-            [formatMoney(row.cost_per_sale), true, row.cost_per_sale],
-            [formatMultiplier(row.roas), true, row.roas],
-            [formatPercentRatio(row.estimated_roi), true, row.estimated_roi],
-            [formatPercentRatio(row.click_to_lead_salesforce), true, row.click_to_lead_salesforce],
-            [formatPercentRatio(row.click_to_lead_platform), true, row.click_to_lead_platform],
-            [formatPercentRatio(row.lead_to_opportunity), true, row.lead_to_opportunity],
-            [formatPercentRatio(row.opportunity_to_reservation), true, row.opportunity_to_reservation],
-            [formatPercentRatio(row.reservation_to_sale), true, row.reservation_to_sale],
-            [formatPercentRatio(row.lead_to_sale), true, row.lead_to_sale],
-            [row.classification],
-        ];
+        const cells = columns.map((column) => {
+            const formatter = column.formatter || ((value) => value);
+            return [
+                formatter(row[column.key], row),
+                column.numeric,
+                row[column.key],
+            ];
+        });
 
         root.insertAdjacentHTML('beforeend', `<tr>${cells.map(cellHtml).join('')}</tr>`);
     });
@@ -338,6 +408,7 @@ function currentFilters() {
     setParam(params, 'attribution_window_days', document.getElementById('attributionWindow')?.value);
     setParam(params, 'platform', document.getElementById('platform')?.value);
     setParam(params, 'account_id', document.getElementById('accountId')?.value);
+    setParam(params, 'search', document.getElementById('campaignSearch')?.value);
     setParam(params, 'source_acquired', document.getElementById('sourceAcquired')?.value);
     setParam(params, 'medium_acquired', document.getElementById('mediumAcquired')?.value);
     setParam(params, 'campaign_acquired', document.getElementById('campaignAcquired')?.value);
@@ -353,6 +424,54 @@ function currentFilters() {
     setParam(params, 'vehicle_interest', document.getElementById('vehicleInterest')?.value);
 
     return params.toString();
+}
+
+function renderColumnsPopover() {
+    const root = document.getElementById('columnsPopover');
+    if (!root) {
+        return;
+    }
+
+    root.innerHTML = columnDefinitions.map((column) => `
+        <label class="column-option">
+            <input type="checkbox" value="${escapeHtml(column.key)}" ${visibleColumns.includes(column.key) ? 'checked' : ''}>
+            <span>${escapeHtml(column.label)}</span>
+        </label>
+    `).join('');
+
+    root.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+        input.addEventListener('change', () => {
+            visibleColumns = [...root.querySelectorAll('input[type="checkbox"]:checked')].map((item) => item.value);
+            if (!visibleColumns.length) {
+                visibleColumns = ['campaign'];
+            }
+            localStorage.setItem(columnsStorageKey, JSON.stringify(visibleColumns));
+            renderCampaignRows(campaignRows);
+        });
+    });
+}
+
+function loadVisibleColumns() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(columnsStorageKey) || 'null');
+        if (Array.isArray(saved) && saved.length) {
+            return saved.filter((key) => columnDefinitions.some((column) => column.key === key));
+        }
+    } catch (error) {
+        return columnDefinitions.filter((column) => column.visible).map((column) => column.key);
+    }
+
+    return columnDefinitions.filter((column) => column.visible).map((column) => column.key);
+}
+
+function activeColumns() {
+    return columnDefinitions.filter((column) => visibleColumns.includes(column.key));
+}
+
+function applyColumnVisibility() {
+    document.querySelectorAll('#panel-campaigns th[data-column]').forEach((header) => {
+        header.classList.toggle('is-hidden', !visibleColumns.includes(header.dataset.column));
+    });
 }
 
 function setDefaultDates() {
@@ -423,8 +542,8 @@ function formatDate(value) {
 function formatDateTime(value) {
     const date = new Date(value);
 
-    if (Number.isNaN(date.getTime())) {
-        return value || '-';
+    if (!value || Number.isNaN(date.getTime())) {
+        return value || 'Sin datos';
     }
 
     return new Intl.DateTimeFormat('es-ES', {

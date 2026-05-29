@@ -2,9 +2,6 @@
 
 namespace App\Services\Campaigns;
 
-use App\Models\CampaignAttribution;
-use App\Models\SalesforceLead;
-use App\Models\SalesforceOpportunity;
 use App\Services\Reports\Leads\SalesforceLeadDashboardDatasetService;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -14,6 +11,9 @@ use Illuminate\Support\Facades\DB;
 
 class CampaignAttributionBuilderService
 {
+    private const LEAD_CHUNK_SIZE = 1000;
+    private const UPSERT_CHUNK_SIZE = 25;
+
     public function __construct(
         private readonly CampaignValueNormalizer $normalizer,
         private readonly SalesforceLeadDashboardDatasetService $leadDataset,
@@ -22,106 +22,222 @@ class CampaignAttributionBuilderService
 
     public function build(CarbonInterface $start, CarbonInterface $end, int $windowDays = 30): array
     {
+        $startedAt = microtime(true);
         $start = CarbonImmutable::parse($start)->startOfDay();
         $end = CarbonImmutable::parse($end);
         $windowDays = max($windowDays, 1);
         $metrics = $this->metricLookup($start, $end);
-        $leads = $this->campaignLeads($start, $end);
+        $stats = $this->emptyStats($start, $end);
+        $leads = $this->candidateLeads($start, $end, $stats);
         $opportunities = $this->candidateOpportunities($start, $end->addDays($windowDays), $leads);
         $assignments = $this->assignOpportunities($leads, $opportunities, $windowDays);
-        $stats = [
-            'processed_leads' => $leads->count(),
-            'saved_attributions' => 0,
-            'matched_to_platform' => 0,
-            'opportunities' => 0,
-            'reservations' => 0,
-            'fallen_reservations' => 0,
-            'sales' => 0,
-            'warnings' => [],
-        ];
+        $now = now();
 
-        DB::transaction(function () use ($start, $end, $windowDays, $metrics, $leads, $assignments, &$stats): void {
-            CampaignAttribution::query()
-                ->where('lead_created_at', '>=', $start)
-                ->where('lead_created_at', '<', $end)
-                ->delete();
+        DB::table('campaign_attributions')
+            ->where('lead_created_at', '>=', $start)
+            ->where('lead_created_at', '<', $end)
+            ->where('attribution_window_days', $windowDays)
+            ->delete();
 
-            foreach ($leads as $lead) {
-                $campaign = $this->resolveCampaign($lead, $metrics);
+        $batch = [];
 
-                if ($campaign['matched_to_platform']) {
-                    $stats['matched_to_platform']++;
-                }
+        foreach ($leads as $lead) {
+            $campaign = $this->resolveCampaign($lead, $metrics);
+            $opportunity = $assignments[(string) $lead->salesforce_id] ?? null;
+            $opportunityFlags = $this->opportunityFlags($lead, $opportunity, $windowDays);
+            $decorated = $this->leadDataset->decorateLead($lead);
 
-                $opportunity = $assignments[(string) $lead->salesforce_id] ?? null;
-                $opportunityFlags = $this->opportunityFlags($lead, $opportunity, $windowDays);
-                $decorated = $this->leadDataset->decorateLead($lead);
+            $this->countCampaignMatch($stats, $campaign);
 
-                CampaignAttribution::query()->create([
-                    'lead_id' => $lead->salesforce_id,
-                    'opportunity_id' => $opportunity?->salesforce_id,
-                    'platform' => $campaign['platform'],
-                    'account_id' => $campaign['account_id'],
-                    'campaign_id' => $campaign['campaign_id'],
-                    'campaign_name' => $campaign['campaign_name'],
-                    'campaign_name_key' => $this->normalizer->key($campaign['campaign_name']),
-                    'source_acquired' => $lead->fuente_origen,
-                    'medium_acquired' => $lead->medio_origen,
-                    'campaign_acquired' => $lead->campaign_acquired,
-                    'acquired_id' => $lead->acquired_id,
-                    'acquired_id_key' => $this->normalizer->compactKey($lead->acquired_id),
-                    'content_acquired' => $lead->content_acquired,
-                    'content_acquired_key' => $this->normalizer->compactKey($lead->content_acquired),
-                    'vehicle_interest' => $lead->vehicle_interest,
-                    'lead_status' => $lead->status,
-                    'lead_created_at' => $lead->created_date,
-                    'opportunity_created_at' => $opportunity?->created_date,
-                    'reservation_date' => $opportunityFlags['reservation_date'],
-                    'sale_date' => $opportunityFlags['sale_date'],
-                    'sale_amount' => null,
-                    'has_opportunity' => $opportunityFlags['has_opportunity'],
-                    'has_reservation' => $opportunityFlags['has_reservation'],
-                    'has_fallen_reservation' => $opportunityFlags['has_fallen_reservation'],
-                    'has_sale' => $opportunityFlags['has_sale'],
-                    'lead_delegation' => $decorated['lead_delegation'] ?? null,
-                    'lead_zone' => $decorated['lead_zone'] ?? null,
-                    'commercial_user_id' => $decorated['gestor_id'] ?? null,
-                    'commercial_user_name' => $decorated['gestor_nombre'] ?? null,
-                    'attribution_method' => $campaign['method'],
-                    'attribution_confidence' => $campaign['confidence'],
-                    'attribution_window_days' => $windowDays,
-                ]);
+            $batch[] = [
+                'lead_id' => $lead->salesforce_id,
+                'opportunity_id' => $opportunity?->salesforce_id,
+                'platform' => $campaign['platform'],
+                'account_id' => $campaign['account_id'],
+                'campaign_id' => $campaign['campaign_id'],
+                'campaign_name' => $campaign['campaign_name'],
+                'campaign_name_key' => $this->normalizer->key($campaign['campaign_name']),
+                'source_acquired' => $lead->fuente_origen,
+                'medium_acquired' => $lead->medio_origen,
+                'campaign_acquired' => $lead->campaign_acquired,
+                'acquired_id' => $lead->acquired_id,
+                'acquired_id_key' => $this->normalizer->compactKey($lead->acquired_id),
+                'content_acquired' => $lead->content_acquired,
+                'content_acquired_key' => $this->normalizer->compactKey($lead->content_acquired),
+                'vehicle_interest' => $lead->vehicle_interest,
+                'lead_status' => $lead->status,
+                'lead_created_at' => $lead->created_date,
+                'opportunity_created_at' => $opportunity?->created_date,
+                'reservation_date' => $opportunityFlags['reservation_date'],
+                'sale_date' => $opportunityFlags['sale_date'],
+                'sale_amount' => null,
+                'has_opportunity' => $opportunityFlags['has_opportunity'],
+                'has_reservation' => $opportunityFlags['has_reservation'],
+                'has_fallen_reservation' => $opportunityFlags['has_fallen_reservation'],
+                'has_sale' => $opportunityFlags['has_sale'],
+                'lead_delegation' => $decorated['lead_delegation'] ?? null,
+                'lead_zone' => $decorated['lead_zone'] ?? null,
+                'commercial_user_id' => $decorated['gestor_id'] ?? null,
+                'commercial_user_name' => $decorated['gestor_nombre'] ?? null,
+                'attribution_method' => $campaign['method'],
+                'attribution_confidence' => $campaign['confidence'],
+                'match_status' => $campaign['match_status'],
+                'attribution_window_days' => $windowDays,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
 
-                $stats['saved_attributions']++;
-                $stats['opportunities'] += $opportunityFlags['has_opportunity'] ? 1 : 0;
-                $stats['reservations'] += $opportunityFlags['has_reservation'] ? 1 : 0;
-                $stats['fallen_reservations'] += $opportunityFlags['has_fallen_reservation'] ? 1 : 0;
-                $stats['sales'] += $opportunityFlags['has_sale'] ? 1 : 0;
+            $stats['saved_attributions']++;
+            $stats['opportunities'] += $opportunityFlags['has_opportunity'] ? 1 : 0;
+            $stats['reservations'] += $opportunityFlags['has_reservation'] ? 1 : 0;
+            $stats['fallen_reservations'] += $opportunityFlags['has_fallen_reservation'] ? 1 : 0;
+            $stats['sales'] += $opportunityFlags['has_sale'] ? 1 : 0;
+
+            if (count($batch) >= self::UPSERT_CHUNK_SIZE) {
+                $this->flushAttributions($batch);
+                $batch = [];
             }
-        });
+        }
 
-        if ($stats['matched_to_platform'] === 0 && $stats['saved_attributions'] > 0) {
+        $this->flushAttributions($batch);
+
+        if ($stats['salesforce_only'] > 0) {
             $stats['warnings'][] = 'Hay campanas Salesforce sin inversion asociada. Revisar IDs/nombres de campana.';
         }
+
+        $stats['duration_seconds'] = round(microtime(true) - $startedAt, 2);
+        $stats['peak_memory_mb'] = round(memory_get_peak_usage(true) / 1024 / 1024, 2);
 
         $this->invalidateCache();
 
         return $stats;
     }
 
-    private function campaignLeads(CarbonInterface $start, CarbonInterface $end): Collection
+    private function candidateLeads(CarbonInterface $start, CarbonInterface $end, array &$stats): Collection
     {
-        return SalesforceLead::query()
+        $base = DB::table('salesforce_leads')
             ->where('created_date', '>=', $start)
-            ->where('created_date', '<', $end)
-            ->orderBy('created_date')
-            ->get()
-            ->filter(fn (SalesforceLead $lead): bool => $this->normalizer->hasClearSalesforceAttribution(
-                $lead->campaign_acquired,
-                $lead->acquired_id,
-                $lead->content_acquired,
-            ))
-            ->values();
+            ->where('created_date', '<', $end);
+
+        $stats['total_leads_in_range'] = (clone $base)->count();
+
+        $leads = collect();
+
+        (clone $base)
+            ->orderBy('id')
+            ->select([
+                'id',
+                'salesforce_id',
+                'name',
+                'created_date',
+                'status',
+                'record_type_name',
+                'owner_id',
+                'owner_name',
+                'persona_que_trabajo_id',
+                'persona_que_trabajo_name',
+                'propietario_descarte_id',
+                'propietario_descarte_name',
+                'fuente_origen',
+                'medio_origen',
+                'campaign_acquired',
+                'acquired_id',
+                'content_acquired',
+                'vehicle_interest',
+                'phone',
+                'mobile_phone',
+                'email',
+                'converted_opportunity_id',
+                'medio_nuevo',
+                'fuente_nuevo',
+                'portal_text',
+                'delegacion_encargada_text',
+                'delegacion_encargada',
+                'delegacion_encargada_bueno',
+                'raw_payload',
+            ])
+            ->chunkById(self::LEAD_CHUNK_SIZE, function (Collection $chunk) use (&$leads, &$stats): void {
+                foreach ($chunk as $lead) {
+                    $this->fillCampaignFieldsFromRawPayload($lead);
+
+                    if (! $this->hasAnyAcquisitionValue($lead)) {
+                        continue;
+                    }
+
+                    $stats['leads_with_acquisition_not_null']++;
+
+                    if (! $this->hasValidAcquisition($lead)) {
+                        $stats['discarded_invalid_values']++;
+
+                        continue;
+                    }
+
+                    $leads->push($lead);
+                }
+            }, 'id');
+
+        $stats['candidate_leads'] = $leads->count();
+        $stats['processed_leads'] = $leads->count();
+
+        return $leads;
+    }
+
+    private function hasValidAcquisition(object $lead): bool
+    {
+        return $this->normalizer->hasClearSalesforceAttribution(
+            $lead->campaign_acquired,
+            $lead->acquired_id,
+            $lead->content_acquired,
+            $lead->fuente_origen,
+            $lead->medio_origen,
+        );
+    }
+
+    private function hasAnyAcquisitionValue(object $lead): bool
+    {
+        foreach ([
+            $lead->campaign_acquired,
+            $lead->acquired_id,
+            $lead->content_acquired,
+            $lead->fuente_origen,
+            $lead->medio_origen,
+        ] as $value) {
+            if (filled($this->normalizer->clean($value))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function fillCampaignFieldsFromRawPayload(object $lead): void
+    {
+        $payload = $lead->raw_payload ?? null;
+
+        if (is_string($payload)) {
+            $payload = json_decode($payload, true) ?: [];
+        }
+
+        if (! is_array($payload)) {
+            return;
+        }
+
+        foreach ([
+            'fuente_origen' => 'LEA_SEL_Fuente_Origen__c',
+            'medio_origen' => 'LEA_SEL_Medio_Origen__c',
+            'campaign_acquired' => 'Campa_a_Adquirida__c',
+            'acquired_id' => 'Id_Adquirido__c',
+            'content_acquired' => 'Contenido_Adquirido__c',
+            'vehicle_interest' => 'LEA_BUS_Vehiculo_de_interes__c',
+            'phone' => 'Phone',
+            'mobile_phone' => 'MobilePhone',
+            'email' => 'Email',
+            'converted_opportunity_id' => 'ConvertedOpportunityId',
+        ] as $localField => $salesforceField) {
+            if (! $this->normalizer->isValidAttributionValue($lead->{$localField} ?? null) && filled(data_get($payload, $salesforceField))) {
+                $lead->{$localField} = data_get($payload, $salesforceField);
+            }
+        }
     }
 
     private function metricLookup(CarbonInterface $start, CarbonInterface $end): array
@@ -146,6 +262,7 @@ class CampaignAttributionBuilderService
             'ad_group' => [],
             'campaign_id' => [],
             'campaign_name' => [],
+            'campaign_name_flexible' => [],
         ];
 
         foreach ($rows as $row) {
@@ -173,26 +290,37 @@ class CampaignAttributionBuilderService
             if ($nameKey !== '') {
                 $lookup['campaign_name'][$nameKey] ??= $payload;
             }
+
+            $flexibleNameKey = $this->normalizer->flexibleCampaignKey($row->campaign_name);
+            if ($flexibleNameKey !== '') {
+                $lookup['campaign_name_flexible'][$flexibleNameKey] ??= $payload;
+            }
         }
 
         return $lookup;
     }
 
-    private function resolveCampaign(SalesforceLead $lead, array $metrics): array
+    private function resolveCampaign(object $lead, array $metrics): array
     {
         $idCandidates = array_values(array_filter([
             $lead->acquired_id,
             $lead->content_acquired,
         ], fn ($value) => $this->normalizer->isValidAttributionValue($value)));
 
-        foreach (['ad', 'adset', 'ad_group', 'campaign_id'] as $type) {
+        foreach ([
+            'ad' => 'ad_id_match',
+            'adset' => 'adset_or_adgroup_id_match',
+            'ad_group' => 'adset_or_adgroup_id_match',
+            'campaign_id' => 'campaign_id_match',
+        ] as $type => $method) {
             foreach ($idCandidates as $candidate) {
                 $match = $metrics[$type][$this->normalizer->compactKey($candidate)] ?? null;
 
                 if ($match) {
                     return array_merge($match, [
-                        'method' => 'campaign_id_match',
+                        'method' => $method,
                         'confidence' => 'high',
+                        'match_status' => 'Cruzada por ID',
                         'matched_to_platform' => true,
                     ]);
                 }
@@ -207,24 +335,52 @@ class CampaignAttributionBuilderService
                 return array_merge($match, [
                     'method' => 'campaign_name_match',
                     'confidence' => 'medium',
+                    'match_status' => 'Cruzada por nombre',
+                    'matched_to_platform' => true,
+                ]);
+            }
+
+            $flexibleNameKey = $this->normalizer->flexibleCampaignKey($lead->campaign_acquired);
+            $match = $metrics['campaign_name_flexible'][$flexibleNameKey] ?? null;
+
+            if ($match) {
+                return array_merge($match, [
+                    'method' => 'campaign_name_match',
+                    'confidence' => 'low',
+                    'match_status' => 'Cruzada por nombre',
                     'matched_to_platform' => true,
                 ]);
             }
         }
 
-        $campaignName = $this->normalizer->clean($lead->campaign_acquired)
-            ?: $this->normalizer->clean($lead->content_acquired)
-            ?: $this->normalizer->clean($lead->acquired_id);
+        $campaignName = $this->firstValidValue(
+            $lead->campaign_acquired,
+            $lead->content_acquired,
+            $lead->acquired_id,
+            trim(implode(' ', array_filter([$lead->fuente_origen, $lead->medio_origen]))),
+        );
 
         return [
-            'platform' => $this->normalizer->inferPlatform($lead->fuente_origen, $lead->medio_origen, $campaignName),
+            'platform' => 'salesforce',
             'account_id' => null,
             'campaign_id' => $this->normalizer->isValidAttributionValue($lead->acquired_id) ? $lead->acquired_id : null,
             'campaign_name' => $campaignName,
-            'method' => $this->normalizer->isValidAttributionValue($lead->acquired_id) ? 'campaign_id_match' : 'campaign_name_match',
-            'confidence' => 'medium',
+            'method' => 'salesforce_only',
+            'confidence' => 'low',
+            'match_status' => 'Sin inversión asociada',
             'matched_to_platform' => false,
         ];
+    }
+
+    private function firstValidValue(mixed ...$values): ?string
+    {
+        foreach ($values as $value) {
+            if ($this->normalizer->isValidAttributionValue($value)) {
+                return $this->normalizer->clean($value);
+            }
+        }
+
+        return null;
     }
 
     private function candidateOpportunities(CarbonInterface $start, CarbonInterface $end, Collection $leads): Collection
@@ -236,19 +392,42 @@ class CampaignAttributionBuilderService
             ->values()
             ->all();
 
-        return SalesforceOpportunity::query()
-            ->where(function ($query) use ($start, $end, $convertedIds): void {
+        $columns = [
+            'salesforce_id',
+            'created_date',
+            'stage_name',
+            'record_type_name',
+            'account_phone',
+            'account_person_email',
+            'account_company_email',
+            'reservation',
+            'reservation_date',
+            'cv_signed',
+            'cv_signed_date',
+        ];
+
+        $opportunities = DB::table('salesforce_opportunities')
+            ->where(function ($query) use ($start, $end): void {
                 $query
                     ->whereBetween('created_date', [$start, $end])
                     ->orWhereBetween('reservation_date', [$start->toDateString(), $end->toDateString()])
                     ->orWhereBetween('cv_signed_date', [$start->toDateString(), $end->toDateString()]);
-
-                if ($convertedIds !== []) {
-                    $query->orWhereIn('salesforce_id', $convertedIds);
-                }
             })
+            ->select($columns)
             ->get()
             ->keyBy('salesforce_id');
+
+        foreach (array_chunk($convertedIds, 500) as $ids) {
+            DB::table('salesforce_opportunities')
+                ->whereIn('salesforce_id', $ids)
+                ->select($columns)
+                ->get()
+                ->each(function (object $opportunity) use ($opportunities): void {
+                    $opportunities[(string) $opportunity->salesforce_id] = $opportunity;
+                });
+        }
+
+        return $opportunities;
     }
 
     private function assignOpportunities(Collection $leads, Collection $opportunities, int $windowDays): array
@@ -277,11 +456,9 @@ class CampaignAttributionBuilderService
         $phoneIndex = [];
 
         foreach ($leads as $lead) {
-            foreach ([$lead->email] as $email) {
-                $key = $this->normalizeEmail($email);
-                if ($key !== null) {
-                    $emailIndex[$key][] = $lead->salesforce_id;
-                }
+            $key = $this->normalizeEmail($lead->email);
+            if ($key !== null) {
+                $emailIndex[$key][] = $lead->salesforce_id;
             }
 
             foreach ([$lead->phone, $lead->mobile_phone] as $phone) {
@@ -307,7 +484,7 @@ class CampaignAttributionBuilderService
             $candidate = $candidateLeadIds
                 ->map(fn (string $leadId) => $leadById->get($leadId))
                 ->filter()
-                ->filter(fn (SalesforceLead $lead): bool => $this->withinWindow($lead->created_date, $opportunity->created_date, $windowDays))
+                ->filter(fn (object $lead): bool => $this->withinWindow($lead->created_date, $opportunity->created_date, $windowDays))
                 ->sortByDesc('created_date')
                 ->first();
 
@@ -324,14 +501,10 @@ class CampaignAttributionBuilderService
 
     private function indexedValues(array $index, ?string $key): array
     {
-        if ($key === null) {
-            return [];
-        }
-
-        return $index[$key] ?? [];
+        return $key === null ? [] : ($index[$key] ?? []);
     }
 
-    private function opportunityFlags(SalesforceLead $lead, ?SalesforceOpportunity $opportunity, int $windowDays): array
+    private function opportunityFlags(object $lead, ?object $opportunity, int $windowDays): array
     {
         if (! $opportunity) {
             return [
@@ -390,6 +563,97 @@ class CampaignAttributionBuilderService
         $digits = preg_replace('/^34(?=\d{9}$)/', '', $digits ?? '');
 
         return $digits !== '' ? $digits : null;
+    }
+
+    private function flushAttributions(array $rows): void
+    {
+        if ($rows === []) {
+            return;
+        }
+
+        DB::table('campaign_attributions')->upsert(
+            $rows,
+            ['lead_id'],
+            [
+                'opportunity_id',
+                'platform',
+                'account_id',
+                'campaign_id',
+                'campaign_name',
+                'campaign_name_key',
+                'source_acquired',
+                'medium_acquired',
+                'campaign_acquired',
+                'acquired_id',
+                'acquired_id_key',
+                'content_acquired',
+                'content_acquired_key',
+                'vehicle_interest',
+                'lead_status',
+                'lead_created_at',
+                'opportunity_created_at',
+                'reservation_date',
+                'sale_date',
+                'sale_amount',
+                'has_opportunity',
+                'has_reservation',
+                'has_fallen_reservation',
+                'has_sale',
+                'lead_delegation',
+                'lead_zone',
+                'commercial_user_id',
+                'commercial_user_name',
+                'attribution_method',
+                'attribution_confidence',
+                'match_status',
+                'attribution_window_days',
+                'updated_at',
+            ]
+        );
+    }
+
+    private function countCampaignMatch(array &$stats, array $campaign): void
+    {
+        match ($campaign['method']) {
+            'ad_id_match' => $stats['match_ad_id']++,
+            'adset_or_adgroup_id_match' => $stats['match_adset_or_adgroup']++,
+            'campaign_id_match' => $stats['match_campaign_id']++,
+            'campaign_name_match' => $stats['match_campaign_name']++,
+            'salesforce_only' => $stats['salesforce_only']++,
+            default => null,
+        };
+
+        if ($campaign['matched_to_platform']) {
+            $stats['matched_to_platform']++;
+        }
+    }
+
+    private function emptyStats(CarbonImmutable $start, CarbonImmutable $end): array
+    {
+        return [
+            'range_start' => $start->toDateString(),
+            'range_end' => $end->toDateString(),
+            'total_leads_in_range' => 0,
+            'leads_with_acquisition_not_null' => 0,
+            'candidate_leads' => 0,
+            'discarded_invalid_values' => 0,
+            'discarded_by_date' => 0,
+            'processed_leads' => 0,
+            'saved_attributions' => 0,
+            'matched_to_platform' => 0,
+            'match_ad_id' => 0,
+            'match_adset_or_adgroup' => 0,
+            'match_campaign_id' => 0,
+            'match_campaign_name' => 0,
+            'salesforce_only' => 0,
+            'opportunities' => 0,
+            'reservations' => 0,
+            'fallen_reservations' => 0,
+            'sales' => 0,
+            'duration_seconds' => 0.0,
+            'peak_memory_mb' => 0.0,
+            'warnings' => [],
+        ];
     }
 
     private function invalidateCache(): void

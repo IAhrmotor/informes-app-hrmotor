@@ -115,8 +115,9 @@ class CampaignDashboardTest extends TestCase
             'opportunity_id' => '006-1',
             'campaign_id' => 'camp-1',
             'campaign_name' => 'Spring Sale',
-            'attribution_method' => 'campaign_id_match',
+            'attribution_method' => 'ad_id_match',
             'attribution_confidence' => 'high',
+            'match_status' => 'Cruzada por ID',
             'has_opportunity' => true,
             'has_reservation' => true,
             'has_sale' => true,
@@ -137,12 +138,14 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('kpis.sales', 1)
             ->assertJsonPath('kpis.sale_amount', null)
             ->assertJsonPath('kpis.roas', null)
+            ->assertJsonStructure(['diagnostics'])
             ->json('kpis');
         $this->assertEquals(200.0, $summary['spend']);
 
         $campaign = $this->getJson('/informes/campanas/data/campaigns?'.$query)
             ->assertOk()
             ->assertJsonPath('items.0.campaign_name', 'Spring Sale')
+            ->assertJsonPath('items.0.match_status', 'Cruzada por ID')
             ->assertJsonPath('items.0.leads_salesforce', 1)
             ->json('items.0');
         $this->assertEquals(200.0, $campaign['cost_per_lead']);
@@ -155,6 +158,75 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringNotContainsString('cliente@example.com', $csv);
         $this->assertStringNotContainsString('600 000 001', $csv);
         $this->assertStringNotContainsString('Lead Privado', $csv);
+    }
+
+    public function test_salesforce_campaign_without_platform_creates_salesforce_only_attribution(): void
+    {
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-sf-only',
+            'name' => 'Lead Salesforce',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Potencial',
+            'record_type_name' => 'Venta',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'fuente_origen' => 'Google',
+            'medio_origen' => 'cpc',
+            'campaign_acquired' => 'Campana solo Salesforce',
+            'portal_text' => 'Google',
+            'medio_nuevo' => 'Formulario',
+            'delegacion_encargada_text' => 'Alcobendas',
+        ]);
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01'),
+            30
+        );
+
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-sf-only',
+            'platform' => 'salesforce',
+            'campaign_name' => 'Campana solo Salesforce',
+            'attribution_method' => 'salesforce_only',
+            'match_status' => 'Sin inversión asociada',
+        ]);
+
+        $query = http_build_query([
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-31',
+            'attribution_window_days' => 30,
+        ]);
+
+        $this->getJson('/informes/campanas/data/campaigns?'.$query)
+            ->assertOk()
+            ->assertJsonPath('items.0.classification', 'Revisar inversión/tracking')
+            ->assertJsonPath('items.0.match_status', 'Sin inversión asociada');
+    }
+
+    public function test_platform_spend_without_salesforce_leads_is_review_tracking(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'google_ads',
+            'metric_date' => '2026-05-10',
+            'account_id' => '123',
+            'campaign_id' => 'camp-tracking',
+            'campaign_name' => 'Tracking roto',
+            'spend' => 900,
+            'impressions' => 1000,
+            'clicks' => 100,
+        ]));
+
+        $query = http_build_query([
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-31',
+            'attribution_window_days' => 30,
+        ]);
+
+        $this->getJson('/informes/campanas/data/campaigns?'.$query)
+            ->assertOk()
+            ->assertJsonPath('items.0.classification', 'Revisar tracking')
+            ->assertJsonPath('items.0.match_status', 'Sin leads Salesforce');
     }
 
     public function test_ratios_devuelven_null_cuando_el_denominador_es_cero(): void

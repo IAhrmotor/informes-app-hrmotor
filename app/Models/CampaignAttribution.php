@@ -38,6 +38,7 @@ class CampaignAttribution extends Model
         'commercial_user_name',
         'attribution_method',
         'attribution_confidence',
+        'match_status',
         'attribution_window_days',
     ];
 

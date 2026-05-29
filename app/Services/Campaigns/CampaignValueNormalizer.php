@@ -16,6 +16,11 @@ class CampaignValueNormalizer
         'undefined',
         'sin campana',
         'sin atribucion',
+        'campa a adquirida c',
+        'id adquirido c',
+        'contenido adquirido c',
+        'lea sel fuente origen c',
+        'lea sel medio origen c',
     ];
 
     public function clean(mixed $value): ?string
@@ -42,6 +47,11 @@ class CampaignValueNormalizer
         return Str::of($this->key($value))
             ->replaceMatches('/[^a-z0-9]+/', '')
             ->toString();
+    }
+
+    public function flexibleCampaignKey(mixed $value): string
+    {
+        return $this->compactKey($value);
     }
 
     public function isValidAttributionValue(mixed $value): bool

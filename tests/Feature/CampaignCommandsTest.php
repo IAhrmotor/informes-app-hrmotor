@@ -55,7 +55,23 @@ class CampaignCommandsTest extends TestCase
             'medio_nuevo' => 'Formulario',
         ]);
 
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-literal',
+            'name' => 'Lead literal',
+            'created_date' => now()->subDay(),
+            'status' => 'Potencial',
+            'record_type_name' => 'Venta',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'campaign_acquired' => 'Campa_a_Adquirida__c',
+            'acquired_id' => 'Id_Adquirido__c',
+            'content_acquired' => 'Contenido_Adquirido__c',
+            'portal_text' => 'Meta',
+            'medio_nuevo' => 'Formulario',
+        ]);
+
         $this->artisan('campaigns:build-attribution', ['--days' => 3, '--window' => 30])
+            ->expectsOutputToContain('Leads candidatos validos: 1')
             ->expectsOutputToContain('Leads procesados: 1')
             ->assertExitCode(0);
 

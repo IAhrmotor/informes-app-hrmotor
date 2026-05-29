@@ -1108,3 +1108,156 @@ th.num {
 .daily-bar:hover::before {
     opacity: 1;
 }
+
+.campaigns-filter-bar {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    align-items: end;
+}
+
+.campaign-search {
+    grid-column: span 2;
+}
+
+.campaign-filter-actions {
+    gap: 10px;
+}
+
+.campaign-filter-actions .main-tab,
+.campaign-filter-actions .filter-reset {
+    width: auto;
+    min-height: 41px;
+}
+
+.campaign-drawer {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    pointer-events: none;
+}
+
+.campaign-drawer.is-open {
+    pointer-events: auto;
+}
+
+.campaign-drawer-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, .28);
+    opacity: 0;
+    transition: opacity .18s ease;
+}
+
+.campaign-drawer.is-open .campaign-drawer-backdrop {
+    opacity: 1;
+}
+
+.campaign-drawer-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: min(460px, calc(100vw - 28px));
+    height: 100%;
+    padding: 24px;
+    border-radius: 0;
+    overflow: auto;
+    transform: translateX(100%);
+    transition: transform .2s ease;
+}
+
+.campaign-drawer.is-open .campaign-drawer-panel {
+    transform: translateX(0);
+}
+
+.campaign-advanced-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+}
+
+.campaign-diagnostics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.diagnostic-item {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 13px 14px;
+    background: #fbfcfe;
+}
+
+.diagnostic-item span {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 750;
+}
+
+.diagnostic-item strong {
+    display: block;
+    margin-top: 4px;
+    color: var(--brand-primary);
+    font-size: 16px;
+    font-weight: 900;
+}
+
+.campaign-table-actions {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.columns-menu {
+    position: relative;
+}
+
+.columns-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 15;
+    width: 260px;
+    max-height: 360px;
+    overflow: auto;
+    padding: 12px;
+}
+
+.column-option {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 6px;
+    color: var(--brand-primary);
+    font-size: 13px;
+    font-weight: 750;
+}
+
+.campaign-kpi {
+    border-top: 4px solid rgba(32, 42, 69, .85);
+}
+
+@media (max-width: 1000px) {
+    .campaigns-filter-bar,
+    .campaign-diagnostics {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .campaign-search {
+        grid-column: span 1;
+    }
+}
+
+@media (max-width: 650px) {
+    .campaigns-filter-bar,
+    .campaign-diagnostics {
+        grid-template-columns: 1fr;
+    }
+
+    .campaign-filter-actions,
+    .campaign-table-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}

@@ -18,6 +18,14 @@ class CampaignPerformanceClassifier
         $costPerSale = $row['cost_per_sale'] ?? null;
         $roas = $row['roas'] ?? null;
 
+        if ($spend > 0 && $leads === 0) {
+            return 'Revisar tracking';
+        }
+
+        if ($leads > 0 && $spend <= 0.0) {
+            return 'Revisar inversión/tracking';
+        }
+
         if ($spend < self::LOW_SPEND_THRESHOLD && $leads < self::MIN_LEADS_TO_REVIEW) {
             return 'Sin datos suficientes';
         }

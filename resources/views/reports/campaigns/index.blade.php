@@ -16,7 +16,7 @@
 <div class="wrap">
     @include('reports.partials.report-header', ['currentReport' => 'campaigns', 'subtitle' => 'Rentabilidad de campañas digitales'])
 
-    <section class="filters card">
+    <section class="filters card campaigns-filter-bar">
         <div class="filter-group">
             <label for="startDate">Inicio</label>
             <input type="date" id="startDate">
@@ -42,6 +42,27 @@
             <label for="accountId">Cuenta</label>
             <select id="accountId"><option value="">Todas</option></select>
         </div>
+        <div class="filter-group campaign-search">
+            <label for="campaignSearch">Buscar campaÃ±a</label>
+            <input type="search" id="campaignSearch" placeholder="Nombre, ID, fuente o medio">
+        </div>
+        <div class="filter-actions campaign-filter-actions">
+            <button type="button" class="main-tab" id="advancedFiltersOpen">Filtros avanzados</button>
+            <button type="button" class="filter-reset" id="resetFilters">Limpiar filtros</button>
+        </div>
+    </section>
+
+    <aside class="campaign-drawer" id="advancedFiltersDrawer" aria-hidden="true">
+        <div class="campaign-drawer-backdrop" id="advancedFiltersCloseBackdrop"></div>
+        <section class="campaign-drawer-panel card" aria-label="Filtros avanzados">
+            <div class="panel-title">
+                <div>
+                    <h2>Filtros avanzados</h2>
+                    <div class="small">Segmenta por origen, delegacion y resultado Salesforce</div>
+                </div>
+                <button type="button" class="main-tab" id="advancedFiltersClose">Cerrar</button>
+            </div>
+            <div class="campaign-advanced-grid">
         <div class="filter-group">
             <label for="sourceAcquired">Fuente adquirida</label>
             <select id="sourceAcquired"><option value="">Todas</option></select>
@@ -106,10 +127,9 @@
             <label for="vehicleInterest">Vehiculo/anuncio</label>
             <select id="vehicleInterest"><option value="">Todos</option></select>
         </div>
-        <div class="filter-actions">
-            <button type="button" class="filter-reset" id="resetFilters">Limpiar filtros</button>
-        </div>
-    </section>
+            </div>
+        </section>
+    </aside>
 
     <nav class="tabs-main" aria-label="Pestanas del informe">
         <button class="main-tab active" data-panel="panel-resumen">Resumen</button>
@@ -138,6 +158,17 @@
             <section class="card panel">
                 <div class="panel-title">
                     <div>
+                        <h2>Diagnostico de sincronizacion</h2>
+                        <div class="small">Estado de inversion, atribucion y calidad de tracking</div>
+                    </div>
+                    <span class="badge" id="updatedBadge">Datos actualizados: pendiente</span>
+                </div>
+                <div class="campaign-diagnostics" id="campaignDiagnostics"></div>
+            </section>
+
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
                         <h2>Rankings</h2>
                         <div class="small">Campañas agregadas por rendimiento</div>
                     </div>
@@ -153,45 +184,47 @@
                         <h2>Tabla principal</h2>
                         <div class="small">Agregado por campaña, sin datos personales</div>
                     </div>
-                    <a class="main-tab" id="exportCsv" href="/informes/campanas/export/campaigns.csv">Export CSV</a>
+                    <div class="campaign-table-actions">
+                        <div class="columns-menu">
+                            <button type="button" class="main-tab" id="columnsToggle">Columnas</button>
+                            <div class="columns-popover card is-hidden" id="columnsPopover"></div>
+                        </div>
+                        <a class="main-tab" id="exportCsv" href="/informes/campanas/export/campaigns.csv">Export CSV</a>
+                    </div>
                 </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
                         <tr>
-                            <th data-sortable="true" data-key="platform">Plataforma</th>
-                            <th data-sortable="true" data-key="account_id">Cuenta</th>
-                            <th data-sortable="true" data-key="source_acquired">Fuente</th>
-                            <th data-sortable="true" data-key="medium_acquired">Medio</th>
-                            <th data-sortable="true" data-key="campaign_acquired">Campaña adquirida</th>
-                            <th data-sortable="true" data-key="campaign_id">Campaign ID</th>
-                            <th data-sortable="true" data-key="campaign_name">Campaign name</th>
-                            <th class="num" data-sortable="true" data-key="spend">Inversion</th>
-                            <th class="num" data-sortable="true" data-key="impressions">Impresiones</th>
-                            <th class="num" data-sortable="true" data-key="clicks">Clicks</th>
-                            <th class="num" data-sortable="true" data-key="ctr">CTR</th>
-                            <th class="num" data-sortable="true" data-key="cpc">CPC</th>
-                            <th class="num" data-sortable="true" data-key="platform_leads">Leads plataforma</th>
-                            <th class="num" data-sortable="true" data-key="leads_salesforce">Leads Salesforce</th>
-                            <th class="num" data-sortable="true" data-key="opportunities">Oportunidades</th>
-                            <th class="num" data-sortable="true" data-key="reservations">Reservas</th>
-                            <th class="num" data-sortable="true" data-key="live_reservations">Vivas</th>
-                            <th class="num" data-sortable="true" data-key="fallen_reservations">Caidas</th>
-                            <th class="num" data-sortable="true" data-key="sales">Ventas</th>
-                            <th class="num" data-sortable="true" data-key="sale_amount">Importe vendido</th>
-                            <th class="num" data-sortable="true" data-key="cost_per_lead">CPL</th>
-                            <th class="num" data-sortable="true" data-key="cost_per_opportunity">CPO</th>
-                            <th class="num" data-sortable="true" data-key="cost_per_reservation">CPR</th>
-                            <th class="num" data-sortable="true" data-key="cost_per_sale">CPV</th>
-                            <th class="num" data-sortable="true" data-key="roas">ROAS</th>
-                            <th class="num" data-sortable="true" data-key="estimated_roi">ROI</th>
-                            <th class="num" data-sortable="true" data-key="click_to_lead_salesforce">Click -> Lead SF</th>
-                            <th class="num" data-sortable="true" data-key="click_to_lead_platform">Click -> Lead plataforma</th>
-                            <th class="num" data-sortable="true" data-key="lead_to_opportunity">Lead -> Oportunidad</th>
-                            <th class="num" data-sortable="true" data-key="opportunity_to_reservation">Oportunidad -> Reserva</th>
-                            <th class="num" data-sortable="true" data-key="reservation_to_sale">Reserva -> Venta</th>
-                            <th class="num" data-sortable="true" data-key="lead_to_sale">Lead -> Venta</th>
-                            <th data-sortable="true" data-key="classification">Clasificacion</th>
+                            <th data-column="campaign" data-sortable="true" data-key="campaign_name">Campaña</th>
+                            <th data-column="platform" data-sortable="true" data-key="platform">Plataforma</th>
+                            <th data-column="match_status" data-sortable="true" data-key="match_status">Estado de cruce</th>
+                            <th data-column="classification" data-sortable="true" data-key="classification">Clasificacion</th>
+                            <th data-column="spend" class="num" data-sortable="true" data-key="spend">Inversion</th>
+                            <th data-column="impressions" class="num" data-sortable="true" data-key="impressions">Impresiones</th>
+                            <th data-column="clicks" class="num" data-sortable="true" data-key="clicks">Clicks</th>
+                            <th data-column="ctr" class="num" data-sortable="true" data-key="ctr">CTR</th>
+                            <th data-column="cpc" class="num" data-sortable="true" data-key="cpc">CPC</th>
+                            <th data-column="platform_leads" class="num" data-sortable="true" data-key="platform_leads">Leads plataforma</th>
+                            <th data-column="leads_salesforce" class="num" data-sortable="true" data-key="leads_salesforce">Leads Salesforce</th>
+                            <th data-column="opportunities" class="num" data-sortable="true" data-key="opportunities">Oportunidades</th>
+                            <th data-column="reservations" class="num" data-sortable="true" data-key="reservations">Reservas</th>
+                            <th data-column="sales" class="num" data-sortable="true" data-key="sales">Ventas</th>
+                            <th data-column="sale_amount" class="num" data-sortable="true" data-key="sale_amount">Importe vendido</th>
+                            <th data-column="cost_per_lead" class="num" data-sortable="true" data-key="cost_per_lead">CPL</th>
+                            <th data-column="cost_per_sale" class="num" data-sortable="true" data-key="cost_per_sale">CPV</th>
+                            <th data-column="roas" class="num" data-sortable="true" data-key="roas">ROAS</th>
+                            <th data-column="account_id" data-sortable="true" data-key="account_id">Cuenta</th>
+                            <th data-column="campaign_id" data-sortable="true" data-key="campaign_id">Campaign ID</th>
+                            <th data-column="campaign_name" data-sortable="true" data-key="campaign_name">Campaign name</th>
+                            <th data-column="source_acquired" data-sortable="true" data-key="source_acquired">Fuente</th>
+                            <th data-column="medium_acquired" data-sortable="true" data-key="medium_acquired">Medio</th>
+                            <th data-column="campaign_acquired" data-sortable="true" data-key="campaign_acquired">Campaña adquirida</th>
+                            <th data-column="cost_per_opportunity" class="num" data-sortable="true" data-key="cost_per_opportunity">CPO</th>
+                            <th data-column="cost_per_reservation" class="num" data-sortable="true" data-key="cost_per_reservation">CPR</th>
+                            <th data-column="estimated_roi" class="num" data-sortable="true" data-key="estimated_roi">ROI</th>
+                            <th data-column="lead_to_opportunity" class="num" data-sortable="true" data-key="lead_to_opportunity">Lead -> Oportunidad</th>
+                            <th data-column="lead_to_sale" class="num" data-sortable="true" data-key="lead_to_sale">Lead -> Venta</th>
                         </tr>
                         </thead>
                         <tbody id="campaignRows"></tbody>
