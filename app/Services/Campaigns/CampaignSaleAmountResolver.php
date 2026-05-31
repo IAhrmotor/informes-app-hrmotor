@@ -7,8 +7,8 @@ use Illuminate\Support\Facades\Schema;
 class CampaignSaleAmountResolver
 {
     private const CANDIDATE_COLUMNS = [
-        'sale_amount',
         'amount',
+        'sale_amount',
         'opportunity_amount',
         'importe_vendido',
         'importe_venta',
@@ -82,5 +82,10 @@ class CampaignSaleAmountResolver
     public function diagnosticMessage(): string
     {
         return 'No existe columna local de importe vendido en salesforce_opportunities. Anadir el campo Salesforce de importe vendido al sync cuando se confirme su API name.';
+    }
+
+    public function emptyAmountsMessage(): string
+    {
+        return 'La columna amount existe, pero no contiene importes para las ventas atribuidas.';
     }
 }

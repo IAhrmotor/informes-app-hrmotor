@@ -51,6 +51,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'Name' => 'Venta directa',
                         'CreatedDate' => '2026-05-01T10:00:00.000+0000',
                         'CloseDate' => '2026-05-31',
+                        'Amount' => 12500.50,
                         'StageName' => 'Reserva',
                         'RecordType' => ['Name' => 'Venta'],
                         'OwnerId' => '005-owner-1',
@@ -72,6 +73,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'Id' => '006-opportunity-2',
                         'Name' => 'Venta reconstruida',
                         'CreatedDate' => '2026-05-03T10:00:00.000+0000',
+                        'Amount' => 18000,
                         'StageName' => 'Contrato',
                         'RecordType' => ['Name' => 'Cambio'],
                         'OwnerId' => '005-owner-2',
@@ -92,6 +94,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'Id' => '006-opportunity-3',
                         'Name' => 'Exposicion con alternativa',
                         'CreatedDate' => '2026-05-06T10:00:00.000+0000',
+                        'Amount' => 9000,
                         'StageName' => 'Cerrada Perdida',
                         'RecordType' => ['Name' => 'Tasacion'],
                         'OwnerId' => '005-owner-3',
@@ -119,6 +122,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertSame(3, $result['queried']);
         $this->assertSame(3, $result['saved']);
         $this->assertStringContainsString('FROM Opportunity', $result['soql']);
+        $this->assertStringContainsString('Amount', $result['soql']);
         $this->assertStringContainsString('OPO_FEC_Fecha_de_reserva__c', $result['soql']);
         $this->assertStringContainsString('Fecha_firma_contrato__c', $result['soql']);
 
@@ -126,6 +130,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             'salesforce_id' => '006-opportunity-1',
             'record_type_name' => 'Venta',
             'owner_delegation' => 'Alcobendas',
+            'amount' => 12500.50,
             'portal_resolved' => 'Web',
             'portal_resolution_source' => 'opportunity',
             'reservation' => true,
@@ -134,6 +139,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertDatabaseHas('salesforce_opportunities', [
             'salesforce_id' => '006-opportunity-2',
             'portal_resolved' => 'Meta',
+            'amount' => 18000,
             'portal_resolution_source' => 'lead',
             'portal_resolution_lead_id' => '00Q-lead-1',
             'cv_signed' => true,

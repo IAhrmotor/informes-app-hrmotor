@@ -8,10 +8,8 @@ use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
 use App\Services\Campaigns\CampaignAttributionBuilderService;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class CampaignDashboardTest extends TestCase
@@ -312,10 +310,6 @@ class CampaignDashboardTest extends TestCase
 
     public function test_sale_amount_column_when_available_calculates_roas_and_roi(): void
     {
-        Schema::table('salesforce_opportunities', function (Blueprint $table): void {
-            $table->decimal('sale_amount', 14, 2)->nullable();
-        });
-
         CampaignPlatformDailyMetric::query()->create($this->metricRow([
             'platform' => 'meta',
             'metric_date' => '2026-05-10',
@@ -362,7 +356,7 @@ class CampaignDashboardTest extends TestCase
 
         DB::table('salesforce_opportunities')
             ->where('salesforce_id', '006-amount')
-            ->update(['sale_amount' => 15000]);
+            ->update(['amount' => 15000]);
 
         app(CampaignAttributionBuilderService::class)->build(
             CarbonImmutable::parse('2026-05-01'),

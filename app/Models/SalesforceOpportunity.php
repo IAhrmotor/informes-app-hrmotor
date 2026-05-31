@@ -11,6 +11,7 @@ class SalesforceOpportunity extends Model
         'name',
         'created_date',
         'close_date',
+        'amount',
         'stage_name',
         'record_type_name',
         'owner_id',
@@ -38,6 +39,7 @@ class SalesforceOpportunity extends Model
     protected $casts = [
         'created_date' => 'datetime',
         'close_date' => 'date',
+        'amount' => 'decimal:2',
         'reservation' => 'boolean',
         'reservation_date' => 'date',
         'cv_signed' => 'boolean',

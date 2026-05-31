@@ -472,7 +472,9 @@ class CampaignDashboardDatasetService
         }
 
         if (($totals['sales'] ?? 0) > 0 && ($totals['sale_amount'] ?? null) === null) {
-            $warnings[] = $this->saleAmountResolver->diagnosticMessage().' ROAS y ROI quedan sin dato hasta que exista ese campo local.';
+            $warnings[] = $this->saleAmountResolver->localColumn() === null
+                ? $this->saleAmountResolver->diagnosticMessage().' ROAS y ROI quedan sin dato hasta que exista ese campo local.'
+                : $this->saleAmountResolver->emptyAmountsMessage();
         }
 
         $lastSyncedAt = $this->lastMetricSyncedAt();
