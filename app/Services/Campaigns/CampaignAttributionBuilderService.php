@@ -551,10 +551,20 @@ class CampaignAttributionBuilderService
         $hasOpportunity = $this->withinWindow($lead->created_date, $opportunity->created_date, $windowDays);
         $hasReservation = (bool) $opportunity->reservation
             && $this->withinWindow($lead->created_date, $opportunity->reservation_date, $windowDays);
+        $recordType = $this->normalizer->compactKey($opportunity->record_type_name);
         $hasSale = (bool) $opportunity->cv_signed
             && ! $isClosedLost
-            && in_array($opportunity->record_type_name, ['Venta', 'Cambio'], true)
+            && in_array($recordType, ['venta', 'cambio'], true)
             && $this->withinWindow($lead->created_date, $opportunity->cv_signed_date, $windowDays);
+        $saleAmount = $hasSale ? $this->saleAmountResolver->resolve($opportunity) : null;
+
+        if ($recordType === 'venta' && $saleAmount !== null && $saleAmount < 0) {
+            $saleAmount = 0.0;
+        }
+
+        if ($recordType === 'cambio' && $saleAmount !== null && $saleAmount < 0) {
+            $saleAmount = null;
+        }
 
         return [
             'has_opportunity' => $hasOpportunity,
@@ -563,7 +573,7 @@ class CampaignAttributionBuilderService
             'has_sale' => $hasSale,
             'reservation_date' => $hasReservation ? $opportunity->reservation_date : null,
             'sale_date' => $hasSale ? $opportunity->cv_signed_date : null,
-            'sale_amount' => $hasSale ? $this->saleAmountResolver->resolve($opportunity) : null,
+            'sale_amount' => $saleAmount,
         ];
     }
 

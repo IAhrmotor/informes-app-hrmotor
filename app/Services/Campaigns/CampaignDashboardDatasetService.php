@@ -92,6 +92,7 @@ class CampaignDashboardDatasetService
             'has_opportunity' => $request->string('has_opportunity')->toString(),
             'has_reservation' => $request->string('has_reservation')->toString(),
             'has_sale' => $request->string('has_sale')->toString(),
+            'classification' => $request->string('classification')->toString(),
             'commercial_user' => $request->string('commercial_user')->toString(),
             'vehicle_interest' => $request->string('vehicle_interest')->toString(),
             'attribution_window_days' => $window,
@@ -102,18 +103,20 @@ class CampaignDashboardDatasetService
     {
         $metricRows = $this->metricRows($filters, $period);
         $attributionRows = $this->attributionRows($filters, $period);
-        $campaigns = $this->mergeRows($metricRows, $attributionRows, $filters);
-        $benchmarks = $this->benchmarks($campaigns);
+        $allCampaigns = $this->mergeRows($metricRows, $attributionRows, $filters);
+        $benchmarks = $this->benchmarks($this->platformRows($allCampaigns));
 
-        $campaigns = array_map(function (array $row) use ($benchmarks): array {
+        $allCampaigns = array_map(function (array $row) use ($benchmarks): array {
             $row['classification'] = $this->classifier->classify($row, $benchmarks);
 
             return $row;
-        }, $campaigns);
+        }, $allCampaigns);
+
+        $campaigns = $this->mainCampaignRows($allCampaigns, $filters);
 
         usort($campaigns, fn (array $a, array $b) => ($b['spend'] <=> $a['spend']) ?: ($b['leads_salesforce'] <=> $a['leads_salesforce']));
 
-        $summary = $this->summaryFromRows($campaigns, $filters, $period);
+        $summary = $this->summaryFromRows($campaigns, $allCampaigns, $filters, $period);
         $rankings = $this->rankingsFromRows($campaigns);
 
         return [
@@ -173,6 +176,8 @@ class CampaignDashboardDatasetService
                 DB::raw('MIN(source_acquired) as source_acquired'),
                 DB::raw('MIN(medium_acquired) as medium_acquired'),
                 DB::raw('MIN(campaign_acquired) as campaign_acquired'),
+                DB::raw('MIN(acquired_id) as acquired_id'),
+                DB::raw('MIN(content_acquired) as content_acquired'),
                 DB::raw('MIN(match_status) as match_status'),
                 DB::raw('COUNT(DISTINCT lead_id) as leads_salesforce'),
                 DB::raw('COUNT(DISTINCT CASE WHEN has_opportunity = 1 THEN opportunity_id END) as opportunities'),
@@ -220,6 +225,8 @@ class CampaignDashboardDatasetService
             $rows[$key]['source_acquired'] = $row['source_acquired'];
             $rows[$key]['medium_acquired'] = $row['medium_acquired'];
             $rows[$key]['campaign_acquired'] = $row['campaign_acquired'];
+            $rows[$key]['acquired_id'] = $row['acquired_id'] ?? null;
+            $rows[$key]['content_acquired'] = $row['content_acquired'] ?? null;
             $rows[$key]['campaign_source_type'] = $this->deriveSourceType($row);
             $rows[$key]['match_status'] = $row['match_status'] ?: ($rows[$key]['campaign_source_type'] === 'salesforce_origin' ? 'Procedencia Salesforce' : 'Sin inversion asociada');
             $rows[$key]['leads_salesforce'] = (int) $row['leads_salesforce'];
@@ -243,6 +250,8 @@ class CampaignDashboardDatasetService
             'source_acquired' => $source['source_acquired'] ?? null,
             'medium_acquired' => $source['medium_acquired'] ?? null,
             'campaign_acquired' => $source['campaign_acquired'] ?? null,
+            'acquired_id' => $source['acquired_id'] ?? null,
+            'content_acquired' => $source['content_acquired'] ?? null,
             'campaign_id' => $source['campaign_id'] ?? null,
             'campaign_name' => $source['campaign_name'] ?? null,
             'match_status' => $source['match_status'] ?? null,
@@ -351,7 +360,23 @@ class CampaignDashboardDatasetService
         return $row['campaign_name'] ?: ($row['campaign_acquired'] ?: ($row['campaign_id'] ?: '-'));
     }
 
-    private function summaryFromRows(array $rows, array $filters, array $period): array
+    private function mainCampaignRows(array $rows, array $filters): array
+    {
+        $rows = $this->platformRows($rows);
+
+        if (filled($filters['classification'] ?? null)) {
+            $rows = array_values(array_filter($rows, fn (array $row): bool => ($row['classification'] ?? null) === $filters['classification']));
+        }
+
+        return $rows;
+    }
+
+    private function platformRows(array $rows): array
+    {
+        return array_values(array_filter($rows, fn (array $row): bool => ($row['campaign_source_type'] ?? null) === 'platform_campaign'));
+    }
+
+    private function summaryFromRows(array $rows, array $allRows, array $filters, array $period): array
     {
         $totals = $this->withRatios([
             'platform' => null,
@@ -390,7 +415,8 @@ class CampaignDashboardDatasetService
             'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
             'kpis' => $totals,
             'warnings' => $this->warnings($rows, $totals),
-            'diagnostics' => $this->diagnostics($rows, $period, $filters),
+            'charts' => $this->charts($rows, $filters, $period),
+            'diagnostics' => $this->diagnostics($allRows, $period, $filters),
             'filters' => $this->filterOptions(),
         ];
     }
@@ -408,12 +434,97 @@ class CampaignDashboardDatasetService
             'high_spend_low_conversion' => collect($rows)->sortByDesc('spend')->sortBy('sales')->take(5)->values()->all(),
             'many_leads_few_sales' => collect($rows)->sortByDesc('leads_salesforce')->sortBy('sales')->take(5)->values()->all(),
             'review_tracking' => $this->classification($rows, 'Revisar tracking'),
-            'review_investment_tracking' => $this->classification($rows, 'Revisar inversion/tracking'),
-            'salesforce_origin' => $this->classification($rows, 'Procedencia Salesforce'),
             'boost' => $this->classification($rows, 'Potenciar'),
             'review' => $this->classification($rows, 'Revisar'),
             'stop' => $this->classification($rows, 'Parar'),
         ];
+    }
+
+    private function charts(array $rows, array $filters, array $period): array
+    {
+        return [
+            'daily_evolution' => $this->dailyEvolution($filters, $period),
+            'funnel' => $this->funnelChart($rows),
+            'platforms' => $this->platformBars($rows),
+        ];
+    }
+
+    private function dailyEvolution(array $filters, array $period): array
+    {
+        if (filled($filters['campaign_source_type'] ?? null) && $filters['campaign_source_type'] !== 'platform_campaign') {
+            return [];
+        }
+
+        $metricQuery = DB::table('campaign_platform_daily_metrics')
+            ->where('metric_date', '>=', $period['start'])
+            ->where('metric_date', '<=', $period['end']);
+        $this->applyMetricFilters($metricQuery, array_merge($filters, ['campaign_source_type' => 'platform_campaign']));
+
+        $spendByDate = $metricQuery
+            ->select('metric_date', DB::raw('SUM(COALESCE(spend, 0)) as spend'))
+            ->groupBy('metric_date')
+            ->pluck('spend', 'metric_date');
+
+        $attributionFilters = array_merge($filters, ['campaign_source_type' => 'platform_campaign']);
+        $attributionQuery = DB::table('campaign_attributions')
+            ->where('lead_created_at', '>=', $period['start_at'])
+            ->where('lead_created_at', '<', $period['end_at'])
+            ->where('attribution_window_days', $filters['attribution_window_days']);
+        $this->applyAttributionFilters($attributionQuery, $attributionFilters);
+
+        $attributionByDate = $attributionQuery
+            ->select([
+                DB::raw('DATE(lead_created_at) as metric_date'),
+                DB::raw('COUNT(DISTINCT lead_id) as leads_salesforce'),
+                DB::raw('SUM(CASE WHEN has_sale = 1 THEN 1 ELSE 0 END) as sales'),
+            ])
+            ->groupBy(DB::raw('DATE(lead_created_at)'))
+            ->get()
+            ->keyBy('metric_date');
+
+        $rows = [];
+        $cursor = CarbonImmutable::parse($period['start'])->startOfDay();
+        $end = CarbonImmutable::parse($period['end'])->startOfDay();
+
+        while ($cursor->lessThanOrEqualTo($end)) {
+            $date = $cursor->toDateString();
+            $attribution = $attributionByDate->get($date);
+            $rows[] = [
+                'date' => $date,
+                'spend' => round((float) ($spendByDate[$date] ?? 0), 2),
+                'leads_salesforce' => (int) ($attribution->leads_salesforce ?? 0),
+                'sales' => (int) ($attribution->sales ?? 0),
+            ];
+            $cursor = $cursor->addDay();
+        }
+
+        return $rows;
+    }
+
+    private function funnelChart(array $rows): array
+    {
+        return [
+            ['label' => 'Clicks', 'value' => array_sum(array_column($rows, 'clicks'))],
+            ['label' => 'Leads Salesforce', 'value' => array_sum(array_column($rows, 'leads_salesforce'))],
+            ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
+            ['label' => 'Reservas', 'value' => array_sum(array_column($rows, 'reservations'))],
+            ['label' => 'Ventas', 'value' => array_sum(array_column($rows, 'sales'))],
+        ];
+    }
+
+    private function platformBars(array $rows): array
+    {
+        return collect($rows)
+            ->groupBy('platform')
+            ->map(fn ($items, string $platform): array => [
+                'platform' => $platform,
+                'spend' => round((float) $items->sum('spend'), 2),
+                'leads_salesforce' => (int) $items->sum('leads_salesforce'),
+                'sales' => (int) $items->sum('sales'),
+            ])
+            ->sortByDesc('spend')
+            ->values()
+            ->all();
     }
 
     private function top(array $rows, string $key, bool $ascending = false, bool $requireValue = false): array
@@ -640,9 +751,8 @@ class CampaignDashboardDatasetService
             'platforms' => $this->distinctFromBoth('platform'),
             'source_types' => [
                 ['value' => 'platform_campaign', 'label' => 'Campana plataforma'],
-                ['value' => 'salesforce_campaign_without_spend', 'label' => 'Campana Salesforce sin inversion'],
-                ['value' => 'salesforce_origin', 'label' => 'Procedencia Salesforce'],
             ],
+            'classifications' => ['Potenciar', 'Revisar', 'Parar', 'Revisar tracking', 'Sin datos suficientes'],
             'accounts' => DB::table('campaign_platform_daily_metrics')
                 ->select('account_id', DB::raw('MIN(account_name) as account_name'))
                 ->whereNotNull('account_id')

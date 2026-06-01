@@ -9,28 +9,59 @@ use App\Models\SalesforceOpportunity;
 use App\Services\Campaigns\CampaignAttributionBuilderService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class CampaignDashboardTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Cache::flush();
+    }
+
     public function test_dashboard_campanas_muestra_menu_y_endpoints(): void
     {
         $this->get('/informes/campanas')
             ->assertOk()
-            ->assertSee('Campañas')
-            ->assertSee('/informes/campanas/export/campaigns.csv', false);
+            ->assertSee('/informes/campanas/export/campaigns.csv', false)
+            ->assertSee('campaignCharts', false);
 
         $this->get('/informes/leads')
             ->assertOk()
             ->assertSee('/informes/campanas', false);
     }
 
+    public function test_ui_drawer_and_columns_follow_platform_campaign_v1_contract(): void
+    {
+        $html = $this->get('/informes/campanas')->assertOk()->getContent();
+
+        $this->assertStringContainsString('id="mediumAcquired"', $html);
+        $this->assertStringContainsString('id="campaignAcquired"', $html);
+        $this->assertStringContainsString('id="campaignId"', $html);
+        $this->assertStringContainsString('id="campaignName"', $html);
+        $this->assertStringContainsString('id="hasOpportunity"', $html);
+        $this->assertStringContainsString('id="hasReservation"', $html);
+        $this->assertStringContainsString('id="hasSale"', $html);
+        $this->assertStringContainsString('id="classification"', $html);
+
+        $this->assertStringNotContainsString('id="sourceAcquired"', $html);
+        $this->assertStringNotContainsString('id="commercialUser"', $html);
+        $this->assertStringNotContainsString('id="vehicleInterest"', $html);
+        $this->assertStringNotContainsString('id="delegation"', $html);
+        $this->assertStringNotContainsString('id="zone"', $html);
+        $this->assertStringNotContainsString('id="leadStatus"', $html);
+        $this->assertStringNotContainsString('data-column="campaign_source_type_label"', $html);
+        $this->assertStringNotContainsString('data-column="match_status"', $html);
+        $this->assertStringNotContainsString('data-column="platform_leads"', $html);
+    }
+
     public function test_atribucion_y_kpis_agregan_campaigns_sin_datos_personales(): void
     {
-        CampaignPlatformDailyMetric::query()->create(array_merge($this->metricRow([
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
             'platform' => 'meta',
             'metric_date' => '2026-05-10',
             'account_id' => 'act_1',
@@ -41,7 +72,7 @@ class CampaignDashboardTest extends TestCase
             'impressions' => 1000,
             'clicks' => 100,
             'platform_leads' => 8,
-        ])));
+        ]));
 
         SalesforceLead::query()->create([
             'salesforce_id' => '00Q-1',
@@ -77,8 +108,6 @@ class CampaignDashboardTest extends TestCase
             'owner_id' => '005-real',
             'owner_name' => 'Comercial Real',
             'campaign_acquired' => 'none',
-            'acquired_id' => null,
-            'content_acquired' => null,
             'portal_text' => 'Meta',
             'medio_nuevo' => 'Formulario',
             'delegacion_encargada_text' => 'Alcobendas',
@@ -102,6 +131,7 @@ class CampaignDashboardTest extends TestCase
             'reservation_date' => '2026-05-12',
             'cv_signed' => true,
             'cv_signed_date' => '2026-05-15',
+            'amount' => 12000,
         ]);
 
         app(CampaignAttributionBuilderService::class)->build(
@@ -123,13 +153,10 @@ class CampaignDashboardTest extends TestCase
             'has_opportunity' => true,
             'has_reservation' => true,
             'has_sale' => true,
+            'sale_amount' => 12000,
         ]);
 
-        $query = http_build_query([
-            'start_date' => '2026-05-01',
-            'end_date' => '2026-05-31',
-            'attribution_window_days' => 30,
-        ]);
+        $query = $this->query();
 
         $summary = $this->getJson('/informes/campanas/data/summary?'.$query)
             ->assertOk()
@@ -138,15 +165,19 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('kpis.opportunities', 1)
             ->assertJsonPath('kpis.reservations', 1)
             ->assertJsonPath('kpis.sales', 1)
-            ->assertJsonPath('kpis.sale_amount', null)
-            ->assertJsonPath('kpis.roas', null)
-            ->assertJsonStructure(['diagnostics' => [
-                'platform_campaigns',
-                'salesforce_origins',
-                'crossed_campaigns',
-                'salesforce_only_by_campaign',
-                'salesforce_only_by_origin',
-            ]])
+            ->assertJsonPath('kpis.sale_amount', 12000)
+            ->assertJsonPath('kpis.roas', 60)
+            ->assertJsonPath('kpis.estimated_roi', 59)
+            ->assertJsonStructure([
+                'charts' => ['daily_evolution', 'funnel', 'platforms'],
+                'diagnostics' => [
+                    'platform_campaigns',
+                    'salesforce_origins',
+                    'crossed_campaigns',
+                    'salesforce_only_by_campaign',
+                    'salesforce_only_by_origin',
+                ],
+            ])
             ->json('kpis');
         $this->assertEquals(200.0, $summary['spend']);
 
@@ -155,7 +186,6 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('items.0.campaign_name', 'Spring Sale')
             ->assertJsonPath('items.0.match_status', 'Cruzada por ID')
             ->assertJsonPath('items.0.campaign_source_type', 'platform_campaign')
-            ->assertJsonPath('items.0.campaign_source_type_label', 'Campana plataforma')
             ->assertJsonPath('items.0.leads_salesforce', 1)
             ->json('items.0');
         $this->assertEquals(200.0, $campaign['cost_per_lead']);
@@ -164,16 +194,17 @@ class CampaignDashboardTest extends TestCase
             ->assertOk()
             ->streamedContent();
 
-        $this->assertStringContainsString('Tipo', $csv);
-        $this->assertStringContainsString('Estado de cruce', $csv);
-        $this->assertStringContainsString('Campana plataforma', $csv);
         $this->assertStringContainsString('Spring Sale', $csv);
+        $this->assertStringContainsString('ID adquirido', $csv);
+        $this->assertStringNotContainsString('Tipo', $csv);
+        $this->assertStringNotContainsString('Estado de cruce', $csv);
+        $this->assertStringNotContainsString('Campana plataforma', $csv);
         $this->assertStringNotContainsString('cliente@example.com', $csv);
         $this->assertStringNotContainsString('600 000 001', $csv);
         $this->assertStringNotContainsString('Lead Privado', $csv);
     }
 
-    public function test_salesforce_campaign_without_platform_creates_salesforce_only_attribution(): void
+    public function test_salesforce_campaign_without_platform_creates_internal_attribution_but_not_main_campaign_row(): void
     {
         SalesforceLead::query()->create([
             'salesforce_id' => '00Q-sf-only',
@@ -206,17 +237,15 @@ class CampaignDashboardTest extends TestCase
             'campaign_source_type' => 'salesforce_campaign_without_spend',
         ]);
 
-        $query = http_build_query([
-            'start_date' => '2026-05-01',
-            'end_date' => '2026-05-31',
-            'attribution_window_days' => 30,
-        ]);
-
-        $this->getJson('/informes/campanas/data/campaigns?'.$query)
+        $this->getJson('/informes/campanas/data/campaigns?'.$this->query())
             ->assertOk()
-            ->assertJsonPath('items.0.classification', 'Revisar inversion/tracking')
-            ->assertJsonPath('items.0.match_status', 'Sin inversion asociada')
-            ->assertJsonPath('items.0.campaign_source_type', 'salesforce_campaign_without_spend');
+            ->assertJsonPath('total', 0)
+            ->assertJsonPath('items', []);
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->assertJsonPath('kpis.leads_salesforce', 0)
+            ->assertJsonPath('diagnostics.salesforce_only_by_campaign', 1);
     }
 
     public function test_platform_spend_without_salesforce_leads_is_review_tracking(): void
@@ -232,16 +261,11 @@ class CampaignDashboardTest extends TestCase
             'clicks' => 100,
         ]));
 
-        $query = http_build_query([
-            'start_date' => '2026-05-01',
-            'end_date' => '2026-05-31',
-            'attribution_window_days' => 30,
-        ]);
-
-        $this->getJson('/informes/campanas/data/campaigns?'.$query)
+        $this->getJson('/informes/campanas/data/campaigns?'.$this->query())
             ->assertOk()
             ->assertJsonPath('items.0.classification', 'Revisar tracking')
-            ->assertJsonPath('items.0.match_status', 'Sin leads Salesforce');
+            ->assertJsonPath('items.0.match_status', 'Sin leads Salesforce')
+            ->assertJsonPath('items.0.campaign_source_type', 'platform_campaign');
     }
 
     public function test_ratios_devuelven_null_cuando_el_denominador_es_cero(): void
@@ -257,20 +281,14 @@ class CampaignDashboardTest extends TestCase
             'clicks' => 0,
         ]));
 
-        $query = http_build_query([
-            'start_date' => '2026-05-01',
-            'end_date' => '2026-05-31',
-            'attribution_window_days' => 30,
-        ]);
-
-        $this->getJson('/informes/campanas/data/campaigns?'.$query)
+        $this->getJson('/informes/campanas/data/campaigns?'.$this->query())
             ->assertOk()
             ->assertJsonPath('items.0.ctr', null)
             ->assertJsonPath('items.0.cpc', null)
             ->assertJsonPath('items.0.cost_per_lead', null);
     }
 
-    public function test_salesforce_source_medium_only_is_presented_as_origin_and_never_stop(): void
+    public function test_salesforce_source_medium_only_stays_in_diagnostics_and_not_main_campaigns(): void
     {
         SalesforceLead::query()->create([
             'salesforce_id' => '00Q-origin',
@@ -293,19 +311,111 @@ class CampaignDashboardTest extends TestCase
             30
         );
 
-        $query = http_build_query([
-            'start_date' => '2026-05-01',
-            'end_date' => '2026-05-31',
-            'attribution_window_days' => 30,
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-origin',
+            'campaign_source_type' => 'salesforce_origin',
+            'match_status' => 'Procedencia Salesforce',
         ]);
 
-        $this->getJson('/informes/campanas/data/campaigns?'.$query)
+        $this->getJson('/informes/campanas/data/campaigns?'.$this->query())
             ->assertOk()
-            ->assertJsonPath('items.0.campaign_source_type', 'salesforce_origin')
-            ->assertJsonPath('items.0.campaign_source_type_label', 'Procedencia Salesforce')
-            ->assertJsonPath('items.0.display_campaign', 'Google Maps · Llamada')
-            ->assertJsonPath('items.0.match_status', 'Procedencia Salesforce')
-            ->assertJsonPath('items.0.classification', 'Procedencia Salesforce');
+            ->assertJsonPath('total', 0)
+            ->assertJsonPath('items', []);
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->assertJsonPath('kpis.leads_salesforce', 0)
+            ->assertJsonPath('diagnostics.salesforce_origins', 1)
+            ->assertJsonPath('diagnostics.salesforce_only_by_origin', 1);
+    }
+
+    public function test_rankings_and_charts_exclude_salesforce_origins(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'meta',
+            'metric_date' => '2026-05-10',
+            'campaign_id' => 'camp-platform',
+            'campaign_name' => 'Meta Real',
+            'spend' => 350,
+            'impressions' => 900,
+            'clicks' => 90,
+        ]));
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-origin',
+            'name' => 'Lead Chatbot',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Potencial',
+            'record_type_name' => 'Venta',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'fuente_origen' => 'Chatbot',
+            'medio_origen' => 'CPC',
+            'portal_text' => 'Chatbot',
+            'medio_nuevo' => 'CPC',
+            'delegacion_encargada_text' => 'Alcobendas',
+        ]);
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01'),
+            30
+        );
+
+        $rankings = $this->getJson('/informes/campanas/data/rankings?'.$this->query())
+            ->assertOk()
+            ->json('rankings');
+        $rankingJson = json_encode($rankings);
+
+        $this->assertStringContainsString('Meta Real', $rankingJson);
+        $this->assertStringNotContainsString('Chatbot', $rankingJson);
+        $this->assertArrayNotHasKey('salesforce_origin', $rankings);
+        $this->assertArrayNotHasKey('review_investment_tracking', $rankings);
+
+        $summary = $this->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(90, $summary['charts']['funnel'][0]['value']);
+        $this->assertSame(0, $summary['charts']['funnel'][1]['value']);
+        $this->assertSame(1, $summary['diagnostics']['salesforce_origins']);
+    }
+
+    public function test_google_maps_chatbot_and_exposicion_do_not_appear_as_main_campaigns(): void
+    {
+        foreach ([
+            ['00Q-maps', 'Google Maps', 'Llamada'],
+            ['00Q-chatbot', 'Chatbot', 'CPC'],
+            ['00Q-expo', 'Exposicion', ''],
+        ] as [$id, $source, $medium]) {
+            SalesforceLead::query()->create([
+                'salesforce_id' => $id,
+                'name' => 'Lead '.$source,
+                'created_date' => '2026-05-10 10:00:00',
+                'status' => 'Potencial',
+                'record_type_name' => 'Venta',
+                'owner_id' => '005-real',
+                'owner_name' => 'Comercial Real',
+                'fuente_origen' => $source,
+                'medio_origen' => $medium,
+                'portal_text' => $source,
+                'medio_nuevo' => $medium,
+                'delegacion_encargada_text' => 'Alcobendas',
+            ]);
+        }
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01'),
+            30
+        );
+
+        $payload = $this->getJson('/informes/campanas/data/campaigns?'.$this->query())
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(0, $payload['total']);
+        $this->assertSame([], $payload['items']);
     }
 
     public function test_sale_amount_column_when_available_calculates_roas_and_roi(): void
@@ -352,11 +462,8 @@ class CampaignDashboardTest extends TestCase
             'reservation_date' => '2026-05-12',
             'cv_signed' => true,
             'cv_signed_date' => '2026-05-15',
+            'amount' => 15000,
         ]);
-
-        DB::table('salesforce_opportunities')
-            ->where('salesforce_id', '006-amount')
-            ->update(['amount' => 15000]);
 
         app(CampaignAttributionBuilderService::class)->build(
             CarbonImmutable::parse('2026-05-01'),
@@ -364,17 +471,20 @@ class CampaignDashboardTest extends TestCase
             30
         );
 
-        $query = http_build_query([
-            'start_date' => '2026-05-01',
-            'end_date' => '2026-05-31',
-            'attribution_window_days' => 30,
-        ]);
-
-        $this->getJson('/informes/campanas/data/summary?'.$query)
+        $this->getJson('/informes/campanas/data/summary?'.$this->query())
             ->assertOk()
             ->assertJsonPath('kpis.sale_amount', 15000)
             ->assertJsonPath('kpis.roas', 30)
             ->assertJsonPath('kpis.estimated_roi', 29);
+    }
+
+    private function query(): string
+    {
+        return http_build_query([
+            'start_date' => '2026-05-01',
+            'end_date' => '2026-05-31',
+            'attribution_window_days' => 30,
+        ]);
     }
 
     private function metricRow(array $overrides = []): array
