@@ -4,10 +4,12 @@ namespace App\Services\Campaigns;
 
 use App\Models\CampaignAttribution;
 use App\Models\CampaignPlatformDailyMetric;
+use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class CampaignDashboardDatasetService
 {
@@ -23,7 +25,14 @@ class CampaignDashboardDatasetService
 
     public function summary(Request $request): array
     {
-        return $this->payload($request)['summary'];
+        $summary = $this->payload($request)['summary'];
+
+        if (! ReportUserAccess::isAdmin($request)) {
+            $summary['warnings'] = [];
+            unset($summary['diagnostics']);
+        }
+
+        return $summary;
     }
 
     public function campaignRows(Request $request): array
@@ -628,6 +637,10 @@ class CampaignDashboardDatasetService
             'leads_salesforce_origins' => $rowCollection->where('campaign_source_type', 'salesforce_origin')->sum('leads_salesforce'),
             'attributed_sales' => $rowCollection->sum('sales'),
             'sales_with_amount_available' => $rowCollection->filter(fn (array $row) => (int) ($row['sales'] ?? 0) > 0 && ($row['sale_amount'] ?? null) !== null)->sum('sales'),
+            'opportunities_cv_signed' => DB::table('salesforce_opportunities')->where('cv_signed', true)->count(),
+            'attributed_sales_with_amount' => (clone $attributionBase)->where('has_sale', true)->where('sale_amount', '>', 0)->count(),
+            'attributed_sales_amount_sum' => round((float) (clone $attributionBase)->where('has_sale', true)->sum('sale_amount'), 2),
+            'amount_field_status' => $this->amountFieldStatus($attributionBase),
             'candidates_with_campaign_acquired' => (clone $attributionBase)->whereNotNull('campaign_acquired')->where('campaign_acquired', '<>', '')->count(),
             'candidates_only_source_medium' => (clone $attributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
             'candidates_with_acquired_id' => (clone $attributionBase)->whereNotNull('acquired_id')->where('acquired_id', '<>', '')->count(),
@@ -640,6 +653,30 @@ class CampaignDashboardDatasetService
             'salesforce_only_by_campaign' => (clone $attributionBase)->where('campaign_source_type', 'salesforce_campaign_without_spend')->count(),
             'salesforce_only_by_origin' => (clone $attributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
         ];
+    }
+
+    private function amountFieldStatus($attributionBase): string
+    {
+        if (! Schema::hasColumn('salesforce_opportunities', 'amount')) {
+            return 'missing';
+        }
+
+        $cvSigned = DB::table('salesforce_opportunities')->where('cv_signed', true);
+        $cvSignedCount = (clone $cvSigned)->count();
+        $cvSignedWithAmount = (clone $cvSigned)->where('amount', '>', 0)->count();
+
+        if ($cvSignedCount > 0 && $cvSignedWithAmount === 0) {
+            return 'exists_but_zero';
+        }
+
+        $attributedSales = (clone $attributionBase)->where('has_sale', true)->count();
+        $attributedSalesWithAmount = (clone $attributionBase)->where('has_sale', true)->where('sale_amount', '>', 0)->count();
+
+        if ($attributedSales > 0 && $attributedSalesWithAmount === 0) {
+            return 'exists_but_no_attributed_values';
+        }
+
+        return 'exists_with_values';
     }
 
     private function leadsWithAcquisitionNotNull(array $period): int

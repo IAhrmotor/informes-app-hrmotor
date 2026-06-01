@@ -11,6 +11,10 @@
         'resources/css/reports/leads-dashboard.css',
         'resources/js/reports/campaigns-dashboard.js'
     ])
+    <script>
+        window.reportUserRole = @json($reportUserRole ?? 'viewer');
+        window.reportUserCanExport = @json($reportUserCanExport ?? false);
+    </script>
 </head>
 <body>
 <div class="wrap">
@@ -140,7 +144,8 @@
             <section class="kpis dashboard-kpis" id="summaryKpis"></section>
             <section class="campaign-charts-grid" id="campaignCharts"></section>
 
-            <section class="card panel">
+            @if (($reportUserRole ?? 'viewer') === 'admin')
+            <section class="card panel" id="campaignDiagnosticsPanel">
                 <div class="panel-title">
                     <div>
                         <h2>Diagnostico de sincronizacion</h2>
@@ -150,12 +155,17 @@
                 </div>
                 <div class="campaign-diagnostics" id="campaignDiagnostics"></div>
             </section>
+            @endif
 
             <section class="card panel">
                 <div class="panel-title">
                     <div>
                         <h2>Rankings</h2>
                         <div class="small">Campanas reales de Google Ads y Meta Ads</div>
+                    </div>
+                    <div class="ranking-settings">
+                        <button type="button" class="main-tab" id="rankingsToggle">Configurar rankings</button>
+                        <div class="ranking-popover card is-hidden" id="rankingsPopover"></div>
                     </div>
                 </div>
                 <div class="priority-grid" id="rankingsGrid"></div>
@@ -174,7 +184,9 @@
                             <button type="button" class="main-tab" id="columnsToggle">Columnas</button>
                             <div class="columns-popover card is-hidden" id="columnsPopover"></div>
                         </div>
-                        <a class="main-tab" id="exportCsv" href="/informes/campanas/export/campaigns.csv">Export CSV</a>
+                        @if ($reportUserCanExport ?? false)
+                            <a class="main-tab" id="exportCsv" href="/informes/campanas/export/campaigns.csv">Export CSV</a>
+                        @endif
                     </div>
                 </div>
                 <div class="table-scroll-proxy" id="campaignTableTopScroll"><div></div></div>

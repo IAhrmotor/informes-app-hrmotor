@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\CampaignAttribution;
 use App\Models\CampaignPlatformDailyMetric;
+use App\Models\ReportUser;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
 use App\Services\Campaigns\CampaignAttributionBuilderService;
@@ -39,6 +40,9 @@ class CampaignDashboardTest extends TestCase
     {
         $html = $this->get('/informes/campanas')->assertOk()->getContent();
 
+        $this->assertStringContainsString('id="campaignCharts"', $html);
+        $this->assertStringContainsString('id="rankingsToggle"', $html);
+        $this->assertStringContainsString('id="rankingsPopover"', $html);
         $this->assertStringContainsString('id="mediumAcquired"', $html);
         $this->assertStringContainsString('id="campaignAcquired"', $html);
         $this->assertStringContainsString('id="campaignId"', $html);
@@ -57,6 +61,61 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringNotContainsString('data-column="campaign_source_type_label"', $html);
         $this->assertStringNotContainsString('data-column="match_status"', $html);
         $this->assertStringNotContainsString('data-column="platform_leads"', $html);
+    }
+
+    public function test_admin_ve_diagnostico_y_puede_exportar_pero_viewer_no(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'meta',
+            'metric_date' => '2026-05-10',
+            'campaign_id' => 'camp-export',
+            'campaign_name' => 'Export Campaign',
+            'spend' => 100,
+        ]));
+
+        $adminSession = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => 'admin@hrmotor.com',
+        ];
+        $viewerSession = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_VIEWER,
+            'report_user_email' => 'viewer@hrmotor.com',
+        ];
+
+        $this->withSession($adminSession)
+            ->get('/informes/campanas')
+            ->assertOk()
+            ->assertSee('campaignDiagnosticsPanel', false)
+            ->assertSee('Export CSV');
+
+        $this->withSession($adminSession)
+            ->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->assertJsonStructure(['diagnostics']);
+
+        $this->withSession($adminSession)
+            ->get('/informes/campanas/export/campaigns.csv?'.$this->query())
+            ->assertOk();
+
+        $this->withSession($viewerSession)
+            ->get('/informes/campanas')
+            ->assertOk()
+            ->assertDontSee('campaignDiagnosticsPanel', false)
+            ->assertDontSee('Export CSV');
+
+        $this->withSession($viewerSession)
+            ->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->assertJsonMissingPath('diagnostics')
+            ->assertJsonPath('warnings', []);
+
+        $this->withSession($viewerSession)
+            ->get('/informes/campanas/export/campaigns.csv?'.$this->query())
+            ->assertForbidden();
     }
 
     public function test_atribucion_y_kpis_agregan_campaigns_sin_datos_personales(): void
@@ -476,6 +535,65 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('kpis.sale_amount', 15000)
             ->assertJsonPath('kpis.roas', 30)
             ->assertJsonPath('kpis.estimated_roi', 29);
+    }
+
+    public function test_amount_zero_no_calcula_importe_roas_ni_roi_y_expone_estado_admin(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'meta',
+            'metric_date' => '2026-05-10',
+            'account_id' => 'act_1',
+            'campaign_id' => 'camp-zero-amount',
+            'campaign_name' => 'Campaign Zero Amount',
+            'ad_id' => 'ad-zero-amount',
+            'spend' => 500,
+            'impressions' => 1000,
+            'clicks' => 100,
+        ]));
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-zero-amount',
+            'name' => 'Lead Zero Amount',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Convertido',
+            'record_type_name' => 'Venta',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'campaign_acquired' => 'Campaign Zero Amount',
+            'acquired_id' => 'ad-zero-amount',
+            'converted_opportunity_id' => '006-zero-amount',
+            'portal_text' => 'Meta',
+            'medio_nuevo' => 'Formulario',
+            'delegacion_encargada_text' => 'Alcobendas',
+        ]);
+
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-zero-amount',
+            'name' => 'Oportunidad Zero Amount',
+            'created_date' => '2026-05-11 10:00:00',
+            'record_type_name' => 'Venta',
+            'stage_name' => 'Contrato',
+            'reservation' => true,
+            'reservation_date' => '2026-05-12',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-15',
+            'amount' => 0,
+        ]);
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01'),
+            30
+        );
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->assertJsonPath('kpis.sales', 1)
+            ->assertJsonPath('kpis.sale_amount', null)
+            ->assertJsonPath('kpis.roas', null)
+            ->assertJsonPath('kpis.estimated_roi', null)
+            ->assertJsonPath('diagnostics.amount_field_status', 'exists_but_zero')
+            ->assertJsonPath('diagnostics.attributed_sales_with_amount', 0);
     }
 
     private function query(): string

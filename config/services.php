@@ -61,4 +61,10 @@ return [
         'remember_days' => (int) env('INFORMES_AUTH_REMEMBER_DAYS', 30),
     ],
 
+    'report_admin' => [
+        'email' => env('REPORT_ADMIN_EMAIL'),
+        'password' => env('REPORT_ADMIN_PASSWORD'),
+        'name' => env('REPORT_ADMIN_NAME', 'Administrador informes'),
+    ],
+
 ];

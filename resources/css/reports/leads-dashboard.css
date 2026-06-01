@@ -1288,18 +1288,93 @@ th.num {
 .evolution-day {
     min-width: 18px;
     height: 160px;
+    position: relative;
     display: inline-flex;
     align-items: flex-end;
     justify-content: center;
     gap: 2px;
     border-bottom: 1px solid var(--line);
+    padding-bottom: 22px;
 }
 
 .evolution-bar {
-    width: 4px;
+    width: 9px;
     min-height: 0;
     border-radius: 999px 999px 0 0;
     opacity: .9;
+}
+
+.evolution-point {
+    position: absolute;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    border: 2px solid #fff;
+    border-radius: 999px;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, .22);
+}
+
+.evolution-point.leads {
+    transform: translateX(-9px);
+}
+
+.evolution-point.sales {
+    transform: translateX(3px);
+}
+
+.evolution-day small {
+    position: absolute;
+    right: 50%;
+    bottom: 0;
+    transform: translateX(50%);
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.evolution-day[data-tooltip],
+.campaign-metric-bar[data-tooltip],
+.platform-chart-group[data-tooltip] {
+    cursor: help;
+}
+
+.evolution-day[data-tooltip]::after,
+.campaign-metric-bar[data-tooltip]::after,
+.platform-chart-group[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    z-index: 20;
+    min-width: 190px;
+    max-width: 260px;
+    padding: 10px 12px;
+    border: 1px solid rgba(15, 23, 42, .12);
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 16px 36px rgba(15, 23, 42, .18);
+    color: var(--brand-primary);
+    font-size: 12px;
+    font-weight: 750;
+    line-height: 1.45;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 6px);
+    transition: opacity .12s ease, transform .12s ease;
+    white-space: pre-line;
+}
+
+.campaign-metric-bar[data-tooltip],
+.platform-chart-group[data-tooltip] {
+    position: relative;
+}
+
+.evolution-day[data-tooltip]:hover::after,
+.campaign-metric-bar[data-tooltip]:hover::after,
+.platform-chart-group[data-tooltip]:hover::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
 }
 
 .campaign-bar-list {
@@ -1383,7 +1458,12 @@ th.num {
     position: relative;
 }
 
-.columns-popover {
+.ranking-settings {
+    position: relative;
+}
+
+.columns-popover,
+.ranking-popover {
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
@@ -1394,6 +1474,10 @@ th.num {
     padding: 12px;
 }
 
+.ranking-popover {
+    width: 310px;
+}
+
 .column-option {
     display: flex;
     align-items: center;
@@ -1402,6 +1486,12 @@ th.num {
     color: var(--brand-primary);
     font-size: 13px;
     font-weight: 750;
+}
+
+.switch-option input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--brand-accent);
 }
 
 .campaign-kpi {

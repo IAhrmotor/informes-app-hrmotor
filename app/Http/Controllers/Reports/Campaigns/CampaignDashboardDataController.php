@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Reports\Campaigns;
 
 use App\Http\Controllers\Controller;
 use App\Services\Campaigns\CampaignDashboardDatasetService;
+use App\Support\ReportUserAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -32,6 +33,8 @@ class CampaignDashboardDataController extends Controller
 
     public function exportCampaignsCsv(Request $request): StreamedResponse
     {
+        abort_unless(ReportUserAccess::canExport($request), 403);
+
         $rows = $this->dataset->exportRows($request);
         $headers = [
             'Plataforma',

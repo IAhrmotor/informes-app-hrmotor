@@ -558,10 +558,6 @@ class CampaignAttributionBuilderService
             && $this->withinWindow($lead->created_date, $opportunity->cv_signed_date, $windowDays);
         $saleAmount = $hasSale ? $this->saleAmountResolver->resolve($opportunity) : null;
 
-        if ($recordType === 'venta' && $saleAmount !== null && $saleAmount < 0) {
-            $saleAmount = 0.0;
-        }
-
         if ($recordType === 'cambio' && $saleAmount !== null && $saleAmount < 0) {
             $saleAmount = null;
         }

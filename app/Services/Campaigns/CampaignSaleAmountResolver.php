@@ -55,7 +55,9 @@ class CampaignSaleAmountResolver
         $column = $this->localColumn();
 
         if ($column !== null && isset($opportunity->{$column}) && is_numeric($opportunity->{$column})) {
-            return (float) $opportunity->{$column};
+            $amount = (float) $opportunity->{$column};
+
+            return $amount > 0 ? $amount : null;
         }
 
         $payload = $opportunity->raw_payload ?? null;
@@ -71,7 +73,7 @@ class CampaignSaleAmountResolver
         foreach (self::CANDIDATE_RAW_KEYS as $key) {
             $value = $payload[$key] ?? null;
 
-            if (is_numeric($value)) {
+            if (is_numeric($value) && (float) $value > 0) {
                 return (float) $value;
             }
         }
@@ -86,6 +88,6 @@ class CampaignSaleAmountResolver
 
     public function emptyAmountsMessage(): string
     {
-        return 'La columna amount existe, pero no contiene importes para las ventas atribuidas.';
+        return 'La columna amount existe, pero no contiene importes para las ventas atribuidas. Hay que confirmar el API name del campo Salesforce de importe vendido. Posible candidato pendiente: OPO_FOR_Importe_total__c si negocio lo confirma.';
     }
 }

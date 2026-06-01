@@ -1,11 +1,28 @@
 const numberFormatter = new Intl.NumberFormat('es-ES');
 const moneyFormatter = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
 const columnsStorageKey = 'hrmotor_campaign_columns_v3';
+const rankingsStorageKey = 'campaigns.visibleRankings';
 
 let campaignRows = [];
 let tableSort = { key: 'spend', direction: 'desc' };
 let searchTimer = null;
 let syncingTableScroll = false;
+
+const rankingDefinitions = [
+    { key: 'top_spend', title: 'Campanas con mas inversion', metric: 'spend', formatter: formatMoney, visible: true },
+    { key: 'top_leads_salesforce', title: 'Mas leads Salesforce', metric: 'leads_salesforce', formatter: formatNumber, visible: true },
+    { key: 'top_opportunities', title: 'Mas oportunidades', metric: 'opportunities', formatter: formatNumber, visible: false },
+    { key: 'top_reservations', title: 'Mas reservas', metric: 'reservations', formatter: formatNumber, visible: false },
+    { key: 'top_sales', title: 'Mas ventas', metric: 'sales', formatter: formatNumber, visible: true },
+    { key: 'best_cost_per_sale', title: 'Mejor coste por venta', metric: 'cost_per_sale', formatter: formatMoney, visible: true },
+    { key: 'worst_cost_per_sale', title: 'Peor coste por venta', metric: 'cost_per_sale', formatter: formatMoney, visible: false },
+    { key: 'high_spend_low_conversion', title: 'Mucho gasto y poca conversion', metric: 'spend', formatter: formatMoney, visible: false },
+    { key: 'many_leads_few_sales', title: 'Muchos leads y pocas ventas', metric: 'leads_salesforce', formatter: formatNumber, visible: false },
+    { key: 'review_tracking', title: 'Revisar tracking', metric: 'spend', formatter: formatMoney, visible: true },
+    { key: 'boost', title: 'Potenciar', metric: 'spend', formatter: formatMoney, visible: true },
+    { key: 'review', title: 'Revisar', metric: 'spend', formatter: formatMoney, visible: false },
+    { key: 'stop', title: 'Parar', metric: 'spend', formatter: formatMoney, visible: false },
+];
 
 const columnDefinitions = [
     { key: 'campaign', label: 'Campana', visible: true, formatter: (_value, row) => campaignLabel(row) },
@@ -40,6 +57,7 @@ const columnDefinitions = [
 ];
 
 let visibleColumns = loadVisibleColumns();
+let visibleRankings = loadVisibleRankings();
 
 document.addEventListener('DOMContentLoaded', async () => {
     setDefaultDates();
@@ -49,6 +67,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindSorting();
     bindDrawer();
     bindColumns();
+    bindRankingSettings();
     bindTableScroll();
     applyColumnVisibility();
     await reloadAllData();
@@ -158,6 +177,13 @@ function bindColumns() {
     });
 }
 
+function bindRankingSettings() {
+    renderRankingsPopover();
+    document.getElementById('rankingsToggle')?.addEventListener('click', () => {
+        document.getElementById('rankingsPopover')?.classList.toggle('is-hidden');
+    });
+}
+
 function bindTableScroll() {
     const top = document.getElementById('campaignTableTopScroll');
     const wrap = document.getElementById('campaignTableWrap');
@@ -205,7 +231,10 @@ async function reloadAllData() {
         campaignRows = campaigns.items || [];
         renderCampaignRows(campaignRows);
         renderRankings((rankings && rankings.rankings) || {});
-        document.getElementById('exportCsv').href = `/informes/campanas/export/campaigns.csv?${query}`;
+        const exportLink = document.getElementById('exportCsv');
+        if (exportLink) {
+            exportLink.href = `/informes/campanas/export/campaigns.csv?${query}`;
+        }
     } catch (error) {
         showLoadError(error);
     } finally {
@@ -214,9 +243,12 @@ async function reloadAllData() {
 }
 
 function renderSummary(data) {
-    document.getElementById('updatedBadge').textContent = data.datos_actualizados
-        ? `Datos actualizados: ${formatDateTime(data.datos_actualizados)}`
-        : 'Datos actualizados: pendiente';
+    const updatedBadge = document.getElementById('updatedBadge');
+    if (updatedBadge) {
+        updatedBadge.textContent = data.datos_actualizados
+            ? `Datos actualizados: ${formatDateTime(data.datos_actualizados)}`
+            : 'Datos actualizados: pendiente';
+    }
     document.getElementById('periodLabel').textContent = periodText(data.periodo_actual);
     document.getElementById('windowLabel').textContent = `${data.attribution_window_days || 30} dias`;
 
@@ -283,14 +315,25 @@ function dailyEvolutionHtml(rows) {
     const maxSpend = Math.max(...rows.map((row) => Number(row.spend || 0)), 0);
     const maxLeads = Math.max(...rows.map((row) => Number(row.leads_salesforce || 0)), 0);
     const maxSales = Math.max(...rows.map((row) => Number(row.sales || 0)), 0);
+    const labelEvery = Math.max(1, Math.ceil(rows.length / 10));
     const content = rows.length
-        ? rows.map((row) => `
-            <div class="evolution-day" title="${escapeHtml(formatDate(row.date))}">
+        ? rows.map((row, index) => {
+            const tooltip = [
+                `Fecha: ${formatDate(row.date)}`,
+                `Inversion: ${formatMoney(Number(row.spend || 0))}`,
+                `Leads Salesforce: ${formatNumber(Number(row.leads_salesforce || 0))}`,
+                `Ventas: ${formatNumber(Number(row.sales || 0))}`,
+            ].join('\n');
+
+            return `
+            <div class="evolution-day" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}">
                 <span class="evolution-bar spend" style="height:${barHeight(row.spend, maxSpend)}%"></span>
-                <span class="evolution-bar leads" style="height:${barHeight(row.leads_salesforce, maxLeads)}%"></span>
-                <span class="evolution-bar sales" style="height:${barHeight(row.sales, maxSales)}%"></span>
+                <span class="evolution-point leads" style="bottom:${pointBottom(row.leads_salesforce, maxLeads)}%"></span>
+                <span class="evolution-point sales" style="bottom:${pointBottom(row.sales, maxSales)}%"></span>
+                <small>${index % labelEvery === 0 || index === rows.length - 1 ? escapeHtml(formatShortDate(row.date)) : ''}</small>
             </div>
-        `).join('')
+        `;
+        }).join('')
         : '<div class="empty-state">Sin datos</div>';
 
     return `
@@ -314,7 +357,13 @@ function dailyEvolutionHtml(rows) {
 function funnelHtml(rows) {
     const max = Math.max(...rows.map((row) => Number(row.value || 0)), 0);
     const content = rows.length
-        ? rows.map((row) => metricBarHtml(row.label, row.value, max, formatNumber))
+        ? rows.map((row, index) => {
+            const previous = index > 0 ? Number(rows[index - 1].value || 0) : null;
+            const rate = previous ? Number(row.value || 0) / previous : null;
+            const tooltip = `${row.label}: ${formatNumber(Number(row.value || 0))}${rate === null ? '' : `\nConversion etapa anterior: ${formatPercentRatio(rate)}`}`;
+
+            return metricBarHtml(row.label, row.value, max, formatNumber, tooltip);
+        })
             .join('')
         : '<div class="empty-state">Sin datos</div>';
 
@@ -337,7 +386,7 @@ function platformBarsHtml(rows) {
     const maxSales = Math.max(...rows.map((row) => Number(row.sales || 0)), 0);
     const content = rows.length
         ? rows.map((row) => `
-            <div class="platform-chart-group">
+            <div class="platform-chart-group" title="${escapeHtml(platformTooltip(row))}" data-tooltip="${escapeHtml(platformTooltip(row))}">
                 <strong>${escapeHtml(formatPlatform(row.platform))}</strong>
                 ${metricBarHtml('Inversion', row.spend, maxSpend, formatMoney)}
                 ${metricBarHtml('Leads SF', row.leads_salesforce, maxLeads, formatNumber)}
@@ -359,9 +408,9 @@ function platformBarsHtml(rows) {
     `;
 }
 
-function metricBarHtml(label, value, max, formatter) {
+function metricBarHtml(label, value, max, formatter, tooltip = null) {
     return `
-        <div class="campaign-metric-bar">
+        <div class="campaign-metric-bar" ${tooltip ? `title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}"` : ''}>
             <div>
                 <span>${escapeHtml(label)}</span>
                 <strong>${escapeHtml(formatter(value))}</strong>
@@ -373,6 +422,10 @@ function metricBarHtml(label, value, max, formatter) {
 
 function renderDiagnostics(diagnostics) {
     const root = document.getElementById('campaignDiagnostics');
+    if (!root) {
+        return;
+    }
+
     const items = [
         ['Ultima sync Meta', formatDateTime(diagnostics.last_meta_sync)],
         ['Ultima sync Google Ads', formatDateTime(diagnostics.last_google_sync)],
@@ -392,6 +445,10 @@ function renderDiagnostics(diagnostics) {
         ['Leads en procedencias Salesforce', formatNumber(diagnostics.leads_salesforce_origins)],
         ['Ventas atribuidas', formatNumber(diagnostics.attributed_sales)],
         ['Ventas con importe disponible', formatNumber(diagnostics.sales_with_amount_available)],
+        ['Oportunidades CV firmado', formatNumber(diagnostics.opportunities_cv_signed)],
+        ['Ventas atribuidas con amount > 0', formatNumber(diagnostics.attributed_sales_with_amount)],
+        ['Suma amount ventas atribuidas', formatMoney(diagnostics.attributed_sales_amount_sum)],
+        ['Estado campo amount', amountFieldStatusLabel(diagnostics.amount_field_status)],
         ['Candidatos con campana adquirida', formatNumber(diagnostics.candidates_with_campaign_acquired)],
         ['Candidatos solo fuente/medio', formatNumber(diagnostics.candidates_only_source_medium)],
         ['Candidatos con acquired_id', formatNumber(diagnostics.candidates_with_acquired_id)],
@@ -420,21 +477,14 @@ function renderDiagnostics(diagnostics) {
 
 function renderRankings(rankings) {
     const root = document.getElementById('rankingsGrid');
-    const groups = [
-        ['Campanas con mas inversion', rankings.top_spend || [], 'spend', formatMoney],
-        ['Mas leads Salesforce', rankings.top_leads_salesforce || [], 'leads_salesforce', formatNumber],
-        ['Mas oportunidades', rankings.top_opportunities || [], 'opportunities', formatNumber],
-        ['Mas reservas', rankings.top_reservations || [], 'reservations', formatNumber],
-        ['Mas ventas', rankings.top_sales || [], 'sales', formatNumber],
-        ['Mejor coste por venta', rankings.best_cost_per_sale || [], 'cost_per_sale', formatMoney],
-        ['Peor coste por venta', rankings.worst_cost_per_sale || [], 'cost_per_sale', formatMoney],
-        ['Mucho gasto y poca conversion', rankings.high_spend_low_conversion || [], 'spend', formatMoney],
-        ['Muchos leads y pocas ventas', rankings.many_leads_few_sales || [], 'leads_salesforce', formatNumber],
-        ['Revisar tracking', rankings.review_tracking || [], 'spend', formatMoney],
-        ['Potenciar', rankings.boost || [], 'spend', formatMoney],
-        ['Revisar', rankings.review || [], 'spend', formatMoney],
-        ['Parar', rankings.stop || [], 'spend', formatMoney],
-    ];
+    const groups = rankingDefinitions
+        .filter((definition) => visibleRankings.includes(definition.key))
+        .map((definition) => [
+            definition.title,
+            rankings[definition.key] || [],
+            definition.metric,
+            definition.formatter,
+        ]);
 
     root.innerHTML = '';
     groups.forEach(([title, rows, key, formatter]) => {
@@ -599,6 +649,34 @@ function renderColumnsPopover() {
     });
 }
 
+function renderRankingsPopover() {
+    const root = document.getElementById('rankingsPopover');
+    if (!root) {
+        return;
+    }
+
+    root.innerHTML = rankingDefinitions.map((ranking) => `
+        <label class="column-option switch-option">
+            <input type="checkbox" value="${escapeHtml(ranking.key)}" ${visibleRankings.includes(ranking.key) ? 'checked' : ''}>
+            <span>${escapeHtml(ranking.title)}</span>
+        </label>
+    `).join('');
+
+    root.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+        input.addEventListener('change', () => {
+            visibleRankings = [...root.querySelectorAll('input[type="checkbox"]:checked')].map((item) => item.value);
+            if (!visibleRankings.length) {
+                visibleRankings = defaultRankingKeys();
+                renderRankingsPopover();
+            }
+            localStorage.setItem(rankingsStorageKey, JSON.stringify(visibleRankings));
+            fetchJson(`/informes/campanas/data/rankings?${currentFilters()}`)
+                .then((payload) => renderRankings((payload && payload.rankings) || {}))
+                .catch(showLoadError);
+        });
+    });
+}
+
 function loadVisibleColumns() {
     try {
         const saved = JSON.parse(localStorage.getItem(columnsStorageKey) || 'null');
@@ -614,6 +692,27 @@ function loadVisibleColumns() {
     }
 
     return columnDefinitions.filter((column) => column.visible).map((column) => column.key);
+}
+
+function loadVisibleRankings() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(rankingsStorageKey) || 'null');
+        if (Array.isArray(saved) && saved.length) {
+            const known = saved.filter((key) => rankingDefinitions.some((ranking) => ranking.key === key));
+
+            if (known.length) {
+                return known;
+            }
+        }
+    } catch (error) {
+        return defaultRankingKeys();
+    }
+
+    return defaultRankingKeys();
+}
+
+function defaultRankingKeys() {
+    return rankingDefinitions.filter((ranking) => ranking.visible).map((ranking) => ranking.key);
 }
 
 function activeColumns() {
@@ -708,6 +807,16 @@ function formatDate(value) {
     return new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
 }
 
+function formatShortDate(value) {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return value || '-';
+    }
+
+    return new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: '2-digit' }).format(date);
+}
+
 function formatDateTime(value) {
     const date = new Date(value);
 
@@ -764,6 +873,24 @@ function formatPlatform(value) {
     }[value] || value || '-';
 }
 
+function amountFieldStatusLabel(value) {
+    return {
+        missing: 'No existe columna local',
+        exists_with_values: 'Existe con importes',
+        exists_but_zero: 'Existe, pero ventas firmadas estan a 0',
+        exists_but_no_attributed_values: 'Existe, pero sin importes atribuidos',
+    }[value] || value || 'Sin datos';
+}
+
+function platformTooltip(row) {
+    return [
+        `Plataforma: ${formatPlatform(row.platform)}`,
+        `Inversion: ${formatMoney(Number(row.spend || 0))}`,
+        `Leads Salesforce: ${formatNumber(Number(row.leads_salesforce || 0))}`,
+        `Ventas: ${formatNumber(Number(row.sales || 0))}`,
+    ].join('\n');
+}
+
 function barWidth(value, max) {
     if (!max || Number.isNaN(Number(value))) {
         return 0;
@@ -778,6 +905,14 @@ function barHeight(value, max) {
     }
 
     return Math.max(6, Math.round((Number(value) / max) * 100));
+}
+
+function pointBottom(value, max) {
+    if (!max || Number.isNaN(Number(value))) {
+        return 4;
+    }
+
+    return Math.max(4, Math.round((Number(value) / max) * 90));
 }
 
 function escapeHtml(value) {

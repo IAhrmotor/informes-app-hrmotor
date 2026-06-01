@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\ReportUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class ReportsAuthMiddlewareTest extends TestCase
@@ -44,6 +46,30 @@ class ReportsAuthMiddlewareTest extends TestCase
         $this->post('/logout')
             ->assertRedirect('/login')
             ->assertSessionMissing('informes_authenticated');
+    }
+
+    public function test_login_con_report_user_guarda_role_en_sesion(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        ReportUser::query()->create([
+            'name' => 'Viewer',
+            'email' => 'viewer@hrmotor.com',
+            'password' => Hash::make('secret'),
+            'role' => ReportUser::ROLE_VIEWER,
+            'is_active' => true,
+        ]);
+
+        $this->post('/login', [
+            'email' => 'viewer@hrmotor.com',
+            'password' => 'secret',
+        ])
+            ->assertRedirect('/informes/campanas')
+            ->assertSessionHas('informes_authenticated', true)
+            ->assertSessionHas('report_user_email', 'viewer@hrmotor.com')
+            ->assertSessionHas('report_user_role', ReportUser::ROLE_VIEWER);
+
+        $this->assertNotNull(ReportUser::query()->where('email', 'viewer@hrmotor.com')->value('last_login_at'));
     }
 
     public function test_login_incorrecto_muestra_error_en_tarjeta(): void
