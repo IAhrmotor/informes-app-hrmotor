@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Schema;
 class CampaignSaleAmountResolver
 {
     private const CANDIDATE_COLUMNS = [
+        'opo_for_importe_total',
         'amount',
         'sale_amount',
         'opportunity_amount',
@@ -19,6 +20,7 @@ class CampaignSaleAmountResolver
     ];
 
     private const CANDIDATE_RAW_KEYS = [
+        'OPO_FOR_Importe_total__c',
         'Amount',
         'SaleAmount',
         'Importe_vendido__c',
@@ -33,10 +35,10 @@ class CampaignSaleAmountResolver
 
     public function opportunitySelectColumns(): array
     {
-        return array_values(array_filter([
-            $this->localColumn(),
+        return array_values(array_unique(array_filter([
+            ...$this->localColumns(),
             'raw_payload',
-        ]));
+        ])));
     }
 
     public function localColumn(): ?string
@@ -50,14 +52,29 @@ class CampaignSaleAmountResolver
         return null;
     }
 
+    public function localColumns(): array
+    {
+        return array_values(array_filter(
+            self::CANDIDATE_COLUMNS,
+            fn (string $column): bool => Schema::hasColumn('salesforce_opportunities', $column)
+        ));
+    }
+
+    public function preferredColumnExists(): bool
+    {
+        return Schema::hasColumn('salesforce_opportunities', 'opo_for_importe_total');
+    }
+
     public function resolve(object $opportunity): ?float
     {
-        $column = $this->localColumn();
+        foreach ($this->localColumns() as $column) {
+            if (isset($opportunity->{$column}) && is_numeric($opportunity->{$column})) {
+                $amount = (float) $opportunity->{$column};
 
-        if ($column !== null && isset($opportunity->{$column}) && is_numeric($opportunity->{$column})) {
-            $amount = (float) $opportunity->{$column};
-
-            return $amount > 0 ? $amount : null;
+                if ($amount > 0) {
+                    return $amount;
+                }
+            }
         }
 
         $payload = $opportunity->raw_payload ?? null;
@@ -83,11 +100,15 @@ class CampaignSaleAmountResolver
 
     public function diagnosticMessage(): string
     {
-        return 'No existe columna local de importe vendido en salesforce_opportunities. Anadir el campo Salesforce de importe vendido al sync cuando se confirme su API name.';
+        return 'No existe columna local opo_for_importe_total. Anadir Opportunity.OPO_FOR_Importe_total__c al sync de oportunidades.';
     }
 
     public function emptyAmountsMessage(): string
     {
-        return 'La columna amount existe, pero no contiene importes para las ventas atribuidas. Hay que confirmar el API name del campo Salesforce de importe vendido. Posible candidato pendiente: OPO_FOR_Importe_total__c si negocio lo confirma.';
+        if ($this->preferredColumnExists()) {
+            return 'La columna opo_for_importe_total existe, pero no contiene importes para las ventas atribuidas.';
+        }
+
+        return 'La columna amount existe, pero no contiene importes para las ventas atribuidas. Hay que confirmar el API name del campo Salesforce de importe vendido.';
     }
 }

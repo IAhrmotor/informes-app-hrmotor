@@ -592,7 +592,7 @@ class CampaignDashboardDatasetService
         }
 
         if (($totals['sales'] ?? 0) > 0 && ($totals['sale_amount'] ?? null) === null) {
-            $warnings[] = $this->saleAmountResolver->localColumn() === null
+            $warnings[] = ! $this->saleAmountResolver->preferredColumnExists()
                 ? $this->saleAmountResolver->diagnosticMessage().' ROAS y ROI quedan sin dato hasta que exista ese campo local.'
                 : $this->saleAmountResolver->emptyAmountsMessage();
         }
@@ -640,7 +640,12 @@ class CampaignDashboardDatasetService
             'opportunities_cv_signed' => DB::table('salesforce_opportunities')->where('cv_signed', true)->count(),
             'attributed_sales_with_amount' => (clone $attributionBase)->where('has_sale', true)->where('sale_amount', '>', 0)->count(),
             'attributed_sales_amount_sum' => round((float) (clone $attributionBase)->where('has_sale', true)->sum('sale_amount'), 2),
-            'amount_field_status' => $this->amountFieldStatus($attributionBase),
+            'sales_with_opo_for_importe_total' => $this->attributedSalesWithOpportunityAmount($period, $filters, 'opo_for_importe_total', 'count'),
+            'sum_opo_for_importe_total_sales' => $this->attributedSalesWithOpportunityAmount($period, $filters, 'opo_for_importe_total', 'sum'),
+            'sales_with_amount' => $this->attributedSalesWithOpportunityAmount($period, $filters, 'amount', 'count'),
+            'sum_amount_sales' => $this->attributedSalesWithOpportunityAmount($period, $filters, 'amount', 'sum'),
+            'amount_field_status' => $this->opportunityAmountFieldStatus('amount'),
+            'sale_amount_field_used' => $this->saleAmountFieldUsed($period, $filters),
             'candidates_with_campaign_acquired' => (clone $attributionBase)->whereNotNull('campaign_acquired')->where('campaign_acquired', '<>', '')->count(),
             'candidates_only_source_medium' => (clone $attributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
             'candidates_with_acquired_id' => (clone $attributionBase)->whereNotNull('acquired_id')->where('acquired_id', '<>', '')->count(),
@@ -655,28 +660,53 @@ class CampaignDashboardDatasetService
         ];
     }
 
-    private function amountFieldStatus($attributionBase): string
+    private function opportunityAmountFieldStatus(string $column): string
     {
-        if (! Schema::hasColumn('salesforce_opportunities', 'amount')) {
+        if (! Schema::hasColumn('salesforce_opportunities', $column)) {
             return 'missing';
         }
 
         $cvSigned = DB::table('salesforce_opportunities')->where('cv_signed', true);
         $cvSignedCount = (clone $cvSigned)->count();
-        $cvSignedWithAmount = (clone $cvSigned)->where('amount', '>', 0)->count();
+        $cvSignedWithAmount = (clone $cvSigned)->where($column, '>', 0)->count();
 
         if ($cvSignedCount > 0 && $cvSignedWithAmount === 0) {
             return 'exists_but_zero';
         }
 
-        $attributedSales = (clone $attributionBase)->where('has_sale', true)->count();
-        $attributedSalesWithAmount = (clone $attributionBase)->where('has_sale', true)->where('sale_amount', '>', 0)->count();
+        return 'exists_with_values';
+    }
 
-        if ($attributedSales > 0 && $attributedSalesWithAmount === 0) {
-            return 'exists_but_no_attributed_values';
+    private function attributedSalesWithOpportunityAmount(array $period, array $filters, string $column, string $aggregate): int|float
+    {
+        if (! Schema::hasColumn('salesforce_opportunities', $column)) {
+            return $aggregate === 'sum' ? 0.0 : 0;
         }
 
-        return 'exists_with_values';
+        $query = DB::table('campaign_attributions as ca')
+            ->join('salesforce_opportunities as so', 'so.salesforce_id', '=', 'ca.opportunity_id')
+            ->where('ca.lead_created_at', '>=', $period['start_at'])
+            ->where('ca.lead_created_at', '<', $period['end_at'])
+            ->where('ca.attribution_window_days', $filters['attribution_window_days'])
+            ->where('ca.has_sale', true)
+            ->where("so.{$column}", '>', 0);
+
+        return $aggregate === 'sum'
+            ? round((float) $query->sum("so.{$column}"), 2)
+            : $query->count();
+    }
+
+    private function saleAmountFieldUsed(array $period, array $filters): string
+    {
+        if ($this->attributedSalesWithOpportunityAmount($period, $filters, 'opo_for_importe_total', 'count') > 0) {
+            return 'opo_for_importe_total';
+        }
+
+        if ($this->attributedSalesWithOpportunityAmount($period, $filters, 'amount', 'count') > 0) {
+            return 'amount';
+        }
+
+        return 'none';
     }
 
     private function leadsWithAcquisitionNotNull(array $period): int

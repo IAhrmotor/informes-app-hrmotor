@@ -2,11 +2,22 @@ const numberFormatter = new Intl.NumberFormat('es-ES');
 const moneyFormatter = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
 const columnsStorageKey = 'hrmotor_campaign_columns_v3';
 const rankingsStorageKey = 'campaigns.visibleRankings';
+const dailySeriesStorageKey = 'campaigns.dailyChart.visibleSeries';
+const dailyTypeStorageKey = 'campaigns.dailyChart.chartType';
 
 let campaignRows = [];
 let tableSort = { key: 'spend', direction: 'desc' };
 let searchTimer = null;
 let syncingTableScroll = false;
+let dailyVisibleSeries = loadDailyVisibleSeries();
+let dailyChartType = loadDailyChartType();
+let currentCharts = {};
+
+const dailySeriesDefinitions = [
+    { key: 'spend', label: 'Inversion', formatter: formatMoney, className: 'spend' },
+    { key: 'leads_salesforce', label: 'Leads SF', formatter: formatNumber, className: 'leads' },
+    { key: 'sales', label: 'Ventas', formatter: formatNumber, className: 'sales' },
+];
 
 const rankingDefinitions = [
     { key: 'top_spend', title: 'Campanas con mas inversion', metric: 'spend', formatter: formatMoney, visible: true },
@@ -184,6 +195,40 @@ function bindRankingSettings() {
     });
 }
 
+function bindDailyChartControls() {
+    document.querySelectorAll('[data-series]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const series = button.dataset.series;
+
+            if (!series) {
+                return;
+            }
+
+            if (dailyVisibleSeries.includes(series)) {
+                if (dailyVisibleSeries.length === 1) {
+                    return;
+                }
+
+                dailyVisibleSeries = dailyVisibleSeries.filter((item) => item !== series);
+            } else {
+                dailyVisibleSeries = [...dailyVisibleSeries, series];
+            }
+
+            localStorage.setItem(dailySeriesStorageKey, JSON.stringify(dailyVisibleSeries));
+            renderCharts(currentCharts);
+        });
+    });
+
+    document.querySelectorAll('[data-chart-type]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const type = button.dataset.chartType === 'lines' ? 'lines' : 'bars';
+            dailyChartType = type;
+            localStorage.setItem(dailyTypeStorageKey, type);
+            renderCharts(currentCharts);
+        });
+    });
+}
+
 function bindTableScroll() {
     const top = document.getElementById('campaignTableTopScroll');
     const wrap = document.getElementById('campaignTableWrap');
@@ -304,37 +349,21 @@ function renderCharts(charts) {
         return;
     }
 
+    currentCharts = charts || {};
     root.innerHTML = `
         ${dailyEvolutionHtml(charts.daily_evolution || [])}
         ${funnelHtml(charts.funnel || [])}
         ${platformBarsHtml(charts.platforms || [])}
     `;
+    bindDailyChartControls();
 }
 
 function dailyEvolutionHtml(rows) {
-    const maxSpend = Math.max(...rows.map((row) => Number(row.spend || 0)), 0);
-    const maxLeads = Math.max(...rows.map((row) => Number(row.leads_salesforce || 0)), 0);
-    const maxSales = Math.max(...rows.map((row) => Number(row.sales || 0)), 0);
-    const labelEvery = Math.max(1, Math.ceil(rows.length / 10));
-    const content = rows.length
-        ? rows.map((row, index) => {
-            const tooltip = [
-                `Fecha: ${formatDate(row.date)}`,
-                `Inversion: ${formatMoney(Number(row.spend || 0))}`,
-                `Leads Salesforce: ${formatNumber(Number(row.leads_salesforce || 0))}`,
-                `Ventas: ${formatNumber(Number(row.sales || 0))}`,
-            ].join('\n');
-
-            return `
-            <div class="evolution-day" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}">
-                <span class="evolution-bar spend" style="height:${barHeight(row.spend, maxSpend)}%"></span>
-                <span class="evolution-point leads" style="bottom:${pointBottom(row.leads_salesforce, maxLeads)}%"></span>
-                <span class="evolution-point sales" style="bottom:${pointBottom(row.sales, maxSales)}%"></span>
-                <small>${index % labelEvery === 0 || index === rows.length - 1 ? escapeHtml(formatShortDate(row.date)) : ''}</small>
-            </div>
-        `;
-        }).join('')
-        : '<div class="empty-state">Sin datos</div>';
+    const content = rows.length ? (
+        dailyChartType === 'lines'
+            ? dailyLineChartHtml(rows)
+            : dailyBarsChartHtml(rows)
+    ) : '<div class="empty-state">Sin datos</div>';
 
     return `
         <article class="card panel campaign-chart-card campaign-chart-wide">
@@ -344,13 +373,80 @@ function dailyEvolutionHtml(rows) {
                     <div class="small">Inversion, leads Salesforce y ventas</div>
                 </div>
             </div>
-            <div class="chart-legend">
-                <span><i class="spend"></i>Inversion</span>
-                <span><i class="leads"></i>Leads SF</span>
-                <span><i class="sales"></i>Ventas</span>
+            <div class="daily-chart-toolbar">
+                <div class="daily-series-toggles">
+                    ${dailySeriesDefinitions.map((series) => `
+                        <button type="button" class="daily-chip ${dailyVisibleSeries.includes(series.key) ? 'is-active' : ''}" data-series="${escapeHtml(series.key)}">
+                            ${dailyVisibleSeries.includes(series.key) ? '✓ ' : ''}${escapeHtml(series.label)}
+                        </button>
+                    `).join('')}
+                </div>
+                <div class="daily-type-toggle">
+                    <button type="button" class="${dailyChartType === 'bars' ? 'is-active' : ''}" data-chart-type="bars">Barras</button>
+                    <button type="button" class="${dailyChartType === 'lines' ? 'is-active' : ''}" data-chart-type="lines">Lineas</button>
+                </div>
             </div>
             <div class="campaign-evolution">${content}</div>
         </article>
+    `;
+}
+
+function dailyBarsChartHtml(rows) {
+    const labelEvery = Math.max(1, Math.ceil(rows.length / 12));
+
+    return rows.map((row, index) => {
+        const tooltip = dailyTooltip(row);
+
+        return `
+            <div class="evolution-day" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}">
+                <div class="evolution-bars-group">
+                    ${dailySeriesDefinitions
+                        .filter((series) => dailyVisibleSeries.includes(series.key))
+                        .map((series) => `
+                            <span class="evolution-bar ${escapeHtml(series.className)}" style="height:${barHeight(row[series.key], dailyMax(rows, series.key))}%"></span>
+                        `).join('')}
+                </div>
+                <small>${showDateLabel(index, rows.length, labelEvery) ? escapeHtml(formatShortDate(row.date)) : ''}</small>
+            </div>
+        `;
+    }).join('');
+}
+
+function dailyLineChartHtml(rows) {
+    const width = 100;
+    const height = 100;
+    const labelEvery = Math.max(1, Math.ceil(rows.length / 12));
+    const seriesSvg = dailySeriesDefinitions
+        .filter((series) => dailyVisibleSeries.includes(series.key))
+        .map((series) => {
+            const max = dailyMax(rows, series.key);
+            const points = rows.map((row, index) => {
+                const x = rows.length === 1 ? width / 2 : (index / (rows.length - 1)) * width;
+                const y = height - pointBottom(row[series.key], max);
+
+                return `${x.toFixed(2)},${y.toFixed(2)}`;
+            }).join(' ');
+
+            return `<polyline class="line-series ${escapeHtml(series.className)}" points="${points}" />`;
+        }).join('');
+    const hoverPoints = rows.map((row, index) => {
+        const x = rows.length === 1 ? 50 : (index / (rows.length - 1)) * 100;
+        const tooltip = dailyTooltip(row);
+
+        return `<span class="line-hover-point" style="left:${x}%" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}"></span>`;
+    }).join('');
+    const labels = rows.map((row, index) => `
+        <span>${showDateLabel(index, rows.length, labelEvery) ? escapeHtml(formatShortDate(row.date)) : ''}</span>
+    `).join('');
+
+    return `
+        <div class="campaign-line-chart">
+            <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+                ${seriesSvg}
+            </svg>
+            <div class="line-hover-layer">${hoverPoints}</div>
+        </div>
+        <div class="campaign-line-labels" style="grid-template-columns: repeat(${rows.length}, minmax(18px, 1fr));">${labels}</div>
     `;
 }
 
@@ -448,7 +544,12 @@ function renderDiagnostics(diagnostics) {
         ['Oportunidades CV firmado', formatNumber(diagnostics.opportunities_cv_signed)],
         ['Ventas atribuidas con amount > 0', formatNumber(diagnostics.attributed_sales_with_amount)],
         ['Suma amount ventas atribuidas', formatMoney(diagnostics.attributed_sales_amount_sum)],
+        ['Ventas con importe total > 0', formatNumber(diagnostics.sales_with_opo_for_importe_total)],
+        ['Suma importe total ventas', formatMoney(diagnostics.sum_opo_for_importe_total_sales)],
+        ['Ventas con Amount > 0', formatNumber(diagnostics.sales_with_amount)],
+        ['Suma Amount ventas', formatMoney(diagnostics.sum_amount_sales)],
         ['Estado campo amount', amountFieldStatusLabel(diagnostics.amount_field_status)],
+        ['Campo importe usado', saleAmountFieldUsedLabel(diagnostics.sale_amount_field_used)],
         ['Candidatos con campana adquirida', formatNumber(diagnostics.candidates_with_campaign_acquired)],
         ['Candidatos solo fuente/medio', formatNumber(diagnostics.candidates_only_source_medium)],
         ['Candidatos con acquired_id', formatNumber(diagnostics.candidates_with_acquired_id)],
@@ -711,6 +812,31 @@ function loadVisibleRankings() {
     return defaultRankingKeys();
 }
 
+function loadDailyVisibleSeries() {
+    const defaults = ['spend', 'leads_salesforce', 'sales'];
+
+    try {
+        const saved = JSON.parse(localStorage.getItem(dailySeriesStorageKey) || 'null');
+        if (Array.isArray(saved) && saved.length) {
+            const known = saved.filter((key) => defaults.includes(key));
+
+            if (known.length) {
+                return known;
+            }
+        }
+    } catch (error) {
+        return defaults;
+    }
+
+    return defaults;
+}
+
+function loadDailyChartType() {
+    const saved = localStorage.getItem(dailyTypeStorageKey);
+
+    return saved === 'lines' ? 'lines' : 'bars';
+}
+
 function defaultRankingKeys() {
     return rankingDefinitions.filter((ranking) => ranking.visible).map((ranking) => ranking.key);
 }
@@ -880,6 +1006,31 @@ function amountFieldStatusLabel(value) {
         exists_but_zero: 'Existe, pero ventas firmadas estan a 0',
         exists_but_no_attributed_values: 'Existe, pero sin importes atribuidos',
     }[value] || value || 'Sin datos';
+}
+
+function saleAmountFieldUsedLabel(value) {
+    return {
+        opo_for_importe_total: 'opo_for_importe_total',
+        amount: 'amount',
+        none: 'Sin importe disponible',
+    }[value] || value || 'Sin datos';
+}
+
+function dailyTooltip(row) {
+    return [
+        `Fecha: ${formatDate(row.date)}`,
+        `Inversion: ${formatMoney(Number(row.spend || 0))}`,
+        `Leads Salesforce: ${formatNumber(Number(row.leads_salesforce || 0))}`,
+        `Ventas: ${formatNumber(Number(row.sales || 0))}`,
+    ].join('\n');
+}
+
+function dailyMax(rows, key) {
+    return Math.max(...rows.map((row) => Number(row[key] || 0)), 0);
+}
+
+function showDateLabel(index, total, labelEvery) {
+    return index === 0 || index === total - 1 || index % labelEvery === 0;
 }
 
 function platformTooltip(row) {

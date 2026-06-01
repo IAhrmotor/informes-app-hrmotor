@@ -43,6 +43,10 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('id="campaignCharts"', $html);
         $this->assertStringContainsString('id="rankingsToggle"', $html);
         $this->assertStringContainsString('id="rankingsPopover"', $html);
+        $this->assertStringContainsString('campaigns.dailyChart.visibleSeries', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('campaigns.dailyChart.chartType', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('data-series', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('data-chart-type', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('id="mediumAcquired"', $html);
         $this->assertStringContainsString('id="campaignAcquired"', $html);
         $this->assertStringContainsString('id="campaignId"', $html);
@@ -537,6 +541,66 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('kpis.estimated_roi', 29);
     }
 
+    public function test_opo_for_importe_total_tiene_prioridad_sobre_amount(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'meta',
+            'metric_date' => '2026-05-10',
+            'account_id' => 'act_1',
+            'campaign_id' => 'camp-priority',
+            'campaign_name' => 'Campaign Priority',
+            'ad_id' => 'ad-priority',
+            'spend' => 1000,
+            'impressions' => 1000,
+            'clicks' => 100,
+        ]));
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-priority',
+            'name' => 'Lead Priority',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Convertido',
+            'record_type_name' => 'Venta',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'campaign_acquired' => 'Campaign Priority',
+            'acquired_id' => 'ad-priority',
+            'converted_opportunity_id' => '006-priority',
+            'portal_text' => 'Meta',
+            'medio_nuevo' => 'Formulario',
+            'delegacion_encargada_text' => 'Alcobendas',
+        ]);
+
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-priority',
+            'name' => 'Oportunidad Priority',
+            'created_date' => '2026-05-11 10:00:00',
+            'record_type_name' => 'Venta',
+            'stage_name' => 'Contrato',
+            'reservation' => true,
+            'reservation_date' => '2026-05-12',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-15',
+            'amount' => 100,
+            'opo_for_importe_total' => 25000,
+        ]);
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01'),
+            30
+        );
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->assertJsonPath('kpis.sale_amount', 25000)
+            ->assertJsonPath('kpis.roas', 25)
+            ->assertJsonPath('kpis.estimated_roi', 24)
+            ->assertJsonPath('diagnostics.sale_amount_field_used', 'opo_for_importe_total')
+            ->assertJsonPath('diagnostics.sales_with_opo_for_importe_total', 1)
+            ->assertJsonPath('diagnostics.sum_opo_for_importe_total_sales', 25000);
+    }
+
     public function test_amount_zero_no_calcula_importe_roas_ni_roi_y_expone_estado_admin(): void
     {
         CampaignPlatformDailyMetric::query()->create($this->metricRow([
@@ -578,6 +642,7 @@ class CampaignDashboardTest extends TestCase
             'cv_signed' => true,
             'cv_signed_date' => '2026-05-15',
             'amount' => 0,
+            'opo_for_importe_total' => 0,
         ]);
 
         app(CampaignAttributionBuilderService::class)->build(
@@ -593,6 +658,7 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('kpis.roas', null)
             ->assertJsonPath('kpis.estimated_roi', null)
             ->assertJsonPath('diagnostics.amount_field_status', 'exists_but_zero')
+            ->assertJsonPath('diagnostics.sale_amount_field_used', 'none')
             ->assertJsonPath('diagnostics.attributed_sales_with_amount', 0);
     }
 

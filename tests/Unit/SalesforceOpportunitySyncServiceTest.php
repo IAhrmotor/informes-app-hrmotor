@@ -52,6 +52,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'CreatedDate' => '2026-05-01T10:00:00.000+0000',
                         'CloseDate' => '2026-05-31',
                         'Amount' => 12500.50,
+                        'OPO_FOR_Importe_total__c' => 13000.75,
                         'StageName' => 'Reserva',
                         'RecordType' => ['Name' => 'Venta'],
                         'OwnerId' => '005-owner-1',
@@ -74,6 +75,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'Name' => 'Venta reconstruida',
                         'CreatedDate' => '2026-05-03T10:00:00.000+0000',
                         'Amount' => 18000,
+                        'OPO_FOR_Importe_total__c' => 18100,
                         'StageName' => 'Contrato',
                         'RecordType' => ['Name' => 'Cambio'],
                         'OwnerId' => '005-owner-2',
@@ -95,6 +97,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'Name' => 'Exposicion con alternativa',
                         'CreatedDate' => '2026-05-06T10:00:00.000+0000',
                         'Amount' => 9000,
+                        'OPO_FOR_Importe_total__c' => 0,
                         'StageName' => 'Cerrada Perdida',
                         'RecordType' => ['Name' => 'Tasacion'],
                         'OwnerId' => '005-owner-3',
@@ -123,6 +126,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertSame(3, $result['saved']);
         $this->assertStringContainsString('FROM Opportunity', $result['soql']);
         $this->assertStringContainsString('Amount', $result['soql']);
+        $this->assertStringContainsString('OPO_FOR_Importe_total__c', $result['soql']);
         $this->assertStringContainsString('OPO_FEC_Fecha_de_reserva__c', $result['soql']);
         $this->assertStringContainsString('Fecha_firma_contrato__c', $result['soql']);
 
@@ -131,6 +135,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             'record_type_name' => 'Venta',
             'owner_delegation' => 'Alcobendas',
             'amount' => 12500.50,
+            'opo_for_importe_total' => 13000.75,
             'portal_resolved' => 'Web',
             'portal_resolution_source' => 'opportunity',
             'reservation' => true,
@@ -140,6 +145,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             'salesforce_id' => '006-opportunity-2',
             'portal_resolved' => 'Meta',
             'amount' => 18000,
+            'opo_for_importe_total' => 18100,
             'portal_resolution_source' => 'lead',
             'portal_resolution_lead_id' => '00Q-lead-1',
             'cv_signed' => true,

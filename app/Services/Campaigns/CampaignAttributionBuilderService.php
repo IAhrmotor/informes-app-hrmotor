@@ -107,7 +107,7 @@ class CampaignAttributionBuilderService
             $stats['warnings'][] = 'Hay campanas Salesforce sin inversion asociada o procedencias sin coste. Revisar IDs/nombres de campana.';
         }
 
-        if ($stats['sales'] > 0 && $this->saleAmountResolver->localColumn() === null) {
+        if ($stats['sales'] > 0 && ! $this->saleAmountResolver->preferredColumnExists()) {
             $stats['warnings'][] = $this->saleAmountResolver->diagnosticMessage();
         }
 
