@@ -8,6 +8,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class CampaignAttributionBuilderService
 {
@@ -130,7 +131,10 @@ class CampaignAttributionBuilderService
 
     private function candidateLeads(CarbonInterface $start, CarbonInterface $end, array &$stats): Collection
     {
-        $base = DB::table('salesforce_leads')
+        $sourceTable = $this->leadSourceTable($start, $end);
+        $stats['lead_source_table'] = $sourceTable;
+
+        $base = DB::table($sourceTable)
             ->where('created_date', '>=', $start)
             ->where('created_date', '<', $end);
 
@@ -140,7 +144,52 @@ class CampaignAttributionBuilderService
 
         (clone $base)
             ->orderBy('id')
-            ->select([
+            ->select($this->leadSelectColumns($sourceTable))
+            ->chunkById(self::LEAD_CHUNK_SIZE, function (Collection $chunk) use (&$leads, &$stats): void {
+                foreach ($chunk as $lead) {
+                    $this->fillCampaignFieldsFromRawPayload($lead);
+
+                    if (! $this->hasAnyAcquisitionValue($lead)) {
+                        continue;
+                    }
+
+                    $stats['leads_with_acquisition_not_null']++;
+
+                    if (! $this->hasValidAcquisition($lead)) {
+                        $stats['discarded_invalid_values']++;
+
+                        continue;
+                    }
+
+                    $this->countLeadAcquisitionShape($stats, $lead);
+                    $leads->push($lead);
+                }
+            }, 'id');
+
+        $stats['candidate_leads'] = $leads->count();
+        $stats['processed_leads'] = $leads->count();
+
+        return $leads;
+    }
+
+    private function leadSourceTable(CarbonInterface $start, CarbonInterface $end): string
+    {
+        if (! Schema::hasTable('campaign_salesforce_leads')) {
+            return 'salesforce_leads';
+        }
+
+        $hasCampaignLeads = DB::table('campaign_salesforce_leads')
+            ->where('created_date', '>=', $start)
+            ->where('created_date', '<', $end)
+            ->exists();
+
+        return $hasCampaignLeads ? 'campaign_salesforce_leads' : 'salesforce_leads';
+    }
+
+    private function leadSelectColumns(string $sourceTable): array
+    {
+        if ($sourceTable === 'salesforce_leads') {
+            return [
                 'id',
                 'salesforce_id',
                 'name',
@@ -170,32 +219,40 @@ class CampaignAttributionBuilderService
                 'delegacion_encargada',
                 'delegacion_encargada_bueno',
                 'raw_payload',
-            ])
-            ->chunkById(self::LEAD_CHUNK_SIZE, function (Collection $chunk) use (&$leads, &$stats): void {
-                foreach ($chunk as $lead) {
-                    $this->fillCampaignFieldsFromRawPayload($lead);
+            ];
+        }
 
-                    if (! $this->hasAnyAcquisitionValue($lead)) {
-                        continue;
-                    }
-
-                    $stats['leads_with_acquisition_not_null']++;
-
-                    if (! $this->hasValidAcquisition($lead)) {
-                        $stats['discarded_invalid_values']++;
-
-                        continue;
-                    }
-
-                    $this->countLeadAcquisitionShape($stats, $lead);
-                    $leads->push($lead);
-                }
-            }, 'id');
-
-        $stats['candidate_leads'] = $leads->count();
-        $stats['processed_leads'] = $leads->count();
-
-        return $leads;
+        return [
+            'id',
+            'salesforce_id',
+            'name',
+            'created_date',
+            'status',
+            DB::raw('NULL as record_type_name'),
+            'owner_id',
+            'owner_name',
+            DB::raw('NULL as persona_que_trabajo_id'),
+            DB::raw('NULL as persona_que_trabajo_name'),
+            DB::raw('NULL as propietario_descarte_id'),
+            DB::raw('NULL as propietario_descarte_name'),
+            'fuente_origen',
+            'medio_origen',
+            'campaign_acquired',
+            'acquired_id',
+            'content_acquired',
+            'vehicle_interest',
+            'phone',
+            'mobile_phone',
+            'email',
+            'converted_opportunity_id',
+            DB::raw('NULL as medio_nuevo'),
+            DB::raw('NULL as fuente_nuevo'),
+            DB::raw('NULL as portal_text'),
+            'delegacion_encargada_text',
+            DB::raw('delegacion_encargada_id as delegacion_encargada'),
+            'delegacion_encargada_bueno',
+            'raw_payload',
+        ];
     }
 
     private function hasValidAcquisition(object $lead): bool
@@ -792,6 +849,7 @@ class CampaignAttributionBuilderService
         return [
             'range_start' => $start->toDateString(),
             'range_end' => $end->toDateString(),
+            'lead_source_table' => 'salesforce_leads',
             'total_leads_in_range' => 0,
             'leads_with_acquisition_not_null' => 0,
             'candidate_leads' => 0,

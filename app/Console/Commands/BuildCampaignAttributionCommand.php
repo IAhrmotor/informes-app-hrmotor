@@ -28,6 +28,7 @@ class BuildCampaignAttributionCommand extends Command
         }
 
         $this->line('Rango: '.$result['range_start'].' a '.$result['range_end']);
+        $this->line('Tabla origen leads: '.$result['lead_source_table']);
         $this->line('Leads en rango: '.$result['total_leads_in_range']);
         $this->line('Leads con adquisicion no null: '.$result['leads_with_acquisition_not_null']);
         $this->line('Leads candidatos validos: '.$result['candidate_leads']);

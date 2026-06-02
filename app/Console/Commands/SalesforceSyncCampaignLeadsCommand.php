@@ -2,8 +2,7 @@
 
 namespace App\Console\Commands;
 
-use App\Models\SalesforceLead;
-use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyLeadsSyncService;
+use App\Services\Campaigns\CampaignLeadSyncService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -18,32 +17,10 @@ class SalesforceSyncCampaignLeadsCommand extends Command
 
     protected $description = 'Sincroniza Leads Salesforce relevantes para el informe de campanas.';
 
-    public function handle(SalesforceMonthlyLeadsSyncService $sync): int
+    public function handle(CampaignLeadSyncService $sync): int
     {
         $end = CarbonImmutable::now();
         $start = $this->periodStart($end);
-
-        if ($this->option('fresh')) {
-            $deleted = SalesforceLead::query()
-                ->where('created_date', '>=', $start)
-                ->where('created_date', '<', $end)
-                ->where(function ($query): void {
-                    foreach ([
-                        'campaign_acquired',
-                        'acquired_id',
-                        'content_acquired',
-                        'fuente_origen',
-                        'medio_origen',
-                    ] as $field) {
-                        $query->orWhere(function ($subQuery) use ($field): void {
-                            $subQuery->whereNotNull($field)->where($field, '<>', '');
-                        });
-                    }
-                })
-                ->delete();
-
-            $this->warn("Leads de campana del periodo eliminados: {$deleted}");
-        }
 
         $this->info('Sincronizando Salesforce Leads de campana.');
         $this->line('Periodo inicio: '.$start->utc()->format('Y-m-d\TH:i:s\Z'));
@@ -52,18 +29,26 @@ class SalesforceSyncCampaignLeadsCommand extends Command
         if ($this->option('debug-soql')) {
             $this->newLine();
             $this->line('SOQL Leads de campana:');
-            $this->line($sync->campaignLeadsSoql($start, $end));
+            $this->line($sync->soql($start, $end));
             $this->newLine();
         }
 
-        $result = $sync->syncCampaignLeads($start, $end);
+        $result = $sync->sync($start, $end, (bool) $this->option('fresh'));
 
         foreach ($result['warnings'] ?? [] as $warning) {
             $this->warn($warning);
         }
 
-        $this->line('Leads consultados: '.$result['queried']);
-        $this->line('Leads guardados: '.$result['saved']);
+        $this->line('Tabla destino: '.$result['table']);
+        $this->line('Leads de campana eliminados en tabla destino: '.$result['deleted']);
+        $this->line('Leads recibidos de Salesforce: '.$result['queried']);
+        $this->line('Leads guardados/upserted: '.$result['saved']);
+        $this->line('Leads con campaign_acquired: '.$result['with_campaign_acquired']);
+        $this->line('Leads con acquired_id: '.$result['with_acquired_id']);
+        $this->line('Leads con content_acquired: '.$result['with_content_acquired']);
+        $this->line('Leads con fuente_origen: '.$result['with_fuente_origen']);
+        $this->line('Leads con medio_origen: '.$result['with_medio_origen']);
+        $this->line('Leads sin adquisicion/fuente/medio: '.$result['without_acquisition']);
 
         Cache::forever('campaign_dashboard_cache_version', ((int) Cache::get('campaign_dashboard_cache_version', 1)) + 1);
         $this->info('Sincronizacion de Leads de campana completada.');
