@@ -1,6 +1,6 @@
 :root {
     --brand-primary: #202a45;
-    --brand-accent: #d52233;
+    --brand-accent: #ed1b2f;
     --brand-text: #0f0f10;
     --brand-bg: #f5f6f8;
     --brand-card: #ffffff;
@@ -1211,10 +1211,10 @@ th.num {
 
 .diagnostic-note {
     grid-column: 1 / -1;
-    border: 1px solid rgba(125, 73, 78, .22);
+    border: 1px solid rgba(237, 27, 47, .18);
     border-radius: 14px;
     padding: 13px 14px;
-    background: rgba(125, 73, 78, .08);
+    background: rgba(237, 27, 47, .06);
     color: var(--brand-primary);
     font-size: 13px;
     font-weight: 750;
@@ -1278,27 +1278,27 @@ th.num {
 
 .daily-chip.is-active,
 .daily-type-toggle button.is-active {
-    border-color: rgba(125, 73, 78, .45);
-    background: rgba(125, 73, 78, .1);
-    color: var(--brand-accent);
+    border-color: rgba(237, 27, 47, .42);
+    background: rgba(237, 27, 47, .09);
+    color: #ed1b2f;
 }
 
 .evolution-bar.spend,
 .line-series.spend {
-    background: var(--brand-primary);
-    stroke: var(--brand-primary);
+    background: #17213c;
+    stroke: #17213c;
 }
 
 .evolution-bar.leads,
 .line-series.leads {
-    background: #7d494e;
-    stroke: #7d494e;
+    background: #ed1b2f;
+    stroke: #ed1b2f;
 }
 
 .evolution-bar.sales,
 .line-series.sales {
-    background: #0f766e;
-    stroke: #0f766e;
+    background: #4b5f86;
+    stroke: #4b5f86;
 }
 
 .campaign-evolution {
@@ -1405,7 +1405,7 @@ th.num {
 
 .campaign-line-chart svg {
     width: 100%;
-    height: 100%;
+    height: calc(100% - 24px);
     overflow: visible;
 }
 
@@ -1415,9 +1415,27 @@ th.num {
     vector-effect: non-scaling-stroke;
 }
 
+.line-point {
+    stroke: #fff;
+    stroke-width: 1.2;
+    vector-effect: non-scaling-stroke;
+}
+
+.line-point.spend {
+    fill: #17213c;
+}
+
+.line-point.leads {
+    fill: #ed1b2f;
+}
+
+.line-point.sales {
+    fill: #4b5f86;
+}
+
 .line-hover-layer {
     position: absolute;
-    inset: 0;
+    inset: 0 0 24px;
 }
 
 .line-hover-point {
@@ -1443,15 +1461,30 @@ th.num {
     opacity: 1;
 }
 
-.campaign-line-labels {
-    min-width: 620px;
-    display: grid;
-    gap: 0;
+.line-label-layer {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 20px;
+}
+
+.line-axis-label {
+    position: absolute;
+    bottom: 0;
+    transform: translateX(-50%);
     color: var(--muted);
     font-size: 10px;
     font-weight: 800;
-    padding-top: 5px;
-    text-align: center;
+    white-space: nowrap;
+}
+
+.line-axis-label.is-first {
+    transform: translateX(0);
+}
+
+.line-axis-label.is-last {
+    transform: translateX(-100%);
 }
 
 .campaign-bar-list {
@@ -1490,7 +1523,7 @@ th.num {
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, var(--brand-primary), #7d494e);
+    background: linear-gradient(90deg, #17213c, #ed1b2f);
 }
 
 .platform-chart-group {

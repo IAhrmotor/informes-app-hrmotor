@@ -53,6 +53,13 @@ class BuildCampaignAttributionCommand extends Command
         $this->line('Reservas: '.$result['reservations']);
         $this->line('Reservas caidas: '.$result['fallen_reservations']);
         $this->line('Ventas: '.$result['sales']);
+        $this->line('Ventas atribuidas: '.$result['sales']);
+        $this->line('Ventas con opportunity encontrada: '.$result['sales_with_opportunity_found']);
+        $this->line('Ventas con opo_for_importe_total > 0: '.$result['sales_with_opo_for_importe_total']);
+        $this->line('Ventas con amount > 0: '.$result['sales_with_amount']);
+        $this->line('Ventas con sale_amount final > 0: '.$result['sales_with_sale_amount']);
+        $this->line('Suma sale_amount: '.number_format((float) $result['sale_amount_sum'], 2, '.', ''));
+        $this->line('Campo usado para importe: '.$result['sale_amount_field_used']);
         $this->line('Tiempo total: '.$result['duration_seconds'].'s');
         $this->line('Memoria pico: '.$result['peak_memory_mb'].' MB');
 

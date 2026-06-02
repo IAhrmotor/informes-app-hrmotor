@@ -423,7 +423,7 @@ class CampaignDashboardDatasetService
             'attribution_window_days' => $filters['attribution_window_days'],
             'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
             'kpis' => $totals,
-            'warnings' => $this->warnings($rows, $totals),
+            'warnings' => $this->warnings($rows, $totals, $period, $filters),
             'charts' => $this->charts($rows, $filters, $period),
             'diagnostics' => $this->diagnostics($allRows, $period, $filters),
             'filters' => $this->filterOptions(),
@@ -567,7 +567,7 @@ class CampaignDashboardDatasetService
         ];
     }
 
-    private function warnings(array $rows, array $totals): array
+    private function warnings(array $rows, array $totals, array $period, array $filters): array
     {
         $warnings = [];
 
@@ -592,9 +592,11 @@ class CampaignDashboardDatasetService
         }
 
         if (($totals['sales'] ?? 0) > 0 && ($totals['sale_amount'] ?? null) === null) {
-            $warnings[] = ! $this->saleAmountResolver->preferredColumnExists()
-                ? $this->saleAmountResolver->diagnosticMessage().' ROAS y ROI quedan sin dato hasta que exista ese campo local.'
-                : $this->saleAmountResolver->emptyAmountsMessage();
+            $warning = $this->saleAmountWarning($period, $filters);
+
+            if ($warning !== null) {
+                $warnings[] = $warning;
+            }
         }
 
         $lastSyncedAt = $this->lastMetricSyncedAt();
@@ -605,6 +607,61 @@ class CampaignDashboardDatasetService
         }
 
         return array_values(array_unique($warnings));
+    }
+
+    private function saleAmountWarning(array $period, array $filters): ?string
+    {
+        if (! $this->saleAmountResolver->preferredColumnExists()) {
+            return $this->saleAmountResolver->diagnosticMessage().' ROAS y ROI quedan sin dato hasta que exista ese campo local.';
+        }
+
+        $attributedSales = $this->attributionBase($period, $filters)
+            ->where('has_sale', true)
+            ->count();
+
+        if ($attributedSales === 0) {
+            return null;
+        }
+
+        $attributedSalesWithAmount = $this->attributionBase($period, $filters)
+            ->where('has_sale', true)
+            ->where('sale_amount', '>', 0)
+            ->count();
+
+        if ($attributedSalesWithAmount > 0) {
+            return null;
+        }
+
+        $salesWithLocalOpportunity = $this->attributionBase($period, $filters)
+            ->join('salesforce_opportunities as so', 'so.salesforce_id', '=', 'campaign_attributions.opportunity_id')
+            ->where('campaign_attributions.has_sale', true)
+            ->count();
+
+        if ($salesWithLocalOpportunity === 0) {
+            return 'Hay ventas atribuidas sin oportunidad local asociada. Revisar cruce opportunity_id.';
+        }
+
+        $synchronizedPositiveAmounts = DB::table('salesforce_opportunities')
+            ->where('opo_for_importe_total', '>', 0)
+            ->count();
+
+        if ($synchronizedPositiveAmounts === 0) {
+            return 'La columna opo_for_importe_total existe, pero no contiene importes sincronizados. Revisar sync de Opportunity.OPO_FOR_Importe_total__c.';
+        }
+
+        if ($this->attributedSalesWithOpportunityAmount($period, $filters, 'opo_for_importe_total', 'count') > 0) {
+            return null;
+        }
+
+        return $this->saleAmountResolver->emptyAmountsMessage();
+    }
+
+    private function attributionBase(array $period, array $filters)
+    {
+        return DB::table('campaign_attributions')
+            ->where('lead_created_at', '>=', $period['start_at'])
+            ->where('lead_created_at', '<', $period['end_at'])
+            ->where('attribution_window_days', $filters['attribution_window_days']);
     }
 
     private function diagnostics(array $rows, array $period, array $filters): array

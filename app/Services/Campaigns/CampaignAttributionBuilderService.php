@@ -94,6 +94,7 @@ class CampaignAttributionBuilderService
             $stats['reservations'] += $opportunityFlags['has_reservation'] ? 1 : 0;
             $stats['fallen_reservations'] += $opportunityFlags['has_fallen_reservation'] ? 1 : 0;
             $stats['sales'] += $opportunityFlags['has_sale'] ? 1 : 0;
+            $this->countSaleAmountStats($stats, $opportunity, $opportunityFlags);
 
             if (count($batch) >= self::UPSERT_CHUNK_SIZE) {
                 $this->flushAttributions($batch);
@@ -111,6 +112,10 @@ class CampaignAttributionBuilderService
             $stats['warnings'][] = $this->saleAmountResolver->diagnosticMessage();
         }
 
+        $stats['sale_amount_field_used'] = $stats['sales_with_opo_for_importe_total'] > 0
+            ? 'opo_for_importe_total'
+            : ($stats['sales_with_amount'] > 0 ? 'amount' : 'none');
+        $stats['sale_amount_sum'] = round((float) $stats['sale_amount_sum'], 2);
         $stats['duration_seconds'] = round(microtime(true) - $startedAt, 2);
         $stats['peak_memory_mb'] = round(memory_get_peak_usage(true) / 1024 / 1024, 2);
         $stats = array_merge($stats, $this->topDiagnostics($start, $end, $windowDays));
@@ -699,6 +704,32 @@ class CampaignAttributionBuilderService
         }
     }
 
+    private function countSaleAmountStats(array &$stats, ?object $opportunity, array $opportunityFlags): void
+    {
+        if (! $opportunityFlags['has_sale']) {
+            return;
+        }
+
+        if ($opportunity !== null) {
+            $stats['sales_with_opportunity_found']++;
+        }
+
+        if ($opportunity !== null && $this->saleAmountResolver->positiveValue($opportunity, 'opo_for_importe_total') !== null) {
+            $stats['sales_with_opo_for_importe_total']++;
+        }
+
+        if ($opportunity !== null && $this->saleAmountResolver->positiveValue($opportunity, 'amount') !== null) {
+            $stats['sales_with_amount']++;
+        }
+
+        $saleAmount = $opportunityFlags['sale_amount'];
+
+        if ($saleAmount !== null && (float) $saleAmount > 0) {
+            $stats['sales_with_sale_amount']++;
+            $stats['sale_amount_sum'] += (float) $saleAmount;
+        }
+    }
+
     private function emptyStats(CarbonImmutable $start, CarbonImmutable $end): array
     {
         return [
@@ -730,6 +761,12 @@ class CampaignAttributionBuilderService
             'reservations' => 0,
             'fallen_reservations' => 0,
             'sales' => 0,
+            'sales_with_opportunity_found' => 0,
+            'sales_with_opo_for_importe_total' => 0,
+            'sales_with_amount' => 0,
+            'sales_with_sale_amount' => 0,
+            'sale_amount_sum' => 0.0,
+            'sale_amount_field_used' => 'none',
             'duration_seconds' => 0.0,
             'peak_memory_mb' => 0.0,
             'top_campaign_acquired' => [],

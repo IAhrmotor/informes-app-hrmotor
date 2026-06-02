@@ -414,39 +414,45 @@ function dailyBarsChartHtml(rows) {
 
 function dailyLineChartHtml(rows) {
     const width = 100;
-    const height = 100;
+    const chartHeight = 96;
     const labelEvery = Math.max(1, Math.ceil(rows.length / 12));
-    const seriesSvg = dailySeriesDefinitions
-        .filter((series) => dailyVisibleSeries.includes(series.key))
+    const activeSeries = activeDailySeries();
+    const seriesSvg = activeSeries
         .map((series) => {
             const max = dailyMax(rows, series.key);
-            const points = rows.map((row, index) => {
-                const x = rows.length === 1 ? width / 2 : (index / (rows.length - 1)) * width;
-                const y = height - pointBottom(row[series.key], max);
+            const coordinates = rows.map((row, index) => ({
+                x: lineX(index, rows.length),
+                y: lineY(row[series.key], max, chartHeight),
+            }));
+            const points = coordinates.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ');
+            const circles = coordinates.map((point, index) => `
+                <circle class="line-point ${escapeHtml(series.className)}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="1.55">
+                    <title>${escapeHtml(dailyTooltip(rows[index]))}</title>
+                </circle>
+            `).join('');
 
-                return `${x.toFixed(2)},${y.toFixed(2)}`;
-            }).join(' ');
-
-            return `<polyline class="line-series ${escapeHtml(series.className)}" points="${points}" />`;
+            return `<polyline class="line-series ${escapeHtml(series.className)}" points="${points}" />${circles}`;
         }).join('');
     const hoverPoints = rows.map((row, index) => {
-        const x = rows.length === 1 ? 50 : (index / (rows.length - 1)) * 100;
+        const x = lineX(index, rows.length);
         const tooltip = dailyTooltip(row);
 
-        return `<span class="line-hover-point" style="left:${x}%" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}"></span>`;
+        return `<span class="line-hover-point" style="left:${x.toFixed(2)}%" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}"></span>`;
     }).join('');
     const labels = rows.map((row, index) => `
-        <span>${showDateLabel(index, rows.length, labelEvery) ? escapeHtml(formatShortDate(row.date)) : ''}</span>
+        ${showDateLabel(index, rows.length, labelEvery)
+            ? `<span class="line-axis-label ${index === 0 ? 'is-first' : (index === rows.length - 1 ? 'is-last' : '')}" style="left:${lineX(index, rows.length).toFixed(2)}%">${escapeHtml(formatShortDate(row.date))}</span>`
+            : ''}
     `).join('');
 
     return `
         <div class="campaign-line-chart">
-            <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+            <svg viewBox="0 0 ${width} ${chartHeight}" preserveAspectRatio="none" aria-hidden="true">
                 ${seriesSvg}
             </svg>
             <div class="line-hover-layer">${hoverPoints}</div>
+            <div class="line-label-layer">${labels}</div>
         </div>
-        <div class="campaign-line-labels" style="grid-template-columns: repeat(${rows.length}, minmax(18px, 1fr));">${labels}</div>
     `;
 }
 
@@ -1019,14 +1025,28 @@ function saleAmountFieldUsedLabel(value) {
 function dailyTooltip(row) {
     return [
         `Fecha: ${formatDate(row.date)}`,
-        `Inversion: ${formatMoney(Number(row.spend || 0))}`,
-        `Leads Salesforce: ${formatNumber(Number(row.leads_salesforce || 0))}`,
-        `Ventas: ${formatNumber(Number(row.sales || 0))}`,
+        ...activeDailySeries().map((series) => {
+            const label = series.key === 'leads_salesforce' ? 'Leads Salesforce' : series.label;
+
+            return `${label}: ${series.formatter(Number(row[series.key] || 0))}`;
+        }),
     ].join('\n');
 }
 
 function dailyMax(rows, key) {
     return Math.max(...rows.map((row) => Number(row[key] || 0)), 0);
+}
+
+function activeDailySeries() {
+    return dailySeriesDefinitions.filter((series) => dailyVisibleSeries.includes(series.key));
+}
+
+function lineX(index, total) {
+    return total <= 1 ? 50 : (index / (total - 1)) * 100;
+}
+
+function lineY(value, max, chartHeight) {
+    return chartHeight - pointBottom(value, max);
 }
 
 function showDateLabel(index, total, labelEvery) {

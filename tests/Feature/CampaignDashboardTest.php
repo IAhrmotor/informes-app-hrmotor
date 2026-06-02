@@ -8,6 +8,7 @@ use App\Models\ReportUser;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
 use App\Services\Campaigns\CampaignAttributionBuilderService;
+use App\Services\Campaigns\CampaignSaleAmountResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -47,6 +48,9 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('campaigns.dailyChart.chartType', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('data-series', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('data-chart-type', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('function lineX(index, total)', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('line-label-layer', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringNotContainsString('#7d494e', file_get_contents(resource_path('css/reports/leads-dashboard.css')));
         $this->assertStringContainsString('id="mediumAcquired"', $html);
         $this->assertStringContainsString('id="campaignAcquired"', $html);
         $this->assertStringContainsString('id="campaignId"', $html);
@@ -660,6 +664,28 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('diagnostics.amount_field_status', 'exists_but_zero')
             ->assertJsonPath('diagnostics.sale_amount_field_used', 'none')
             ->assertJsonPath('diagnostics.attributed_sales_with_amount', 0);
+    }
+
+    public function test_sale_amount_resolver_lee_raw_payload_case_insensitive_y_decimal_formateado(): void
+    {
+        $opportunity = SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-raw-importe',
+            'name' => 'Oportunidad Raw Importe',
+            'created_date' => '2026-05-11 10:00:00',
+            'record_type_name' => 'Venta',
+            'stage_name' => 'Contrato',
+            'reservation' => true,
+            'reservation_date' => '2026-05-12',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-15',
+            'amount' => 0,
+            'opo_for_importe_total' => null,
+            'raw_payload' => [
+                'OPO_FOR_Importe_total__C' => '12.345,67',
+            ],
+        ]);
+
+        $this->assertSame(12345.67, app(CampaignSaleAmountResolver::class)->resolve($opportunity->fresh()));
     }
 
     private function query(): string

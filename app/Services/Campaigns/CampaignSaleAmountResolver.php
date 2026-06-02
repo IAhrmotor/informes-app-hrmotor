@@ -68,12 +68,10 @@ class CampaignSaleAmountResolver
     public function resolve(object $opportunity): ?float
     {
         foreach ($this->localColumns() as $column) {
-            if (isset($opportunity->{$column}) && is_numeric($opportunity->{$column})) {
-                $amount = (float) $opportunity->{$column};
+            $amount = $this->positiveValue($opportunity, $column);
 
-                if ($amount > 0) {
-                    return $amount;
-                }
+            if ($amount !== null) {
+                return $amount;
             }
         }
 
@@ -88,14 +86,19 @@ class CampaignSaleAmountResolver
         }
 
         foreach (self::CANDIDATE_RAW_KEYS as $key) {
-            $value = $payload[$key] ?? null;
+            $amount = $this->parseAmount($this->payloadValue($payload, $key));
 
-            if (is_numeric($value) && (float) $value > 0) {
-                return (float) $value;
+            if ($amount !== null) {
+                return $amount;
             }
         }
 
         return null;
+    }
+
+    public function positiveValue(object $opportunity, string $column): ?float
+    {
+        return $this->parseAmount($opportunity->{$column} ?? null);
     }
 
     public function diagnosticMessage(): string
@@ -110,5 +113,67 @@ class CampaignSaleAmountResolver
         }
 
         return 'La columna amount existe, pero no contiene importes para las ventas atribuidas. Hay que confirmar el API name del campo Salesforce de importe vendido.';
+    }
+
+    private function payloadValue(array $payload, string $key): mixed
+    {
+        if (array_key_exists($key, $payload)) {
+            return $payload[$key];
+        }
+
+        $lowerKey = mb_strtolower($key);
+
+        foreach ($payload as $payloadKey => $value) {
+            if (mb_strtolower((string) $payloadKey) === $lowerKey) {
+                return $value;
+            }
+        }
+
+        return null;
+    }
+
+    private function parseAmount(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return $value > 0 ? (float) $value : null;
+        }
+
+        $normalized = trim((string) $value);
+
+        if ($normalized === '') {
+            return null;
+        }
+
+        $normalized = preg_replace('/[^\d,.\-]+/', '', $normalized) ?? '';
+
+        if ($normalized === '' || $normalized === '-' || $normalized === ',' || $normalized === '.') {
+            return null;
+        }
+
+        $commaPosition = strrpos($normalized, ',');
+        $dotPosition = strrpos($normalized, '.');
+
+        if ($commaPosition !== false && $dotPosition !== false) {
+            if ($commaPosition > $dotPosition) {
+                $normalized = str_replace('.', '', $normalized);
+                $normalized = str_replace(',', '.', $normalized);
+            } else {
+                $normalized = str_replace(',', '', $normalized);
+            }
+        } elseif ($commaPosition !== false) {
+            $normalized = str_replace(',', '.', $normalized);
+        }
+
+        if (! is_numeric($normalized)) {
+            return null;
+        }
+
+        $amount = (float) $normalized;
+
+        return $amount > 0 ? $amount : null;
     }
 }

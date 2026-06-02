@@ -181,8 +181,8 @@ SOQL;
                 'name' => data_get($record, 'Name'),
                 'created_date' => $this->parseDateTime(data_get($record, 'CreatedDate')),
                 'close_date' => data_get($record, 'CloseDate'),
-                'amount' => data_get($record, 'Amount'),
-                'opo_for_importe_total' => data_get($record, 'OPO_FOR_Importe_total__c'),
+                'amount' => $this->salesforceValue($record, 'Amount'),
+                'opo_for_importe_total' => $this->salesforceValue($record, 'OPO_FOR_Importe_total__c'),
                 'stage_name' => $stage,
                 'record_type_name' => data_get($record, 'RecordType.Name'),
                 'owner_id' => data_get($record, 'OwnerId'),
@@ -246,6 +246,23 @@ SOQL;
         return $matches
             ->sortByDesc(fn (array $lead) => data_get($lead, 'CreatedDate'))
             ->values();
+    }
+
+    private function salesforceValue(array $record, string $key): mixed
+    {
+        if (array_key_exists($key, $record)) {
+            return $record[$key];
+        }
+
+        $lowerKey = mb_strtolower($key);
+
+        foreach ($record as $recordKey => $value) {
+            if (mb_strtolower((string) $recordKey) === $lowerKey) {
+                return $value;
+            }
+        }
+
+        return data_get($record, $key);
     }
 
     private function queryLeads(array $emails, array $phones): array
