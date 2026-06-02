@@ -14,6 +14,7 @@ class RefreshCampaignsReportCommand extends Command
 {
     protected $signature = 'reports:refresh-campaigns
         {--days=30 : Dias del periodo del informe}
+        {--months= : Meses del periodo del informe; tiene prioridad sobre --days}
         {--window=30 : Ventana de atribucion en dias}
         {--store : Guarda snapshot en base de datos}';
 
@@ -21,10 +22,9 @@ class RefreshCampaignsReportCommand extends Command
 
     public function handle(CampaignDashboardDatasetService $dataset): int
     {
-        $days = max((int) $this->option('days'), 1);
         $window = max((int) $this->option('window'), 1);
         $end = CarbonImmutable::now()->endOfDay();
-        $start = $end->subDays($days)->startOfDay();
+        $start = $this->periodStart($end);
 
         try {
             $this->invalidateCache();
@@ -75,5 +75,16 @@ class RefreshCampaignsReportCommand extends Command
     private function invalidateCache(): void
     {
         Cache::forever('campaign_dashboard_cache_version', ((int) Cache::get('campaign_dashboard_cache_version', 1)) + 1);
+    }
+
+    private function periodStart(CarbonImmutable $end): CarbonImmutable
+    {
+        $months = $this->option('months');
+
+        if ($months !== null && $months !== '') {
+            return $end->subMonthsNoOverflow(max((int) $months, 1))->startOfDay();
+        }
+
+        return $end->subDays(max((int) $this->option('days'), 1))->startOfDay();
     }
 }

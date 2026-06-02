@@ -42,6 +42,9 @@ class CampaignDashboardTest extends TestCase
         $html = $this->get('/informes/campanas')->assertOk()->getContent();
 
         $this->assertStringContainsString('id="campaignCharts"', $html);
+        $this->assertStringContainsString('id="platformComparison"', $html);
+        $this->assertStringContainsString('id="reviewCampaigns"', $html);
+        $this->assertStringContainsString('option value="active" selected', $html);
         $this->assertStringContainsString('id="rankingsToggle"', $html);
         $this->assertStringContainsString('id="rankingsPopover"', $html);
         $this->assertStringContainsString('campaigns.dailyChart.visibleSeries', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
@@ -50,6 +53,9 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('data-chart-type', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('function lineX(index, total)', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('line-label-layer', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString("{ value: 'current_year', label: 'Ano actual' }", file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('Evolucion de tasaciones y compras', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('Campanas a revisar', $html);
         $this->assertStringNotContainsString('#7d494e', file_get_contents(resource_path('css/reports/leads-dashboard.css')));
         $this->assertStringContainsString('id="mediumAcquired"', $html);
         $this->assertStringContainsString('id="campaignAcquired"', $html);
@@ -237,6 +243,10 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('kpis.estimated_roi', 59)
             ->assertJsonStructure([
                 'charts' => ['daily_evolution', 'funnel', 'platforms'],
+                'daily_investment_leads',
+                'daily_results',
+                'platform_comparison',
+                'review_campaigns',
                 'diagnostics' => [
                     'platform_campaigns',
                     'salesforce_origins',
@@ -355,6 +365,138 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('items.0.cost_per_lead', null);
     }
 
+    public function test_venta_posterior_cuenta_si_el_lead_nacio_en_el_periodo_y_esta_en_ventana(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'meta',
+            'metric_date' => '2026-05-10',
+            'campaign_id' => 'camp-lead-pivot',
+            'campaign_name' => 'Lead Pivot',
+            'spend' => 100,
+            'impressions' => 1000,
+            'clicks' => 100,
+        ]));
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-lead-pivot',
+            'name' => 'Lead Pivot',
+            'created_date' => '2026-05-20 10:00:00',
+            'status' => 'Convertido',
+            'record_type_name' => 'Venta',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'fuente_origen' => 'Meta',
+            'medio_origen' => 'Paid Social',
+            'campaign_acquired' => 'Lead Pivot',
+            'acquired_id' => 'camp-lead-pivot',
+            'content_acquired' => null,
+            'phone' => '600000001',
+            'email' => 'leadpivot@example.com',
+            'is_converted' => true,
+            'converted_opportunity_id' => '006-lead-pivot',
+            'portal_text' => 'Meta',
+            'medio_nuevo' => 'Formulario',
+            'delegacion_encargada_text' => 'Alcobendas',
+        ]);
+
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-lead-pivot',
+            'name' => 'Oportunidad Lead Pivot',
+            'created_date' => '2026-06-01 10:00:00',
+            'record_type_name' => 'Venta',
+            'stage_name' => 'Contrato',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'owner_delegation' => 'Alcobendas',
+            'account_phone' => '+34 600000001',
+            'account_person_email' => 'leadpivot@example.com',
+            'portal_resolved' => 'Meta',
+            'portal_resolution_source' => 'lead',
+            'portal_resolution_lead_id' => '00Q-lead-pivot',
+            'reservation' => true,
+            'reservation_date' => '2026-06-02',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-05',
+            'amount' => 0,
+            'opo_for_importe_total' => 12000,
+        ]);
+
+        CampaignAttribution::query()->create([
+            'lead_id' => '00Q-lead-pivot',
+            'opportunity_id' => '006-lead-pivot',
+            'platform' => 'meta',
+            'account_id' => 'act_1',
+            'campaign_id' => 'camp-lead-pivot',
+            'campaign_name' => 'Lead Pivot',
+            'campaign_name_key' => 'leadpivot',
+            'lead_created_at' => '2026-05-20 10:00:00',
+            'opportunity_created_at' => '2026-06-01 10:00:00',
+            'reservation_date' => '2026-06-02',
+            'sale_date' => '2026-06-05',
+            'sale_amount' => 12000,
+            'has_opportunity' => true,
+            'has_reservation' => true,
+            'has_sale' => true,
+            'attribution_method' => 'campaign_id_match',
+            'attribution_confidence' => 'high',
+            'match_status' => 'Cruzada por ID',
+            'campaign_source_type' => 'platform_campaign',
+            'attribution_window_days' => 30,
+        ]);
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->assertJsonPath('period_mode', 'lead_pivot')
+            ->assertJsonPath('kpis.leads_salesforce', 1)
+            ->assertJsonPath('kpis.opportunities', 1)
+            ->assertJsonPath('kpis.reservations', 1)
+            ->assertJsonPath('kpis.sales', 1)
+            ->assertJsonPath('kpis.sale_amount', 12000);
+    }
+
+    public function test_venta_del_periodo_no_cuenta_si_el_lead_nacio_fuera_del_periodo(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'meta',
+            'metric_date' => '2026-05-10',
+            'campaign_id' => 'camp-old-lead',
+            'campaign_name' => 'Old Lead',
+            'spend' => 100,
+            'impressions' => 1000,
+            'clicks' => 100,
+        ]));
+
+        CampaignAttribution::query()->create([
+            'lead_id' => '00Q-old-lead',
+            'opportunity_id' => '006-old-lead',
+            'platform' => 'meta',
+            'campaign_id' => 'camp-old-lead',
+            'campaign_name' => 'Old Lead',
+            'campaign_name_key' => 'oldlead',
+            'lead_created_at' => '2026-04-20 10:00:00',
+            'opportunity_created_at' => '2026-05-01 10:00:00',
+            'reservation_date' => '2026-05-02',
+            'sale_date' => '2026-05-05',
+            'sale_amount' => 12000,
+            'has_opportunity' => true,
+            'has_reservation' => true,
+            'has_sale' => true,
+            'attribution_method' => 'campaign_id_match',
+            'attribution_confidence' => 'high',
+            'match_status' => 'Cruzada por ID',
+            'campaign_source_type' => 'platform_campaign',
+            'attribution_window_days' => 30,
+        ]);
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->assertJsonPath('kpis.leads_salesforce', 0)
+            ->assertJsonPath('kpis.opportunities', 0)
+            ->assertJsonPath('kpis.reservations', 0)
+            ->assertJsonPath('kpis.sales', 0)
+            ->assertJsonPath('kpis.sale_amount', null);
+    }
+
     public function test_salesforce_source_medium_only_stays_in_diagnostics_and_not_main_campaigns(): void
     {
         SalesforceLead::query()->create([
@@ -443,8 +585,8 @@ class CampaignDashboardTest extends TestCase
             ->assertOk()
             ->json();
 
-        $this->assertSame(90, $summary['charts']['funnel'][0]['value']);
-        $this->assertSame(0, $summary['charts']['funnel'][1]['value']);
+        $this->assertSame(900, $summary['charts']['funnel'][0]['value']);
+        $this->assertSame(90, $summary['charts']['funnel'][1]['value']);
         $this->assertSame(1, $summary['diagnostics']['salesforce_origins']);
     }
 
@@ -705,6 +847,8 @@ class CampaignDashboardTest extends TestCase
             'account_id' => 'act_1',
             'campaign_id' => 'camp-1',
             'campaign_name' => 'Campana',
+            'campaign_status' => 'ENABLED',
+            'campaign_effective_status' => 'ACTIVE',
             'spend' => 0,
             'impressions' => 0,
             'clicks' => 0,

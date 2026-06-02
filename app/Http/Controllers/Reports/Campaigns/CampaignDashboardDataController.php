@@ -56,6 +56,10 @@ class CampaignDashboardDataController extends Controller
             'Reservas caidas',
             'Ventas',
             'Importe vendido',
+            'Tasaciones generadas',
+            'Compras contratos firmados',
+            'Coste por tasacion',
+            'Coste por compra',
             'Coste por lead',
             'Coste por oportunidad',
             'Coste por reserva',
@@ -63,6 +67,10 @@ class CampaignDashboardDataController extends Controller
             'ROAS',
             'ROI estimado',
             'Clasificacion',
+            'Estado campana',
+            'Fecha inicio campana',
+            'Fecha fin campana',
+            'Ultima fecha con inversion',
         ];
 
         return response()->streamDownload(function () use ($rows, $headers): void {
@@ -90,6 +98,10 @@ class CampaignDashboardDataController extends Controller
                     $row['fallen_reservations'],
                     $row['sales'],
                     $row['sale_amount'],
+                    $row['appraisals_generated'] ?? 0,
+                    $row['purchases'] ?? 0,
+                    $row['cost_per_appraisal'] ?? null,
+                    $row['cost_per_purchase'] ?? null,
                     $row['cost_per_lead'],
                     $row['cost_per_opportunity'],
                     $row['cost_per_reservation'],
@@ -97,6 +109,10 @@ class CampaignDashboardDataController extends Controller
                     $row['roas'],
                     $row['estimated_roi'],
                     $row['classification'],
+                    $row['campaign_status_label'] ?? null,
+                    $row['campaign_start_date'] ?? null,
+                    $row['campaign_end_date'] ?? null,
+                    $row['last_spend_date'] ?? null,
                 ]);
             }
 

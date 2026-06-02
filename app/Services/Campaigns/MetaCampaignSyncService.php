@@ -45,7 +45,16 @@ class MetaCampaignSyncService
                 continue;
             }
 
+            try {
+                $campaigns = collect($this->client->campaigns($accountId))->keyBy('id');
+            } catch (Throwable $exception) {
+                $campaigns = collect();
+                $warnings[] = "No se ha podido actualizar el estado de campanas de Meta Ads ({$accountId}). ".$exception->getMessage();
+                Log::warning(end($warnings));
+            }
+
             foreach ($rows as $row) {
+                $campaign = $campaigns->get((string) data_get($row, 'campaign_id'));
                 $processed++;
                 $this->metrics->upsert([
                     'platform' => 'meta',
@@ -54,6 +63,10 @@ class MetaCampaignSyncService
                     'account_name' => data_get($row, 'account_name'),
                     'campaign_id' => data_get($row, 'campaign_id'),
                     'campaign_name' => data_get($row, 'campaign_name'),
+                    'campaign_status' => data_get($campaign, 'status'),
+                    'campaign_effective_status' => data_get($campaign, 'effective_status'),
+                    'campaign_start_date' => $this->dateOnly(data_get($campaign, 'start_time')),
+                    'campaign_end_date' => $this->dateOnly(data_get($campaign, 'stop_time')),
                     'adset_id' => data_get($row, 'adset_id'),
                     'adset_name' => data_get($row, 'adset_name'),
                     'ad_id' => data_get($row, 'ad_id'),
@@ -105,6 +118,15 @@ class MetaCampaignSyncService
         }
 
         return $found ? $total : null;
+    }
+
+    private function dateOnly(mixed $value): ?string
+    {
+        if (blank($value)) {
+            return null;
+        }
+
+        return substr((string) $value, 0, 10);
     }
 
     private function invalidateCache(): void

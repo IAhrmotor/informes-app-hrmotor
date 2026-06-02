@@ -38,6 +38,8 @@ class CampaignAttribution extends Model
         'commercial_user_name',
         'attribution_method',
         'attribution_confidence',
+        'opportunity_attribution_method',
+        'opportunity_attribution_confidence',
         'match_status',
         'campaign_source_type',
         'attribution_window_days',

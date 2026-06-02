@@ -15,6 +15,10 @@ class CampaignPlatformDailyMetric extends Model
         'account_name',
         'campaign_id',
         'campaign_name',
+        'campaign_status',
+        'campaign_effective_status',
+        'campaign_start_date',
+        'campaign_end_date',
         'adset_id',
         'adset_name',
         'ad_group_id',
@@ -33,6 +37,8 @@ class CampaignPlatformDailyMetric extends Model
 
     protected $casts = [
         'metric_date' => 'date',
+        'campaign_start_date' => 'date',
+        'campaign_end_date' => 'date',
         'spend' => 'decimal:2',
         'impressions' => 'integer',
         'clicks' => 'integer',

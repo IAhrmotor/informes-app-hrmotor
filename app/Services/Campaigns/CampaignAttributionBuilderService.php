@@ -44,7 +44,8 @@ class CampaignAttributionBuilderService
 
         foreach ($leads as $lead) {
             $campaign = $this->resolveCampaign($lead, $metrics);
-            $opportunity = $assignments[(string) $lead->salesforce_id] ?? null;
+            $assignment = $assignments[(string) $lead->salesforce_id] ?? null;
+            $opportunity = $assignment['opportunity'] ?? null;
             $opportunityFlags = $this->opportunityFlags($lead, $opportunity, $windowDays);
             $decorated = $this->leadDataset->decorateLead($lead);
 
@@ -82,6 +83,8 @@ class CampaignAttributionBuilderService
                 'commercial_user_name' => $decorated['gestor_nombre'] ?? null,
                 'attribution_method' => $campaign['method'],
                 'attribution_confidence' => $campaign['confidence'],
+                'opportunity_attribution_method' => $assignment['method'] ?? null,
+                'opportunity_attribution_confidence' => $assignment['confidence'] ?? null,
                 'match_status' => $campaign['match_status'],
                 'campaign_source_type' => $campaign['campaign_source_type'],
                 'attribution_window_days' => $windowDays,
@@ -480,7 +483,11 @@ class CampaignAttributionBuilderService
                 continue;
             }
 
-            $assignments[(string) $lead->salesforce_id] = $opportunity;
+            $assignments[(string) $lead->salesforce_id] = [
+                'opportunity' => $opportunity,
+                'method' => 'converted_opportunity_id',
+                'confidence' => 'high',
+            ];
             $claimedOpportunityIds[$opportunityId] = true;
         }
 
@@ -507,25 +514,49 @@ class CampaignAttributionBuilderService
                 continue;
             }
 
-            $candidateLeadIds = collect()
+            $emailLeadIds = collect()
                 ->merge($this->indexedValues($emailIndex, $this->normalizeEmail($opportunity->account_person_email)))
                 ->merge($this->indexedValues($emailIndex, $this->normalizeEmail($opportunity->account_company_email)))
-                ->merge($this->indexedValues($phoneIndex, $this->normalizePhone($opportunity->account_phone)))
                 ->filter()
-                ->unique();
+                ->unique()
+                ->values();
+            $phoneLeadIds = collect($this->indexedValues($phoneIndex, $this->normalizePhone($opportunity->account_phone)))
+                ->filter()
+                ->unique()
+                ->values();
 
-            $candidate = $candidateLeadIds
-                ->map(fn (string $leadId) => $leadById->get($leadId))
+            $candidateRows = $emailLeadIds
+                ->map(fn (string $leadId): array => ['lead_id' => $leadId, 'method' => 'account_email_match'])
+                ->merge($phoneLeadIds->map(fn (string $leadId): array => ['lead_id' => $leadId, 'method' => 'account_phone_match']))
+                ->unique(fn (array $row): string => $row['lead_id'])
+                ->map(function (array $row) use ($leadById): ?array {
+                    $lead = $leadById->get($row['lead_id']);
+
+                    return $lead ? ['lead' => $lead, 'method' => $row['method']] : null;
+                })
                 ->filter()
-                ->filter(fn (object $lead): bool => $this->withinWindow($lead->created_date, $opportunity->created_date, $windowDays))
-                ->sortByDesc('created_date')
-                ->first();
+                ->filter(fn (array $row): bool => $this->withinWindow($row['lead']->created_date, $opportunity->created_date, $windowDays))
+                ->sortByDesc(fn (array $row): string => sprintf(
+                    '%02d|%s',
+                    $this->leadAttributionPriority($row['lead']),
+                    CarbonImmutable::parse($row['lead']->created_date)->format('YmdHis')
+                ))
+                ->values();
+
+            $candidateRow = $candidateRows->first();
+            $candidate = $candidateRow['lead'] ?? null;
 
             if (! $candidate) {
                 continue;
             }
 
-            $assignments[(string) $candidate->salesforce_id] = $opportunity;
+            $assignments[(string) $candidate->salesforce_id] = [
+                'opportunity' => $opportunity,
+                'method' => $candidateRows->count() > 1 && $this->leadAttributionPriority($candidate) > 1
+                    ? 'account_lead_campaign_match'
+                    : $candidateRow['method'],
+                'confidence' => $candidateRows->count() > 1 ? 'low' : 'medium',
+            ];
             $claimedOpportunityIds[(string) $opportunity->salesforce_id] = true;
         }
 
@@ -535,6 +566,25 @@ class CampaignAttributionBuilderService
     private function indexedValues(array $index, ?string $key): array
     {
         return $key === null ? [] : ($index[$key] ?? []);
+    }
+
+    private function leadAttributionPriority(object $lead): int
+    {
+        if ($this->normalizer->isValidAttributionValue($lead->campaign_acquired)) {
+            return 3;
+        }
+
+        if ($this->normalizer->isValidAttributionValue($lead->acquired_id)
+            || $this->normalizer->isValidAttributionValue($lead->content_acquired)) {
+            return 2;
+        }
+
+        if ($this->normalizer->isValidAttributionValue($lead->fuente_origen)
+            || $this->normalizer->isValidAttributionValue($lead->medio_origen)) {
+            return 1;
+        }
+
+        return 0;
     }
 
     private function opportunityFlags(object $lead, ?object $opportunity, int $windowDays): array
@@ -557,11 +607,12 @@ class CampaignAttributionBuilderService
         $hasReservation = (bool) $opportunity->reservation
             && $this->withinWindow($lead->created_date, $opportunity->reservation_date, $windowDays);
         $recordType = $this->normalizer->compactKey($opportunity->record_type_name);
+        $candidateSaleAmount = $this->saleAmountResolver->resolve($opportunity);
         $hasSale = (bool) $opportunity->cv_signed
             && ! $isClosedLost
-            && in_array($recordType, ['venta', 'cambio'], true)
+            && ($recordType === 'venta' || ($recordType === 'cambio' && $candidateSaleAmount !== null && $candidateSaleAmount > 0))
             && $this->withinWindow($lead->created_date, $opportunity->cv_signed_date, $windowDays);
-        $saleAmount = $hasSale ? $this->saleAmountResolver->resolve($opportunity) : null;
+        $saleAmount = $hasSale ? $candidateSaleAmount : null;
 
         if ($recordType === 'cambio' && $saleAmount !== null && $saleAmount < 0) {
             $saleAmount = null;
@@ -603,7 +654,11 @@ class CampaignAttributionBuilderService
         $digits = preg_replace('/\D+/', '', (string) $value);
         $digits = preg_replace('/^34(?=\d{9}$)/', '', $digits ?? '');
 
-        return $digits !== '' ? $digits : null;
+        if ($digits === '') {
+            return null;
+        }
+
+        return strlen($digits) >= 9 ? substr($digits, -9) : $digits;
     }
 
     private function flushAttributions(array $rows): void
@@ -646,6 +701,8 @@ class CampaignAttributionBuilderService
                 'commercial_user_name',
                 'attribution_method',
                 'attribution_confidence',
+                'opportunity_attribution_method',
+                'opportunity_attribution_confidence',
                 'match_status',
                 'campaign_source_type',
                 'attribution_window_days',

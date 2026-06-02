@@ -17,7 +17,17 @@ class SalesforceMonthlyLeadsSyncService
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
     {
-        $soql = $this->soql($periodStart, $periodEnd);
+        return $this->syncWithScope($periodStart, $periodEnd, false);
+    }
+
+    public function syncCampaignLeads(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
+    {
+        return $this->syncWithScope($periodStart, $periodEnd, true);
+    }
+
+    private function syncWithScope(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $campaignOnly): array
+    {
+        $soql = $this->leadSoql($periodStart, $periodEnd, true, $campaignOnly);
         $warnings = [];
 
         try {
@@ -28,7 +38,7 @@ class SalesforceMonthlyLeadsSyncService
             }
 
             $warnings[] = 'La query de Lead con campos opcionales fallo. Revisa API names de dashboard/campanas. Error: '.$exception->getMessage();
-            $soql = $this->baseSoql($periodStart, $periodEnd);
+            $soql = $this->leadSoql($periodStart, $periodEnd, false, $campaignOnly);
             $records = $this->client->query($soql);
         }
         $saved = 0;
@@ -92,15 +102,20 @@ class SalesforceMonthlyLeadsSyncService
 
     public function soql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string
     {
-        return $this->leadSoql($periodStart, $periodEnd, true);
+        return $this->leadSoql($periodStart, $periodEnd, true, false);
     }
 
     public function baseSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string
     {
-        return $this->leadSoql($periodStart, $periodEnd, false);
+        return $this->leadSoql($periodStart, $periodEnd, false, false);
     }
 
-    private function leadSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $includeOptionalDashboardFields): string
+    public function campaignLeadsSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string
+    {
+        return $this->leadSoql($periodStart, $periodEnd, true, true);
+    }
+
+    private function leadSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $includeOptionalDashboardFields, bool $campaignOnly): string
     {
         $start = $this->soqlDateTime($periodStart);
         $end = $this->soqlDateTime($periodEnd);
@@ -123,6 +138,18 @@ class SalesforceMonthlyLeadsSyncService
     ConvertedAccountId,
     ConvertedContactId,
     ConvertedOpportunityId,
+SOQL
+            : '';
+
+        $campaignWhere = $campaignOnly
+            ? <<<'SOQL'
+    AND (
+        Campa_a_Adquirida__c != null
+        OR Id_Adquirido__c != null
+        OR Contenido_Adquirido__c != null
+        OR LEA_SEL_Fuente_Origen__c != null
+        OR LEA_SEL_Medio_Origen__c != null
+    )
 SOQL
             : '';
 
@@ -151,6 +178,7 @@ WHERE
     IsDeleted = false
     AND CreatedDate >= {$start}
     AND CreatedDate < {$end}
+{$campaignWhere}
 SOQL;
     }
 

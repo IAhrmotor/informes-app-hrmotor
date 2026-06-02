@@ -1,6 +1,6 @@
 const numberFormatter = new Intl.NumberFormat('es-ES');
 const moneyFormatter = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
-const columnsStorageKey = 'hrmotor_campaign_columns_v3';
+const columnsStorageKey = 'hrmotor_campaign_columns_v4';
 const rankingsStorageKey = 'campaigns.visibleRankings';
 const dailySeriesStorageKey = 'campaigns.dailyChart.visibleSeries';
 const dailyTypeStorageKey = 'campaigns.dailyChart.chartType';
@@ -12,10 +12,15 @@ let syncingTableScroll = false;
 let dailyVisibleSeries = loadDailyVisibleSeries();
 let dailyChartType = loadDailyChartType();
 let currentCharts = {};
+let currentContext = 'venta';
 
 const dailySeriesDefinitions = [
     { key: 'spend', label: 'Inversion', formatter: formatMoney, className: 'spend' },
     { key: 'leads_salesforce', label: 'Leads SF', formatter: formatNumber, className: 'leads' },
+];
+
+const conversionSeriesDefinitions = [
+    { key: 'reservations', label: 'Reservas', formatter: formatNumber, className: 'reservations' },
     { key: 'sales', label: 'Ventas', formatter: formatNumber, className: 'sales' },
 ];
 
@@ -25,10 +30,17 @@ const rankingDefinitions = [
     { key: 'top_opportunities', title: 'Mas oportunidades', metric: 'opportunities', formatter: formatNumber, visible: false },
     { key: 'top_reservations', title: 'Mas reservas', metric: 'reservations', formatter: formatNumber, visible: false },
     { key: 'top_sales', title: 'Mas ventas', metric: 'sales', formatter: formatNumber, visible: true },
+    { key: 'top_purchases', title: 'Mas compras', metric: 'purchases', formatter: formatNumber, visible: false },
+    { key: 'top_sale_amount', title: 'Mayor importe vendido', metric: 'sale_amount', formatter: formatMoney, visible: false },
+    { key: 'best_roas', title: 'Mejor ROAS', metric: 'roas', formatter: formatMultiplier, visible: false },
     { key: 'best_cost_per_sale', title: 'Mejor coste por venta', metric: 'cost_per_sale', formatter: formatMoney, visible: true },
+    { key: 'best_cost_per_purchase', title: 'Mejor coste por compra', metric: 'cost_per_purchase', formatter: formatMoney, visible: false },
+    { key: 'best_lead_to_purchase', title: 'Mejor conversion lead -> compra', metric: 'lead_to_purchase', formatter: formatPercentRatio, visible: false },
     { key: 'worst_cost_per_sale', title: 'Peor coste por venta', metric: 'cost_per_sale', formatter: formatMoney, visible: false },
     { key: 'high_spend_low_conversion', title: 'Mucho gasto y poca conversion', metric: 'spend', formatter: formatMoney, visible: false },
     { key: 'many_leads_few_sales', title: 'Muchos leads y pocas ventas', metric: 'leads_salesforce', formatter: formatNumber, visible: false },
+    { key: 'many_leads_few_purchases', title: 'Muchos leads y pocas compras', metric: 'leads_salesforce', formatter: formatNumber, visible: false },
+    { key: 'review_campaigns', title: 'Campanas a revisar', metric: 'value', formatter: formatNumber, visible: true },
     { key: 'review_tracking', title: 'Revisar tracking', metric: 'spend', formatter: formatMoney, visible: true },
     { key: 'boost', title: 'Potenciar', metric: 'spend', formatter: formatMoney, visible: true },
     { key: 'review', title: 'Revisar', metric: 'spend', formatter: formatMoney, visible: false },
@@ -49,18 +61,26 @@ const columnDefinitions = [
     { key: 'sales', label: 'Ventas', visible: true, numeric: true, formatter: formatNumber },
     { key: 'sale_amount', label: 'Importe vendido', visible: true, numeric: true, formatter: formatMoney },
     { key: 'account_id', label: 'Cuenta', visible: false },
-    { key: 'campaign_id', label: 'Campaign ID', visible: false },
+    { key: 'campaign_id', label: 'Campaign ID', visible: true },
     { key: 'source_acquired', label: 'Fuente adquirida', visible: false },
     { key: 'medium_acquired', label: 'Medio adquirido', visible: false },
     { key: 'acquired_id', label: 'ID adquirido', visible: false },
     { key: 'content_acquired', label: 'Contenido adquirido', visible: false },
-    { key: 'cost_per_lead', label: 'CPL', visible: false, numeric: true, formatter: formatMoney },
-    { key: 'cost_per_opportunity', label: 'CPO', visible: false, numeric: true, formatter: formatMoney },
-    { key: 'cost_per_reservation', label: 'CPR', visible: false, numeric: true, formatter: formatMoney },
-    { key: 'cost_per_sale', label: 'CPV', visible: false, numeric: true, formatter: formatMoney },
-    { key: 'roas', label: 'ROAS', visible: false, numeric: true, formatter: formatMultiplier },
-    { key: 'estimated_roi', label: 'ROI estimado', visible: false, numeric: true, formatter: formatPercentRatio },
+    { key: 'cost_per_lead', label: 'CPL', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_opportunity', label: 'CPO', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_reservation', label: 'CPR', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_sale', label: 'CPV', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'roas', label: 'ROAS', visible: true, numeric: true, formatter: formatMultiplier },
+    { key: 'estimated_roi', label: 'ROI estimado', visible: true, numeric: true, formatter: formatPercentRatio },
     { key: 'classification', label: 'Clasificacion', visible: false },
+    { key: 'campaign_status_label', label: 'Estado campana', visible: true },
+    { key: 'campaign_start_date', label: 'Fecha inicio campana', visible: false, formatter: formatDate },
+    { key: 'campaign_end_date', label: 'Fecha fin campana', visible: false, formatter: formatDate },
+    { key: 'last_spend_date', label: 'Ultima fecha con inversion', visible: false, formatter: formatDate },
+    { key: 'appraisals_generated', label: 'Tasaciones generadas', visible: false, numeric: true, formatter: formatNumber },
+    { key: 'purchases', label: 'Compras firmadas', visible: false, numeric: true, formatter: formatNumber },
+    { key: 'cost_per_appraisal', label: 'Coste por tasacion', visible: false, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_purchase', label: 'Coste por compra', visible: false, numeric: true, formatter: formatMoney },
     { key: 'lead_to_opportunity', label: 'Lead -> oportunidad', visible: false, numeric: true, formatter: formatPercentRatio },
     { key: 'opportunity_to_reservation', label: 'Oportunidad -> reserva', visible: false, numeric: true, formatter: formatPercentRatio },
     { key: 'reservation_to_sale', label: 'Reserva -> venta', visible: false, numeric: true, formatter: formatPercentRatio },
@@ -71,6 +91,7 @@ let visibleColumns = loadVisibleColumns();
 let visibleRankings = loadVisibleRankings();
 
 document.addEventListener('DOMContentLoaded', async () => {
+    populatePeriodPreset();
     setDefaultDates();
     bindTabs();
     bindFilters();
@@ -86,12 +107,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function bindTabs() {
     document.querySelectorAll('.main-tab[data-panel]').forEach((button) => {
-        button.addEventListener('click', () => {
+        button.addEventListener('click', async () => {
             document.querySelectorAll('.main-tab[data-panel]').forEach((item) => item.classList.remove('active'));
             document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.remove('active'));
 
             button.classList.add('active');
             document.getElementById(button.dataset.panel)?.classList.add('active');
+
+            if (button.dataset.context && button.dataset.context !== currentContext) {
+                currentContext = button.dataset.context;
+                await reloadAllData();
+            }
+
             syncTableScrollWidth();
         });
     });
@@ -103,6 +130,7 @@ function bindResetFilters() {
             'platform',
             'accountId',
             'campaignSearch',
+            'campaignStatus',
             'campaignSourceType',
             'mediumAcquired',
             'campaignAcquired',
@@ -121,6 +149,8 @@ function bindResetFilters() {
         });
 
         document.getElementById('attributionWindow').value = '30';
+        document.getElementById('periodPreset').value = 'last_30_days';
+        document.getElementById('campaignStatus').value = 'active';
         setDefaultDates();
         await reloadAllData();
     });
@@ -133,6 +163,7 @@ function bindFilters() {
         'attributionWindow',
         'platform',
         'accountId',
+        'campaignStatus',
         'campaignSourceType',
         'mediumAcquired',
         'campaignAcquired',
@@ -144,6 +175,20 @@ function bindFilters() {
         'classification',
     ].forEach((id) => {
         document.getElementById(id)?.addEventListener('change', reloadAllData);
+    });
+
+    document.getElementById('periodPreset')?.addEventListener('change', async (event) => {
+        applyPeriodPreset(event.target.value);
+        await reloadAllData();
+    });
+
+    ['startDate', 'endDate'].forEach((id) => {
+        document.getElementById(id)?.addEventListener('change', () => {
+            const preset = document.getElementById('periodPreset');
+            if (preset) {
+                preset.value = 'custom';
+            }
+        });
     });
 
     document.getElementById('campaignSearch')?.addEventListener('input', () => {
@@ -295,19 +340,25 @@ function renderSummary(data) {
             : 'Datos actualizados: pendiente';
     }
     document.getElementById('periodLabel').textContent = periodText(data.periodo_actual);
-    document.getElementById('windowLabel').textContent = `${data.attribution_window_days || 30} dias`;
+    document.getElementById('windowLabel').textContent = `Periodo estricto · ventana ${data.attribution_window_days || 30} dias`;
+
+    document.getElementById('windowLabel').textContent = `Pivot lead - ventana ${data.attribution_window_days || 30} dias`;
 
     const empty = document.getElementById('emptyMessage');
     empty.classList.toggle('is-hidden', Boolean(data.ok));
 
     renderWarnings(data.warnings || []);
-    renderKpis(data.kpis || {});
+    currentContext = data.selected_context || currentContext;
+    renderKpis(data.kpis || {}, currentContext);
     renderCharts(data.charts || {});
+    renderPlatformComparison(data.platform_comparison || []);
+    renderReviewCampaigns(data.review_campaigns || []);
     renderDiagnostics(data.diagnostics || {});
 }
 
 function renderWarnings(warnings) {
     const root = document.getElementById('warnings');
+
     root.innerHTML = '';
 
     warnings.forEach((warning) => {
@@ -315,9 +366,9 @@ function renderWarnings(warnings) {
     });
 }
 
-function renderKpis(kpis) {
+function renderKpis(kpis, context = 'venta') {
     const root = document.getElementById('summaryKpis');
-    const cards = [
+    let cards = [
         ['Inversion total', formatMoney(kpis.spend), `CPC ${formatMoney(kpis.cpc)}`],
         ['Impresiones', formatNumber(kpis.impressions), `CTR ${formatPercentRatio(kpis.ctr)}`],
         ['Clicks', formatNumber(kpis.clicks), `Leads SF ${formatNumber(kpis.leads_salesforce)}`],
@@ -327,6 +378,19 @@ function renderKpis(kpis) {
         ['Ventas', formatNumber(kpis.sales), `CPV ${formatMoney(kpis.cost_per_sale)}`],
         ['Importe vendido', formatMoney(kpis.sale_amount), `ROAS ${formatMultiplier(kpis.roas)} · ROI ${formatPercentRatio(kpis.estimated_roi)}`],
     ];
+
+    if (context === 'tasacion') {
+        cards = [
+            ['Inversion total', formatMoney(kpis.spend), `CPC ${formatMoney(kpis.cpc)}`],
+            ['Impresiones', formatNumber(kpis.impressions), `CTR ${formatPercentRatio(kpis.ctr)}`],
+            ['Clicks', formatNumber(kpis.clicks), `Leads SF ${formatNumber(kpis.leads_salesforce)}`],
+            ['Leads Salesforce', formatNumber(kpis.leads_salesforce), `CPL ${formatMoney(kpis.cost_per_lead)}`],
+            ['Oportunidades / citas', formatNumber(kpis.opportunities), `CPO ${formatMoney(kpis.cost_per_opportunity)}`],
+            ['Tasaciones generadas', formatNumber(kpis.appraisals_generated), `Coste ${formatMoney(kpis.cost_per_appraisal)}`],
+            ['Compras / contratos', formatNumber(kpis.purchases), `Coste ${formatMoney(kpis.cost_per_purchase)}`],
+            ['Conversion lead -> compra', formatPercentRatio(kpis.lead_to_purchase), `Cita -> compra ${formatPercentRatio(kpis.opportunity_to_purchase)}`],
+        ];
+    }
 
     root.innerHTML = '';
     cards.forEach(([label, value, hint]) => {
@@ -352,6 +416,7 @@ function renderCharts(charts) {
     currentCharts = charts || {};
     root.innerHTML = `
         ${dailyEvolutionHtml(charts.daily_evolution || [])}
+        ${reservationsSalesHtml(charts.daily_reservations_sales || [])}
         ${funnelHtml(charts.funnel || [])}
         ${platformBarsHtml(charts.platforms || [])}
     `;
@@ -370,7 +435,7 @@ function dailyEvolutionHtml(rows) {
             <div class="panel-title compact">
                 <div>
                     <h2>Evolucion diaria</h2>
-                    <div class="small">Inversion, leads Salesforce y ventas</div>
+                    <div class="small">Inversion diaria y leads creados</div>
                 </div>
             </div>
             <div class="daily-chart-toolbar">
@@ -413,11 +478,36 @@ function dailyBarsChartHtml(rows) {
 }
 
 function dailyLineChartHtml(rows) {
+    return genericLineChartHtml(rows, activeDailySeries(), dailyTooltip);
+}
+
+function reservationsSalesHtml(rows) {
+    const content = rows.length
+        ? genericLineChartHtml(rows, conversionSeriesDefinitions, conversionTooltip)
+        : '<div class="empty-state">Sin datos</div>';
+    const title = currentContext === 'tasacion' ? 'Evolucion de tasaciones y compras' : 'Evolucion de reservas y ventas';
+    const subtitle = currentContext === 'tasacion'
+        ? 'Tasaciones/citas y compras de leads del periodo'
+        : 'Reservas y ventas de leads del periodo';
+
+    return `
+        <article class="card panel campaign-chart-card campaign-chart-wide">
+            <div class="panel-title compact">
+                <div>
+                    <h2>${escapeHtml(title)}</h2>
+                    <div class="small">${escapeHtml(subtitle)}</div>
+                </div>
+            </div>
+            <div class="campaign-evolution">${content}</div>
+        </article>
+    `;
+}
+
+function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory) {
     const width = 100;
     const chartHeight = 96;
     const labelEvery = Math.max(1, Math.ceil(rows.length / 12));
-    const activeSeries = activeDailySeries();
-    const seriesSvg = activeSeries
+    const seriesSvg = seriesDefinitions
         .map((series) => {
             const max = dailyMax(rows, series.key);
             const coordinates = rows.map((row, index) => ({
@@ -427,7 +517,7 @@ function dailyLineChartHtml(rows) {
             const points = coordinates.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ');
             const circles = coordinates.map((point, index) => `
                 <circle class="line-point ${escapeHtml(series.className)}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="1.55">
-                    <title>${escapeHtml(dailyTooltip(rows[index]))}</title>
+                    <title>${escapeHtml(tooltipFactory(rows[index]))}</title>
                 </circle>
             `).join('');
 
@@ -435,7 +525,7 @@ function dailyLineChartHtml(rows) {
         }).join('');
     const hoverPoints = rows.map((row, index) => {
         const x = lineX(index, rows.length);
-        const tooltip = dailyTooltip(row);
+        const tooltip = tooltipFactory(row);
 
         return `<span class="line-hover-point" style="left:${x.toFixed(2)}%" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}"></span>`;
     }).join('');
@@ -510,6 +600,53 @@ function platformBarsHtml(rows) {
     `;
 }
 
+function renderPlatformComparison(rows) {
+    const panel = document.getElementById('platformComparisonPanel');
+    const root = document.getElementById('platformComparison');
+
+    if (!panel || !root) {
+        return;
+    }
+
+    panel.classList.toggle('is-hidden', currentContext !== 'tasacion');
+
+    const maxSpend = Math.max(...rows.map((row) => Number(row.spend || 0)), 0);
+    const maxLeads = Math.max(...rows.map((row) => Number(row.leads_salesforce || 0)), 0);
+    const maxPurchases = Math.max(...rows.map((row) => Number(row.purchases || 0)), 0);
+
+    root.innerHTML = rows.length
+        ? rows.map((row) => `
+            <div class="platform-chart-group" title="${escapeHtml(platformComparisonTooltip(row))}" data-tooltip="${escapeHtml(platformComparisonTooltip(row))}">
+                <strong>${escapeHtml(formatPlatform(row.platform))}</strong>
+                ${metricBarHtml('Inversion', row.spend, maxSpend, formatMoney)}
+                ${metricBarHtml('Leads', row.leads_salesforce, maxLeads, formatNumber)}
+                ${metricBarHtml('Compras', row.purchases, maxPurchases, formatNumber)}
+                ${metricBarHtml('Coste por compra', row.cost_per_purchase, Math.max(...rows.map((item) => Number(item.cost_per_purchase || 0)), 0), formatMoney)}
+            </div>
+        `).join('')
+        : '<div class="empty-state">Sin datos</div>';
+}
+
+function renderReviewCampaigns(rows) {
+    const root = document.getElementById('reviewCampaigns');
+
+    if (!root) {
+        return;
+    }
+
+    root.innerHTML = rows.length
+        ? rows.map((row) => `
+            <div class="portal-row">
+                <span>
+                    ${escapeHtml(row.campaign || row.campaign_name || '-')}
+                    <small>${escapeHtml(formatPlatform(row.platform))} · ${escapeHtml(row.detail || row.reason || '')}</small>
+                </span>
+                <strong>${escapeHtml(row.metric || '')}: ${escapeHtml(formatReviewValue(row))}</strong>
+            </div>
+        `).join('')
+        : '<div class="empty-state">Sin datos</div>';
+}
+
 function metricBarHtml(label, value, max, formatter, tooltip = null) {
     return `
         <div class="campaign-metric-bar" ${tooltip ? `title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}"` : ''}>
@@ -554,7 +691,8 @@ function renderDiagnostics(diagnostics) {
         ['Suma importe total ventas', formatMoney(diagnostics.sum_opo_for_importe_total_sales)],
         ['Ventas con Amount > 0', formatNumber(diagnostics.sales_with_amount)],
         ['Suma Amount ventas', formatMoney(diagnostics.sum_amount_sales)],
-        ['Estado campo amount', amountFieldStatusLabel(diagnostics.amount_field_status)],
+        ['Estado importe total', amountFieldStatusLabel(diagnostics.opo_for_importe_total_field_status || diagnostics.amount_field_status)],
+        ['Estado Amount fallback', amountFieldStatusLabel(diagnostics.amount_fallback_field_status)],
         ['Campo importe usado', saleAmountFieldUsedLabel(diagnostics.sale_amount_field_used)],
         ['Candidatos con campana adquirida', formatNumber(diagnostics.candidates_with_campaign_acquired)],
         ['Candidatos solo fuente/medio', formatNumber(diagnostics.candidates_only_source_medium)],
@@ -675,6 +813,7 @@ function sortedCampaignRows(rows) {
 function renderFilterOptions(filters) {
     populateSelect('platform', filters.platforms || [], 'Todas');
     populateSelect('campaignSourceType', filters.source_types || [], 'Todos');
+    populateSelect('campaignStatus', filters.campaign_statuses || [], 'Todas');
     populateSelect('accountId', (filters.accounts || []).map((account) => ({
         value: account.id,
         label: account.name ? `${account.name} (${account.id})` : account.id,
@@ -717,6 +856,8 @@ function currentFilters() {
     setParam(params, 'attribution_window_days', document.getElementById('attributionWindow')?.value);
     setParam(params, 'platform', document.getElementById('platform')?.value);
     setParam(params, 'account_id', document.getElementById('accountId')?.value);
+    setParam(params, 'context', currentContext);
+    setParam(params, 'campaign_status', document.getElementById('campaignStatus')?.value);
     setParam(params, 'search', document.getElementById('campaignSearch')?.value);
     setParam(params, 'campaign_source_type', document.getElementById('campaignSourceType')?.value);
     setParam(params, 'medium_acquired', document.getElementById('mediumAcquired')?.value);
@@ -819,7 +960,7 @@ function loadVisibleRankings() {
 }
 
 function loadDailyVisibleSeries() {
-    const defaults = ['spend', 'leads_salesforce', 'sales'];
+    const defaults = ['spend', 'leads_salesforce'];
 
     try {
         const saved = JSON.parse(localStorage.getItem(dailySeriesStorageKey) || 'null');
@@ -883,6 +1024,86 @@ function setDefaultDates() {
     document.getElementById('endDate').value = toInputDate(end);
 }
 
+function populatePeriodPreset() {
+    const select = document.getElementById('periodPreset');
+
+    if (!select) {
+        return;
+    }
+
+    const options = [
+        { value: 'last_30_days', label: 'Ultimos 30 dias' },
+        { value: 'current_month', label: 'Mes actual' },
+        { value: 'current_year', label: 'Ano actual' },
+        ...monthPresetOptions(),
+        { value: 'custom', label: 'Personalizado' },
+    ];
+
+    select.innerHTML = options.map((option) => `
+        <option value="${escapeHtml(option.value)}" data-start="${escapeHtml(option.start || '')}" data-end="${escapeHtml(option.end || '')}">
+            ${escapeHtml(option.label)}
+        </option>
+    `).join('');
+    select.value = 'last_30_days';
+}
+
+function monthPresetOptions() {
+    const formatter = new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric' });
+    const today = new Date();
+    const startOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const months = [];
+
+    for (let index = 0; index < 12; index += 1) {
+        const month = new Date(startOfThisMonth.getFullYear(), startOfThisMonth.getMonth() - index, 1);
+        const end = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+        const label = formatter.format(month).replace(/^./, (letter) => letter.toUpperCase());
+
+        months.push({
+            value: `month_${month.getFullYear()}_${String(month.getMonth() + 1).padStart(2, '0')}`,
+            label,
+            start: toInputDate(month),
+            end: toInputDate(end),
+        });
+    }
+
+    return months;
+}
+
+function applyPeriodPreset(value) {
+    const startDate = document.getElementById('startDate');
+    const endDate = document.getElementById('endDate');
+
+    if (!startDate || !endDate || value === 'custom') {
+        return;
+    }
+
+    if (value === 'last_30_days') {
+        setDefaultDates();
+        return;
+    }
+
+    if (value === 'current_month') {
+        const today = new Date();
+        startDate.value = toInputDate(new Date(today.getFullYear(), today.getMonth(), 1));
+        endDate.value = toInputDate(new Date(today.getFullYear(), today.getMonth() + 1, 0));
+        return;
+    }
+
+    if (value === 'current_year') {
+        const today = new Date();
+        startDate.value = toInputDate(new Date(today.getFullYear(), 0, 1));
+        endDate.value = toInputDate(today);
+        return;
+    }
+
+    const selected = [...document.querySelectorAll('#periodPreset option')]
+        .find((option) => option.value === value);
+    if (selected?.dataset.start && selected?.dataset.end) {
+        startDate.value = selected.dataset.start;
+        endDate.value = selected.dataset.end;
+    }
+}
+
 function setLoadingState(isLoading) {
     document.getElementById('loadingMessage')?.classList.toggle('is-hidden', !isLoading);
 
@@ -914,7 +1135,7 @@ function setParam(params, key, value) {
 }
 
 function campaignLabel(row) {
-    return row.display_campaign || row.campaign_name || row.campaign_acquired || row.campaign_id || '-';
+    return row.display_campaign || row.campaign || row.campaign_name || row.campaign_acquired || row.campaign_id || '-';
 }
 
 function periodText(period) {
@@ -926,7 +1147,11 @@ function periodText(period) {
 }
 
 function toInputDate(date) {
-    return date.toISOString().slice(0, 10);
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, '0'),
+        String(date.getDate()).padStart(2, '0'),
+    ].join('-');
 }
 
 function formatDate(value) {
@@ -1033,6 +1258,17 @@ function dailyTooltip(row) {
     ].join('\n');
 }
 
+function conversionTooltip(row) {
+    const firstLabel = currentContext === 'tasacion' ? 'Tasaciones / citas' : 'Reservas';
+    const secondLabel = currentContext === 'tasacion' ? 'Compras' : 'Ventas';
+
+    return [
+        `Fecha: ${formatDate(row.date)}`,
+        `${firstLabel}: ${formatNumber(Number(row.reservations || 0))}`,
+        `${secondLabel}: ${formatNumber(Number(row.sales || 0))}`,
+    ].join('\n');
+}
+
 function dailyMax(rows, key) {
     return Math.max(...rows.map((row) => Number(row[key] || 0)), 0);
 }
@@ -1060,6 +1296,26 @@ function platformTooltip(row) {
         `Leads Salesforce: ${formatNumber(Number(row.leads_salesforce || 0))}`,
         `Ventas: ${formatNumber(Number(row.sales || 0))}`,
     ].join('\n');
+}
+
+function platformComparisonTooltip(row) {
+    return [
+        `Plataforma: ${formatPlatform(row.platform)}`,
+        `Inversion: ${formatMoney(Number(row.spend || 0))}`,
+        `Leads: ${formatNumber(Number(row.leads_salesforce || 0))}`,
+        `Oportunidades / citas: ${formatNumber(Number(row.opportunities || 0))}`,
+        `Compras: ${formatNumber(Number(row.purchases || 0))}`,
+        `Coste por lead: ${formatMoney(row.cost_per_lead)}`,
+        `Coste por compra: ${formatMoney(row.cost_per_purchase)}`,
+        `Conversion lead -> compra: ${formatPercentRatio(row.lead_to_purchase)}`,
+    ].join('\n');
+}
+
+function formatReviewValue(row) {
+    const value = Number(row.value || 0);
+    return String(row.metric || '').toLowerCase().includes('inversion')
+        ? formatMoney(value)
+        : formatNumber(value);
 }
 
 function barWidth(value, max) {

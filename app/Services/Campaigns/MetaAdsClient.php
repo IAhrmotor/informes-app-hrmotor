@@ -110,4 +110,63 @@ class MetaAdsClient
 
         return $rows;
     }
+
+    public function campaigns(string $accountId): array
+    {
+        $apiVersion = trim((string) config('services.meta_ads.api_version', 'v25.0'));
+        $accessToken = trim((string) config('services.meta_ads.access_token'));
+
+        $accountId = trim($accountId);
+        $account = str_starts_with($accountId, 'act_') ? $accountId : 'act_'.$accountId;
+
+        if (blank($accessToken)) {
+            throw new RuntimeException('Meta Ads API error: META_ACCESS_TOKEN no esta configurado.');
+        }
+
+        $url = sprintf(
+            'https://graph.facebook.com/%s/%s/campaigns',
+            $apiVersion,
+            $account
+        );
+
+        $baseParams = [
+            'access_token' => $accessToken,
+            'fields' => implode(',', [
+                'id',
+                'name',
+                'status',
+                'effective_status',
+                'start_time',
+                'stop_time',
+            ]),
+            'limit' => 500,
+        ];
+
+        $rows = [];
+        $after = null;
+
+        do {
+            $params = $baseParams;
+
+            if (filled($after)) {
+                $params['after'] = $after;
+            }
+
+            $response = Http::timeout(120)
+                ->retry(2, 1000)
+                ->get($url, $params);
+
+            if ($response->failed()) {
+                throw new RuntimeException('Meta Ads campaign metadata error: '.$response->body());
+            }
+
+            $payload = $response->json();
+            $rows = array_merge($rows, $payload['data'] ?? []);
+
+            $after = data_get($payload, 'paging.cursors.after');
+            $hasNextPage = filled(data_get($payload, 'paging.next')) && filled($after);
+        } while ($hasNextPage);
+
+        return $rows;
+    }
 }

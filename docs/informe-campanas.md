@@ -2,7 +2,7 @@
 
 URL: `/informes/campanas`
 
-La V1 cruza inversion cacheada de Meta Ads / Google Ads con leads Salesforce atribuidos y oportunidades locales. Si no hay credenciales de Ads, los comandos no fallan y el informe carga con datos Salesforce y avisos internos.
+La V1 cruza inversion cacheada de Meta Ads / Google Ads con leads Salesforce atribuidos y oportunidades locales. La vista de Direccion pivota sobre el lead: inversion, impresiones y clicks se filtran por fecha publicitaria; los leads se filtran por fecha de creacion; oportunidades, reservas, ventas y compras se cuentan como resultados posteriores de esos leads dentro de la ventana de atribucion seleccionada. Si no hay credenciales de Ads, los comandos no fallan y el informe carga con datos disponibles y avisos internos para admin.
 
 ## Variables de entorno
 
@@ -32,18 +32,20 @@ GOOGLE_ADS_LOGIN_CUSTOMER_ID=
 ## Comandos diarios
 
 ```bash
-cd /var/www && php -d memory_limit=512M artisan salesforce:sync-monthly-commercial --days=60 --fresh -vvv && php -d memory_limit=512M artisan reports:refresh-monthly-commercial --days=30 --store --show-summary && php -d memory_limit=512M artisan salesforce:sync-opportunities --days=60 --fresh -vvv && php -d memory_limit=512M artisan salesforce:sync-calls --days=60 --fresh -vvv && php artisan campaigns:sync-meta --days=60 && php artisan campaigns:sync-google --days=60 && php artisan campaigns:build-attribution --days=60 --window=30 && php artisan reports:refresh-campaigns --days=30 --window=30 --store && php artisan cache:clear
+cd /var/www && php -d memory_limit=512M artisan salesforce:sync-campaign-leads --days=90 --fresh -vvv && php -d memory_limit=512M artisan salesforce:sync-opportunities --days=90 --fresh -vvv && php artisan campaigns:sync-meta --days=90 && php artisan campaigns:sync-google --days=90 && php -d memory_limit=512M artisan campaigns:build-attribution --days=90 --window=30 && php artisan reports:refresh-campaigns --days=90 --window=30 --store && php artisan cache:clear
 ```
 
-Backfill inicial opcional:
+Backfill 12 meses bajo demanda:
 
 ```bash
-php artisan campaigns:sync-meta --days=180
-php artisan campaigns:sync-google --days=180
-php artisan campaigns:build-attribution --days=180 --window=30
-php artisan reports:refresh-campaigns --days=180 --window=30 --store
+php -d memory_limit=512M artisan salesforce:sync-campaign-leads --months=12 --fresh -vvv
+php -d memory_limit=512M artisan salesforce:sync-opportunities --months=12 --fresh -vvv
+php artisan campaigns:sync-meta --months=12
+php artisan campaigns:sync-google --months=12
+php -d memory_limit=512M artisan campaigns:build-attribution --months=12 --window=30
+php artisan reports:refresh-campaigns --months=12 --window=30 --store
 ```
 
 ## Nota de importe vendido
 
-El informe actual de Reservas/Ventas no persiste un campo local de importe vendido. Por eso `sale_amount`, ROAS y ROI quedan en `null` hasta mapear el API name correcto y reutilizarlo de forma centralizada.
+El campo funcional confirmado es `Opportunity.OPO_FOR_Importe_total__c`, sincronizado localmente como `salesforce_opportunities.opo_for_importe_total`. Campanas usa este campo como importe principal y `amount` solo como fallback positivo. Si no hay importes sincronizados o no cruzan con oportunidades locales, el aviso tecnico se muestra solo a usuarios admin.

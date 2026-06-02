@@ -14,6 +14,7 @@ class SalesforceSyncOpportunitiesCommand extends Command
 {
     protected $signature = 'salesforce:sync-opportunities
         {--days=60 : Numero de dias hacia atras que se sincronizan}
+        {--months= : Meses hacia atras que se sincronizan; tiene prioridad sobre --days}
         {--fresh : Borra solo la tabla de oportunidades Salesforce antes de sincronizar}
         {--debug-soql : Imprime la query SOQL ejecutada}';
 
@@ -23,9 +24,8 @@ class SalesforceSyncOpportunitiesCommand extends Command
         SalesforceMonthlyUsersSyncService $usersSync,
         SalesforceOpportunitySyncService $opportunitiesSync,
     ): int {
-        $days = max((int) $this->option('days'), 1);
         $periodEnd = CarbonImmutable::now();
-        $periodStart = $periodEnd->subDays($days);
+        $periodStart = $this->periodStart($periodEnd);
 
         if ($this->option('fresh')) {
             SalesforceOpportunity::query()->delete();
@@ -83,5 +83,16 @@ class SalesforceSyncOpportunitiesCommand extends Command
     {
         Cache::forever('reservas_ventas_dashboard_cache_version', ((int) Cache::get('reservas_ventas_dashboard_cache_version', 1)) + 1);
         $this->line('Cache del dashboard Reservas / Ventas invalidada.');
+    }
+
+    private function periodStart(CarbonImmutable $end): CarbonImmutable
+    {
+        $months = $this->option('months');
+
+        if ($months !== null && $months !== '') {
+            return $end->subMonthsNoOverflow(max((int) $months, 1));
+        }
+
+        return $end->subDays(max((int) $this->option('days'), 1));
     }
 }

@@ -1297,8 +1297,14 @@ th.num {
 
 .evolution-bar.sales,
 .line-series.sales {
-    background: #4b5f86;
-    stroke: #4b5f86;
+    background: #ed1b2f;
+    stroke: #ed1b2f;
+}
+
+.evolution-bar.reservations,
+.line-series.reservations {
+    background: #33415f;
+    stroke: #33415f;
 }
 
 .campaign-evolution {
@@ -1430,7 +1436,11 @@ th.num {
 }
 
 .line-point.sales {
-    fill: #4b5f86;
+    fill: #ed1b2f;
+}
+
+.line-point.reservations {
+    fill: #33415f;
 }
 
 .line-hover-layer {

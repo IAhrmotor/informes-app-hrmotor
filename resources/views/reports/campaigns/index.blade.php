@@ -22,6 +22,10 @@
 
     <section class="filters card campaigns-filter-bar">
         <div class="filter-group">
+            <label for="periodPreset">Periodo</label>
+            <select id="periodPreset"></select>
+        </div>
+        <div class="filter-group">
             <label for="startDate">Inicio</label>
             <input type="date" id="startDate">
         </div>
@@ -32,10 +36,9 @@
         <div class="filter-group">
             <label for="attributionWindow">Ventana</label>
             <select id="attributionWindow">
-                <option value="7">7 dias</option>
-                <option value="15">15 dias</option>
                 <option value="30" selected>30 dias</option>
                 <option value="60">60 dias</option>
+                <option value="90">90 dias</option>
             </select>
         </div>
         <div class="filter-group">
@@ -45,6 +48,14 @@
         <div class="filter-group">
             <label for="accountId">Cuenta</label>
             <select id="accountId"><option value="">Todas</option></select>
+        </div>
+        <div class="filter-group">
+            <label for="campaignStatus">Estado campana</label>
+            <select id="campaignStatus">
+                <option value="">Todas</option>
+                <option value="active" selected>Activas</option>
+                <option value="inactive">Inactivas</option>
+            </select>
         </div>
         <div class="filter-group campaign-search">
             <label for="campaignSearch">Buscar campana</label>
@@ -120,7 +131,8 @@
     </aside>
 
     <nav class="tabs-main" aria-label="Pestanas del informe">
-        <button class="main-tab active" data-panel="panel-resumen">Resumen</button>
+        <button class="main-tab active" data-context="venta" data-panel="panel-resumen">Venta</button>
+        <button class="main-tab" data-context="tasacion" data-panel="panel-resumen">Tasacion</button>
         <button class="main-tab" data-panel="panel-campaigns">Campanas</button>
     </nav>
 
@@ -143,6 +155,24 @@
 
             <section class="kpis dashboard-kpis" id="summaryKpis"></section>
             <section class="campaign-charts-grid" id="campaignCharts"></section>
+            <section class="card panel is-hidden" id="platformComparisonPanel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Comparativa por plataforma</h2>
+                        <div class="small">Google Ads frente a Meta Ads en el contexto seleccionado</div>
+                    </div>
+                </div>
+                <div class="campaign-bar-list" id="platformComparison"></div>
+            </section>
+            <section class="card panel" id="reviewCampaignsPanel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Campanas a revisar</h2>
+                        <div class="small">Motivos operativos para revisar tracking, conversion o cierre</div>
+                    </div>
+                </div>
+                <div class="portal-list" id="reviewCampaigns"></div>
+            </section>
 
             @if (($reportUserRole ?? 'viewer') === 'admin')
             <section class="card panel" id="campaignDiagnosticsPanel">
@@ -219,6 +249,14 @@
                             <th data-column="roas" class="num" data-sortable="true" data-key="roas">ROAS</th>
                             <th data-column="estimated_roi" class="num" data-sortable="true" data-key="estimated_roi">ROI estimado</th>
                             <th data-column="classification" data-sortable="true" data-key="classification">Clasificacion</th>
+                            <th data-column="campaign_status_label" data-sortable="true" data-key="campaign_status_label">Estado campana</th>
+                            <th data-column="campaign_start_date" data-sortable="true" data-key="campaign_start_date">Fecha inicio campana</th>
+                            <th data-column="campaign_end_date" data-sortable="true" data-key="campaign_end_date">Fecha fin campana</th>
+                            <th data-column="last_spend_date" data-sortable="true" data-key="last_spend_date">Ultima fecha con inversion</th>
+                            <th data-column="appraisals_generated" class="num" data-sortable="true" data-key="appraisals_generated">Tasaciones generadas</th>
+                            <th data-column="purchases" class="num" data-sortable="true" data-key="purchases">Compras firmadas</th>
+                            <th data-column="cost_per_appraisal" class="num" data-sortable="true" data-key="cost_per_appraisal">Coste por tasacion</th>
+                            <th data-column="cost_per_purchase" class="num" data-sortable="true" data-key="cost_per_purchase">Coste por compra</th>
                             <th data-column="lead_to_opportunity" class="num" data-sortable="true" data-key="lead_to_opportunity">Lead -> Oportunidad</th>
                             <th data-column="opportunity_to_reservation" class="num" data-sortable="true" data-key="opportunity_to_reservation">Oportunidad -> Reserva</th>
                             <th data-column="reservation_to_sale" class="num" data-sortable="true" data-key="reservation_to_sale">Reserva -> Venta</th>
