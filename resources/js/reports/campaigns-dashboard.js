@@ -424,6 +424,7 @@ function renderCharts(charts) {
 }
 
 function dailyEvolutionHtml(rows) {
+    const chartClass = dailyChartType === 'lines' ? 'campaign-evolution-lines' : 'campaign-evolution-bars';
     const content = rows.length ? (
         dailyChartType === 'lines'
             ? dailyLineChartHtml(rows)
@@ -451,22 +452,26 @@ function dailyEvolutionHtml(rows) {
                     <button type="button" class="${dailyChartType === 'lines' ? 'is-active' : ''}" data-chart-type="lines">Lineas</button>
                 </div>
             </div>
-            <div class="campaign-evolution">${content}</div>
+            <div class="campaign-evolution ${chartClass}" style="--chart-days:${Math.max(rows.length, 1)}">${content}</div>
         </article>
     `;
 }
 
 function dailyBarsChartHtml(rows) {
-    const labelEvery = Math.max(1, Math.ceil(rows.length / 12));
+    return groupedBarsChartHtml(rows, activeDailySeries(), dailyTooltip);
+}
+
+function groupedBarsChartHtml(rows, seriesDefinitions, tooltipFactory) {
+    const labelEvery = axisLabelEvery(rows.length);
 
     return rows.map((row, index) => {
-        const tooltip = dailyTooltip(row);
+        const tooltip = tooltipFactory(row);
+        const edgeClass = index === 0 ? ' is-first' : (index === rows.length - 1 ? ' is-last' : '');
 
         return `
-            <div class="evolution-day" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}">
+            <div class="evolution-day${edgeClass}" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}">
                 <div class="evolution-bars-group">
-                    ${dailySeriesDefinitions
-                        .filter((series) => dailyVisibleSeries.includes(series.key))
+                    ${seriesDefinitions
                         .map((series) => `
                             <span class="evolution-bar ${escapeHtml(series.className)}" style="height:${barHeight(row[series.key], dailyMax(rows, series.key))}%"></span>
                         `).join('')}
@@ -483,7 +488,7 @@ function dailyLineChartHtml(rows) {
 
 function reservationsSalesHtml(rows) {
     const content = rows.length
-        ? genericLineChartHtml(rows, conversionSeriesDefinitions, conversionTooltip)
+        ? groupedBarsChartHtml(rows, conversionSeriesDefinitions, conversionTooltip)
         : '<div class="empty-state">Sin datos</div>';
     const title = currentContext === 'tasacion' ? 'Evolucion de tasaciones y compras' : 'Evolucion de reservas y ventas';
     const subtitle = currentContext === 'tasacion'
@@ -498,7 +503,7 @@ function reservationsSalesHtml(rows) {
                     <div class="small">${escapeHtml(subtitle)}</div>
                 </div>
             </div>
-            <div class="campaign-evolution">${content}</div>
+            <div class="campaign-evolution campaign-evolution-bars campaign-evolution-results" style="--chart-days:${Math.max(rows.length, 1)}">${content}</div>
         </article>
     `;
 }
@@ -506,7 +511,7 @@ function reservationsSalesHtml(rows) {
 function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory) {
     const width = 100;
     const chartHeight = 96;
-    const labelEvery = Math.max(1, Math.ceil(rows.length / 12));
+    const labelEvery = axisLabelEvery(rows.length);
     const seriesSvg = seriesDefinitions
         .map((series) => {
             const max = dailyMax(rows, series.key);
@@ -515,13 +520,8 @@ function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory) {
                 y: lineY(row[series.key], max, chartHeight),
             }));
             const points = coordinates.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ');
-            const circles = coordinates.map((point, index) => `
-                <circle class="line-point ${escapeHtml(series.className)}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="1.55">
-                    <title>${escapeHtml(tooltipFactory(rows[index]))}</title>
-                </circle>
-            `).join('');
 
-            return `<polyline class="line-series ${escapeHtml(series.className)}" points="${points}" />${circles}`;
+            return `<polyline class="line-series ${escapeHtml(series.className)}" points="${points}" />`;
         }).join('');
     const hoverPoints = rows.map((row, index) => {
         const x = lineX(index, rows.length);
@@ -537,7 +537,7 @@ function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory) {
 
     return `
         <div class="campaign-line-chart">
-            <svg viewBox="0 0 ${width} ${chartHeight}" preserveAspectRatio="none" aria-hidden="true">
+            <svg viewBox="-0.75 0 ${width + 1.5} ${chartHeight}" preserveAspectRatio="none" aria-hidden="true">
                 ${seriesSvg}
             </svg>
             <div class="line-hover-layer">${hoverPoints}</div>
@@ -1287,6 +1287,14 @@ function lineY(value, max, chartHeight) {
 
 function showDateLabel(index, total, labelEvery) {
     return index === 0 || index === total - 1 || index % labelEvery === 0;
+}
+
+function axisLabelEvery(total) {
+    if (total <= 14) {
+        return 1;
+    }
+
+    return Math.max(2, Math.ceil(total / 10));
 }
 
 function platformTooltip(row) {
