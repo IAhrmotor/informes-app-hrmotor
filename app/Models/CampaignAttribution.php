@@ -42,7 +42,6 @@ class CampaignAttribution extends Model
         'opportunity_attribution_confidence',
         'match_status',
         'campaign_source_type',
-        'attribution_window_days',
     ];
 
     protected $casts = [
@@ -55,6 +54,5 @@ class CampaignAttribution extends Model
         'has_reservation' => 'boolean',
         'has_fallen_reservation' => 'boolean',
         'has_sale' => 'boolean',
-        'attribution_window_days' => 'integer',
     ];
 }

@@ -15,6 +15,8 @@ class CampaignTypeMappingsSeeder extends Seeder
             ['platform' => 'google_ads', 'campaign_name' => 'TASADOR LANDING SEARCH 1'],
             ['platform' => 'meta', 'campaign_name' => 'Expiey_Leads_Geo_Tasación'],
             ['platform' => 'meta', 'campaign_name' => 'Expiey_Leads_Geo_Tasación_Nuevas Ubicaciones'],
+            ['platform' => 'meta', 'campaign_name' => 'Expiey_Leads_Geo_Tasacion'],
+            ['platform' => 'meta', 'campaign_name' => 'Expiey_Leads_Geo_Tasacion_Nuevas Ubicaciones'],
         ] as $row) {
             DB::table('campaign_type_mappings')->updateOrInsert(
                 [

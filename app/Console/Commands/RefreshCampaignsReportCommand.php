@@ -15,14 +15,13 @@ class RefreshCampaignsReportCommand extends Command
     protected $signature = 'reports:refresh-campaigns
         {--days=30 : Dias del periodo del informe}
         {--months= : Meses del periodo del informe; tiene prioridad sobre --days}
-        {--window=30 : Ventana de atribucion en dias}
+        {--from= : Fecha inicial explicita en formato Y-m-d}
         {--store : Guarda snapshot en base de datos}';
 
     protected $description = 'Calcula el informe de campanas y opcionalmente guarda un snapshot.';
 
     public function handle(CampaignDashboardDatasetService $dataset): int
     {
-        $window = max((int) $this->option('window'), 1);
         $end = CarbonImmutable::now()->endOfDay();
         $start = $this->periodStart($end);
 
@@ -32,7 +31,6 @@ class RefreshCampaignsReportCommand extends Command
             $request = Request::create('/informes/campanas/data/summary', 'GET', [
                 'start_date' => $start->toDateString(),
                 'end_date' => $end->toDateString(),
-                'attribution_window_days' => $window,
             ]);
 
             $payload = $dataset->payload($request);
@@ -45,7 +43,6 @@ class RefreshCampaignsReportCommand extends Command
                 $snapshot = CampaignReportSnapshot::query()->create([
                     'period_start' => $start->toDateString(),
                     'period_end' => $end->toDateString(),
-                    'attribution_window_days' => $window,
                     'filters_hash' => md5(json_encode($request->query())),
                     'summary' => $payload['summary'],
                     'campaigns' => $payload['campaigns'],
@@ -79,6 +76,12 @@ class RefreshCampaignsReportCommand extends Command
 
     private function periodStart(CarbonImmutable $end): CarbonImmutable
     {
+        $from = $this->option('from');
+
+        if (filled($from)) {
+            return CarbonImmutable::parse($from)->startOfDay();
+        }
+
         $months = $this->option('months');
 
         if ($months !== null && $months !== '') {

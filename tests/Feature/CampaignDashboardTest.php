@@ -13,6 +13,7 @@ use App\Services\Campaigns\CampaignSaleAmountResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -207,6 +208,14 @@ class CampaignDashboardTest extends TestCase
         $this->assertSame(250, (int) $tasacion['impressions']);
         $this->assertSame(25, (int) $tasacion['clicks']);
 
+        $all = $this->getJson('/informes/campanas/data/summary?'.$baseQuery.'&context=all')
+            ->assertOk()
+            ->json('kpis');
+
+        $this->assertSame(125, (int) $all['spend']);
+        $this->assertSame(1250, (int) $all['impressions']);
+        $this->assertSame(125, (int) $all['clicks']);
+
         $ventaRows = $this->getJson('/informes/campanas/data/campaigns?'.$baseQuery.'&context=venta')
             ->assertOk()
             ->json('items');
@@ -295,8 +304,7 @@ class CampaignDashboardTest extends TestCase
 
         app(CampaignAttributionBuilderService::class)->build(
             CarbonImmutable::parse('2026-05-01'),
-            CarbonImmutable::parse('2026-06-01'),
-            30
+            CarbonImmutable::parse('2026-06-01')
         );
 
         $this->assertSame(1, CampaignAttribution::query()->count());
@@ -387,8 +395,7 @@ class CampaignDashboardTest extends TestCase
 
         app(CampaignAttributionBuilderService::class)->build(
             CarbonImmutable::parse('2026-05-01'),
-            CarbonImmutable::parse('2026-06-01'),
-            30
+            CarbonImmutable::parse('2026-06-01')
         );
 
         $this->assertDatabaseHas('campaign_attributions', [
@@ -426,9 +433,46 @@ class CampaignDashboardTest extends TestCase
 
         $this->getJson('/informes/campanas/data/campaigns?'.$this->query())
             ->assertOk()
+            ->assertJsonPath('total', 1)
             ->assertJsonPath('items.0.classification', 'Revisar tracking')
             ->assertJsonPath('items.0.match_status', 'Sin leads Salesforce')
-            ->assertJsonPath('items.0.campaign_source_type', 'platform_campaign');
+            ->assertJsonPath('items.0.campaign_source_type', 'platform_campaign')
+            ->assertJsonPath('items.0.leads_salesforce', 0);
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->assertJsonPath('kpis.spend', 900)
+            ->assertJsonPath('kpis.leads_salesforce', 0);
+    }
+
+    public function test_performance_max_y_removed_aparecen_en_la_sincronizacion_y_en_el_resumen(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'google_ads',
+            'metric_date' => '2026-05-10',
+            'campaign_id' => 'camp-pmax-removed',
+            'campaign_name' => 'PMAX Legacy',
+            'campaign_status' => 'REMOVED',
+            'advertising_channel_type' => 'PERFORMANCE_MAX',
+            'spend' => 77,
+            'impressions' => 777,
+            'clicks' => 77,
+        ]));
+
+        $summary = $this->getJson('/informes/campanas/data/summary?start_date=2026-05-01&end_date=2026-05-31&campaign_status=inactive&context=all')
+            ->assertOk()
+            ->json('kpis');
+
+        $this->assertSame(77, (int) $summary['spend']);
+        $this->assertSame(777, (int) $summary['impressions']);
+        $this->assertSame(77, (int) $summary['clicks']);
+
+        $items = $this->getJson('/informes/campanas/data/campaigns?start_date=2026-05-01&end_date=2026-05-31&campaign_status=inactive&context=all')
+            ->assertOk()
+            ->json('items');
+
+        $this->assertSame('PMAX Legacy', $items[0]['campaign_name']);
+        $this->assertSame('PERFORMANCE_MAX', $items[0]['advertising_channel_type']);
     }
 
     public function test_ratios_devuelven_null_cuando_el_denominador_es_cero(): void
@@ -527,7 +571,22 @@ class CampaignDashboardTest extends TestCase
             'attribution_confidence' => 'high',
             'match_status' => 'Cruzada por ID',
             'campaign_source_type' => 'platform_campaign',
-            'attribution_window_days' => 30,
+        ]);
+        DB::table('campaign_lead_attributions')->insert([
+            'lead_id' => '00Q-lead-pivot',
+            'lead_created_date' => '2026-05-20 10:00:00',
+            'campaign_name' => 'Lead Pivot',
+            'campaign_id' => 'camp-lead-pivot',
+            'platform' => 'meta',
+            'campaign_type' => 'venta',
+            'opportunity_id' => '006-lead-pivot',
+            'has_opportunity' => true,
+            'has_reservation' => true,
+            'has_sale' => true,
+            'has_purchase' => false,
+            'sold_amount' => 12000,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         $this->getJson('/informes/campanas/data/summary?'.$this->query())
@@ -571,7 +630,22 @@ class CampaignDashboardTest extends TestCase
             'attribution_confidence' => 'high',
             'match_status' => 'Cruzada por ID',
             'campaign_source_type' => 'platform_campaign',
-            'attribution_window_days' => 30,
+        ]);
+        DB::table('campaign_lead_attributions')->insert([
+            'lead_id' => '00Q-old-lead',
+            'lead_created_date' => '2026-04-20 10:00:00',
+            'campaign_name' => 'Old Lead',
+            'campaign_id' => 'camp-old-lead',
+            'platform' => 'meta',
+            'campaign_type' => 'venta',
+            'opportunity_id' => '006-old-lead',
+            'has_opportunity' => true,
+            'has_reservation' => true,
+            'has_sale' => true,
+            'has_purchase' => false,
+            'sold_amount' => 12000,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         $this->getJson('/informes/campanas/data/summary?'.$this->query())
@@ -602,8 +676,7 @@ class CampaignDashboardTest extends TestCase
 
         app(CampaignAttributionBuilderService::class)->build(
             CarbonImmutable::parse('2026-05-01'),
-            CarbonImmutable::parse('2026-06-01'),
-            30
+            CarbonImmutable::parse('2026-06-01')
         );
 
         $this->assertDatabaseHas('campaign_attributions', [
@@ -653,8 +726,7 @@ class CampaignDashboardTest extends TestCase
 
         app(CampaignAttributionBuilderService::class)->build(
             CarbonImmutable::parse('2026-05-01'),
-            CarbonImmutable::parse('2026-06-01'),
-            30
+            CarbonImmutable::parse('2026-06-01')
         );
 
         $rankings = $this->getJson('/informes/campanas/data/rankings?'.$this->query())
@@ -701,8 +773,7 @@ class CampaignDashboardTest extends TestCase
 
         app(CampaignAttributionBuilderService::class)->build(
             CarbonImmutable::parse('2026-05-01'),
-            CarbonImmutable::parse('2026-06-01'),
-            30
+            CarbonImmutable::parse('2026-06-01')
         );
 
         $payload = $this->getJson('/informes/campanas/data/campaigns?'.$this->query())
@@ -762,8 +833,7 @@ class CampaignDashboardTest extends TestCase
 
         app(CampaignAttributionBuilderService::class)->build(
             CarbonImmutable::parse('2026-05-01'),
-            CarbonImmutable::parse('2026-06-01'),
-            30
+            CarbonImmutable::parse('2026-06-01')
         );
 
         $this->getJson('/informes/campanas/data/summary?'.$this->query())
@@ -819,8 +889,7 @@ class CampaignDashboardTest extends TestCase
 
         app(CampaignAttributionBuilderService::class)->build(
             CarbonImmutable::parse('2026-05-01'),
-            CarbonImmutable::parse('2026-06-01'),
-            30
+            CarbonImmutable::parse('2026-06-01')
         );
 
         $this->getJson('/informes/campanas/data/summary?'.$this->query())
@@ -879,8 +948,7 @@ class CampaignDashboardTest extends TestCase
 
         app(CampaignAttributionBuilderService::class)->build(
             CarbonImmutable::parse('2026-05-01'),
-            CarbonImmutable::parse('2026-06-01'),
-            30
+            CarbonImmutable::parse('2026-06-01')
         );
 
         $this->getJson('/informes/campanas/data/summary?'.$this->query())
@@ -921,7 +989,6 @@ class CampaignDashboardTest extends TestCase
         return http_build_query([
             'start_date' => '2026-05-01',
             'end_date' => '2026-05-31',
-            'attribution_window_days' => 30,
         ]);
     }
 

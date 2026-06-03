@@ -14,7 +14,6 @@ use Illuminate\Support\Facades\Schema;
 class CampaignDashboardDatasetService
 {
     private const CACHE_TTL_MINUTES = 10;
-    private const WINDOW_OPTIONS = [30, 60, 90];
 
     public function __construct(
         private readonly CampaignValueNormalizer $normalizer,
@@ -78,11 +77,7 @@ class CampaignDashboardDatasetService
 
     public function filters(Request $request): array
     {
-        $window = (int) ($request->integer('attribution_window_days') ?: 30);
-
-        if (! in_array($window, self::WINDOW_OPTIONS, true)) {
-            $window = 30;
-        }
+        $context = $request->string('context')->toString();
 
         return [
             'start_date' => $request->string('start_date')->toString(),
@@ -90,9 +85,9 @@ class CampaignDashboardDatasetService
             'platform' => $request->string('platform')->toString(),
             'account_id' => $request->string('account_id')->toString(),
             'search' => $request->string('search')->toString(),
-            'context' => in_array($request->string('context')->toString(), ['venta', 'tasacion'], true)
-                ? $request->string('context')->toString()
-                : 'venta',
+            'context' => in_array($context, ['venta', 'tasacion', 'all', 'todas', ''], true)
+                ? ($context !== '' ? $context : 'all')
+                : 'all',
             'campaign_status' => $request->string('campaign_status')->toString() ?: 'active',
             'campaign_source_type' => $request->string('campaign_source_type')->toString(),
             'source_acquired' => $request->string('source_acquired')->toString(),
@@ -100,6 +95,7 @@ class CampaignDashboardDatasetService
             'campaign_acquired' => $request->string('campaign_acquired')->toString(),
             'campaign_id' => $request->string('campaign_id')->toString(),
             'campaign_name' => $request->string('campaign_name')->toString(),
+            'campaign_type' => $request->string('campaign_type')->toString(),
             'delegation' => $request->string('delegation')->toString(),
             'zone' => $request->string('zone')->toString(),
             'lead_status' => $request->string('lead_status')->toString(),
@@ -109,7 +105,6 @@ class CampaignDashboardDatasetService
             'classification' => $request->string('classification')->toString(),
             'commercial_user' => $request->string('commercial_user')->toString(),
             'vehicle_interest' => $request->string('vehicle_interest')->toString(),
-            'attribution_window_days' => $window,
         ];
     }
 
@@ -173,7 +168,6 @@ class CampaignDashboardDatasetService
             ->groupBy('platform', 'account_id', 'campaign_id', 'campaign_name')
             ->get()
             ->map(fn ($row) => (array) $row)
-            ->filter(fn (array $row): bool => $this->normalizer->hasClearSalesforceAttribution($row['campaign_id'], $row['campaign_name']))
             ->filter(fn (array $row): bool => $this->includeCampaignForContext($row, $filters))
             ->values()
             ->all();
@@ -181,51 +175,48 @@ class CampaignDashboardDatasetService
 
     private function attributionRows(array $filters, array $period): array
     {
-        $query = DB::table('campaign_attributions as ca')
-            ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'ca.opportunity_id')
-            ->where('ca.attribution_window_days', $filters['attribution_window_days'])
-            ->where('ca.lead_created_at', '>=', $period['start_at'])
-            ->where('ca.lead_created_at', '<', $period['end_at']);
+        $query = DB::table('campaign_lead_attributions as cla')
+            ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
+            ->where('cla.lead_created_date', '>=', $period['start_at'])
+            ->where('cla.lead_created_date', '<', $period['end_at']);
 
-        $this->applyAttributionFilters($query, $filters, 'ca');
-        $businessCondition = $filters['context'] === 'tasacion'
-            ? $this->tasacionOpportunitySql()
-            : $this->ventaOpportunitySql();
-        $saleCondition = $filters['context'] === 'tasacion'
-            ? $this->tasacionSignedSql()
-            : $this->ventaSignedSql();
-        $tasacionSignedCondition = $this->tasacionSignedSql();
+        $this->applyLeadAttributionFilters($query, $filters, 'cla');
 
         return $query
             ->select([
-                'ca.platform',
-                'ca.account_id',
-                'ca.campaign_id',
-                'ca.campaign_name',
-                DB::raw("COALESCE(ca.campaign_source_type, 'salesforce_campaign_without_spend') as campaign_source_type"),
-                DB::raw('MIN(ca.source_acquired) as source_acquired'),
-                DB::raw('MIN(ca.medium_acquired) as medium_acquired'),
-                DB::raw('MIN(ca.campaign_acquired) as campaign_acquired'),
-                DB::raw('MIN(ca.acquired_id) as acquired_id'),
-                DB::raw('MIN(ca.content_acquired) as content_acquired'),
-                DB::raw('MIN(ca.match_status) as match_status'),
-                DB::raw('COUNT(DISTINCT ca.lead_id) as leads_salesforce'),
-                DB::raw("COUNT(DISTINCT CASE WHEN ca.has_opportunity = 1 AND {$businessCondition} THEN ca.opportunity_id END) as opportunities"),
-                DB::raw("SUM(CASE WHEN ca.has_reservation = 1 AND {$businessCondition} THEN 1 ELSE 0 END) as reservations"),
-                DB::raw("SUM(CASE WHEN ca.has_reservation = 1 AND ca.has_fallen_reservation = 0 AND NOT ({$saleCondition}) AND {$businessCondition} THEN 1 ELSE 0 END) as live_reservations"),
-                DB::raw("SUM(CASE WHEN ca.has_reservation = 1 AND ca.has_fallen_reservation = 1 AND {$businessCondition} THEN 1 ELSE 0 END) as fallen_reservations"),
-                DB::raw("SUM(CASE WHEN {$saleCondition} THEN 1 ELSE 0 END) as sales"),
-                DB::raw("SUM(CASE WHEN {$saleCondition} THEN COALESCE(ca.sale_amount, CASE WHEN COALESCE(so.opo_for_importe_total, 0) > 0 THEN so.opo_for_importe_total ELSE NULL END) ELSE 0 END) as sale_amount"),
-                DB::raw("SUM(CASE WHEN {$saleCondition} AND (ca.sale_amount IS NOT NULL OR COALESCE(so.opo_for_importe_total, 0) > 0) THEN 1 ELSE 0 END) as sale_amount_rows"),
-                DB::raw("SUM(CASE WHEN ca.has_opportunity = 1 AND {$this->tasacionOpportunitySql()} THEN 1 ELSE 0 END) as appraisals_generated"),
-                DB::raw("SUM(CASE WHEN {$tasacionSignedCondition} THEN 1 ELSE 0 END) as purchases"),
-                DB::raw("SUM(CASE WHEN {$tasacionSignedCondition} THEN ABS(COALESCE(so.opo_for_importe_total, 0)) ELSE 0 END) as appraisal_amount"),
-                DB::raw("SUM(CASE WHEN {$tasacionSignedCondition} AND so.opo_for_importe_total IS NOT NULL THEN 1 ELSE 0 END) as appraisal_amount_rows"),
+                'cla.platform',
+                DB::raw('NULL as account_id'),
+                'cla.campaign_id',
+                'cla.campaign_name',
+                DB::raw("CASE WHEN cla.platform = 'salesforce' THEN 'salesforce_origin' ELSE 'platform_campaign' END as campaign_source_type"),
+                DB::raw('MIN(cla.source_acquired) as source_acquired'),
+                DB::raw('MIN(cla.medium_acquired) as medium_acquired'),
+                DB::raw('MIN(cla.campaign_acquired) as campaign_acquired'),
+                DB::raw('MIN(cla.acquired_id) as acquired_id'),
+                DB::raw('MIN(cla.content_acquired) as content_acquired'),
+                DB::raw("MIN(CASE WHEN cla.has_opportunity = 1 THEN 'Cruzada por ID' ELSE 'Sin leads Salesforce' END) as match_status"),
+                DB::raw('COUNT(DISTINCT cla.lead_id) as leads_salesforce'),
+                DB::raw('COUNT(DISTINCT CASE WHEN cla.has_opportunity = 1 THEN cla.opportunity_id END) as opportunities'),
+                DB::raw('SUM(CASE WHEN cla.has_reservation = 1 THEN 1 ELSE 0 END) as reservations'),
+                DB::raw('SUM(CASE WHEN cla.has_reservation = 1 AND cla.has_sale = 0 THEN 1 ELSE 0 END) as live_reservations'),
+                DB::raw('SUM(CASE WHEN cla.has_reservation = 1 AND cla.has_sale = 1 THEN 1 ELSE 0 END) as fallen_reservations'),
+                DB::raw('SUM(CASE WHEN cla.has_sale = 1 THEN 1 ELSE 0 END) as sales'),
+                DB::raw('SUM(CASE WHEN cla.has_sale = 1 THEN COALESCE(cla.sold_amount, CASE WHEN COALESCE(so.opo_for_importe_total, 0) > 0 THEN so.opo_for_importe_total ELSE NULL END) ELSE 0 END) as sale_amount'),
+                DB::raw('SUM(CASE WHEN cla.has_sale = 1 AND (cla.sold_amount IS NOT NULL OR COALESCE(so.opo_for_importe_total, 0) > 0) THEN 1 ELSE 0 END) as sale_amount_rows'),
+                DB::raw('SUM(CASE WHEN cla.has_opportunity = 1 AND cla.campaign_type = \'tasacion\' THEN 1 ELSE 0 END) as appraisals_generated'),
+                DB::raw('SUM(CASE WHEN cla.has_purchase = 1 THEN 1 ELSE 0 END) as purchases'),
+                DB::raw('SUM(CASE WHEN cla.has_purchase = 1 THEN ABS(COALESCE(so.opo_for_importe_total, 0)) ELSE 0 END) as appraisal_amount'),
+                DB::raw('SUM(CASE WHEN cla.has_purchase = 1 AND so.opo_for_importe_total IS NOT NULL THEN 1 ELSE 0 END) as appraisal_amount_rows'),
+                DB::raw('MIN(cla.lead_status) as lead_status'),
+                DB::raw('MIN(cla.lead_delegation) as lead_delegation'),
+                DB::raw('MIN(cla.lead_zone) as lead_zone'),
+                DB::raw('MIN(cla.commercial_user_id) as commercial_user_id'),
+                DB::raw('MIN(cla.commercial_user_name) as commercial_user_name'),
+                DB::raw('MIN(cla.vehicle_interest) as vehicle_interest'),
             ])
-            ->groupBy('ca.platform', 'ca.account_id', 'ca.campaign_id', 'ca.campaign_name', 'ca.campaign_source_type')
+            ->groupBy('cla.platform', 'cla.campaign_id', 'cla.campaign_name')
             ->get()
             ->map(fn ($row) => (array) $row)
-            ->filter(fn (array $row): bool => $this->normalizer->hasClearSalesforceAttribution($row['campaign_id'], $row['campaign_name']))
             ->filter(fn (array $row): bool => $this->includeCampaignForContext($row, $filters))
             ->values()
             ->all();
@@ -418,7 +409,13 @@ class CampaignDashboardDatasetService
             return false;
         }
 
-        return $this->campaignType($row) === ($filters['context'] ?? 'venta');
+        $context = $filters['context'] ?? 'all';
+
+        if (in_array($context, ['all', 'todas', '', null], true)) {
+            return true;
+        }
+
+        return $this->campaignType($row) === $context;
     }
 
     private function campaignType(array $row): string
@@ -565,7 +562,6 @@ class CampaignDashboardDatasetService
                 'inicio' => $period['start'],
                 'fin' => $period['end'],
             ],
-            'attribution_window_days' => $filters['attribution_window_days'],
             'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
             'kpis' => $totals,
             'warnings' => $this->warnings($rows, $totals, $period, $filters),
@@ -608,11 +604,12 @@ class CampaignDashboardDatasetService
     private function charts(array $rows, array $filters, array $period): array
     {
         $monthlyEvolution = $this->monthlyEvolution($filters, $period);
+        $dailyEvolution = $this->dailyEvolution($filters, $period);
 
         return [
             'monthly_evolution' => $monthlyEvolution,
-            'daily_evolution' => $monthlyEvolution,
-            'daily_reservations_sales' => [],
+            'daily_evolution' => $dailyEvolution,
+            'daily_reservations_sales' => $this->dailyReservationsSales($filters, $period),
             'funnel' => $this->funnelChart($rows, $filters['context'] ?? 'venta'),
             'platforms' => $this->platformBars($rows),
         ];
@@ -671,33 +668,39 @@ class CampaignDashboardDatasetService
                 $months[$month]['spend'] = round($months[$month]['spend'] + (float) $row->spend, 2);
             });
 
-        $query = DB::table('campaign_attributions as ca')
-            ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'ca.opportunity_id')
-            ->where('ca.attribution_window_days', $filters['attribution_window_days'])
-            ->where('ca.lead_created_at', '>=', $start)
-            ->where('ca.lead_created_at', '<=', $end);
-        $this->applyAttributionFilters($query, array_merge($filters, ['campaign_source_type' => 'platform_campaign']), 'ca');
+        $attributionQuery = DB::table('campaign_lead_attributions as cla')
+            ->where('cla.lead_created_date', '>=', $start)
+            ->where('cla.lead_created_date', '<=', $end);
 
-        $businessCondition = $filters['context'] === 'tasacion'
-            ? $this->tasacionOpportunitySql()
-            : $this->ventaOpportunitySql();
-        $saleCondition = $filters['context'] === 'tasacion'
-            ? $this->tasacionSignedSql()
-            : $this->ventaSignedSql();
+        $this->applyLeadAttributionFilters($attributionQuery, $filters, 'cla');
 
-        $query
+        if (filled($filters['campaign_source_type'] ?? null)) {
+            if ($filters['campaign_source_type'] === 'salesforce_origin') {
+                $attributionQuery->where('cla.platform', 'salesforce');
+            } elseif ($filters['campaign_source_type'] === 'platform_campaign') {
+                $attributionQuery->where('cla.platform', '<>', 'salesforce');
+            }
+        }
+
+        if ($filters['context'] === 'venta') {
+            $attributionQuery->where('cla.campaign_type', 'venta');
+        } elseif ($filters['context'] === 'tasacion') {
+            $attributionQuery->where('cla.campaign_type', 'tasacion');
+        }
+
+        $attributionQuery
             ->select([
-                DB::raw('SUBSTR(ca.lead_created_at, 1, 7) as metric_month'),
-                'ca.platform',
-                'ca.campaign_id',
-                'ca.campaign_name',
-                DB::raw('COUNT(DISTINCT ca.lead_id) as leads_salesforce'),
-                DB::raw("COUNT(DISTINCT CASE WHEN ca.has_opportunity = 1 AND {$businessCondition} THEN ca.opportunity_id END) as opportunities"),
-                DB::raw("SUM(CASE WHEN ca.has_reservation = 1 AND {$businessCondition} THEN 1 ELSE 0 END) as reservations"),
-                DB::raw("SUM(CASE WHEN {$saleCondition} THEN 1 ELSE 0 END) as sales"),
-                DB::raw("SUM(CASE WHEN {$this->tasacionSignedSql()} THEN 1 ELSE 0 END) as purchases"),
+                DB::raw('SUBSTR(cla.lead_created_date, 1, 7) as metric_month'),
+                'cla.platform',
+                'cla.campaign_id',
+                'cla.campaign_name',
+                DB::raw('COUNT(DISTINCT cla.lead_id) as leads_salesforce'),
+                DB::raw('COUNT(DISTINCT CASE WHEN cla.has_opportunity = 1 THEN cla.opportunity_id END) as opportunities'),
+                DB::raw('SUM(CASE WHEN cla.has_reservation = 1 THEN 1 ELSE 0 END) as reservations'),
+                DB::raw('SUM(CASE WHEN cla.has_sale = 1 THEN 1 ELSE 0 END) as sales'),
+                DB::raw('SUM(CASE WHEN cla.has_purchase = 1 THEN 1 ELSE 0 END) as purchases'),
             ])
-            ->groupBy(DB::raw('SUBSTR(ca.lead_created_at, 1, 7)'), 'ca.platform', 'ca.campaign_id', 'ca.campaign_name')
+            ->groupBy(DB::raw('SUBSTR(cla.lead_created_date, 1, 7)'), 'cla.platform', 'cla.campaign_id', 'cla.campaign_name')
             ->get()
             ->each(function (object $row) use (&$months, $filters): void {
                 $campaign = [
@@ -742,19 +745,32 @@ class CampaignDashboardDatasetService
             ->groupBy('metric_date')
             ->pluck('spend', 'metric_date');
 
-        $attributionFilters = array_merge($filters, ['campaign_source_type' => 'platform_campaign']);
-        $attributionQuery = DB::table('campaign_attributions')
-            ->where('lead_created_at', '>=', $period['start_at'])
-            ->where('lead_created_at', '<', $period['end_at'])
-            ->where('attribution_window_days', $filters['attribution_window_days']);
-        $this->applyAttributionFilters($attributionQuery, $attributionFilters);
+        $attributionQuery = DB::table('campaign_lead_attributions as cla')
+            ->where('cla.lead_created_date', '>=', $period['start_at'])
+            ->where('cla.lead_created_date', '<', $period['end_at']);
+
+        $this->applyLeadAttributionFilters($attributionQuery, $filters, 'cla');
+
+        if (filled($filters['campaign_source_type'] ?? null)) {
+            if ($filters['campaign_source_type'] === 'salesforce_origin') {
+                $attributionQuery->where('cla.platform', 'salesforce');
+            } elseif ($filters['campaign_source_type'] === 'platform_campaign') {
+                $attributionQuery->where('cla.platform', '<>', 'salesforce');
+            }
+        }
+
+        if ($filters['context'] === 'venta') {
+            $attributionQuery->where('cla.campaign_type', 'venta');
+        } elseif ($filters['context'] === 'tasacion') {
+            $attributionQuery->where('cla.campaign_type', 'tasacion');
+        }
 
         $attributionByDate = $attributionQuery
             ->select([
-                DB::raw('DATE(lead_created_at) as metric_date'),
-                DB::raw('COUNT(DISTINCT lead_id) as leads_salesforce'),
+                DB::raw('DATE(cla.lead_created_date) as metric_date'),
+                DB::raw('COUNT(DISTINCT cla.lead_id) as leads_salesforce'),
             ])
-            ->groupBy(DB::raw('DATE(lead_created_at)'))
+            ->groupBy(DB::raw('DATE(cla.lead_created_date)'))
             ->get()
             ->keyBy('metric_date');
 
@@ -778,54 +794,45 @@ class CampaignDashboardDatasetService
 
     private function dailyReservationsSales(array $filters, array $period): array
     {
-        $query = DB::table('campaign_attributions as ca')
-            ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'ca.opportunity_id')
-            ->where('ca.attribution_window_days', $filters['attribution_window_days'])
-            ->where('ca.lead_created_at', '>=', $period['start_at'])
-            ->where('ca.lead_created_at', '<', $period['end_at']);
-        $this->applyAttributionFilters($query, array_merge($filters, ['campaign_source_type' => 'platform_campaign']), 'ca');
+        $query = DB::table('campaign_lead_attributions as cla')
+            ->where('cla.lead_created_date', '>=', $period['start_at'])
+            ->where('cla.lead_created_date', '<', $period['end_at']);
 
-        $businessCondition = $filters['context'] === 'tasacion'
-            ? $this->tasacionOpportunitySql()
-            : $this->ventaOpportunitySql();
-        $saleCondition = $filters['context'] === 'tasacion'
-            ? $this->tasacionSignedSql()
-            : $this->ventaSignedSql();
+        $this->applyLeadAttributionFilters($query, $filters, 'cla');
 
-        $reservationsByDate = $filters['context'] === 'tasacion'
-            ? (clone $query)
-                ->whereNotNull('ca.opportunity_created_at')
-                ->select([
-                    DB::raw('DATE(ca.opportunity_created_at) as metric_date'),
-                    DB::raw("SUM(CASE WHEN ca.has_opportunity = 1 AND {$businessCondition} THEN 1 ELSE 0 END) as reservations"),
-                ])
-                ->groupBy(DB::raw('DATE(ca.opportunity_created_at)'))
-                ->pluck('reservations', 'metric_date')
-            : (clone $query)
-                ->whereNotNull('ca.reservation_date')
-                ->select([
-                    'ca.reservation_date as metric_date',
-                    DB::raw("SUM(CASE WHEN ca.has_reservation = 1 AND {$businessCondition} THEN 1 ELSE 0 END) as reservations"),
-                ])
-                ->groupBy('ca.reservation_date')
-                ->pluck('reservations', 'metric_date');
+        if (filled($filters['campaign_source_type'] ?? null)) {
+            if ($filters['campaign_source_type'] === 'salesforce_origin') {
+                $query->where('cla.platform', 'salesforce');
+            } elseif ($filters['campaign_source_type'] === 'platform_campaign') {
+                $query->where('cla.platform', '<>', 'salesforce');
+            }
+        }
+
+        if ($filters['context'] === 'venta') {
+            $query->where('cla.campaign_type', 'venta');
+        } elseif ($filters['context'] === 'tasacion') {
+            $query->where('cla.campaign_type', 'tasacion');
+        }
+
+        $reservationsByDate = (clone $query)
+            ->select([
+                DB::raw('DATE(cla.lead_created_date) as metric_date'),
+                DB::raw('SUM(CASE WHEN cla.has_reservation = 1 THEN 1 ELSE 0 END) as reservations'),
+            ])
+            ->groupBy(DB::raw('DATE(cla.lead_created_date)'))
+            ->pluck('reservations', 'metric_date');
 
         $salesByDate = (clone $query)
-            ->where(function ($subQuery): void {
-                $subQuery
-                    ->whereNotNull('ca.sale_date')
-                    ->orWhereNotNull('so.cv_signed_date');
-            })
             ->select([
-                DB::raw('DATE(COALESCE(ca.sale_date, so.cv_signed_date)) as metric_date'),
-                DB::raw("SUM(CASE WHEN {$saleCondition} THEN 1 ELSE 0 END) as sales"),
+                DB::raw('DATE(cla.lead_created_date) as metric_date'),
+                DB::raw('SUM(CASE WHEN cla.has_sale = 1 THEN 1 ELSE 0 END) as sales'),
             ])
-            ->groupBy(DB::raw('DATE(COALESCE(ca.sale_date, so.cv_signed_date))'))
+            ->groupBy(DB::raw('DATE(cla.lead_created_date)'))
             ->pluck('sales', 'metric_date');
 
         $rows = [];
         $cursor = CarbonImmutable::parse($period['start'])->startOfDay();
-        $end = CarbonImmutable::parse($period['end'])->addDays((int) $filters['attribution_window_days'])->startOfDay();
+        $end = CarbonImmutable::parse($period['end'])->startOfDay();
 
         while ($cursor->lessThanOrEqualTo($end)) {
             $date = $cursor->toDateString();
@@ -1054,8 +1061,8 @@ class CampaignDashboardDatasetService
         }
 
         $salesWithLocalOpportunity = $this->attributionBase($period, $filters)
-            ->join('salesforce_opportunities as so', 'so.salesforce_id', '=', 'campaign_attributions.opportunity_id')
-            ->where('campaign_attributions.has_sale', true)
+            ->join('salesforce_opportunities as so', 'so.salesforce_id', '=', 'campaign_lead_attributions.opportunity_id')
+            ->where('campaign_lead_attributions.has_sale', true)
             ->count();
 
         if ($salesWithLocalOpportunity === 0) {
@@ -1079,24 +1086,25 @@ class CampaignDashboardDatasetService
 
     private function attributionBase(array $period, array $filters)
     {
-        return DB::table('campaign_attributions')
-            ->where('lead_created_at', '>=', $period['start_at'])
-            ->where('lead_created_at', '<', $period['end_at'])
-            ->where('attribution_window_days', $filters['attribution_window_days']);
+        return DB::table('campaign_lead_attributions')
+            ->where('lead_created_date', '>=', $period['start_at'])
+            ->where('lead_created_date', '<', $period['end_at']);
     }
 
     private function diagnostics(array $rows, array $period, array $filters): array
     {
-        $attributionBase = DB::table('campaign_attributions')
+        $attributionBase = DB::table('campaign_lead_attributions')
+            ->where('lead_created_date', '>=', $period['start_at'])
+            ->where('lead_created_date', '<', $period['end_at']);
+        $legacyAttributionBase = DB::table('campaign_attributions')
             ->where('lead_created_at', '>=', $period['start_at'])
-            ->where('lead_created_at', '<', $period['end_at'])
-            ->where('attribution_window_days', $filters['attribution_window_days']);
+            ->where('lead_created_at', '<', $period['end_at']);
         $rowCollection = collect($rows);
 
         return [
             'last_meta_sync' => DB::table('campaign_platform_daily_metrics')->where('platform', 'meta')->max('synced_at'),
             'last_google_sync' => DB::table('campaign_platform_daily_metrics')->where('platform', 'google_ads')->max('synced_at'),
-            'last_attribution_build' => DB::table('campaign_attributions')->max('updated_at'),
+            'last_attribution_build' => DB::table('campaign_lead_attributions')->max('updated_at'),
             'meta_metric_rows' => DB::table('campaign_platform_daily_metrics')->where('platform', 'meta')->count(),
             'google_metric_rows' => DB::table('campaign_platform_daily_metrics')->where('platform', 'google_ads')->count(),
             'salesforce_leads_with_campaign_period' => $this->leadsWithAcquisitionNotNull($period),
@@ -1107,17 +1115,17 @@ class CampaignDashboardDatasetService
             'campaigns_matched_by_id' => $rowCollection->filter(fn (array $row) => str_contains((string) ($row['match_status'] ?? ''), 'ID'))->count(),
             'campaigns_matched_by_name' => $rowCollection->filter(fn (array $row) => str_contains((string) ($row['match_status'] ?? ''), 'nombre'))->count(),
             'platform_campaigns' => $rowCollection->where('campaign_source_type', 'platform_campaign')->count(),
-            'salesforce_origins' => $rowCollection->where('campaign_source_type', 'salesforce_origin')->count(),
-            'salesforce_campaigns_without_spend' => $rowCollection->where('campaign_source_type', 'salesforce_campaign_without_spend')->count(),
+            'salesforce_origins' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
+            'salesforce_campaigns_without_spend' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_campaign_without_spend')->count(),
             'crossed_campaigns' => $rowCollection->filter(fn (array $row) => in_array($row['match_status'] ?? null, ['Cruzada por ID', 'Cruzada por nombre'], true))->count(),
             'campaigns_without_crossing' => $rowCollection->filter(fn (array $row) => ! in_array($row['match_status'] ?? null, ['Cruzada por ID', 'Cruzada por nombre'], true))->count(),
             'leads_platform_campaigns' => $rowCollection->where('campaign_source_type', 'platform_campaign')->sum('leads_salesforce'),
-            'leads_salesforce_origins' => $rowCollection->where('campaign_source_type', 'salesforce_origin')->sum('leads_salesforce'),
+            'leads_salesforce_origins' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
             'attributed_sales' => $rowCollection->sum('sales'),
             'sales_with_amount_available' => $rowCollection->filter(fn (array $row) => (int) ($row['sales'] ?? 0) > 0 && ($row['sale_amount'] ?? null) !== null)->sum('sales'),
             'opportunities_cv_signed' => DB::table('salesforce_opportunities')->where('cv_signed', true)->count(),
-            'attributed_sales_with_amount' => (clone $attributionBase)->where('has_sale', true)->where('sale_amount', '>', 0)->count(),
-            'attributed_sales_amount_sum' => round((float) (clone $attributionBase)->where('has_sale', true)->sum('sale_amount'), 2),
+            'attributed_sales_with_amount' => $this->attributedSalesWithResolvedAmount($period, $filters, 'count'),
+            'attributed_sales_amount_sum' => $this->attributedSalesWithResolvedAmount($period, $filters, 'sum'),
             'sales_with_opo_for_importe_total' => $this->attributedSalesWithOpportunityAmount($period, $filters, 'opo_for_importe_total', 'count'),
             'sum_opo_for_importe_total_sales' => $this->attributedSalesWithOpportunityAmount($period, $filters, 'opo_for_importe_total', 'sum'),
             'sales_with_amount' => $this->attributedSalesWithOpportunityAmount($period, $filters, 'amount', 'count'),
@@ -1135,8 +1143,8 @@ class CampaignDashboardDatasetService
             'match_campaign_id' => (clone $attributionBase)->where('attribution_method', 'campaign_id_match')->count(),
             'match_campaign_name_exact' => (clone $attributionBase)->where('attribution_method', 'campaign_name_match')->where('attribution_confidence', 'medium')->count(),
             'match_campaign_name_flexible' => (clone $attributionBase)->where('attribution_method', 'campaign_name_match')->where('attribution_confidence', 'low')->count(),
-            'salesforce_only_by_campaign' => (clone $attributionBase)->where('campaign_source_type', 'salesforce_campaign_without_spend')->count(),
-            'salesforce_only_by_origin' => (clone $attributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
+            'salesforce_only_by_campaign' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_campaign_without_spend')->count(),
+            'salesforce_only_by_origin' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
         ];
     }
 
@@ -1163,17 +1171,45 @@ class CampaignDashboardDatasetService
             return $aggregate === 'sum' ? 0.0 : 0;
         }
 
-        $query = DB::table('campaign_attributions as ca')
-            ->join('salesforce_opportunities as so', 'so.salesforce_id', '=', 'ca.opportunity_id')
-            ->where('ca.lead_created_at', '>=', $period['start_at'])
-            ->where('ca.lead_created_at', '<', $period['end_at'])
-            ->where('ca.attribution_window_days', $filters['attribution_window_days'])
-            ->where('ca.has_sale', true)
+        $query = DB::table('campaign_lead_attributions as cla')
+            ->join('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
+            ->where('cla.lead_created_date', '>=', $period['start_at'])
+            ->where('cla.lead_created_date', '<', $period['end_at'])
+            ->where('cla.has_sale', true)
             ->where("so.{$column}", '>', 0);
 
         return $aggregate === 'sum'
             ? round((float) $query->sum("so.{$column}"), 2)
             : $query->count();
+    }
+
+    private function attributedSalesWithResolvedAmount(array $period, array $filters, string $aggregate): int|float
+    {
+        $query = DB::table('campaign_lead_attributions as cla')
+            ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
+            ->where('cla.lead_created_date', '>=', $period['start_at'])
+            ->where('cla.lead_created_date', '<', $period['end_at'])
+            ->where('cla.has_sale', true);
+
+        $fallbackSql = 'NULL';
+
+        if (Schema::hasColumn('salesforce_opportunities', 'opo_for_importe_total')) {
+            $fallbackSql = 'CASE WHEN COALESCE(so.opo_for_importe_total, 0) > 0 THEN so.opo_for_importe_total ELSE NULL END';
+        }
+
+        if (Schema::hasColumn('salesforce_opportunities', 'amount')) {
+            $fallbackSql = $fallbackSql === 'NULL'
+                ? 'CASE WHEN COALESCE(so.amount, 0) > 0 THEN so.amount ELSE NULL END'
+                : "COALESCE({$fallbackSql}, CASE WHEN COALESCE(so.amount, 0) > 0 THEN so.amount ELSE NULL END)";
+        }
+
+        $resolvedAmountSql = "COALESCE(cla.sold_amount, {$fallbackSql})";
+
+        if ($aggregate === 'sum') {
+            return round((float) ($query->whereRaw("{$resolvedAmountSql} > 0")->sum(DB::raw($resolvedAmountSql)) ?? 0), 2);
+        }
+
+        return (clone $query)->whereRaw("{$resolvedAmountSql} > 0")->count();
     }
 
     private function saleAmountFieldUsed(array $period, array $filters): string
@@ -1212,12 +1248,12 @@ class CampaignDashboardDatasetService
 
     private function applyMetricFilters($query, array $filters): void
     {
-        if (filled($filters['campaign_source_type']) && $filters['campaign_source_type'] !== 'platform_campaign') {
+        if (filled($filters['campaign_source_type'] ?? null) && $filters['campaign_source_type'] !== 'platform_campaign') {
             $query->whereRaw('1 = 0');
         }
 
         foreach (['platform', 'account_id', 'campaign_id', 'campaign_name'] as $field) {
-            if (filled($filters[$field])) {
+            if (filled($filters[$field] ?? null)) {
                 $query->where($field, $filters[$field]);
             }
         }
@@ -1250,7 +1286,7 @@ class CampaignDashboardDatasetService
             });
         }
 
-        if (filled($filters['search'])) {
+        if (filled($filters['search'] ?? null)) {
             $search = '%'.$filters['search'].'%';
             $query->where(function ($subQuery) use ($search): void {
                 $subQuery
@@ -1271,25 +1307,26 @@ class CampaignDashboardDatasetService
             'source_acquired',
             'medium_acquired',
             'campaign_acquired',
+            'campaign_type',
             'campaign_id',
             'campaign_name',
             'lead_status',
             'vehicle_interest',
         ] as $field) {
-            if (filled($filters[$field])) {
+            if (filled($filters[$field] ?? null)) {
                 $query->where($column($field), $filters[$field]);
             }
         }
 
-        if (filled($filters['delegation'])) {
+        if (filled($filters['delegation'] ?? null)) {
             $query->where($column('lead_delegation'), $filters['delegation']);
         }
 
-        if (filled($filters['zone'])) {
+        if (filled($filters['zone'] ?? null)) {
             $query->where($column('lead_zone'), $filters['zone']);
         }
 
-        if (filled($filters['commercial_user'])) {
+        if (filled($filters['commercial_user'] ?? null)) {
             $query->where(function ($subQuery) use ($filters, $column): void {
                 $subQuery
                     ->where($column('commercial_user_id'), $filters['commercial_user'])
@@ -1297,7 +1334,7 @@ class CampaignDashboardDatasetService
             });
         }
 
-        if (filled($filters['search'])) {
+        if (filled($filters['search'] ?? null)) {
             $search = '%'.$filters['search'].'%';
             $query->where(function ($subQuery) use ($search, $column): void {
                 $subQuery
@@ -1314,7 +1351,66 @@ class CampaignDashboardDatasetService
             'has_reservation' => 'has_reservation',
             'has_sale' => 'has_sale',
         ] as $filter => $field) {
-            $boolean = $this->booleanFilter($filters[$filter]);
+            $boolean = $this->booleanFilter($filters[$filter] ?? null);
+
+            if ($boolean !== null) {
+                $query->where($column($field), $boolean);
+            }
+        }
+    }
+
+    private function applyLeadAttributionFilters($query, array $filters, ?string $alias = null): void
+    {
+        $column = fn (string $field): string => $alias ? "{$alias}.{$field}" : $field;
+
+        foreach ([
+            'platform',
+            'campaign_id',
+            'campaign_name',
+            'campaign_type',
+            'source_acquired',
+            'medium_acquired',
+            'campaign_acquired',
+            'lead_status',
+            'vehicle_interest',
+        ] as $field) {
+            if (filled($filters[$field] ?? null)) {
+                $query->where($column($field), $filters[$field]);
+            }
+        }
+
+        if (filled($filters['delegation'] ?? null)) {
+            $query->where($column('lead_delegation'), $filters['delegation']);
+        }
+
+        if (filled($filters['zone'] ?? null)) {
+            $query->where($column('lead_zone'), $filters['zone']);
+        }
+
+        if (filled($filters['commercial_user'] ?? null)) {
+            $query->where(function ($subQuery) use ($filters, $column): void {
+                $subQuery
+                    ->where($column('commercial_user_id'), $filters['commercial_user'])
+                    ->orWhere($column('commercial_user_name'), $filters['commercial_user']);
+            });
+        }
+
+        if (filled($filters['search'] ?? null)) {
+            $search = '%'.$filters['search'].'%';
+            $query->where(function ($subQuery) use ($search, $column): void {
+                $subQuery
+                    ->where($column('campaign_id'), 'like', $search)
+                    ->orWhere($column('campaign_name'), 'like', $search);
+            });
+        }
+
+        foreach ([
+            'has_opportunity' => 'has_opportunity',
+            'has_reservation' => 'has_reservation',
+            'has_sale' => 'has_sale',
+            'has_purchase' => 'has_purchase',
+        ] as $filter => $field) {
+            $boolean = $this->booleanFilter($filters[$filter] ?? null);
 
             if ($boolean !== null) {
                 $query->where($column($field), $boolean);
@@ -1328,6 +1424,7 @@ class CampaignDashboardDatasetService
             'platforms' => $this->distinctFromBoth('platform'),
             'source_types' => [
                 ['value' => 'platform_campaign', 'label' => 'Campana plataforma'],
+                ['value' => 'salesforce_origin', 'label' => 'Procedencia Salesforce'],
             ],
             'classifications' => ['Potenciar', 'Revisar', 'Parar', 'Revisar tracking', 'Sin datos suficientes'],
             'campaign_statuses' => [
@@ -1342,15 +1439,15 @@ class CampaignDashboardDatasetService
                 ->get()
                 ->map(fn ($row) => ['id' => $row->account_id, 'name' => $row->account_name])
                 ->all(),
-            'sources' => $this->distinct('campaign_attributions', 'source_acquired'),
-            'mediums' => $this->distinct('campaign_attributions', 'medium_acquired'),
-            'campaigns_acquired' => $this->distinct('campaign_attributions', 'campaign_acquired'),
+            'sources' => $this->distinct('campaign_lead_attributions', 'source_acquired'),
+            'mediums' => $this->distinct('campaign_lead_attributions', 'medium_acquired'),
+            'campaigns_acquired' => $this->distinct('campaign_lead_attributions', 'campaign_acquired'),
             'campaign_ids' => $this->distinctFromBoth('campaign_id'),
             'campaign_names' => $this->distinctFromBoth('campaign_name'),
-            'delegations' => $this->distinct('campaign_attributions', 'lead_delegation'),
-            'zones' => $this->distinct('campaign_attributions', 'lead_zone'),
-            'lead_statuses' => $this->distinct('campaign_attributions', 'lead_status'),
-            'commercials' => DB::table('campaign_attributions')
+            'delegations' => $this->distinct('campaign_lead_attributions', 'lead_delegation'),
+            'zones' => $this->distinct('campaign_lead_attributions', 'lead_zone'),
+            'lead_statuses' => $this->distinct('campaign_lead_attributions', 'lead_status'),
+            'commercials' => DB::table('campaign_lead_attributions')
                 ->select('commercial_user_id', 'commercial_user_name')
                 ->whereNotNull('commercial_user_name')
                 ->distinct()
@@ -1358,8 +1455,7 @@ class CampaignDashboardDatasetService
                 ->get()
                 ->map(fn ($row) => ['id' => $row->commercial_user_id ?: $row->commercial_user_name, 'name' => $row->commercial_user_name])
                 ->all(),
-            'vehicles' => $this->distinct('campaign_attributions', 'vehicle_interest'),
-            'windows' => self::WINDOW_OPTIONS,
+            'vehicles' => $this->distinct('campaign_lead_attributions', 'vehicle_interest'),
             'months' => $this->monthOptions(),
         ];
     }
@@ -1396,6 +1492,7 @@ class CampaignDashboardDatasetService
     private function distinctFromBoth(string $column): array
     {
         return collect($this->distinct('campaign_attributions', $column))
+            ->merge($this->distinct('campaign_lead_attributions', $column))
             ->merge($this->distinct('campaign_platform_daily_metrics', $column))
             ->filter()
             ->unique()
@@ -1458,6 +1555,7 @@ class CampaignDashboardDatasetService
             'source_acquired',
             'medium_acquired',
             'campaign_acquired',
+            'campaign_type',
             'campaign_source_type',
             'delegation',
             'zone',
@@ -1472,7 +1570,7 @@ class CampaignDashboardDatasetService
                 continue;
             }
 
-            if (filled($filters[$key])) {
+            if (filled($filters[$key] ?? null)) {
                 return true;
             }
         }
@@ -1516,7 +1614,7 @@ class CampaignDashboardDatasetService
     private function lastUpdated(): ?CarbonImmutable
     {
         $updated = max(
-            CampaignAttribution::query()->max('updated_at') ?: '',
+            DB::table('campaign_lead_attributions')->max('updated_at') ?: '',
             CampaignPlatformDailyMetric::query()->max('updated_at') ?: ''
         );
 
@@ -1533,9 +1631,9 @@ class CampaignDashboardDatasetService
     private function dataVersion(): array
     {
         return [
-            'attributions_count' => CampaignAttribution::query()->count(),
+            'attributions_count' => DB::table('campaign_lead_attributions')->count(),
             'metrics_count' => CampaignPlatformDailyMetric::query()->count(),
-            'attributions_updated_at' => CampaignAttribution::query()->max('updated_at'),
+            'attributions_updated_at' => DB::table('campaign_lead_attributions')->max('updated_at'),
             'metrics_updated_at' => CampaignPlatformDailyMetric::query()->max('updated_at'),
             'dashboard_cache_version' => Cache::get('campaign_dashboard_cache_version', 1),
         ];

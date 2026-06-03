@@ -354,7 +354,10 @@ function renderSummary(data) {
             : 'Datos actualizados: pendiente';
     }
     document.getElementById('periodLabel').textContent = periodText(data.periodo_actual);
-    document.getElementById('windowLabel').textContent = 'Pivot Lead.CreatedDate';
+    const pivotLabel = document.getElementById('pivotLabel');
+    if (pivotLabel) {
+        pivotLabel.textContent = 'Lead.CreatedDate';
+    }
 
     const empty = document.getElementById('emptyMessage');
     empty.classList.toggle('is-hidden', Boolean(data.ok));

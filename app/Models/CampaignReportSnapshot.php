@@ -9,7 +9,6 @@ class CampaignReportSnapshot extends Model
     protected $fillable = [
         'period_start',
         'period_end',
-        'attribution_window_days',
         'filters_hash',
         'summary',
         'campaigns',
@@ -20,7 +19,6 @@ class CampaignReportSnapshot extends Model
     protected $casts = [
         'period_start' => 'date',
         'period_end' => 'date',
-        'attribution_window_days' => 'integer',
         'summary' => 'array',
         'campaigns' => 'array',
         'rankings' => 'array',

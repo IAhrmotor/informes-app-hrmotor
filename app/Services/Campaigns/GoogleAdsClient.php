@@ -108,7 +108,6 @@ FROM campaign
 WHERE
   segments.date >= '{$startDate}'
   AND segments.date <= '{$endDate}'
-  AND campaign.status IN ('ENABLED', 'PAUSED')
 ORDER BY segments.date ASC
 GAQL;
     }

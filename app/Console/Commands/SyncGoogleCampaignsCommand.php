@@ -10,7 +10,8 @@ class SyncGoogleCampaignsCommand extends Command
 {
     protected $signature = 'campaigns:sync-google
         {--days=60 : Dias hacia atras que se sincronizan}
-        {--months= : Meses hacia atras que se sincronizan; tiene prioridad sobre --days}';
+        {--months= : Meses hacia atras que se sincronizan; tiene prioridad sobre --days}
+        {--from= : Fecha inicial explicita en formato Y-m-d}';
 
     protected $description = 'Sincroniza metricas diarias de Google Ads para el informe de campanas.';
 
@@ -34,6 +35,12 @@ class SyncGoogleCampaignsCommand extends Command
 
     private function periodStart(CarbonImmutable $end): CarbonImmutable
     {
+        $from = $this->option('from');
+
+        if (filled($from)) {
+            return CarbonImmutable::parse($from)->startOfDay();
+        }
+
         $months = $this->option('months');
 
         if ($months !== null && $months !== '') {

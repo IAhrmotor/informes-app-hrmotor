@@ -23,23 +23,26 @@ class CampaignAttributionBuilderService
     ) {
     }
 
-    public function build(CarbonInterface $start, CarbonInterface $end, int $windowDays = 30): array
+    public function build(CarbonInterface $start, CarbonInterface $end): array
     {
         $startedAt = microtime(true);
         $start = CarbonImmutable::parse($start)->startOfDay();
         $end = CarbonImmutable::parse($end);
-        $windowDays = max($windowDays, 1);
         $metrics = $this->metricLookup($start, $end);
         $stats = $this->emptyStats($start, $end);
         $leads = $this->candidateLeads($start, $end, $stats);
-        $opportunities = $this->candidateOpportunities($start, $end->addDays($windowDays), $leads);
-        $assignments = $this->assignOpportunities($leads, $opportunities, $windowDays);
+        $opportunities = $this->candidateOpportunities($leads);
+        $assignments = $this->assignOpportunities($leads, $opportunities);
         $now = now();
 
         DB::table('campaign_attributions')
             ->where('lead_created_at', '>=', $start)
             ->where('lead_created_at', '<', $end)
-            ->where('attribution_window_days', $windowDays)
+            ->delete();
+
+        DB::table('campaign_lead_attributions')
+            ->where('lead_created_date', '>=', $start)
+            ->where('lead_created_date', '<', $end)
             ->delete();
 
         $batch = [];
@@ -48,7 +51,7 @@ class CampaignAttributionBuilderService
             $campaign = $this->resolveCampaign($lead, $metrics);
             $assignment = $assignments[(string) $lead->salesforce_id] ?? null;
             $opportunity = $assignment['opportunity'] ?? null;
-            $opportunityFlags = $this->opportunityFlags($lead, $opportunity, $windowDays);
+            $opportunityFlags = $this->opportunityFlags($lead, $opportunity);
             $decorated = $this->leadDataset->decorateLead($lead);
 
             $this->countCampaignMatch($stats, $campaign);
@@ -89,7 +92,6 @@ class CampaignAttributionBuilderService
                 'opportunity_attribution_confidence' => $assignment['confidence'] ?? null,
                 'match_status' => $campaign['match_status'],
                 'campaign_source_type' => $campaign['campaign_source_type'],
-                'attribution_window_days' => $windowDays,
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
@@ -123,7 +125,7 @@ class CampaignAttributionBuilderService
         $stats['sale_amount_sum'] = round((float) $stats['sale_amount_sum'], 2);
         $stats['duration_seconds'] = round(microtime(true) - $startedAt, 2);
         $stats['peak_memory_mb'] = round(memory_get_peak_usage(true) / 1024 / 1024, 2);
-        $stats = array_merge($stats, $this->topDiagnostics($start, $end, $windowDays));
+        $stats = array_merge($stats, $this->topDiagnostics($start, $end));
 
         $this->invalidateCache();
 
@@ -477,10 +479,27 @@ class CampaignAttributionBuilderService
         return null;
     }
 
-    private function candidateOpportunities(CarbonInterface $start, CarbonInterface $end, Collection $leads): Collection
+    private function candidateOpportunities(Collection $leads): Collection
     {
         $convertedIds = $leads
             ->pluck('converted_opportunity_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $emailValues = $leads
+            ->pluck('email')
+            ->filter()
+            ->map(fn ($value) => $this->normalizeEmail($value))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $phoneValues = $leads
+            ->flatMap(fn (object $lead): array => [
+                $this->normalizePhone($lead->phone),
+                $this->normalizePhone($lead->mobile_phone),
+            ])
             ->filter()
             ->unique()
             ->values()
@@ -500,31 +519,48 @@ class CampaignAttributionBuilderService
             'cv_signed_date',
         ], $this->saleAmountResolver->opportunitySelectColumns())));
 
-        $opportunities = DB::table('salesforce_opportunities')
-            ->where(function ($query) use ($start, $end): void {
-                $query
-                    ->whereBetween('created_date', [$start, $end])
-                    ->orWhereBetween('reservation_date', [$start->toDateString(), $end->toDateString()])
-                    ->orWhereBetween('cv_signed_date', [$start->toDateString(), $end->toDateString()]);
-            })
+        if ($convertedIds === [] && $emailValues === [] && $phoneValues === []) {
+            return collect();
+        }
+
+        $query = DB::table('salesforce_opportunities')
+            ->where(function ($subQuery) use ($convertedIds, $emailValues, $phoneValues): void {
+                $addedCondition = false;
+
+                if ($convertedIds !== []) {
+                    $subQuery->whereIn('salesforce_id', $convertedIds);
+                    $addedCondition = true;
+                }
+
+                if ($emailValues !== []) {
+                    if ($addedCondition) {
+                        $subQuery->orWhereIn('account_person_email', $emailValues)
+                            ->orWhereIn('account_company_email', $emailValues);
+                    } else {
+                        $subQuery->whereIn('account_person_email', $emailValues)
+                            ->orWhereIn('account_company_email', $emailValues);
+                        $addedCondition = true;
+                    }
+                }
+
+                if ($phoneValues !== []) {
+                    if ($addedCondition) {
+                        $subQuery->orWhereIn('account_phone', $phoneValues);
+                    } else {
+                        $subQuery->whereIn('account_phone', $phoneValues);
+                    }
+                }
+            });
+
+        $opportunities = $query
             ->select($columns)
             ->get()
             ->keyBy('salesforce_id');
 
-        foreach (array_chunk($convertedIds, 500) as $ids) {
-            DB::table('salesforce_opportunities')
-                ->whereIn('salesforce_id', $ids)
-                ->select($columns)
-                ->get()
-                ->each(function (object $opportunity) use ($opportunities): void {
-                    $opportunities[(string) $opportunity->salesforce_id] = $opportunity;
-                });
-        }
-
         return $opportunities;
     }
 
-    private function assignOpportunities(Collection $leads, Collection $opportunities, int $windowDays): array
+    private function assignOpportunities(Collection $leads, Collection $opportunities): array
     {
         $assignments = [];
         $claimedOpportunityIds = [];
@@ -534,10 +570,6 @@ class CampaignAttributionBuilderService
             $opportunity = $opportunities->get($opportunityId);
 
             if (! $opportunity || isset($claimedOpportunityIds[$opportunityId])) {
-                continue;
-            }
-
-            if (! $this->withinWindow($lead->created_date, $opportunity->created_date, $windowDays)) {
                 continue;
             }
 
@@ -593,7 +625,7 @@ class CampaignAttributionBuilderService
                     return $lead ? ['lead' => $lead, 'method' => $row['method']] : null;
                 })
                 ->filter()
-                ->filter(fn (array $row): bool => $this->withinWindow($row['lead']->created_date, $opportunity->created_date, $windowDays))
+                ->filter(fn (array $row): bool => CarbonImmutable::parse($row['lead']->created_date)->lessThanOrEqualTo(CarbonImmutable::parse($opportunity->created_date)))
                 ->sortByDesc(fn (array $row): string => sprintf(
                     '%02d|%s',
                     $this->leadAttributionPriority($row['lead']),
@@ -645,7 +677,7 @@ class CampaignAttributionBuilderService
         return 0;
     }
 
-    private function opportunityFlags(object $lead, ?object $opportunity, int $windowDays): array
+    private function opportunityFlags(object $lead, ?object $opportunity): array
     {
         if (! $opportunity) {
             return [
@@ -661,15 +693,13 @@ class CampaignAttributionBuilderService
 
         $stage = (string) $opportunity->stage_name;
         $isClosedLost = strcasecmp($stage, 'Cerrada Perdida') === 0;
-        $hasOpportunity = $this->withinWindow($lead->created_date, $opportunity->created_date, $windowDays);
-        $hasReservation = (bool) $opportunity->reservation
-            && $this->withinWindow($lead->created_date, $opportunity->reservation_date, $windowDays);
+        $hasOpportunity = true;
+        $hasReservation = (bool) $opportunity->reservation;
         $recordType = $this->normalizer->compactKey($opportunity->record_type_name);
         $candidateSaleAmount = $this->saleAmountResolver->resolve($opportunity);
         $hasSale = (bool) $opportunity->cv_signed
             && ! $isClosedLost
-            && ($recordType === 'venta' || ($recordType === 'cambio' && $candidateSaleAmount !== null && $candidateSaleAmount > 0))
-            && $this->withinWindow($lead->created_date, $opportunity->cv_signed_date, $windowDays);
+            && ($recordType === 'venta' || ($recordType === 'cambio' && $candidateSaleAmount !== null && $candidateSaleAmount > 0));
         $saleAmount = $hasSale ? $candidateSaleAmount : null;
 
         if ($recordType === 'cambio' && $saleAmount !== null && $saleAmount < 0) {
@@ -685,19 +715,6 @@ class CampaignAttributionBuilderService
             'sale_date' => $hasSale ? $opportunity->cv_signed_date : null,
             'sale_amount' => $saleAmount,
         ];
-    }
-
-    private function withinWindow(mixed $leadDate, mixed $eventDate, int $windowDays): bool
-    {
-        if (blank($leadDate) || blank($eventDate)) {
-            return false;
-        }
-
-        $leadAt = CarbonImmutable::parse($leadDate);
-        $eventAt = CarbonImmutable::parse($eventDate);
-
-        return $eventAt->greaterThanOrEqualTo($leadAt)
-            && $eventAt->lessThanOrEqualTo($leadAt->addDays($windowDays)->endOfDay());
     }
 
     private function normalizeEmail(mixed $value): ?string
@@ -725,6 +742,7 @@ class CampaignAttributionBuilderService
             return;
         }
 
+        // One row per lead: the builder keeps the best resolved opportunity for that lead.
         DB::table('campaign_attributions')->upsert(
             $rows,
             ['lead_id'],
@@ -763,11 +781,11 @@ class CampaignAttributionBuilderService
                 'opportunity_attribution_confidence',
                 'match_status',
                 'campaign_source_type',
-                'attribution_window_days',
                 'updated_at',
             ]
         );
 
+        // Mirror the lead-level attribution into the dedicated table used by the campaign dashboard.
         DB::table('campaign_lead_attributions')->upsert(
             array_map(fn (array $row): array => [
                 'lead_id' => $row['lead_id'],
@@ -777,10 +795,22 @@ class CampaignAttributionBuilderService
                 'platform' => $row['platform'],
                 'campaign_type' => $this->campaignTypeResolver->typeFor($row['platform'], $row['campaign_id'], $row['campaign_name']),
                 'opportunity_id' => $row['opportunity_id'],
+                'has_opportunity' => $row['has_opportunity'],
                 'has_reservation' => $row['has_reservation'],
                 'has_sale' => $row['has_sale'],
                 'has_purchase' => $this->campaignTypeResolver->isTasacion($row['platform'], $row['campaign_id'], $row['campaign_name']) && $row['has_sale'],
                 'sold_amount' => $row['sale_amount'],
+                'source_acquired' => $row['source_acquired'],
+                'medium_acquired' => $row['medium_acquired'],
+                'campaign_acquired' => $row['campaign_acquired'],
+                'acquired_id' => $row['acquired_id'],
+                'content_acquired' => $row['content_acquired'],
+                'lead_status' => $row['lead_status'],
+                'lead_delegation' => $row['lead_delegation'],
+                'lead_zone' => $row['lead_zone'],
+                'commercial_user_id' => $row['commercial_user_id'],
+                'commercial_user_name' => $row['commercial_user_name'],
+                'vehicle_interest' => $row['vehicle_interest'],
                 'created_at' => $row['created_at'],
                 'updated_at' => $row['updated_at'],
             ], $rows),
@@ -792,10 +822,22 @@ class CampaignAttributionBuilderService
                 'platform',
                 'campaign_type',
                 'opportunity_id',
+                'has_opportunity',
                 'has_reservation',
                 'has_sale',
                 'has_purchase',
                 'sold_amount',
+                'source_acquired',
+                'medium_acquired',
+                'campaign_acquired',
+                'acquired_id',
+                'content_acquired',
+                'lead_status',
+                'lead_delegation',
+                'lead_zone',
+                'commercial_user_id',
+                'commercial_user_name',
+                'vehicle_interest',
                 'updated_at',
             ],
         );
@@ -926,12 +968,11 @@ class CampaignAttributionBuilderService
         ];
     }
 
-    private function topDiagnostics(CarbonInterface $start, CarbonInterface $end, int $windowDays): array
+    private function topDiagnostics(CarbonInterface $start, CarbonInterface $end): array
     {
         $attributions = DB::table('campaign_attributions')
             ->where('lead_created_at', '>=', $start)
-            ->where('lead_created_at', '<', $end)
-            ->where('attribution_window_days', $windowDays);
+            ->where('lead_created_at', '<', $end);
 
         return [
             'top_campaign_acquired' => $this->topAttributionValues(clone $attributions, ['campaign_acquired']),

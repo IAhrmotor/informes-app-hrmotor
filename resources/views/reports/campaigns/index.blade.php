@@ -141,7 +141,7 @@
                 </div>
                 <div class="card period-card">
                     <span>Base informe</span>
-                    <strong id="windowLabel">-</strong>
+                    <strong id="pivotLabel">Lead.CreatedDate</strong>
                 </div>
             </section>
 

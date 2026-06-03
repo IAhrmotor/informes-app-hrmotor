@@ -119,22 +119,21 @@ class CampaignCommandsTest extends TestCase
 
         $result = app(CampaignAttributionBuilderService::class)->build(
             CarbonImmutable::parse('2026-05-01'),
-            CarbonImmutable::parse('2026-06-01'),
-            30
+            CarbonImmutable::parse('2026-06-01')
         );
 
         $this->assertSame('campaign_salesforce_leads', $result['lead_source_table']);
         $this->assertSame(2, $result['saved_attributions']);
-        $this->assertDatabaseHas('campaign_attributions', [
+        $this->assertDatabaseHas('campaign_lead_attributions', [
             'lead_id' => '00Q-campaign-source',
-            'campaign_source_type' => 'salesforce_origin',
-            'source_acquired' => 'Google Maps',
-            'medium_acquired' => 'Llamada',
+            'platform' => 'salesforce',
+            'campaign_name' => 'Google Maps · Llamada',
+            'campaign_type' => 'venta',
         ]);
-        $this->assertDatabaseHas('campaign_attributions', [
+        $this->assertDatabaseHas('campaign_lead_attributions', [
             'lead_id' => '00Q-campaign-name',
-            'campaign_source_type' => 'salesforce_campaign_without_spend',
             'campaign_name' => 'Campana Salesforce',
+            'campaign_type' => 'venta',
         ]);
     }
 
@@ -197,7 +196,7 @@ class CampaignCommandsTest extends TestCase
             'medio_nuevo' => 'Formulario',
         ]);
 
-        $this->artisan('campaigns:build-attribution', ['--days' => 3, '--window' => 30])
+        $this->artisan('campaigns:build-attribution', ['--days' => 3])
             ->expectsOutputToContain('Leads candidatos validos: 1')
             ->expectsOutputToContain('Leads procesados: 1')
             ->assertExitCode(0);
@@ -207,11 +206,15 @@ class CampaignCommandsTest extends TestCase
             'lead_id' => '00Q-clear',
             'campaign_name' => 'Campana real',
         ]);
+        $this->assertDatabaseHas('campaign_lead_attributions', [
+            'lead_id' => '00Q-clear',
+            'campaign_name' => 'Campana real',
+        ]);
     }
 
     public function test_refresh_campaigns_store_crea_snapshot(): void
     {
-        $this->artisan('reports:refresh-campaigns', ['--days' => 1, '--window' => 30, '--store' => true])
+        $this->artisan('reports:refresh-campaigns', ['--days' => 1, '--store' => true])
             ->expectsOutputToContain('Snapshot id:')
             ->assertExitCode(0);
 

@@ -68,15 +68,6 @@ class CampaignTypeResolver
             ->where(function ($query) use ($platform): void {
                 $query->whereNull('platform')->orWhere('platform', $platform);
             })
-            ->where(function ($query) use ($campaignId, $campaignName): void {
-                $query
-                    ->where(function ($byId) use ($campaignId): void {
-                        $byId->whereNotNull('campaign_id')->where('campaign_id', $campaignId);
-                    })
-                    ->orWhere(function ($byName) use ($campaignName): void {
-                        $byName->whereNotNull('campaign_name')->where('campaign_name', $campaignName);
-                    });
-            })
             ->get();
 
         foreach ($rows as $row) {
