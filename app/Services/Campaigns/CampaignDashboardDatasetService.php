@@ -20,6 +20,7 @@ class CampaignDashboardDatasetService
         private readonly CampaignValueNormalizer $normalizer,
         private readonly CampaignPerformanceClassifier $classifier,
         private readonly CampaignSaleAmountResolver $saleAmountResolver,
+        private readonly CampaignTypeResolver $campaignTypeResolver,
     ) {
     }
 
@@ -158,6 +159,8 @@ class CampaignDashboardDatasetService
                 DB::raw('MIN(campaign_effective_status) as campaign_effective_status'),
                 DB::raw('MIN(campaign_start_date) as campaign_start_date'),
                 DB::raw('MIN(campaign_end_date) as campaign_end_date'),
+                DB::raw('MIN(advertising_channel_type) as advertising_channel_type'),
+                DB::raw('MIN(advertising_channel_sub_type) as advertising_channel_sub_type'),
                 DB::raw('MAX(CASE WHEN COALESCE(spend, 0) > 0 THEN metric_date ELSE NULL END) as last_spend_date'),
                 DB::raw("'platform_campaign' as campaign_source_type"),
                 DB::raw('SUM(COALESCE(spend, 0)) as spend'),
@@ -171,6 +174,7 @@ class CampaignDashboardDatasetService
             ->get()
             ->map(fn ($row) => (array) $row)
             ->filter(fn (array $row): bool => $this->normalizer->hasClearSalesforceAttribution($row['campaign_id'], $row['campaign_name']))
+            ->filter(fn (array $row): bool => $this->includeCampaignForContext($row, $filters))
             ->values()
             ->all();
     }
@@ -222,6 +226,7 @@ class CampaignDashboardDatasetService
             ->get()
             ->map(fn ($row) => (array) $row)
             ->filter(fn (array $row): bool => $this->normalizer->hasClearSalesforceAttribution($row['campaign_id'], $row['campaign_name']))
+            ->filter(fn (array $row): bool => $this->includeCampaignForContext($row, $filters))
             ->values()
             ->all();
     }
@@ -243,8 +248,11 @@ class CampaignDashboardDatasetService
             $rows[$key]['campaign_effective_status'] = $row['campaign_effective_status'] ?? null;
             $rows[$key]['campaign_start_date'] = $row['campaign_start_date'] ?? null;
             $rows[$key]['campaign_end_date'] = $row['campaign_end_date'] ?? null;
+            $rows[$key]['advertising_channel_type'] = $row['advertising_channel_type'] ?? null;
+            $rows[$key]['advertising_channel_sub_type'] = $row['advertising_channel_sub_type'] ?? null;
             $rows[$key]['last_spend_date'] = $row['last_spend_date'] ?? null;
             $rows[$key]['campaign_status_label'] = $this->campaignStatusLabel($rows[$key]);
+            $rows[$key]['campaign_type'] = $this->campaignType($rows[$key]);
             $rows[$key]['spend'] = (float) $row['spend'];
             $rows[$key]['impressions'] = (int) $row['impressions'];
             $rows[$key]['clicks'] = (int) $row['clicks'];
@@ -265,6 +273,7 @@ class CampaignDashboardDatasetService
             $rows[$key]['content_acquired'] = $row['content_acquired'] ?? null;
             $rows[$key]['campaign_source_type'] = $this->deriveSourceType($row);
             $rows[$key]['match_status'] = $row['match_status'] ?: ($rows[$key]['campaign_source_type'] === 'salesforce_origin' ? 'Procedencia Salesforce' : 'Sin inversion asociada');
+            $rows[$key]['campaign_type'] = $this->campaignType($rows[$key]);
             $rows[$key]['leads_salesforce'] = (int) $row['leads_salesforce'];
             $rows[$key]['opportunities'] = (int) $row['opportunities'];
             $rows[$key]['reservations'] = (int) $row['reservations'];
@@ -297,7 +306,10 @@ class CampaignDashboardDatasetService
             'campaign_effective_status' => $source['campaign_effective_status'] ?? null,
             'campaign_start_date' => $source['campaign_start_date'] ?? null,
             'campaign_end_date' => $source['campaign_end_date'] ?? null,
+            'advertising_channel_type' => $source['advertising_channel_type'] ?? null,
+            'advertising_channel_sub_type' => $source['advertising_channel_sub_type'] ?? null,
             'last_spend_date' => $source['last_spend_date'] ?? null,
+            'campaign_type' => $this->campaignType($source),
             'campaign_status_label' => null,
             'match_status' => $source['match_status'] ?? null,
             'campaign_source_type' => $source['campaign_source_type'] ?? null,
@@ -400,6 +412,24 @@ class CampaignDashboardDatasetService
         };
     }
 
+    private function includeCampaignForContext(array $row, array $filters): bool
+    {
+        if ($this->campaignTypeResolver->shouldExclude($row['campaign_name'] ?? null)) {
+            return false;
+        }
+
+        return $this->campaignType($row) === ($filters['context'] ?? 'venta');
+    }
+
+    private function campaignType(array $row): string
+    {
+        return $this->campaignTypeResolver->typeFor(
+            $row['platform'] ?? null,
+            $row['campaign_id'] ?? null,
+            $row['campaign_name'] ?? null,
+        );
+    }
+
     private function campaignStatusLabel(array $row): string
     {
         return $this->campaignIsActive($row) ? 'Activa' : 'Inactiva';
@@ -470,6 +500,7 @@ class CampaignDashboardDatasetService
     private function mainCampaignRows(array $rows, array $filters): array
     {
         $rows = $this->platformRows($rows);
+        $rows = array_values(array_filter($rows, fn (array $row): bool => $this->includeCampaignForContext($row, $filters)));
 
         if (filled($filters['campaign_status'] ?? null)) {
             $rows = array_values(array_filter($rows, function (array $row) use ($filters): bool {
@@ -576,12 +607,123 @@ class CampaignDashboardDatasetService
 
     private function charts(array $rows, array $filters, array $period): array
     {
+        $monthlyEvolution = $this->monthlyEvolution($filters, $period);
+
         return [
-            'daily_evolution' => $this->dailyEvolution($filters, $period),
-            'daily_reservations_sales' => $this->dailyReservationsSales($filters, $period),
+            'monthly_evolution' => $monthlyEvolution,
+            'daily_evolution' => $monthlyEvolution,
+            'daily_reservations_sales' => [],
             'funnel' => $this->funnelChart($rows, $filters['context'] ?? 'venta'),
             'platforms' => $this->platformBars($rows),
         ];
+    }
+
+    private function monthlyEvolution(array $filters, array $period): array
+    {
+        $start = CarbonImmutable::parse($period['end'])->startOfYear()->startOfDay();
+        $end = CarbonImmutable::parse($period['end'])->endOfDay();
+        $months = [];
+        $cursor = $start->startOfMonth();
+
+        while ($cursor->lessThanOrEqualTo($end)) {
+            $key = $cursor->format('Y-m');
+            $months[$key] = [
+                'date' => $cursor->toDateString(),
+                'label' => ucfirst($cursor->locale('es')->translatedFormat('F')),
+                'spend' => 0.0,
+                'leads_salesforce' => 0,
+                'opportunities' => 0,
+                'reservations' => 0,
+                'sales' => 0,
+                'purchases' => 0,
+            ];
+            $cursor = $cursor->addMonthNoOverflow();
+        }
+
+        $metricQuery = DB::table('campaign_platform_daily_metrics')
+            ->where('metric_date', '>=', $start->toDateString())
+            ->where('metric_date', '<=', $end->toDateString());
+        $this->applyMetricFilters($metricQuery, array_merge($filters, ['campaign_source_type' => 'platform_campaign']));
+
+        $metricQuery
+            ->select([
+                DB::raw('SUBSTR(metric_date, 1, 7) as metric_month'),
+                'platform',
+                'campaign_id',
+                'campaign_name',
+                DB::raw('SUM(COALESCE(spend, 0)) as spend'),
+            ])
+            ->groupBy(DB::raw('SUBSTR(metric_date, 1, 7)'), 'platform', 'campaign_id', 'campaign_name')
+            ->get()
+            ->each(function (object $row) use (&$months, $filters): void {
+                $campaign = (array) $row;
+
+                if (! $this->includeCampaignForContext($campaign, $filters)) {
+                    return;
+                }
+
+                $month = (string) $row->metric_month;
+
+                if (! isset($months[$month])) {
+                    return;
+                }
+
+                $months[$month]['spend'] = round($months[$month]['spend'] + (float) $row->spend, 2);
+            });
+
+        $query = DB::table('campaign_attributions as ca')
+            ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'ca.opportunity_id')
+            ->where('ca.attribution_window_days', $filters['attribution_window_days'])
+            ->where('ca.lead_created_at', '>=', $start)
+            ->where('ca.lead_created_at', '<=', $end);
+        $this->applyAttributionFilters($query, array_merge($filters, ['campaign_source_type' => 'platform_campaign']), 'ca');
+
+        $businessCondition = $filters['context'] === 'tasacion'
+            ? $this->tasacionOpportunitySql()
+            : $this->ventaOpportunitySql();
+        $saleCondition = $filters['context'] === 'tasacion'
+            ? $this->tasacionSignedSql()
+            : $this->ventaSignedSql();
+
+        $query
+            ->select([
+                DB::raw('SUBSTR(ca.lead_created_at, 1, 7) as metric_month'),
+                'ca.platform',
+                'ca.campaign_id',
+                'ca.campaign_name',
+                DB::raw('COUNT(DISTINCT ca.lead_id) as leads_salesforce'),
+                DB::raw("COUNT(DISTINCT CASE WHEN ca.has_opportunity = 1 AND {$businessCondition} THEN ca.opportunity_id END) as opportunities"),
+                DB::raw("SUM(CASE WHEN ca.has_reservation = 1 AND {$businessCondition} THEN 1 ELSE 0 END) as reservations"),
+                DB::raw("SUM(CASE WHEN {$saleCondition} THEN 1 ELSE 0 END) as sales"),
+                DB::raw("SUM(CASE WHEN {$this->tasacionSignedSql()} THEN 1 ELSE 0 END) as purchases"),
+            ])
+            ->groupBy(DB::raw('SUBSTR(ca.lead_created_at, 1, 7)'), 'ca.platform', 'ca.campaign_id', 'ca.campaign_name')
+            ->get()
+            ->each(function (object $row) use (&$months, $filters): void {
+                $campaign = [
+                    'platform' => $row->platform,
+                    'campaign_id' => $row->campaign_id,
+                    'campaign_name' => $row->campaign_name,
+                ];
+
+                if (! $this->includeCampaignForContext($campaign, $filters)) {
+                    return;
+                }
+
+                $month = (string) $row->metric_month;
+
+                if (! isset($months[$month])) {
+                    return;
+                }
+
+                $months[$month]['leads_salesforce'] += (int) $row->leads_salesforce;
+                $months[$month]['opportunities'] += (int) $row->opportunities;
+                $months[$month]['reservations'] += (int) $row->reservations;
+                $months[$month]['sales'] += (int) $row->sales;
+                $months[$month]['purchases'] += (int) $row->purchases;
+            });
+
+        return array_values($months);
     }
 
     private function dailyEvolution(array $filters, array $period): array

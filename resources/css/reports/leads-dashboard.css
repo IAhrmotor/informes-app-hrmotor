@@ -1313,6 +1313,18 @@ th.num {
     stroke: #ed1b2f;
 }
 
+.evolution-bar.opportunities,
+.line-series.opportunities {
+    background: #4b5f86;
+    stroke: #4b5f86;
+}
+
+.evolution-bar.purchases,
+.line-series.purchases {
+    background: #f04a5d;
+    stroke: #f04a5d;
+}
+
 .evolution-bar.reservations,
 .line-series.reservations {
     background: #33415f;
@@ -1469,6 +1481,37 @@ th.num {
 
 .line-point {
     display: none;
+}
+
+.line-point.is-visible {
+    display: block;
+    fill: #fff;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+}
+
+.line-point.is-visible.spend {
+    stroke: #17213c;
+}
+
+.line-point.is-visible.leads {
+    stroke: #ed1b2f;
+}
+
+.line-point.is-visible.opportunities {
+    stroke: #4b5f86;
+}
+
+.line-point.is-visible.reservations {
+    stroke: #33415f;
+}
+
+.line-point.is-visible.sales {
+    stroke: #ed1b2f;
+}
+
+.line-point.is-visible.purchases {
+    stroke: #f04a5d;
 }
 
 .line-hover-layer {

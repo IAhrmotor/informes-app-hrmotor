@@ -19,6 +19,7 @@ class CampaignAttributionBuilderService
         private readonly CampaignValueNormalizer $normalizer,
         private readonly SalesforceLeadDashboardDatasetService $leadDataset,
         private readonly CampaignSaleAmountResolver $saleAmountResolver,
+        private readonly CampaignTypeResolver $campaignTypeResolver,
     ) {
     }
 
@@ -765,6 +766,38 @@ class CampaignAttributionBuilderService
                 'attribution_window_days',
                 'updated_at',
             ]
+        );
+
+        DB::table('campaign_lead_attributions')->upsert(
+            array_map(fn (array $row): array => [
+                'lead_id' => $row['lead_id'],
+                'lead_created_date' => $row['lead_created_at'],
+                'campaign_name' => $row['campaign_name'],
+                'campaign_id' => $row['campaign_id'],
+                'platform' => $row['platform'],
+                'campaign_type' => $this->campaignTypeResolver->typeFor($row['platform'], $row['campaign_id'], $row['campaign_name']),
+                'opportunity_id' => $row['opportunity_id'],
+                'has_reservation' => $row['has_reservation'],
+                'has_sale' => $row['has_sale'],
+                'has_purchase' => $this->campaignTypeResolver->isTasacion($row['platform'], $row['campaign_id'], $row['campaign_name']) && $row['has_sale'],
+                'sold_amount' => $row['sale_amount'],
+                'created_at' => $row['created_at'],
+                'updated_at' => $row['updated_at'],
+            ], $rows),
+            ['lead_id'],
+            [
+                'lead_created_date',
+                'campaign_name',
+                'campaign_id',
+                'platform',
+                'campaign_type',
+                'opportunity_id',
+                'has_reservation',
+                'has_sale',
+                'has_purchase',
+                'sold_amount',
+                'updated_at',
+            ],
         );
     }
 

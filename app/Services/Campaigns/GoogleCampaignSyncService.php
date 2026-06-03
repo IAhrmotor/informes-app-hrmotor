@@ -4,6 +4,7 @@ namespace App\Services\Campaigns;
 
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -45,6 +46,13 @@ class GoogleCampaignSyncService
                 continue;
             }
 
+            DB::table('campaign_platform_daily_metrics')
+                ->where('platform', 'google_ads')
+                ->where('account_id', $customerId)
+                ->where('metric_date', '>=', $start->toDateString())
+                ->where('metric_date', '<=', $end->toDateString())
+                ->delete();
+
             foreach ($rows as $row) {
                 $processed++;
                 $this->metrics->upsert([
@@ -56,12 +64,14 @@ class GoogleCampaignSyncService
                     'campaign_status' => data_get($row, 'campaign.status'),
                     'campaign_start_date' => data_get($row, 'campaign.startDate'),
                     'campaign_end_date' => data_get($row, 'campaign.endDate'),
-                    'ad_group_id' => (string) data_get($row, 'adGroup.id'),
-                    'ad_group_name' => data_get($row, 'adGroup.name'),
+                    'advertising_channel_type' => data_get($row, 'campaign.advertisingChannelType'),
+                    'advertising_channel_sub_type' => data_get($row, 'campaign.advertisingChannelSubType'),
+                    'ad_group_id' => null,
+                    'ad_group_name' => null,
                     'spend' => round(((float) data_get($row, 'metrics.costMicros', 0)) / 1000000, 2),
                     'impressions' => (int) data_get($row, 'metrics.impressions', 0),
                     'clicks' => (int) data_get($row, 'metrics.clicks', 0),
-                    'platform_conversions' => (float) data_get($row, 'metrics.conversions', 0),
+                    'platform_conversions' => (float) (data_get($row, 'metrics.allConversions') ?? data_get($row, 'metrics.conversions', 0)),
                     'raw_payload' => $row,
                 ]);
                 $saved++;

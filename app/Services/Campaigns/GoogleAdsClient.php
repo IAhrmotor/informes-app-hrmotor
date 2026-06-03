@@ -97,14 +97,19 @@ SELECT
   campaign.status,
   campaign.start_date,
   campaign.end_date,
-  ad_group.id,
-  ad_group.name,
+  campaign.advertising_channel_type,
+  campaign.advertising_channel_sub_type,
   metrics.impressions,
   metrics.clicks,
   metrics.conversions,
+  metrics.all_conversions,
   metrics.cost_micros
-FROM ad_group
-WHERE segments.date BETWEEN '{$startDate}' AND '{$endDate}'
+FROM campaign
+WHERE
+  segments.date >= '{$startDate}'
+  AND segments.date <= '{$endDate}'
+  AND campaign.status IN ('ENABLED', 'PAUSED')
+ORDER BY segments.date ASC
 GAQL;
     }
 }

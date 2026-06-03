@@ -8,10 +8,12 @@ use App\Models\ReportUser;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
 use App\Services\Campaigns\CampaignAttributionBuilderService;
+use App\Services\Campaigns\GoogleAdsClient;
 use App\Services\Campaigns\CampaignSaleAmountResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class CampaignDashboardTest extends TestCase
@@ -43,7 +45,7 @@ class CampaignDashboardTest extends TestCase
 
         $this->assertStringContainsString('id="campaignCharts"', $html);
         $this->assertStringContainsString('id="platformComparison"', $html);
-        $this->assertStringContainsString('id="reviewCampaigns"', $html);
+        $this->assertStringNotContainsString('id="reviewCampaigns"', $html);
         $this->assertStringContainsString('option value="active" selected', $html);
         $this->assertStringContainsString('id="rankingsToggle"', $html);
         $this->assertStringContainsString('id="rankingsPopover"', $html);
@@ -55,7 +57,7 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('line-label-layer', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString("{ value: 'current_year', label: 'Ano actual' }", file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('Evolucion de tasaciones y compras', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
-        $this->assertStringContainsString('Campanas a revisar', $html);
+        $this->assertStringNotContainsString('Campanas a revisar', $html);
         $this->assertStringNotContainsString('#7d494e', file_get_contents(resource_path('css/reports/leads-dashboard.css')));
         $this->assertStringContainsString('id="mediumAcquired"', $html);
         $this->assertStringContainsString('id="campaignAcquired"', $html);
@@ -130,6 +132,90 @@ class CampaignDashboardTest extends TestCase
         $this->withSession($viewerSession)
             ->get('/informes/campanas/export/campaigns.csv?'.$this->query())
             ->assertForbidden();
+    }
+
+    public function test_google_ads_query_usa_campaign_para_incluir_performance_max(): void
+    {
+        config()->set('services.google_ads.developer_token', 'dev-token');
+        config()->set('services.google_ads.client_id', 'client-id');
+        config()->set('services.google_ads.client_secret', 'client-secret');
+        config()->set('services.google_ads.refresh_token', 'refresh-token');
+        config()->set('services.google_ads.customer_ids', ['1234567890']);
+
+        $capturedQuery = null;
+
+        Http::fake(function ($request) use (&$capturedQuery) {
+            if (str_contains($request->url(), 'oauth2.googleapis.com/token')) {
+                return Http::response(['access_token' => 'access-token'], 200);
+            }
+
+            $capturedQuery = $request->data()['query'] ?? null;
+
+            return Http::response([['results' => []]], 200);
+        });
+
+        app(GoogleAdsClient::class)->searchDailyMetrics(
+            '1234567890',
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-05-31'),
+        );
+
+        $this->assertStringContainsString('FROM campaign', $capturedQuery);
+        $this->assertStringNotContainsString('FROM ad_group', $capturedQuery);
+        $this->assertStringContainsString('campaign.advertising_channel_type', $capturedQuery);
+        $this->assertStringContainsString('metrics.cost_micros', $capturedQuery);
+        $this->assertStringNotContainsString('advertising_channel_type IN', $capturedQuery);
+    }
+
+    public function test_venta_y_tasacion_separan_inversion_impresiones_y_clicks(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'google_ads',
+            'metric_date' => '2026-05-10',
+            'campaign_id' => 'venta-1',
+            'campaign_name' => 'VENTAS 1',
+            'campaign_status' => 'ENABLED',
+            'spend' => 100,
+            'impressions' => 1000,
+            'clicks' => 100,
+        ]));
+
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'google_ads',
+            'metric_date' => '2026-05-10',
+            'campaign_id' => 'tasacion-1',
+            'campaign_name' => 'TASADOR LANDING SEARCH 1',
+            'campaign_status' => 'ENABLED',
+            'spend' => 25,
+            'impressions' => 250,
+            'clicks' => 25,
+        ]));
+
+        $baseQuery = 'start_date=2026-05-01&end_date=2026-05-31&campaign_status=active';
+
+        $venta = $this->getJson('/informes/campanas/data/summary?'.$baseQuery.'&context=venta')
+            ->assertOk()
+            ->json('kpis');
+        $tasacion = $this->getJson('/informes/campanas/data/summary?'.$baseQuery.'&context=tasacion')
+            ->assertOk()
+            ->json('kpis');
+
+        $this->assertSame(100, (int) $venta['spend']);
+        $this->assertSame(1000, (int) $venta['impressions']);
+        $this->assertSame(100, (int) $venta['clicks']);
+        $this->assertSame(25, (int) $tasacion['spend']);
+        $this->assertSame(250, (int) $tasacion['impressions']);
+        $this->assertSame(25, (int) $tasacion['clicks']);
+
+        $ventaRows = $this->getJson('/informes/campanas/data/campaigns?'.$baseQuery.'&context=venta')
+            ->assertOk()
+            ->json('items');
+        $tasacionRows = $this->getJson('/informes/campanas/data/campaigns?'.$baseQuery.'&context=tasacion')
+            ->assertOk()
+            ->json('items');
+
+        $this->assertSame(['VENTAS 1'], array_column($ventaRows, 'campaign_name'));
+        $this->assertSame(['TASADOR LANDING SEARCH 1'], array_column($tasacionRows, 'campaign_name'));
     }
 
     public function test_atribucion_y_kpis_agregan_campaigns_sin_datos_personales(): void

@@ -19,6 +19,8 @@ class CampaignPlatformDailyMetric extends Model
         'campaign_effective_status',
         'campaign_start_date',
         'campaign_end_date',
+        'advertising_channel_type',
+        'advertising_channel_sub_type',
         'adset_id',
         'adset_name',
         'ad_group_id',

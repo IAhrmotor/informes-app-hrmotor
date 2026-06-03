@@ -34,14 +34,6 @@
             <input type="date" id="endDate">
         </div>
         <div class="filter-group">
-            <label for="attributionWindow">Ventana</label>
-            <select id="attributionWindow">
-                <option value="30" selected>30 dias</option>
-                <option value="60">60 dias</option>
-                <option value="90">90 dias</option>
-            </select>
-        </div>
-        <div class="filter-group">
             <label for="platform">Plataforma</label>
             <select id="platform"><option value="">Todas</option></select>
         </div>
@@ -148,7 +140,7 @@
                     <strong id="periodLabel">-</strong>
                 </div>
                 <div class="card period-card">
-                    <span>Ventana atribucion</span>
+                    <span>Base informe</span>
                     <strong id="windowLabel">-</strong>
                 </div>
             </section>
@@ -164,16 +156,6 @@
                 </div>
                 <div class="campaign-bar-list" id="platformComparison"></div>
             </section>
-            <section class="card panel" id="reviewCampaignsPanel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Campanas a revisar</h2>
-                        <div class="small">Motivos operativos para revisar tracking, conversion o cierre</div>
-                    </div>
-                </div>
-                <div class="portal-list" id="reviewCampaigns"></div>
-            </section>
-
             @if (($reportUserRole ?? 'viewer') === 'admin')
             <section class="card panel" id="campaignDiagnosticsPanel">
                 <div class="panel-title">

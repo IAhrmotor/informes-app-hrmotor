@@ -24,6 +24,21 @@ const conversionSeriesDefinitions = [
     { key: 'sales', label: 'Ventas', formatter: formatNumber, className: 'sales' },
 ];
 
+const monthlySeriesDefinitions = [
+    { key: 'spend', label: 'Inversion', formatter: formatMoney, className: 'spend' },
+    { key: 'leads_salesforce', label: 'Leads', formatter: formatNumber, className: 'leads' },
+    { key: 'opportunities', label: 'Oportunidades', formatter: formatNumber, className: 'opportunities' },
+    { key: 'reservations', label: 'Reservas', formatter: formatNumber, className: 'reservations' },
+    { key: 'sales', label: 'Ventas', formatter: formatNumber, className: 'sales' },
+];
+
+const monthlyTasacionSeriesDefinitions = [
+    { key: 'spend', label: 'Inversion', formatter: formatMoney, className: 'spend' },
+    { key: 'leads_salesforce', label: 'Leads', formatter: formatNumber, className: 'leads' },
+    { key: 'opportunities', label: 'Oportunidades', formatter: formatNumber, className: 'opportunities' },
+    { key: 'purchases', label: 'Compras', formatter: formatNumber, className: 'purchases' },
+];
+
 const rankingDefinitions = [
     { key: 'top_spend', title: 'Campanas con mas inversion', metric: 'spend', formatter: formatMoney, visible: true },
     { key: 'top_leads_salesforce', title: 'Mas leads Salesforce', metric: 'leads_salesforce', formatter: formatNumber, visible: true },
@@ -148,7 +163,6 @@ function bindResetFilters() {
             }
         });
 
-        document.getElementById('attributionWindow').value = '30';
         document.getElementById('periodPreset').value = 'last_30_days';
         document.getElementById('campaignStatus').value = 'active';
         setDefaultDates();
@@ -340,9 +354,7 @@ function renderSummary(data) {
             : 'Datos actualizados: pendiente';
     }
     document.getElementById('periodLabel').textContent = periodText(data.periodo_actual);
-    document.getElementById('windowLabel').textContent = `Periodo estricto · ventana ${data.attribution_window_days || 30} dias`;
-
-    document.getElementById('windowLabel').textContent = `Pivot lead - ventana ${data.attribution_window_days || 30} dias`;
+    document.getElementById('windowLabel').textContent = 'Pivot Lead.CreatedDate';
 
     const empty = document.getElementById('emptyMessage');
     empty.classList.toggle('is-hidden', Boolean(data.ok));
@@ -415,12 +427,31 @@ function renderCharts(charts) {
 
     currentCharts = charts || {};
     root.innerHTML = `
-        ${dailyEvolutionHtml(charts.daily_evolution || [])}
-        ${reservationsSalesHtml(charts.daily_reservations_sales || [])}
+        ${monthlyEvolutionHtml(charts.monthly_evolution || charts.daily_evolution || [])}
         ${funnelHtml(charts.funnel || [])}
         ${platformBarsHtml(charts.platforms || [])}
     `;
-    bindDailyChartControls();
+}
+
+function monthlyEvolutionHtml(rows) {
+    const definitions = currentContext === 'tasacion'
+        ? monthlyTasacionSeriesDefinitions
+        : monthlySeriesDefinitions;
+    const content = rows.length
+        ? genericLineChartHtml(rows, definitions, monthlyTooltip, true)
+        : '<div class="empty-state">Sin datos</div>';
+
+    return `
+        <article class="card panel campaign-chart-card campaign-chart-wide">
+            <div class="panel-title compact">
+                <div>
+                    <h2>Evolucion mensual de campanas</h2>
+                    <div class="small">Inversion, leads y resultados atribuidos por mes de creacion del lead</div>
+                </div>
+            </div>
+            <div class="campaign-evolution campaign-evolution-lines">${content}</div>
+        </article>
+    `;
 }
 
 function dailyEvolutionHtml(rows) {
@@ -508,7 +539,7 @@ function reservationsSalesHtml(rows) {
     `;
 }
 
-function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory) {
+function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory, showPoints = false) {
     const width = 100;
     const chartHeight = 96;
     const labelEvery = axisLabelEvery(rows.length);
@@ -521,7 +552,11 @@ function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory) {
             }));
             const points = coordinates.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ');
 
-            return `<polyline class="line-series ${escapeHtml(series.className)}" points="${points}" />`;
+            const pointsSvg = showPoints
+                ? coordinates.map((point) => `<circle class="line-point is-visible ${escapeHtml(series.className)}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="1.8"></circle>`).join('')
+                : '';
+
+            return `<polyline class="line-series ${escapeHtml(series.className)}" points="${points}" />${pointsSvg}`;
         }).join('');
     const hoverPoints = rows.map((row, index) => {
         const x = lineX(index, rows.length);
@@ -723,7 +758,7 @@ function renderDiagnostics(diagnostics) {
 function renderRankings(rankings) {
     const root = document.getElementById('rankingsGrid');
     const groups = rankingDefinitions
-        .filter((definition) => visibleRankings.includes(definition.key))
+        .filter((definition) => visibleRankings.includes(definition.key) && rankingAllowedInContext(definition.key))
         .map((definition) => [
             definition.title,
             rankings[definition.key] || [],
@@ -749,6 +784,15 @@ function renderRankings(rankings) {
             </article>
         `);
     });
+}
+
+function rankingAllowedInContext(key) {
+    const tasacionHidden = ['top_reservations', 'top_sales', 'top_sale_amount', 'best_roas', 'best_cost_per_sale', 'worst_cost_per_sale', 'many_leads_few_sales'];
+    const ventaHidden = ['top_purchases', 'best_cost_per_purchase', 'best_lead_to_purchase', 'many_leads_few_purchases'];
+
+    return currentContext === 'tasacion'
+        ? !tasacionHidden.includes(key)
+        : !ventaHidden.includes(key);
 }
 
 function renderCampaignRows(rows) {
@@ -853,7 +897,6 @@ function currentFilters() {
 
     setParam(params, 'start_date', document.getElementById('startDate')?.value);
     setParam(params, 'end_date', document.getElementById('endDate')?.value);
-    setParam(params, 'attribution_window_days', document.getElementById('attributionWindow')?.value);
     setParam(params, 'platform', document.getElementById('platform')?.value);
     setParam(params, 'account_id', document.getElementById('accountId')?.value);
     setParam(params, 'context', currentContext);
@@ -989,13 +1032,22 @@ function defaultRankingKeys() {
 }
 
 function activeColumns() {
-    return columnDefinitions.filter((column) => visibleColumns.includes(column.key));
+    return columnDefinitions.filter((column) => visibleColumns.includes(column.key) && columnAllowedInContext(column.key));
 }
 
 function applyColumnVisibility() {
     document.querySelectorAll('#panel-campaigns th[data-column]').forEach((header) => {
-        header.classList.toggle('is-hidden', !visibleColumns.includes(header.dataset.column));
+        header.classList.toggle('is-hidden', !visibleColumns.includes(header.dataset.column) || !columnAllowedInContext(header.dataset.column));
     });
+}
+
+function columnAllowedInContext(key) {
+    const tasacionHidden = ['reservations', 'sales', 'sale_amount', 'cost_per_reservation', 'cost_per_sale', 'roas', 'estimated_roi', 'opportunity_to_reservation', 'reservation_to_sale', 'lead_to_sale'];
+    const ventaHidden = ['appraisals_generated', 'purchases', 'cost_per_appraisal', 'cost_per_purchase', 'lead_to_purchase', 'opportunity_to_purchase', 'appraisal_amount'];
+
+    return currentContext === 'tasacion'
+        ? !tasacionHidden.includes(key)
+        : !ventaHidden.includes(key);
 }
 
 function syncTableScrollWidth() {
@@ -1266,6 +1318,17 @@ function conversionTooltip(row) {
         `Fecha: ${formatDate(row.date)}`,
         `${firstLabel}: ${formatNumber(Number(row.reservations || 0))}`,
         `${secondLabel}: ${formatNumber(Number(row.sales || 0))}`,
+    ].join('\n');
+}
+
+function monthlyTooltip(row) {
+    const definitions = currentContext === 'tasacion'
+        ? monthlyTasacionSeriesDefinitions
+        : monthlySeriesDefinitions;
+
+    return [
+        `Mes: ${row.label || formatShortDate(row.date)}`,
+        ...definitions.map((series) => `${series.label}: ${series.formatter(Number(row[series.key] || 0))}`),
     ].join('\n');
 }
 
