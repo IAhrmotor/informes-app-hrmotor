@@ -1051,10 +1051,7 @@ class CampaignDashboardDatasetService
             return null;
         }
 
-        $attributedSalesWithAmount = $this->attributionBase($period, $filters)
-            ->where('has_sale', true)
-            ->where('sale_amount', '>', 0)
-            ->count();
+        $attributedSalesWithAmount = $this->attributedSalesWithResolvedAmount($period, $filters, 'count');
 
         if ($attributedSalesWithAmount > 0) {
             return null;
@@ -1135,14 +1132,16 @@ class CampaignDashboardDatasetService
             'amount_fallback_field_status' => $this->opportunityAmountFieldStatus('amount'),
             'sale_amount_field_used' => $this->saleAmountFieldUsed($period, $filters),
             'candidates_with_campaign_acquired' => (clone $attributionBase)->whereNotNull('campaign_acquired')->where('campaign_acquired', '<>', '')->count(),
-            'candidates_only_source_medium' => (clone $attributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
+            'candidates_only_source_medium' => (clone $attributionBase)
+                ->where('platform', 'salesforce')
+                ->count(),
             'candidates_with_acquired_id' => (clone $attributionBase)->whereNotNull('acquired_id')->where('acquired_id', '<>', '')->count(),
             'candidates_with_content_acquired' => (clone $attributionBase)->whereNotNull('content_acquired')->where('content_acquired', '<>', '')->count(),
-            'match_ad_id' => (clone $attributionBase)->where('attribution_method', 'ad_id_match')->count(),
-            'match_adset_or_adgroup' => (clone $attributionBase)->where('attribution_method', 'adset_or_adgroup_id_match')->count(),
-            'match_campaign_id' => (clone $attributionBase)->where('attribution_method', 'campaign_id_match')->count(),
-            'match_campaign_name_exact' => (clone $attributionBase)->where('attribution_method', 'campaign_name_match')->where('attribution_confidence', 'medium')->count(),
-            'match_campaign_name_flexible' => (clone $attributionBase)->where('attribution_method', 'campaign_name_match')->where('attribution_confidence', 'low')->count(),
+            'match_ad_id' => (clone $legacyAttributionBase)->where('attribution_method', 'ad_id_match')->count(),
+            'match_adset_or_adgroup' => (clone $legacyAttributionBase)->where('attribution_method', 'adset_or_adgroup_id_match')->count(),
+            'match_campaign_id' => (clone $legacyAttributionBase)->where('attribution_method', 'campaign_id_match')->count(),
+            'match_campaign_name_exact' => (clone $legacyAttributionBase)->where('attribution_method', 'campaign_name_match')->where('attribution_confidence', 'medium')->count(),
+            'match_campaign_name_flexible' => (clone $legacyAttributionBase)->where('attribution_method', 'campaign_name_match')->where('attribution_confidence', 'low')->count(),
             'salesforce_only_by_campaign' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_campaign_without_spend')->count(),
             'salesforce_only_by_origin' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
         ];

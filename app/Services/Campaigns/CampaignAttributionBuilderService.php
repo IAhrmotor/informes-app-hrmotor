@@ -14,6 +14,7 @@ class CampaignAttributionBuilderService
 {
     private const LEAD_CHUNK_SIZE = 1000;
     private const UPSERT_CHUNK_SIZE = 25;
+    private const OPPORTUNITY_LOOKUP_CHUNK_SIZE = 500;
 
     public function __construct(
         private readonly CampaignValueNormalizer $normalizer,
@@ -523,39 +524,41 @@ class CampaignAttributionBuilderService
             return collect();
         }
 
-        $query = DB::table('salesforce_opportunities')
-            ->where(function ($subQuery) use ($convertedIds, $emailValues, $phoneValues): void {
-                $addedCondition = false;
+        $opportunities = collect();
 
-                if ($convertedIds !== []) {
-                    $subQuery->whereIn('salesforce_id', $convertedIds);
-                    $addedCondition = true;
-                }
+        foreach (array_chunk($convertedIds, self::OPPORTUNITY_LOOKUP_CHUNK_SIZE) as $ids) {
+            DB::table('salesforce_opportunities')
+                ->whereIn('salesforce_id', $ids)
+                ->select($columns)
+                ->get()
+                ->each(function (object $opportunity) use ($opportunities): void {
+                    $opportunities[(string) $opportunity->salesforce_id] = $opportunity;
+                });
+        }
 
-                if ($emailValues !== []) {
-                    if ($addedCondition) {
-                        $subQuery->orWhereIn('account_person_email', $emailValues)
-                            ->orWhereIn('account_company_email', $emailValues);
-                    } else {
-                        $subQuery->whereIn('account_person_email', $emailValues)
-                            ->orWhereIn('account_company_email', $emailValues);
-                        $addedCondition = true;
-                    }
-                }
+        foreach (array_chunk($emailValues, self::OPPORTUNITY_LOOKUP_CHUNK_SIZE) as $emails) {
+            DB::table('salesforce_opportunities')
+                ->where(function ($query) use ($emails): void {
+                    $query
+                        ->whereIn('account_person_email', $emails)
+                        ->orWhereIn('account_company_email', $emails);
+                })
+                ->select($columns)
+                ->get()
+                ->each(function (object $opportunity) use ($opportunities): void {
+                    $opportunities[(string) $opportunity->salesforce_id] = $opportunity;
+                });
+        }
 
-                if ($phoneValues !== []) {
-                    if ($addedCondition) {
-                        $subQuery->orWhereIn('account_phone', $phoneValues);
-                    } else {
-                        $subQuery->whereIn('account_phone', $phoneValues);
-                    }
-                }
-            });
-
-        $opportunities = $query
-            ->select($columns)
-            ->get()
-            ->keyBy('salesforce_id');
+        foreach (array_chunk($phoneValues, self::OPPORTUNITY_LOOKUP_CHUNK_SIZE) as $phones) {
+            DB::table('salesforce_opportunities')
+                ->whereIn('account_phone', $phones)
+                ->select($columns)
+                ->get()
+                ->each(function (object $opportunity) use ($opportunities): void {
+                    $opportunities[(string) $opportunity->salesforce_id] = $opportunity;
+                });
+        }
 
         return $opportunities;
     }
