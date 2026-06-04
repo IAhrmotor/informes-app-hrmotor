@@ -438,6 +438,10 @@ class CampaignDashboardDatasetService
         $status = mb_strtoupper((string) ($row['campaign_status'] ?? ''));
         $effectiveStatus = mb_strtoupper((string) ($row['campaign_effective_status'] ?? ''));
 
+        if ($status === '' && $effectiveStatus === '' && (int) ($row['leads_salesforce'] ?? 0) > 0) {
+            return true;
+        }
+
         return match ($platform) {
             'google_ads' => $status === 'ENABLED',
             'meta' => $effectiveStatus === 'ACTIVE',

@@ -437,6 +437,20 @@ class CampaignAttributionBuilderService
             }
         }
 
+        if ($this->isManualGoogleTasadorCampaign($lead->campaign_acquired)) {
+            return [
+                'platform' => 'google_ads',
+                'account_id' => null,
+                'campaign_id' => null,
+                'campaign_name' => 'tasador',
+                'method' => 'manual_google_tasador',
+                'confidence' => 'medium',
+                'match_status' => 'Sin inversion asociada',
+                'campaign_source_type' => 'platform_campaign',
+                'matched_to_platform' => false,
+            ];
+        }
+
         $hasCampaign = $this->normalizer->isValidAttributionValue($lead->campaign_acquired);
         $hasOrigin = $this->normalizer->isValidAttributionValue($lead->fuente_origen)
             || $this->normalizer->isValidAttributionValue($lead->medio_origen);
@@ -461,6 +475,11 @@ class CampaignAttributionBuilderService
             'campaign_source_type' => $sourceType,
             'matched_to_platform' => false,
         ];
+    }
+
+    private function isManualGoogleTasadorCampaign(mixed $campaignName): bool
+    {
+        return $this->normalizer->key($campaignName) === 'tasador';
     }
 
     private function originLabel(mixed $source, mixed $medium): ?string

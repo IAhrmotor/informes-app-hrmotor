@@ -12,6 +12,7 @@ class CampaignTypeMappingsSeeder extends Seeder
         $now = now();
 
         foreach ([
+            ['platform' => 'google_ads', 'campaign_name' => 'tasador'],
             ['platform' => 'google_ads', 'campaign_name' => 'TASADOR LANDING SEARCH 1'],
             ['platform' => 'meta', 'campaign_name' => 'Expiey_Leads_Geo_Tasación'],
             ['platform' => 'meta', 'campaign_name' => 'Expiey_Leads_Geo_Tasación_Nuevas Ubicaciones'],

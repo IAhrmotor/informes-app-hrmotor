@@ -601,6 +601,59 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('diagnostics.salesforce_only_by_campaign', 1);
     }
 
+    public function test_tasador_sin_metricas_google_cuenta_como_campana_tasacion_google_ads(): void
+    {
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-tasador-manual',
+            'name' => 'Lead Tasador Manual',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Potencial',
+            'record_type_name' => 'Tasación',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'fuente_origen' => 'Google Ads',
+            'medio_origen' => 'cpc',
+            'campaign_acquired' => 'tasador',
+            'portal_text' => 'Google Ads',
+            'medio_nuevo' => 'Formulario',
+            'delegacion_encargada_text' => 'Alcobendas',
+        ]);
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01')
+        );
+
+        $this->assertDatabaseHas('campaign_lead_attributions', [
+            'lead_id' => '00Q-tasador-manual',
+            'platform' => 'google_ads',
+            'campaign_id' => null,
+            'campaign_name' => 'tasador',
+            'campaign_type' => 'tasacion',
+        ]);
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-tasador-manual',
+            'platform' => 'google_ads',
+            'campaign_id' => null,
+            'campaign_name' => 'tasador',
+            'attribution_method' => 'manual_google_tasador',
+            'campaign_source_type' => 'platform_campaign',
+        ]);
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
+            ->assertOk()
+            ->assertJsonPath('kpis.leads_salesforce', 1)
+            ->assertJsonPath('kpis.spend', 0);
+
+        $this->getJson('/informes/campanas/data/campaigns?'.$this->query().'&context=tasacion')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.platform', 'google_ads')
+            ->assertJsonPath('items.0.campaign_name', 'tasador')
+            ->assertJsonPath('items.0.campaign_type', 'tasacion')
+            ->assertJsonPath('items.0.leads_salesforce', 1);
+    }
+
     public function test_platform_spend_without_salesforce_leads_is_review_tracking(): void
     {
         CampaignPlatformDailyMetric::query()->create($this->metricRow([

@@ -1637,6 +1637,7 @@ th.num {
     position: absolute;
     inset: 6px 0 30px;
     z-index: 3;
+    pointer-events: none;
 }
 
 .line-series {
@@ -1684,15 +1685,15 @@ th.num {
 
 .line-point-dot {
     position: absolute;
-    width: 18px;
-    height: 18px;
+    width: 22px;
+    height: 22px;
     transform: translate(-50%, -50%);
     background-position: center;
     background-repeat: no-repeat;
     background-size: contain;
     contain: paint;
     overflow: hidden;
-    pointer-events: auto;
+    pointer-events: none;
 }
 
 .line-point-dot.spend {
@@ -1734,7 +1735,7 @@ th.num {
 .line-hover-layer {
     position: absolute;
     inset: 6px 0 30px;
-    z-index: 2;
+    z-index: 5;
 }
 
 .line-hover-point {

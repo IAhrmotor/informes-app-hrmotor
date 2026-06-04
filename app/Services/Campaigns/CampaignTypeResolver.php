@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Schema;
 class CampaignTypeResolver
 {
     private const TASACION_MANUAL_NAMES = [
+        'tasador',
         'tasador landing search 1',
         'expiey leads geo tasacion',
         'expiey leads geo tasacion nuevas ubicaciones',

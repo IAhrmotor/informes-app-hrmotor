@@ -361,11 +361,11 @@ class CallDashboardDatasetService
         }
 
         if ($filters['delegation'] !== '') {
-            $query->where('delegation', $filters['delegation']);
+            $query->whereRaw($this->effectiveDelegationSql().' = ?', [$filters['delegation']]);
         }
 
         if ($filters['zone'] !== '') {
-            $query->where('zone', $filters['zone']);
+            $query->whereRaw($this->effectiveZoneSql().' = ?', [$filters['zone']]);
         }
 
         if ($includeUser && $filters['user'] !== '') {
@@ -547,7 +547,14 @@ class CallDashboardDatasetService
 
     private function overflowDenominatorConditionSql(): string
     {
-        return "COALESCE(is_overflow, 0) = 1";
+        $originSql = $this->effectiveOriginSql();
+        $answeredSql = $this->answeredConditionSql();
+        $portalSql = $this->overflowPortalKeySql();
+        $pollSql = $this->overflowPollConditionSql();
+
+        return "({$originSql} = 'portal'
+            AND {$answeredSql}
+            AND (({$portalSql} NOT IN ('web', 'google maps')) OR {$pollSql}))";
     }
 
     private function overflowPortalKeySql(): string
@@ -580,8 +587,14 @@ class CallDashboardDatasetService
         $compactNameSql = "REPLACE(REPLACE(REPLACE({$nameSql}, ' ', ''), '-', ''), '.', '')";
 
         return "CASE
+            WHEN owner_profile_name LIKE '%System Administrator%' OR owner_profile_name LIKE '%Administrator%' THEN 'system'
             WHEN {$nameSql} LIKE '%palomo%' THEN 'contact_center'
             WHEN {$compactNameSql} IN ('carlossoria') THEN 'system'
+            WHEN {$compactNameSql} IN (
+                'vanessasanjuan',
+                'vanesasanjuan',
+                'callcenterfontellas'
+            ) THEN 'customer_service'
             WHEN {$compactNameSql} IN (
                 'yuleidisgarcia',
                 'mariavidal',
