@@ -1,6 +1,5 @@
 @php
     $currentReport = $currentReport ?? 'leads';
-    $subtitle = $subtitle ?? 'Leads';
     $tabs = [
         ['key' => 'leads', 'label' => 'Leads', 'subtitle' => 'Captacion y seguimiento comercial', 'route' => 'reports.leads.index'],
         ['key' => 'reservations-sales', 'label' => 'Reservas / Ventas', 'subtitle' => 'Reservas, ventas y contratos', 'route' => 'reports.reservations-sales.index'],
@@ -18,14 +17,6 @@
 @endphp
 
 <header class="app-header">
-    <div class="brand-block">
-        <img src="/brand/logo-horizontal.svg" alt="HR Motor" class="brand-logo">
-        <div class="brand-copy">
-            <div class="brand-title">HR Motor - Informes comerciales</div>
-            <div class="brand-subtitle">{{ $subtitle }}</div>
-        </div>
-    </div>
-
     <div class="header-actions">
         <div class="badge" id="updatedBadge">Cargando datos de Salesforce...</div>
         @if (config('services.informes_auth.enabled'))
