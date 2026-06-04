@@ -83,6 +83,7 @@ class CampaignAttributionBuilderService
                 'has_reservation' => $opportunityFlags['has_reservation'],
                 'has_fallen_reservation' => $opportunityFlags['has_fallen_reservation'],
                 'has_sale' => $opportunityFlags['has_sale'],
+                'has_purchase' => $opportunityFlags['has_purchase'],
                 'lead_delegation' => $decorated['lead_delegation'] ?? null,
                 'lead_zone' => $decorated['lead_zone'] ?? null,
                 'commercial_user_id' => $decorated['gestor_id'] ?? null,
@@ -215,6 +216,7 @@ class CampaignAttributionBuilderService
                 'phone',
                 'mobile_phone',
                 'email',
+                'converted_account_id',
                 'converted_opportunity_id',
                 'medio_nuevo',
                 'fuente_nuevo',
@@ -248,6 +250,7 @@ class CampaignAttributionBuilderService
             'phone',
             'mobile_phone',
             'email',
+            'converted_account_id',
             'converted_opportunity_id',
             DB::raw('NULL as medio_nuevo'),
             DB::raw('NULL as fuente_nuevo'),
@@ -309,6 +312,7 @@ class CampaignAttributionBuilderService
             'phone' => 'Phone',
             'mobile_phone' => 'MobilePhone',
             'email' => 'Email',
+            'converted_account_id' => 'ConvertedAccountId',
             'converted_opportunity_id' => 'ConvertedOpportunityId',
         ] as $localField => $salesforceField) {
             if (! $this->normalizer->isValidAttributionValue($lead->{$localField} ?? null) && filled(data_get($payload, $salesforceField))) {
@@ -488,6 +492,12 @@ class CampaignAttributionBuilderService
             ->unique()
             ->values()
             ->all();
+        $convertedAccountIds = $leads
+            ->pluck('converted_account_id')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
         $emailValues = $leads
             ->pluck('email')
             ->filter()
@@ -508,9 +518,11 @@ class CampaignAttributionBuilderService
 
         $columns = array_values(array_unique(array_merge([
             'salesforce_id',
+            'name',
             'created_date',
             'stage_name',
             'record_type_name',
+            'account_id',
             'account_phone',
             'account_person_email',
             'account_company_email',
@@ -520,7 +532,7 @@ class CampaignAttributionBuilderService
             'cv_signed_date',
         ], $this->saleAmountResolver->opportunitySelectColumns())));
 
-        if ($convertedIds === [] && $emailValues === [] && $phoneValues === []) {
+        if ($convertedIds === [] && $convertedAccountIds === [] && $emailValues === [] && $phoneValues === []) {
             return collect();
         }
 
@@ -536,12 +548,22 @@ class CampaignAttributionBuilderService
                 });
         }
 
+        foreach (array_chunk($convertedAccountIds, self::OPPORTUNITY_LOOKUP_CHUNK_SIZE) as $accountIds) {
+            DB::table('salesforce_opportunities')
+                ->whereIn('account_id', $accountIds)
+                ->select($columns)
+                ->get()
+                ->each(function (object $opportunity) use ($opportunities): void {
+                    $opportunities[(string) $opportunity->salesforce_id] = $opportunity;
+                });
+        }
+
         foreach (array_chunk($emailValues, self::OPPORTUNITY_LOOKUP_CHUNK_SIZE) as $emails) {
             DB::table('salesforce_opportunities')
                 ->where(function ($query) use ($emails): void {
                     $query
-                        ->whereIn('account_person_email', $emails)
-                        ->orWhereIn('account_company_email', $emails);
+                        ->whereIn(DB::raw('LOWER(account_person_email)'), $emails)
+                        ->orWhereIn(DB::raw('LOWER(account_company_email)'), $emails);
                 })
                 ->select($columns)
                 ->get()
@@ -550,9 +572,24 @@ class CampaignAttributionBuilderService
                 });
         }
 
-        foreach (array_chunk($phoneValues, self::OPPORTUNITY_LOOKUP_CHUNK_SIZE) as $phones) {
+        if ($phoneValues !== []) {
             DB::table('salesforce_opportunities')
-                ->whereIn('account_phone', $phones)
+                ->whereNotNull('account_phone')
+                ->select($columns)
+                ->get()
+                ->each(function (object $opportunity) use ($opportunities): void {
+                    $opportunities[(string) $opportunity->salesforce_id] = $opportunity;
+                });
+        }
+
+        foreach (array_chunk(array_merge($emailValues, $phoneValues), self::OPPORTUNITY_LOOKUP_CHUNK_SIZE) as $needles) {
+            DB::table('salesforce_opportunities')
+                ->whereNotNull('name')
+                ->where(function ($query) use ($needles): void {
+                    foreach ($needles as $needle) {
+                        $query->orWhere(DB::raw('LOWER(name)'), 'like', '%'.$needle.'%');
+                    }
+                })
                 ->select($columns)
                 ->get()
                 ->each(function (object $opportunity) use ($opportunities): void {
@@ -569,10 +606,14 @@ class CampaignAttributionBuilderService
         $claimedOpportunityIds = [];
 
         foreach ($leads as $lead) {
+            if (blank($lead->converted_opportunity_id)) {
+                continue;
+            }
+
             $opportunityId = (string) $lead->converted_opportunity_id;
             $opportunity = $opportunities->get($opportunityId);
 
-            if (! $opportunity || isset($claimedOpportunityIds[$opportunityId])) {
+            if (! $opportunity || isset($claimedOpportunityIds[$opportunityId]) || isset($assignments[(string) $lead->salesforce_id])) {
                 continue;
             }
 
@@ -584,11 +625,108 @@ class CampaignAttributionBuilderService
             $claimedOpportunityIds[$opportunityId] = true;
         }
 
+        $indexes = $this->leadMatchIndexes($leads);
+        $leadById = $indexes['lead_by_id'];
+
+        foreach ($opportunities->sortBy('created_date') as $opportunity) {
+            if (isset($claimedOpportunityIds[$opportunity->salesforce_id])) {
+                continue;
+            }
+
+            $accountId = (string) ($opportunity->account_id ?? '');
+            $candidateRows = collect($this->indexedValues($indexes['account'], $accountId))
+                ->map(fn (string $leadId): array => ['lead_id' => $leadId, 'method' => 'converted_account_id'])
+                ->values();
+
+            $this->assignBestOpportunityCandidate(
+                $assignments,
+                $claimedOpportunityIds,
+                $leadById,
+                $opportunity,
+                $candidateRows,
+                'medium'
+            );
+        }
+
+        foreach ($opportunities->sortBy('created_date') as $opportunity) {
+            if (isset($claimedOpportunityIds[$opportunity->salesforce_id])) {
+                continue;
+            }
+
+            $emailLeadIds = collect()
+                ->merge($this->indexedValues($indexes['email'], $this->normalizeEmail($opportunity->account_person_email)))
+                ->merge($this->indexedValues($indexes['email'], $this->normalizeEmail($opportunity->account_company_email)))
+                ->filter()
+                ->unique()
+                ->values();
+            $phoneLeadIds = collect($this->indexedValues($indexes['phone'], $this->normalizePhone($opportunity->account_phone)))
+                ->filter()
+                ->unique()
+                ->values();
+
+            $candidateRows = $emailLeadIds
+                ->map(fn (string $leadId): array => ['lead_id' => $leadId, 'method' => 'account_email_match'])
+                ->merge($phoneLeadIds->map(fn (string $leadId): array => ['lead_id' => $leadId, 'method' => 'account_phone_match']))
+                ->unique(fn (array $row): string => $row['lead_id'])
+                ->values();
+
+            $this->assignBestOpportunityCandidate(
+                $assignments,
+                $claimedOpportunityIds,
+                $leadById,
+                $opportunity,
+                $candidateRows,
+                $candidateRows->count() > 1 ? 'low' : 'medium'
+            );
+        }
+
+        foreach ($opportunities->sortBy('created_date') as $opportunity) {
+            if (isset($claimedOpportunityIds[$opportunity->salesforce_id])) {
+                continue;
+            }
+
+            $emailLeadIds = collect()
+                ->merge($this->leadIdsContainedInText($indexes['email'], $opportunity->name))
+                ->filter()
+                ->unique()
+                ->values();
+            $phoneLeadIds = collect($this->leadIdsContainedInText($indexes['phone'], $opportunity->name))
+                ->filter()
+                ->unique()
+                ->values();
+
+            $candidateRows = $emailLeadIds
+                ->map(fn (string $leadId): array => ['lead_id' => $leadId, 'method' => 'opportunity_name_email_match'])
+                ->merge($phoneLeadIds->map(fn (string $leadId): array => ['lead_id' => $leadId, 'method' => 'opportunity_name_phone_match']))
+                ->unique(fn (array $row): string => $row['lead_id'])
+                ->values();
+
+            $this->assignBestOpportunityCandidate(
+                $assignments,
+                $claimedOpportunityIds,
+                $leadById,
+                $opportunity,
+                $candidateRows,
+                'low'
+            );
+        }
+
+        return $assignments;
+    }
+
+    private function leadMatchIndexes(Collection $leads): array
+    {
         $leadById = $leads->keyBy('salesforce_id');
+        $accountIndex = [];
         $emailIndex = [];
         $phoneIndex = [];
 
         foreach ($leads as $lead) {
+            $accountId = (string) ($lead->converted_account_id ?? '');
+            if ($accountId !== '') {
+                $accountIndex[$accountId][] = $lead->salesforce_id;
+            }
+
             $key = $this->normalizeEmail($lead->email);
             if ($key !== null) {
                 $emailIndex[$key][] = $lead->salesforce_id;
@@ -602,63 +740,77 @@ class CampaignAttributionBuilderService
             }
         }
 
-        foreach ($opportunities->sortBy('created_date') as $opportunity) {
-            if (isset($claimedOpportunityIds[$opportunity->salesforce_id])) {
-                continue;
-            }
+        return [
+            'lead_by_id' => $leadById,
+            'account' => $accountIndex,
+            'email' => $emailIndex,
+            'phone' => $phoneIndex,
+        ];
+    }
 
-            $emailLeadIds = collect()
-                ->merge($this->indexedValues($emailIndex, $this->normalizeEmail($opportunity->account_person_email)))
-                ->merge($this->indexedValues($emailIndex, $this->normalizeEmail($opportunity->account_company_email)))
-                ->filter()
-                ->unique()
-                ->values();
-            $phoneLeadIds = collect($this->indexedValues($phoneIndex, $this->normalizePhone($opportunity->account_phone)))
-                ->filter()
-                ->unique()
-                ->values();
+    private function assignBestOpportunityCandidate(
+        array &$assignments,
+        array &$claimedOpportunityIds,
+        Collection $leadById,
+        object $opportunity,
+        Collection $candidateRows,
+        string $defaultConfidence,
+    ): void {
+        $candidateRows = $candidateRows
+            ->map(function (array $row) use ($leadById): ?array {
+                $lead = $leadById->get($row['lead_id']);
 
-            $candidateRows = $emailLeadIds
-                ->map(fn (string $leadId): array => ['lead_id' => $leadId, 'method' => 'account_email_match'])
-                ->merge($phoneLeadIds->map(fn (string $leadId): array => ['lead_id' => $leadId, 'method' => 'account_phone_match']))
-                ->unique(fn (array $row): string => $row['lead_id'])
-                ->map(function (array $row) use ($leadById): ?array {
-                    $lead = $leadById->get($row['lead_id']);
+                return $lead ? ['lead' => $lead, 'method' => $row['method']] : null;
+            })
+            ->filter()
+            ->filter(fn (array $row): bool => ! isset($assignments[(string) $row['lead']->salesforce_id]))
+            ->filter(fn (array $row): bool => CarbonImmutable::parse($row['lead']->created_date)->lessThanOrEqualTo(CarbonImmutable::parse($opportunity->created_date)))
+            ->sortByDesc(fn (array $row): string => sprintf(
+                '%02d|%s',
+                $this->leadAttributionPriority($row['lead']),
+                CarbonImmutable::parse($row['lead']->created_date)->format('YmdHis')
+            ))
+            ->values();
 
-                    return $lead ? ['lead' => $lead, 'method' => $row['method']] : null;
-                })
-                ->filter()
-                ->filter(fn (array $row): bool => CarbonImmutable::parse($row['lead']->created_date)->lessThanOrEqualTo(CarbonImmutable::parse($opportunity->created_date)))
-                ->sortByDesc(fn (array $row): string => sprintf(
-                    '%02d|%s',
-                    $this->leadAttributionPriority($row['lead']),
-                    CarbonImmutable::parse($row['lead']->created_date)->format('YmdHis')
-                ))
-                ->values();
+        $candidateRow = $candidateRows->first();
+        $candidate = $candidateRow['lead'] ?? null;
 
-            $candidateRow = $candidateRows->first();
-            $candidate = $candidateRow['lead'] ?? null;
-
-            if (! $candidate) {
-                continue;
-            }
-
-            $assignments[(string) $candidate->salesforce_id] = [
-                'opportunity' => $opportunity,
-                'method' => $candidateRows->count() > 1 && $this->leadAttributionPriority($candidate) > 1
-                    ? 'account_lead_campaign_match'
-                    : $candidateRow['method'],
-                'confidence' => $candidateRows->count() > 1 ? 'low' : 'medium',
-            ];
-            $claimedOpportunityIds[(string) $opportunity->salesforce_id] = true;
+        if (! $candidate) {
+            return;
         }
 
-        return $assignments;
+        $assignments[(string) $candidate->salesforce_id] = [
+            'opportunity' => $opportunity,
+            'method' => $candidateRows->count() > 1 && $this->leadAttributionPriority($candidate) > 1
+                ? 'account_lead_campaign_match'
+                : $candidateRow['method'],
+            'confidence' => $candidateRows->count() > 1 ? 'low' : $defaultConfidence,
+        ];
+        $claimedOpportunityIds[(string) $opportunity->salesforce_id] = true;
+    }
+
+    private function leadIdsContainedInText(array $index, mixed $text): array
+    {
+        $text = mb_strtolower((string) $text);
+
+        if ($text === '') {
+            return [];
+        }
+
+        $leadIds = [];
+
+        foreach ($index as $needle => $ids) {
+            if ($needle !== '' && str_contains($text, $needle)) {
+                array_push($leadIds, ...$ids);
+            }
+        }
+
+        return array_values(array_unique($leadIds));
     }
 
     private function indexedValues(array $index, ?string $key): array
     {
-        return $key === null ? [] : ($index[$key] ?? []);
+        return $key === null || $key === '' ? [] : ($index[$key] ?? []);
     }
 
     private function leadAttributionPriority(object $lead): int
@@ -688,6 +840,7 @@ class CampaignAttributionBuilderService
                 'has_reservation' => false,
                 'has_fallen_reservation' => false,
                 'has_sale' => false,
+                'has_purchase' => false,
                 'reservation_date' => null,
                 'sale_date' => null,
                 'sale_amount' => null,
@@ -700,9 +853,12 @@ class CampaignAttributionBuilderService
         $hasReservation = (bool) $opportunity->reservation;
         $recordType = $this->normalizer->compactKey($opportunity->record_type_name);
         $candidateSaleAmount = $this->saleAmountResolver->resolve($opportunity);
-        $hasSale = (bool) $opportunity->cv_signed
-            && ! $isClosedLost
+        $hasSignedContract = (bool) $opportunity->cv_signed
+            && filled($opportunity->cv_signed_date)
+            && ! $isClosedLost;
+        $hasSale = $hasSignedContract
             && ($recordType === 'venta' || ($recordType === 'cambio' && $candidateSaleAmount !== null && $candidateSaleAmount > 0));
+        $hasPurchase = $hasSignedContract && $recordType === 'tasacion';
         $saleAmount = $hasSale ? $candidateSaleAmount : null;
 
         if ($recordType === 'cambio' && $saleAmount !== null && $saleAmount < 0) {
@@ -714,6 +870,7 @@ class CampaignAttributionBuilderService
             'has_reservation' => $hasReservation,
             'has_fallen_reservation' => $hasReservation && $isClosedLost,
             'has_sale' => $hasSale,
+            'has_purchase' => $hasPurchase,
             'reservation_date' => $hasReservation ? $opportunity->reservation_date : null,
             'sale_date' => $hasSale ? $opportunity->cv_signed_date : null,
             'sale_amount' => $saleAmount,
@@ -745,9 +902,15 @@ class CampaignAttributionBuilderService
             return;
         }
 
+        $attributionRows = array_map(function (array $row): array {
+            unset($row['has_purchase']);
+
+            return $row;
+        }, $rows);
+
         // One row per lead: the builder keeps the best resolved opportunity for that lead.
         DB::table('campaign_attributions')->upsert(
-            $rows,
+            $attributionRows,
             ['lead_id'],
             [
                 'opportunity_id',
@@ -801,7 +964,7 @@ class CampaignAttributionBuilderService
                 'has_opportunity' => $row['has_opportunity'],
                 'has_reservation' => $row['has_reservation'],
                 'has_sale' => $row['has_sale'],
-                'has_purchase' => $this->campaignTypeResolver->isTasacion($row['platform'], $row['campaign_id'], $row['campaign_name']) && $row['has_sale'],
+                'has_purchase' => $this->campaignTypeResolver->isTasacion($row['platform'], $row['campaign_id'], $row['campaign_name']) && $row['has_purchase'],
                 'sold_amount' => $row['sale_amount'],
                 'source_acquired' => $row['source_acquired'],
                 'medium_acquired' => $row['medium_acquired'],

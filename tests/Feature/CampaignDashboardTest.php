@@ -423,6 +423,141 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringNotContainsString('Lead Privado', $csv);
     }
 
+    public function test_tasacion_cruza_oportunidades_por_id_cuenta_contacto_y_nombre_y_cuenta_compras(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'google_ads',
+            'metric_date' => '2026-05-10',
+            'account_id' => 'ads-1',
+            'campaign_id' => 'tasacion-search-1',
+            'campaign_name' => 'TASADOR LANDING SEARCH 1',
+            'spend' => 100,
+            'impressions' => 1000,
+            'clicks' => 100,
+        ]));
+
+        $leadRows = [
+            [
+                'salesforce_id' => '00Q-tasacion-direct',
+                'name' => 'Lead Tasacion Directo',
+                'phone' => '600000001',
+                'email' => 'directo@example.com',
+                'converted_opportunity_id' => '006-tasacion-direct',
+            ],
+            [
+                'salesforce_id' => '00Q-tasacion-account',
+                'name' => 'Lead Tasacion Cuenta',
+                'phone' => '600000002',
+                'email' => 'cuenta@example.com',
+                'converted_account_id' => '001-tasacion-account',
+            ],
+            [
+                'salesforce_id' => '00Q-tasacion-contact',
+                'name' => 'Lead Tasacion Contacto',
+                'phone' => '600 000 003',
+                'email' => 'contacto@example.com',
+            ],
+            [
+                'salesforce_id' => '00Q-tasacion-name',
+                'name' => 'Lead Tasacion Nombre',
+                'phone' => '+34 600 000 004',
+                'email' => 'nombre@example.com',
+            ],
+        ];
+
+        foreach ($leadRows as $index => $overrides) {
+            SalesforceLead::query()->create(array_merge([
+                'created_date' => '2026-05-10 '.sprintf('%02d', 10 + $index).':00:00',
+                'status' => 'Convertido',
+                'record_type_name' => 'Tasación',
+                'owner_id' => '005-real',
+                'owner_name' => 'Comercial Real',
+                'campaign_acquired' => 'TASADOR LANDING SEARCH 1',
+                'fuente_origen' => 'Google Ads',
+                'medio_origen' => 'CPC',
+                'portal_text' => 'Google Ads',
+                'medio_nuevo' => 'Formulario',
+                'delegacion_encargada_text' => 'Alcobendas',
+            ], $overrides));
+        }
+
+        $opportunityRows = [
+            [
+                'salesforce_id' => '006-tasacion-direct',
+                'name' => 'Contrato directo',
+                'account_id' => '001-direct',
+                'account_phone' => '600000001',
+                'account_person_email' => 'directo@example.com',
+            ],
+            [
+                'salesforce_id' => '006-tasacion-account',
+                'name' => 'Contrato por cuenta convertida',
+                'account_id' => '001-tasacion-account',
+                'account_phone' => '699999999',
+                'account_person_email' => 'otra-persona@example.com',
+            ],
+            [
+                'salesforce_id' => '006-tasacion-contact',
+                'name' => 'Contrato por contacto de cuenta',
+                'account_id' => '001-contact',
+                'account_phone' => '+34 600 000 003',
+                'account_company_email' => 'contacto@example.com',
+            ],
+            [
+                'salesforce_id' => '006-tasacion-name',
+                'name' => 'Nueva Oportunidad de : Cliente 600000004 nombre@example.com',
+                'account_id' => '001-name',
+                'account_phone' => null,
+                'account_person_email' => null,
+                'account_company_email' => null,
+            ],
+        ];
+
+        foreach ($opportunityRows as $index => $overrides) {
+            SalesforceOpportunity::query()->create(array_merge([
+                'created_date' => '2026-05-11 '.sprintf('%02d', 10 + $index).':00:00',
+                'record_type_name' => 'Tasación',
+                'stage_name' => 'Generar contrato',
+                'reservation' => false,
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-05-15',
+                'opo_for_importe_total' => -10000,
+            ], $overrides));
+        }
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01')
+        );
+
+        $this->assertSame(4, DB::table('campaign_lead_attributions')->where('has_purchase', true)->count());
+
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-tasacion-direct',
+            'opportunity_id' => '006-tasacion-direct',
+            'opportunity_attribution_method' => 'converted_opportunity_id',
+        ]);
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-tasacion-account',
+            'opportunity_id' => '006-tasacion-account',
+            'opportunity_attribution_method' => 'converted_account_id',
+        ]);
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-tasacion-contact',
+            'opportunity_id' => '006-tasacion-contact',
+            'opportunity_attribution_method' => 'account_email_match',
+        ]);
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-tasacion-name',
+            'opportunity_id' => '006-tasacion-name',
+            'opportunity_attribution_method' => 'opportunity_name_email_match',
+        ]);
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
+            ->assertOk()
+            ->assertJsonPath('kpis.purchases', 4);
+    }
+
     public function test_salesforce_campaign_without_platform_creates_internal_attribution_but_not_main_campaign_row(): void
     {
         SalesforceLead::query()->create([
