@@ -4,15 +4,26 @@ const columnsStorageKey = 'hrmotor_campaign_columns_v4';
 const rankingsStorageKey = 'campaigns.visibleRankings';
 const dailySeriesStorageKey = 'campaigns.dailyChart.visibleSeries';
 const dailyTypeStorageKey = 'campaigns.dailyChart.chartType';
+const monthlyMonthsStorageKey = 'campaigns.monthlyChart.months';
+const monthlyMetricsStorageKey = 'campaigns.monthlyChart.metrics';
+const monthlyCompareStorageKey = 'campaigns.monthlyChart.compare';
+const campaignNameSelectionStorageKey = 'campaigns.campaignNames.selected';
 
 let campaignRows = [];
-let tableSort = { key: 'spend', direction: 'desc' };
+let tableSort = {
+    venta: { key: 'spend', direction: 'desc' },
+    tasacion: { key: 'spend', direction: 'desc' },
+};
 let searchTimer = null;
 let syncingTableScroll = false;
 let dailyVisibleSeries = loadDailyVisibleSeries();
 let dailyChartType = loadDailyChartType();
 let currentCharts = {};
 let currentContext = 'venta';
+let campaignNameSelections = loadCampaignNameSelections();
+let monthlySelectedMonths = [];
+let monthlyVisibleMetrics = loadMonthlyVisibleMetrics();
+let monthlyCompareMode = loadMonthlyCompareMode();
 
 const dailySeriesDefinitions = [
     { key: 'spend', label: 'Inversion', formatter: formatMoney, className: 'spend' },
@@ -26,10 +37,14 @@ const conversionSeriesDefinitions = [
 
 const monthlySeriesDefinitions = [
     { key: 'spend', label: 'Inversion', formatter: formatMoney, className: 'spend' },
+    { key: 'impressions', label: 'Impresiones', formatter: formatNumber, className: 'impressions' },
+    { key: 'clicks', label: 'Clicks', formatter: formatNumber, className: 'clicks' },
     { key: 'leads_salesforce', label: 'Leads', formatter: formatNumber, className: 'leads' },
     { key: 'opportunities', label: 'Oportunidades', formatter: formatNumber, className: 'opportunities' },
     { key: 'reservations', label: 'Reservas', formatter: formatNumber, className: 'reservations' },
     { key: 'sales', label: 'Ventas', formatter: formatNumber, className: 'sales' },
+    { key: 'appraisals_generated', label: 'Tasaciones', formatter: formatNumber, className: 'appraisals' },
+    { key: 'purchases', label: 'Compras', formatter: formatNumber, className: 'purchases' },
 ];
 
 const monthlyTasacionSeriesDefinitions = [
@@ -113,8 +128,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindResetFilters();
     bindSorting();
     bindDrawer();
+    bindCampaignNameActions();
     bindColumns();
     bindRankingSettings();
+    bindMonthlyChartControls();
     bindTableScroll();
     applyColumnVisibility();
     await reloadAllData();
@@ -134,7 +151,7 @@ function bindTabs() {
                 await reloadAllData();
             }
 
-            syncTableScrollWidth();
+            syncCampaignTableScrollWidth();
         });
     });
 }
@@ -143,14 +160,8 @@ function bindResetFilters() {
     document.getElementById('resetFilters')?.addEventListener('click', async () => {
         [
             'platform',
-            'accountId',
             'campaignSearch',
             'campaignStatus',
-            'campaignSourceType',
-            'mediumAcquired',
-            'campaignAcquired',
-            'campaignId',
-            'campaignName',
             'hasOpportunity',
             'hasReservation',
             'hasSale',
@@ -165,6 +176,9 @@ function bindResetFilters() {
 
         document.getElementById('periodPreset').value = 'last_30_days';
         document.getElementById('campaignStatus').value = 'active';
+        campaignNameSelections = [];
+        persistCampaignNameSelections();
+        renderCampaignNameChecklist(campaignRows);
         setDefaultDates();
         await reloadAllData();
     });
@@ -174,15 +188,8 @@ function bindFilters() {
     [
         'startDate',
         'endDate',
-        'attributionWindow',
         'platform',
-        'accountId',
         'campaignStatus',
-        'campaignSourceType',
-        'mediumAcquired',
-        'campaignAcquired',
-        'campaignId',
-        'campaignName',
         'hasOpportunity',
         'hasReservation',
         'hasSale',
@@ -212,15 +219,31 @@ function bindFilters() {
 }
 
 function bindSorting() {
-    document.querySelectorAll('#panel-campaigns th[data-sortable="true"]').forEach((header) => {
-        header.addEventListener('click', () => {
-            const key = header.dataset.key;
-            tableSort = {
+    const root = document.getElementById('campaignTables');
+
+    root?.addEventListener('click', (event) => {
+        const header = event.target.closest('th[data-sortable="true"]');
+        if (!header) {
+            return;
+        }
+
+        const tableType = header.closest('table')?.dataset.tableType;
+        const key = header.dataset.key;
+
+        if (!tableType || !key) {
+            return;
+        }
+
+        const current = tableSort[tableType] || { key: 'spend', direction: 'desc' };
+        tableSort = {
+            ...tableSort,
+            [tableType]: {
                 key,
-                direction: tableSort.key === key && tableSort.direction === 'desc' ? 'asc' : 'desc',
-            };
-            renderCampaignRows(campaignRows);
-        });
+                direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc',
+            },
+        };
+
+        renderCampaignTables(campaignRows);
     });
 }
 
@@ -238,6 +261,22 @@ function bindDrawer() {
     document.getElementById('advancedFiltersOpen')?.addEventListener('click', open);
     document.getElementById('advancedFiltersClose')?.addEventListener('click', close);
     document.getElementById('advancedFiltersCloseBackdrop')?.addEventListener('click', close);
+}
+
+function bindCampaignNameActions() {
+    document.getElementById('campaignNamesSelectAll')?.addEventListener('click', () => {
+        campaignNameSelections = [...new Set(campaignRows.map((row) => row.campaign_name).filter(Boolean))];
+        persistCampaignNameSelections();
+        renderCampaignNameChecklist(campaignRows);
+        reloadAllData();
+    });
+
+    document.getElementById('campaignNamesClear')?.addEventListener('click', () => {
+        campaignNameSelections = [];
+        persistCampaignNameSelections();
+        renderCampaignNameChecklist(campaignRows);
+        reloadAllData();
+    });
 }
 
 function bindColumns() {
@@ -289,34 +328,117 @@ function bindDailyChartControls() {
 }
 
 function bindTableScroll() {
-    const top = document.getElementById('campaignTableTopScroll');
-    const wrap = document.getElementById('campaignTableWrap');
-
-    if (!top || !wrap) {
+    const root = document.getElementById('campaignTables');
+    if (!root) {
         return;
     }
 
-    top.addEventListener('scroll', () => {
+    root.addEventListener('scroll', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+            return;
+        }
+
+        const proxy = target.matches('[data-table-scroll-proxy]');
+        const wrap = target.matches('[data-table-wrap]');
+
+        if (!proxy && !wrap) {
+            return;
+        }
+
         if (syncingTableScroll) {
             return;
         }
 
         syncingTableScroll = true;
-        wrap.scrollLeft = top.scrollLeft;
-        syncingTableScroll = false;
-    });
 
-    wrap.addEventListener('scroll', () => {
-        if (syncingTableScroll) {
+        const tableType = target.dataset.tableScrollProxy || target.dataset.tableWrap;
+        const counterpart = [...root.querySelectorAll(proxy ? '[data-table-wrap]' : '[data-table-scroll-proxy]')]
+            .find((element) => element.dataset.tableWrap === tableType || element.dataset.tableScrollProxy === tableType);
+
+        if (counterpart) {
+            counterpart.scrollLeft = target.scrollLeft;
+        }
+
+        syncingTableScroll = false;
+    }, true);
+
+    window.addEventListener('resize', syncCampaignTableScrollWidth);
+}
+
+function bindMonthlyChartControls() {
+    const root = document.getElementById('campaignCharts');
+
+    root?.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
             return;
         }
 
-        syncingTableScroll = true;
-        top.scrollLeft = wrap.scrollLeft;
-        syncingTableScroll = false;
-    });
+        const monthButton = target.closest('[data-month-key]');
+        const rangeButton = target.closest('[data-month-range]');
+        const metricButton = target.closest('[data-month-metric]');
+        const compareButton = target.closest('[data-compare-mode]');
 
-    window.addEventListener('resize', syncTableScrollWidth);
+        if (monthButton) {
+            const monthKey = monthButton.dataset.monthKey;
+            if (!monthKey) {
+                return;
+            }
+
+            if (monthlySelectedMonths.includes(monthKey)) {
+                if (monthlySelectedMonths.length === 1) {
+                    return;
+                }
+                monthlySelectedMonths = monthlySelectedMonths.filter((item) => item !== monthKey);
+            } else {
+                monthlySelectedMonths = [...monthlySelectedMonths, monthKey];
+            }
+
+            persistMonthlySelection();
+            renderCharts(currentCharts);
+            return;
+        }
+
+        if (rangeButton) {
+            const value = rangeButton.dataset.monthRange;
+            if (!value) {
+                return;
+            }
+
+            applyMonthlyRange(value, currentCharts.monthly_evolution || []);
+            persistMonthlySelection();
+            renderCharts(currentCharts);
+            return;
+        }
+
+        if (metricButton) {
+            const metric = metricButton.dataset.monthMetric;
+            if (!metric) {
+                return;
+            }
+
+            if (monthlyVisibleMetrics.includes(metric)) {
+                if (monthlyVisibleMetrics.length === 1) {
+                    return;
+                }
+                monthlyVisibleMetrics = monthlyVisibleMetrics.filter((item) => item !== metric);
+            } else {
+                monthlyVisibleMetrics = [...monthlyVisibleMetrics, metric];
+            }
+
+            persistMonthlyMetrics();
+            renderCharts(currentCharts);
+            return;
+        }
+
+        if (compareButton) {
+            const mode = compareButton.dataset.compareMode || 'none';
+            monthlyCompareMode = mode === 'prev_year' ? 'prev_year' : 'none';
+            persistMonthlyCompareMode();
+            renderCharts(currentCharts);
+        }
+    });
 }
 
 async function reloadAllData() {
@@ -324,20 +446,21 @@ async function reloadAllData() {
 
     try {
         const query = currentFilters();
+        const campaignsQuery = currentCampaignFilters();
         const [summary, campaigns, rankings] = await Promise.all([
             fetchJson(`/informes/campanas/data/summary?${query}`),
-            fetchJson(`/informes/campanas/data/campaigns?${query}`),
+            fetchJson(`/informes/campanas/data/campaigns?${campaignsQuery}`),
             fetchJson(`/informes/campanas/data/rankings?${query}`),
         ]);
 
         renderSummary(summary || {});
-        renderFilterOptions(summary.filters || {});
+        renderFilterOptions(summary.filters || {}, campaigns.items || []);
         campaignRows = campaigns.items || [];
-        renderCampaignRows(campaignRows);
+        renderCampaignTables(campaignRows);
         renderRankings((rankings && rankings.rankings) || {});
         const exportLink = document.getElementById('exportCsv');
         if (exportLink) {
-            exportLink.href = `/informes/campanas/export/campaigns.csv?${query}`;
+            exportLink.href = `/informes/campanas/export/campaigns.csv?${campaignsQuery}`;
         }
     } catch (error) {
         showLoadError(error);
@@ -437,22 +560,60 @@ function renderCharts(charts) {
 }
 
 function monthlyEvolutionHtml(rows) {
-    const definitions = currentContext === 'tasacion'
-        ? monthlyTasacionSeriesDefinitions
-        : monthlySeriesDefinitions;
-    const content = rows.length
-        ? genericLineChartHtml(rows, definitions, monthlyTooltip, true)
+    const visibleRows = visibleMonthlyRows(rows);
+    const selectedRows = selectedMonthlyRows(visibleRows);
+    const definitions = selectedMonthlySeries();
+    const content = selectedRows.length
+        ? genericLineChartHtml(buildMonthlyChartRows(rows, selectedRows), buildMonthlySeriesDefinitions(definitions), monthlyTooltip, true)
         : '<div class="empty-state">Sin datos</div>';
 
     return `
-        <article class="card panel campaign-chart-card campaign-chart-wide">
+        <article class="card panel campaign-chart-card campaign-chart-wide monthly-chart-card">
             <div class="panel-title compact">
                 <div>
-                    <h2>Evolucion mensual de campanas</h2>
-                    <div class="small">Inversion, leads y resultados atribuidos por mes de creacion del lead</div>
+                    <h2>Evolucion historica</h2>
+                    <div class="small">Media mensual de los meses seleccionados. Puedes comparar con el mismo periodo del año anterior.</div>
                 </div>
             </div>
-            <div class="campaign-evolution campaign-evolution-lines">${content}</div>
+            <div class="monthly-chart-toolbar">
+                <div class="monthly-chart-ranges">
+                    <button type="button" class="monthly-pill" data-month-range="3">Últimos 3 meses</button>
+                    <button type="button" class="monthly-pill" data-month-range="6">Últimos 6 meses</button>
+                    <button type="button" class="monthly-pill" data-month-range="12">Últimos 12 meses</button>
+                    <button type="button" class="monthly-pill" data-month-range="all">Todo</button>
+                </div>
+                <div class="monthly-chart-compare">
+                    <button type="button" class="monthly-pill ${monthlyCompareMode === 'none' ? 'is-active' : ''}" data-compare-mode="none">Sin comparación</button>
+                    <button type="button" class="monthly-pill ${monthlyCompareMode === 'prev_year' ? 'is-active' : ''}" data-compare-mode="prev_year">Año anterior</button>
+                </div>
+            </div>
+            <div class="monthly-chart-filters">
+                <div>
+                    <div class="monthly-filter-label">Meses</div>
+                    <div class="monthly-pill-group" id="monthlyMonthPills">
+                        ${visibleRows.map((row) => {
+                            const monthKey = monthKeyFromDate(row.date);
+                            const active = monthlySelectedMonths.includes(monthKey);
+                            return `
+                                <button type="button" class="monthly-pill ${active ? 'is-active' : ''}" data-month-key="${escapeHtml(monthKey)}">
+                                    ${escapeHtml(monthLabel(row))}
+                                </button>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                <div>
+                    <div class="monthly-filter-label">Métricas</div>
+                    <div class="monthly-pill-group" id="monthlyMetricPills">
+                        ${monthlySeriesDefinitions.map((series) => `
+                            <button type="button" class="monthly-pill ${monthlyVisibleMetrics.includes(series.key) ? 'is-active' : ''}" data-month-metric="${escapeHtml(series.key)}">
+                                ${escapeHtml(series.label)}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+            <div class="campaign-evolution campaign-evolution-lines monthly-chart-figure">${content}</div>
         </article>
     `;
 }
@@ -555,11 +716,7 @@ function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory, showPoint
             }));
             const points = coordinates.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ');
 
-            const pointsSvg = showPoints
-                ? coordinates.map((point) => `<circle class="line-point is-visible ${escapeHtml(series.className)}" cx="${point.x.toFixed(2)}" cy="${point.y.toFixed(2)}" r="1.8"></circle>`).join('')
-                : '';
-
-            return `<polyline class="line-series ${escapeHtml(series.className)}" points="${points}" />${pointsSvg}`;
+            return `<polyline class="line-series ${escapeHtml(series.className)}" points="${points}" />`;
         }).join('');
     const hoverPoints = rows.map((row, index) => {
         const x = lineX(index, rows.length);
@@ -578,10 +735,31 @@ function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory, showPoint
             <svg viewBox="-0.75 0 ${width + 1.5} ${chartHeight}" preserveAspectRatio="none" aria-hidden="true">
                 ${seriesSvg}
             </svg>
+            <div class="line-point-layer">${pointLayerHtml(rows, seriesDefinitions, tooltipFactory, showPoints, chartHeight)}</div>
             <div class="line-hover-layer">${hoverPoints}</div>
             <div class="line-label-layer">${labels}</div>
         </div>
     `;
+}
+
+function pointLayerHtml(rows, seriesDefinitions, tooltipFactory, showPoints, chartHeight) {
+    if (!showPoints) {
+        return '';
+    }
+
+    return seriesDefinitions
+        .filter((series) => !series.isCompare)
+        .flatMap((series) => {
+            const max = dailyMax(rows, series.key);
+            return rows.map((row, index) => {
+                const x = lineX(index, rows.length);
+                const y = lineY(row[series.key], max, chartHeight);
+                const tooltip = tooltipFactory(row);
+
+                return `<span class="line-point-dot ${escapeHtml(series.className)}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}"></span>`;
+            });
+        })
+        .join('');
 }
 
 function funnelHtml(rows) {
@@ -592,7 +770,7 @@ function funnelHtml(rows) {
             const rate = previous ? Number(row.value || 0) / previous : null;
             const tooltip = `${row.label}: ${formatNumber(Number(row.value || 0))}${rate === null ? '' : `\nConversion etapa anterior: ${formatPercentRatio(rate)}`}`;
 
-            return metricBarHtml(row.label, row.value, max, formatNumber, tooltip);
+            return metricBarHtml(row.label, row.value, max, formatNumber, tooltip, true);
         })
             .join('')
         : '<div class="empty-state">Sin datos</div>';
@@ -605,7 +783,7 @@ function funnelHtml(rows) {
                     <div class="small">Clicks a ventas</div>
                 </div>
             </div>
-            <div class="campaign-bar-list">${content}</div>
+            <div class="campaign-bar-list campaign-funnel-list">${content}</div>
         </article>
     `;
 }
@@ -685,14 +863,14 @@ function renderReviewCampaigns(rows) {
         : '<div class="empty-state">Sin datos</div>';
 }
 
-function metricBarHtml(label, value, max, formatter, tooltip = null) {
+function metricBarHtml(label, value, max, formatter, tooltip = null, useLogScale = false) {
     return `
         <div class="campaign-metric-bar" ${tooltip ? `title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}"` : ''}>
             <div>
                 <span>${escapeHtml(label)}</span>
                 <strong>${escapeHtml(formatter(value))}</strong>
             </div>
-            <i><b style="width:${barWidth(value, max)}%"></b></i>
+            <i><b style="width:${useLogScale ? logBarWidth(value, max) : barWidth(value, max)}%"></b></i>
         </div>
     `;
 }
@@ -798,48 +976,87 @@ function rankingAllowedInContext(key) {
         : !ventaHidden.includes(key);
 }
 
-function renderCampaignRows(rows) {
-    const root = document.getElementById('campaignRows');
-    const sortedRows = sortedCampaignRows(rows);
-    const columns = activeColumns();
-    root.innerHTML = '';
-    applyColumnVisibility();
-
-    if (!sortedRows.length) {
-        root.innerHTML = `<tr><td colspan="${columns.length}">No hay campanas de plataforma para los filtros seleccionados.</td></tr>`;
-        syncTableScrollWidth();
+function renderCampaignTables(rows) {
+    const root = document.getElementById('campaignTables');
+    if (!root) {
         return;
     }
 
-    sortedRows.forEach((row) => {
-        const cells = columns.map((column) => {
-            const formatter = column.formatter || ((value) => value);
-            return [
-                formatter(row[column.key], row),
-                column.numeric,
-                row[column.key],
-            ];
-        });
+    const ventaRows = rows.filter((row) => row.campaign_type === 'venta');
+    const tasacionRows = rows.filter((row) => row.campaign_type === 'tasacion');
 
-        root.insertAdjacentHTML('beforeend', `<tr>${cells.map(cellHtml).join('')}</tr>`);
-    });
+    root.innerHTML = [
+        renderCampaignTable('venta', 'Campañas de venta', 'Inversión y resultados de campañas orientadas a venta', ventaRows),
+        renderCampaignTable('tasacion', 'Campañas de tasación', 'Inversión y resultados de campañas orientadas a tasación', tasacionRows),
+    ].join('');
 
-    syncTableScrollWidth();
+    applyColumnVisibility();
+    syncCampaignTableScrollWidth();
 }
 
-function cellHtml([value, numeric, sortValue]) {
+function renderCampaignTable(tableType, title, subtitle, rows) {
+    const columns = activeColumns(tableType);
+    const sortedRows = sortedCampaignRows(rows, tableType);
+    const emptyColspan = Math.max(columns.length, 1);
+    const headers = columns.map((column) => `
+        <th data-column="${escapeHtml(column.key)}" ${column.numeric ? 'class="num"' : ''} data-sortable="true" data-key="${escapeHtml(column.key)}">
+            ${escapeHtml(column.label)}
+        </th>
+    `).join('');
+    const body = sortedRows.length
+        ? sortedRows.map((row) => `
+            <tr>
+                ${columns.map((column) => {
+                    const formatter = column.formatter || ((value) => value);
+                    return cellHtml([
+                        formatter(row[column.key], row),
+                        column.numeric,
+                        row[column.key],
+                        column.key,
+                    ]);
+                }).join('')}
+            </tr>
+        `).join('')
+        : `<tr><td colspan="${emptyColspan}">No hay campañas de ${tableType === 'venta' ? 'venta' : 'tasación'} para los filtros seleccionados.</td></tr>`;
+
+    return `
+        <article class="card panel campaign-table-card">
+            <div class="panel-title compact">
+                <div>
+                    <h2>${escapeHtml(title)}</h2>
+                    <div class="small">${escapeHtml(subtitle)}</div>
+                </div>
+            </div>
+            <div class="table-scroll-proxy" data-table-scroll-proxy="${escapeHtml(tableType)}"><div></div></div>
+            <div class="table-wrap" data-table-wrap="${escapeHtml(tableType)}">
+                <table data-table-type="${escapeHtml(tableType)}">
+                    <thead>
+                        <tr>${headers}</tr>
+                    </thead>
+                    <tbody>
+                        ${body}
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    `;
+}
+
+function cellHtml([value, numeric, sortValue, columnKey]) {
     const className = numeric ? ' class="num"' : '';
     const sortAttr = sortValue === undefined ? '' : ` data-sort-value="${escapeHtml(sortValue ?? '')}"`;
+    const columnAttr = columnKey ? ` data-column="${escapeHtml(columnKey)}"` : '';
 
-    return `<td${className}${sortAttr}>${escapeHtml(value ?? '-')}</td>`;
+    return `<td${className}${columnAttr}${sortAttr}>${escapeHtml(value ?? '-')}</td>`;
 }
 
-function sortedCampaignRows(rows) {
-    const direction = tableSort.direction === 'asc' ? 1 : -1;
+function sortedCampaignRows(rows, tableType) {
+    const sortState = tableSort[tableType] || { key: 'spend', direction: 'desc' };
+    const direction = sortState.direction === 'asc' ? 1 : -1;
 
     return [...rows].sort((a, b) => {
-        const left = a[tableSort.key];
-        const right = b[tableSort.key];
+        const left = a[sortState.key];
+        const right = b[sortState.key];
 
         if (left === null || left === undefined || left === '') {
             return 1;
@@ -857,19 +1074,37 @@ function sortedCampaignRows(rows) {
     });
 }
 
-function renderFilterOptions(filters) {
-    populateSelect('platform', filters.platforms || [], 'Todas');
-    populateSelect('campaignSourceType', filters.source_types || [], 'Todos');
+function renderFilterOptions(filters, rows = []) {
+    populatePlatformSelect(filters.platforms || []);
     populateSelect('campaignStatus', filters.campaign_statuses || [], 'Todas');
-    populateSelect('accountId', (filters.accounts || []).map((account) => ({
-        value: account.id,
-        label: account.name ? `${account.name} (${account.id})` : account.id,
-    })), 'Todas');
-    populateSelect('mediumAcquired', filters.mediums || [], 'Todos');
-    populateSelect('campaignAcquired', filters.campaigns_acquired || [], 'Todas');
-    populateSelect('campaignId', filters.campaign_ids || [], 'Todos');
-    populateSelect('campaignName', filters.campaign_names || [], 'Todas');
     populateSelect('classification', filters.classifications || [], 'Todas');
+    renderCampaignNameChecklist(rows);
+}
+
+function populatePlatformSelect(options) {
+    const select = document.getElementById('platform');
+
+    if (!select) {
+        return;
+    }
+
+    const current = select.value || '';
+    const filtered = (options || []).filter((option) => {
+        const value = typeof option === 'object' ? option.value : option;
+        return ['google_ads', 'meta'].includes(value);
+    });
+
+    select.innerHTML = '<option value="">Todas</option>';
+    filtered.forEach((option) => {
+        const value = typeof option === 'object' ? option.value : option;
+        const label = typeof option === 'object' ? option.label : option;
+        const platformLabel = formatPlatform(value);
+        const display = label ? platformLabel : platformLabel;
+
+        select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(value)}">${escapeHtml(display)}</option>`);
+    });
+
+    select.value = [...select.options].some((option) => option.value === current) ? current : '';
 }
 
 function populateSelect(id, options, emptyLabel) {
@@ -895,27 +1130,223 @@ function populateSelect(id, options, emptyLabel) {
     select.value = [...select.options].some((option) => option.value === current) ? current : '';
 }
 
+function renderCampaignNameChecklist(rows) {
+    const root = document.getElementById('campaignNameChecklist');
+    if (!root) {
+        return;
+    }
+
+    const options = [...new Map(rows
+        .filter((row) => row.campaign_name)
+        .map((row) => [row.campaign_name, row]))
+        .values()];
+
+    const availableNames = options.map((row) => row.campaign_name);
+
+    root.innerHTML = options.length
+        ? options.map((row) => {
+            const name = row.campaign_name;
+            const checked = campaignNameSelections.includes(name);
+            return `
+                <label class="campaign-name-option">
+                    <input type="checkbox" value="${escapeHtml(name)}" ${checked ? 'checked' : ''}>
+                    <span>
+                        <strong>${escapeHtml(name)}</strong>
+                        <small>${escapeHtml(formatPlatform(row.platform))}</small>
+                    </span>
+                </label>
+            `;
+        }).join('')
+        : '<div class="empty-state">No hay campañas disponibles</div>';
+
+    persistCampaignNameSelections();
+
+    root.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+        input.addEventListener('change', () => {
+            campaignNameSelections = [...root.querySelectorAll('input[type="checkbox"]:checked')].map((item) => item.value);
+            persistCampaignNameSelections();
+            reloadAllData();
+        });
+    });
+}
+
 function currentFilters() {
     const params = new URLSearchParams();
 
     setParam(params, 'start_date', document.getElementById('startDate')?.value);
     setParam(params, 'end_date', document.getElementById('endDate')?.value);
     setParam(params, 'platform', document.getElementById('platform')?.value);
-    setParam(params, 'account_id', document.getElementById('accountId')?.value);
     setParam(params, 'context', currentContext);
     setParam(params, 'campaign_status', document.getElementById('campaignStatus')?.value);
     setParam(params, 'search', document.getElementById('campaignSearch')?.value);
-    setParam(params, 'campaign_source_type', document.getElementById('campaignSourceType')?.value);
-    setParam(params, 'medium_acquired', document.getElementById('mediumAcquired')?.value);
-    setParam(params, 'campaign_acquired', document.getElementById('campaignAcquired')?.value);
-    setParam(params, 'campaign_id', document.getElementById('campaignId')?.value);
-    setParam(params, 'campaign_name', document.getElementById('campaignName')?.value);
+    appendArrayParam(params, 'campaign_name', campaignNameSelections);
     setParam(params, 'has_opportunity', document.getElementById('hasOpportunity')?.value);
     setParam(params, 'has_reservation', document.getElementById('hasReservation')?.value);
     setParam(params, 'has_sale', document.getElementById('hasSale')?.value);
     setParam(params, 'classification', document.getElementById('classification')?.value);
 
     return params.toString();
+}
+
+function currentCampaignFilters() {
+    const params = new URLSearchParams(currentFilters());
+    params.set('context', 'all');
+
+    return params.toString();
+}
+
+function persistCampaignNameSelections() {
+    localStorage.setItem(campaignNameSelectionStorageKey, JSON.stringify(campaignNameSelections));
+}
+
+function persistMonthlySelection() {
+    localStorage.setItem(monthlyMonthsStorageKey, JSON.stringify(monthlySelectedMonths));
+}
+
+function persistMonthlyMetrics() {
+    localStorage.setItem(monthlyMetricsStorageKey, JSON.stringify(monthlyVisibleMetrics));
+}
+
+function persistMonthlyCompareMode() {
+    localStorage.setItem(monthlyCompareStorageKey, monthlyCompareMode);
+}
+
+function selectedMonthlyRows(rows) {
+    if (!rows.length) {
+        monthlySelectedMonths = [];
+        return rows;
+    }
+
+    const availableMonths = rows.map((row) => monthKeyFromDate(row.date));
+    const savedMonths = loadSavedMonthlySelection().filter((month) => availableMonths.includes(month));
+
+    if (!monthlySelectedMonths.length) {
+        monthlySelectedMonths = savedMonths.length ? savedMonths : availableMonths.slice(-6);
+        persistMonthlySelection();
+    } else {
+        monthlySelectedMonths = monthlySelectedMonths.filter((month) => availableMonths.includes(month));
+        if (!monthlySelectedMonths.length) {
+            monthlySelectedMonths = availableMonths.slice(-6);
+            persistMonthlySelection();
+        }
+    }
+
+    const selectedRows = rows.filter((row) => monthlySelectedMonths.includes(monthKeyFromDate(row.date)));
+
+    if (!selectedRows.length && availableMonths.length) {
+        monthlySelectedMonths = availableMonths.slice(-6);
+        persistMonthlySelection();
+        return rows.filter((row) => monthlySelectedMonths.includes(monthKeyFromDate(row.date)));
+    }
+
+    return selectedRows;
+}
+
+function loadSavedMonthlySelection() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(monthlyMonthsStorageKey) || 'null');
+        return Array.isArray(saved) ? saved.filter((value) => typeof value === 'string' && value.trim()) : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function selectedMonthlySeries() {
+    if (!monthlyVisibleMetrics.length) {
+        monthlyVisibleMetrics = ['spend'];
+    }
+
+    return monthlyVisibleMetrics.filter((key) => monthlySeriesDefinitions.some((series) => series.key === key));
+}
+
+function buildMonthlyChartRows(allRows, selectedRows) {
+    const monthMap = new Map(allRows.map((row) => [monthKeyFromDate(row.date), row]));
+    const compareOffset = monthlyCompareMode === 'prev_year' ? 12 : 0;
+
+    return selectedRows.map((row) => {
+        const monthKey = monthKeyFromDate(row.date);
+        const compareKey = shiftMonthKey(monthKey, compareOffset);
+        const compareRow = compareOffset ? monthMap.get(compareKey) : null;
+        const chartRow = {
+            date: row.date,
+            month_key: monthKey,
+            label: monthLabel(row),
+        };
+
+        selectedMonthlySeries().forEach((metric) => {
+            chartRow[metric] = Number(row[metric] || 0);
+            chartRow[`${metric}_compare`] = Number(compareRow?.[metric] || 0);
+        });
+
+        return chartRow;
+    });
+}
+
+function buildMonthlySeriesDefinitions(metrics) {
+    return metrics.flatMap((metric) => {
+        const definition = monthlySeriesDefinitions.find((series) => series.key === metric);
+        if (!definition) {
+            return [];
+        }
+
+        return [
+            definition,
+            monthlyCompareMode === 'prev_year'
+                ? {
+                    ...definition,
+                    key: `${definition.key}_compare`,
+                    label: `${definition.label} año anterior`,
+                    className: `${definition.className} is-compare`,
+                    isCompare: true,
+                }
+                : null,
+        ].filter(Boolean);
+    });
+}
+
+function applyMonthlyRange(value, rows) {
+    const availableMonths = rows.map((row) => monthKeyFromDate(row.date));
+
+    if (value === 'all') {
+        monthlySelectedMonths = availableMonths;
+        return;
+    }
+
+    const count = Number(value);
+    if (!Number.isFinite(count) || count <= 0) {
+        return;
+    }
+
+    monthlySelectedMonths = availableMonths.slice(-count);
+}
+
+function monthKeyFromDate(value) {
+    return String(value || '').slice(0, 7);
+}
+
+function monthLabel(row) {
+    const date = new Date(row.date);
+    if (Number.isNaN(date.getTime())) {
+        return row.label || '-';
+    }
+
+    return new Intl.DateTimeFormat('es-ES', { month: 'short', year: 'numeric' })
+        .format(date)
+        .replace('.', '')
+        .replace(/^./, (letter) => letter.toUpperCase());
+}
+
+function shiftMonthKey(monthKey, months) {
+    const [year, month] = monthKey.split('-').map((part) => Number(part));
+    if (!year || !month) {
+        return monthKey;
+    }
+
+    const date = new Date(year, month - 1 - months, 1);
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, '0'),
+    ].join('-');
 }
 
 function renderColumnsPopover() {
@@ -938,7 +1369,7 @@ function renderColumnsPopover() {
                 visibleColumns = ['campaign'];
             }
             localStorage.setItem(columnsStorageKey, JSON.stringify(visibleColumns));
-            renderCampaignRows(campaignRows);
+            renderCampaignTables(campaignRows);
         });
     });
 }
@@ -1030,44 +1461,92 @@ function loadDailyChartType() {
     return saved === 'lines' ? 'lines' : 'bars';
 }
 
+function loadCampaignNameSelections() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(campaignNameSelectionStorageKey) || 'null');
+        return Array.isArray(saved) ? saved.filter((value) => typeof value === 'string' && value.trim()) : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function loadMonthlyVisibleMetrics() {
+    const defaults = ['spend', 'leads_salesforce'];
+
+    try {
+        const saved = JSON.parse(localStorage.getItem(monthlyMetricsStorageKey) || 'null');
+        if (Array.isArray(saved) && saved.length) {
+            const known = saved.filter((key) => monthlySeriesDefinitions.some((series) => series.key === key));
+
+            if (known.length) {
+                return known;
+            }
+        }
+    } catch (error) {
+        return defaults;
+    }
+
+    return defaults;
+}
+
+function loadMonthlyCompareMode() {
+    const saved = localStorage.getItem(monthlyCompareStorageKey);
+
+    return saved === 'prev_year' ? 'prev_year' : 'none';
+}
+
+function visibleMonthlyRows(rows) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const filtered = rows.filter((row) => {
+        const date = new Date(row.date);
+        if (Number.isNaN(date.getTime())) {
+            return false;
+        }
+
+        return date.getFullYear() === year && date.getMonth() <= month;
+    });
+
+    return filtered.length ? filtered : rows;
+}
+
 function defaultRankingKeys() {
     return rankingDefinitions.filter((ranking) => ranking.visible).map((ranking) => ranking.key);
 }
 
-function activeColumns() {
-    return columnDefinitions.filter((column) => visibleColumns.includes(column.key) && columnAllowedInContext(column.key));
+function activeColumns(context = currentContext) {
+    return columnDefinitions.filter((column) => visibleColumns.includes(column.key) && columnAllowedInContext(column.key, context));
 }
 
 function applyColumnVisibility() {
-    document.querySelectorAll('#panel-campaigns th[data-column]').forEach((header) => {
-        header.classList.toggle('is-hidden', !visibleColumns.includes(header.dataset.column) || !columnAllowedInContext(header.dataset.column));
+    document.querySelectorAll('#campaignTables table[data-table-type] [data-column]').forEach((cell) => {
+        const tableType = cell.closest('table')?.dataset.tableType || currentContext;
+        cell.classList.toggle('is-hidden', !visibleColumns.includes(cell.dataset.column) || !columnAllowedInContext(cell.dataset.column, tableType));
     });
 }
 
-function columnAllowedInContext(key) {
+function columnAllowedInContext(key, context = currentContext) {
     const tasacionHidden = ['reservations', 'sales', 'sale_amount', 'cost_per_reservation', 'cost_per_sale', 'roas', 'estimated_roi', 'opportunity_to_reservation', 'reservation_to_sale', 'lead_to_sale'];
     const ventaHidden = ['appraisals_generated', 'purchases', 'cost_per_appraisal', 'cost_per_purchase', 'lead_to_purchase', 'opportunity_to_purchase', 'appraisal_amount'];
 
-    return currentContext === 'tasacion'
+    return context === 'tasacion'
         ? !tasacionHidden.includes(key)
         : !ventaHidden.includes(key);
 }
 
-function syncTableScrollWidth() {
-    const top = document.getElementById('campaignTableTopScroll');
-    const wrap = document.getElementById('campaignTableWrap');
-    const table = wrap?.querySelector('table');
+function syncCampaignTableScrollWidth() {
+    document.querySelectorAll('#campaignTables [data-table-scroll-proxy]').forEach((proxy) => {
+        const tableType = proxy.dataset.tableScrollProxy;
+        const wrap = [...document.querySelectorAll('#campaignTables [data-table-wrap]')]
+            .find((element) => element.dataset.tableWrap === tableType);
+        const table = wrap?.querySelector('table');
+        const spacer = proxy.firstElementChild;
 
-    if (!top || !wrap || !table) {
-        return;
-    }
-
-    const spacer = top.firstElementChild;
-    if (spacer) {
-        spacer.style.width = `${table.scrollWidth}px`;
-    }
-
-    top.scrollLeft = wrap.scrollLeft;
+        if (spacer && table) {
+            spacer.style.width = `${table.scrollWidth}px`;
+        }
+    });
 }
 
 function setDefaultDates() {
@@ -1187,6 +1666,14 @@ function setParam(params, key, value) {
     if (value) {
         params.set(key, value);
     }
+}
+
+function appendArrayParam(params, key, values) {
+    (values || []).forEach((value) => {
+        if (value) {
+            params.append(`${key}[]`, value);
+        }
+    });
 }
 
 function campaignLabel(row) {
@@ -1325,14 +1812,20 @@ function conversionTooltip(row) {
 }
 
 function monthlyTooltip(row) {
-    const definitions = currentContext === 'tasacion'
-        ? monthlyTasacionSeriesDefinitions
-        : monthlySeriesDefinitions;
+    const definitions = selectedMonthlySeries()
+        .map((key) => monthlySeriesDefinitions.find((series) => series.key === key))
+        .filter(Boolean);
 
-    return [
-        `Mes: ${row.label || formatShortDate(row.date)}`,
-        ...definitions.map((series) => `${series.label}: ${series.formatter(Number(row[series.key] || 0))}`),
-    ].join('\n');
+    const lines = [`Mes: ${row.label || formatShortDate(row.date)}`];
+    definitions.forEach((series) => {
+        lines.push(`${series.label}: ${series.formatter(Number(row[series.key] || 0))}`);
+
+        if (monthlyCompareMode === 'prev_year') {
+            lines.push(`${series.label} año anterior: ${series.formatter(Number(row[`${series.key}_compare`] || 0))}`);
+        }
+    });
+
+    return lines.join('\n');
 }
 
 function dailyMax(rows, key) {
@@ -1398,6 +1891,18 @@ function barWidth(value, max) {
     }
 
     return Math.max(4, Math.round((Number(value) / max) * 100));
+}
+
+function logBarWidth(value, max) {
+    const safeValue = Math.max(Number(value) || 0, 0);
+    const safeMax = Math.max(Number(max) || 0, 0);
+
+    if (!safeMax) {
+        return 0;
+    }
+
+    const scaled = Math.log10(safeValue + 1) / Math.log10(safeMax + 1);
+    return Math.max(12, Math.round(scaled * 100));
 }
 
 function barHeight(value, max) {

@@ -18,7 +18,7 @@
 </head>
 <body>
 <div class="wrap">
-    @include('reports.partials.report-header', ['currentReport' => 'campaigns', 'subtitle' => 'Rentabilidad de campanas digitales'])
+    @include('reports.partials.report-header', ['currentReport' => 'campaigns', 'subtitle' => 'Rentabilidad digital'])
 
     <section class="filters card campaigns-filter-bar">
         <div class="filter-group">
@@ -36,10 +36,6 @@
         <div class="filter-group">
             <label for="platform">Plataforma</label>
             <select id="platform"><option value="">Todas</option></select>
-        </div>
-        <div class="filter-group">
-            <label for="accountId">Cuenta</label>
-            <select id="accountId"><option value="">Todas</option></select>
         </div>
         <div class="filter-group">
             <label for="campaignStatus">Estado campana</label>
@@ -71,24 +67,12 @@
             </div>
             <div class="campaign-advanced-grid">
                 <div class="filter-group">
-                    <label for="campaignSourceType">Tipo campana</label>
-                    <select id="campaignSourceType"><option value="">Todos</option></select>
-                </div>
-                <div class="filter-group">
-                    <label for="mediumAcquired">Medio adquirido</label>
-                    <select id="mediumAcquired"><option value="">Todos</option></select>
-                </div>
-                <div class="filter-group">
-                    <label for="campaignAcquired">Campana adquirida</label>
-                    <select id="campaignAcquired"><option value="">Todas</option></select>
-                </div>
-                <div class="filter-group">
-                    <label for="campaignId">Campaign ID</label>
-                    <select id="campaignId"><option value="">Todos</option></select>
-                </div>
-                <div class="filter-group">
-                    <label for="campaignName">Campaign name</label>
-                    <select id="campaignName"><option value="">Todas</option></select>
+                    <label>Nombre de campaña</label>
+                    <div class="campaign-name-toolbar">
+                        <button type="button" class="main-tab" id="campaignNamesSelectAll">Seleccionar todas</button>
+                        <button type="button" class="filter-reset" id="campaignNamesClear">Limpiar</button>
+                    </div>
+                    <div class="campaign-name-checklist" id="campaignNameChecklist"></div>
                 </div>
                 <div class="filter-group">
                     <label for="hasOpportunity">Oportunidad</label>
@@ -156,7 +140,7 @@
                 </div>
                 <div class="campaign-bar-list" id="platformComparison"></div>
             </section>
-            @if (($reportUserRole ?? 'viewer') === 'admin')
+            @if (\App\Support\ReportUserAccess::canSeeSyncDiagnostics(request()))
             <section class="card panel" id="campaignDiagnosticsPanel">
                 <div class="panel-title">
                     <div>
@@ -201,53 +185,7 @@
                         @endif
                     </div>
                 </div>
-                <div class="table-scroll-proxy" id="campaignTableTopScroll"><div></div></div>
-                <div class="table-wrap" id="campaignTableWrap">
-                    <table>
-                        <thead>
-                        <tr>
-                            <th data-column="campaign" data-sortable="true" data-key="campaign_name">Campana</th>
-                            <th data-column="platform" data-sortable="true" data-key="platform">Plataforma</th>
-                            <th data-column="spend" class="num" data-sortable="true" data-key="spend">Inversion</th>
-                            <th data-column="impressions" class="num" data-sortable="true" data-key="impressions">Impresiones</th>
-                            <th data-column="clicks" class="num" data-sortable="true" data-key="clicks">Clicks</th>
-                            <th data-column="ctr" class="num" data-sortable="true" data-key="ctr">CTR</th>
-                            <th data-column="cpc" class="num" data-sortable="true" data-key="cpc">CPC</th>
-                            <th data-column="leads_salesforce" class="num" data-sortable="true" data-key="leads_salesforce">Leads Salesforce</th>
-                            <th data-column="opportunities" class="num" data-sortable="true" data-key="opportunities">Oportunidades</th>
-                            <th data-column="reservations" class="num" data-sortable="true" data-key="reservations">Reservas</th>
-                            <th data-column="sales" class="num" data-sortable="true" data-key="sales">Ventas</th>
-                            <th data-column="sale_amount" class="num" data-sortable="true" data-key="sale_amount">Importe vendido</th>
-                            <th data-column="account_id" data-sortable="true" data-key="account_id">Cuenta</th>
-                            <th data-column="campaign_id" data-sortable="true" data-key="campaign_id">Campaign ID</th>
-                            <th data-column="source_acquired" data-sortable="true" data-key="source_acquired">Fuente adquirida</th>
-                            <th data-column="medium_acquired" data-sortable="true" data-key="medium_acquired">Medio adquirido</th>
-                            <th data-column="acquired_id" data-sortable="true" data-key="acquired_id">ID adquirido</th>
-                            <th data-column="content_acquired" data-sortable="true" data-key="content_acquired">Contenido adquirido</th>
-                            <th data-column="cost_per_lead" class="num" data-sortable="true" data-key="cost_per_lead">CPL</th>
-                            <th data-column="cost_per_opportunity" class="num" data-sortable="true" data-key="cost_per_opportunity">CPO</th>
-                            <th data-column="cost_per_reservation" class="num" data-sortable="true" data-key="cost_per_reservation">CPR</th>
-                            <th data-column="cost_per_sale" class="num" data-sortable="true" data-key="cost_per_sale">CPV</th>
-                            <th data-column="roas" class="num" data-sortable="true" data-key="roas">ROAS</th>
-                            <th data-column="estimated_roi" class="num" data-sortable="true" data-key="estimated_roi">ROI estimado</th>
-                            <th data-column="classification" data-sortable="true" data-key="classification">Clasificacion</th>
-                            <th data-column="campaign_status_label" data-sortable="true" data-key="campaign_status_label">Estado campana</th>
-                            <th data-column="campaign_start_date" data-sortable="true" data-key="campaign_start_date">Fecha inicio campana</th>
-                            <th data-column="campaign_end_date" data-sortable="true" data-key="campaign_end_date">Fecha fin campana</th>
-                            <th data-column="last_spend_date" data-sortable="true" data-key="last_spend_date">Ultima fecha con inversion</th>
-                            <th data-column="appraisals_generated" class="num" data-sortable="true" data-key="appraisals_generated">Tasaciones generadas</th>
-                            <th data-column="purchases" class="num" data-sortable="true" data-key="purchases">Compras firmadas</th>
-                            <th data-column="cost_per_appraisal" class="num" data-sortable="true" data-key="cost_per_appraisal">Coste por tasacion</th>
-                            <th data-column="cost_per_purchase" class="num" data-sortable="true" data-key="cost_per_purchase">Coste por compra</th>
-                            <th data-column="lead_to_opportunity" class="num" data-sortable="true" data-key="lead_to_opportunity">Lead -> Oportunidad</th>
-                            <th data-column="opportunity_to_reservation" class="num" data-sortable="true" data-key="opportunity_to_reservation">Oportunidad -> Reserva</th>
-                            <th data-column="reservation_to_sale" class="num" data-sortable="true" data-key="reservation_to_sale">Reserva -> Venta</th>
-                            <th data-column="lead_to_sale" class="num" data-sortable="true" data-key="lead_to_sale">Lead -> Venta</th>
-                        </tr>
-                        </thead>
-                        <tbody id="campaignRows"></tbody>
-                    </table>
-                </div>
+                <div class="campaign-tables-grid" id="campaignTables"></div>
             </section>
         </section>
     </main>

@@ -94,7 +94,7 @@ class CampaignDashboardDatasetService
             'medium_acquired' => $request->string('medium_acquired')->toString(),
             'campaign_acquired' => $request->string('campaign_acquired')->toString(),
             'campaign_id' => $request->string('campaign_id')->toString(),
-            'campaign_name' => $request->string('campaign_name')->toString(),
+            'campaign_name' => $this->campaignNameFilter($request->input('campaign_name')),
             'campaign_type' => $request->string('campaign_type')->toString(),
             'delegation' => $request->string('delegation')->toString(),
             'zone' => $request->string('zone')->toString(),
@@ -617,7 +617,7 @@ class CampaignDashboardDatasetService
 
     private function monthlyEvolution(array $filters, array $period): array
     {
-        $start = CarbonImmutable::parse($period['end'])->startOfYear()->startOfDay();
+        $start = CarbonImmutable::parse($period['end'])->subMonthsNoOverflow(23)->startOfMonth()->startOfDay();
         $end = CarbonImmutable::parse($period['end'])->endOfDay();
         $months = [];
         $cursor = $start->startOfMonth();
@@ -628,10 +628,13 @@ class CampaignDashboardDatasetService
                 'date' => $cursor->toDateString(),
                 'label' => ucfirst($cursor->locale('es')->translatedFormat('F')),
                 'spend' => 0.0,
+                'impressions' => 0,
+                'clicks' => 0,
                 'leads_salesforce' => 0,
                 'opportunities' => 0,
                 'reservations' => 0,
                 'sales' => 0,
+                'appraisals_generated' => 0,
                 'purchases' => 0,
             ];
             $cursor = $cursor->addMonthNoOverflow();
@@ -649,6 +652,8 @@ class CampaignDashboardDatasetService
                 'campaign_id',
                 'campaign_name',
                 DB::raw('SUM(COALESCE(spend, 0)) as spend'),
+                DB::raw('SUM(COALESCE(impressions, 0)) as impressions'),
+                DB::raw('SUM(COALESCE(clicks, 0)) as clicks'),
             ])
             ->groupBy(DB::raw('SUBSTR(metric_date, 1, 7)'), 'platform', 'campaign_id', 'campaign_name')
             ->get()
@@ -666,6 +671,8 @@ class CampaignDashboardDatasetService
                 }
 
                 $months[$month]['spend'] = round($months[$month]['spend'] + (float) $row->spend, 2);
+                $months[$month]['impressions'] += (int) $row->impressions;
+                $months[$month]['clicks'] += (int) $row->clicks;
             });
 
         $attributionQuery = DB::table('campaign_lead_attributions as cla')
@@ -698,6 +705,7 @@ class CampaignDashboardDatasetService
                 DB::raw('COUNT(DISTINCT CASE WHEN cla.has_opportunity = 1 THEN cla.opportunity_id END) as opportunities'),
                 DB::raw('SUM(CASE WHEN cla.has_reservation = 1 THEN 1 ELSE 0 END) as reservations'),
                 DB::raw('SUM(CASE WHEN cla.has_sale = 1 THEN 1 ELSE 0 END) as sales'),
+                DB::raw('SUM(CASE WHEN cla.has_opportunity = 1 AND cla.campaign_type = \'tasacion\' THEN 1 ELSE 0 END) as appraisals_generated'),
                 DB::raw('SUM(CASE WHEN cla.has_purchase = 1 THEN 1 ELSE 0 END) as purchases'),
             ])
             ->groupBy(DB::raw('SUBSTR(cla.lead_created_date, 1, 7)'), 'cla.platform', 'cla.campaign_id', 'cla.campaign_name')
@@ -723,6 +731,7 @@ class CampaignDashboardDatasetService
                 $months[$month]['opportunities'] += (int) $row->opportunities;
                 $months[$month]['reservations'] += (int) $row->reservations;
                 $months[$month]['sales'] += (int) $row->sales;
+                $months[$month]['appraisals_generated'] += (int) $row->appraisals_generated;
                 $months[$month]['purchases'] += (int) $row->purchases;
             });
 
@@ -1251,10 +1260,18 @@ class CampaignDashboardDatasetService
             $query->whereRaw('1 = 0');
         }
 
-        foreach (['platform', 'account_id', 'campaign_id', 'campaign_name'] as $field) {
+        foreach (['platform', 'account_id', 'campaign_id'] as $field) {
             if (filled($filters[$field] ?? null)) {
                 $query->where($field, $filters[$field]);
             }
+        }
+
+        $campaignNames = $filters['campaign_name'] ?? [];
+
+        if (is_array($campaignNames) && count($campaignNames) > 0) {
+            $query->whereIn('campaign_name', $campaignNames);
+        } elseif (filled($campaignNames ?? null)) {
+            $query->where('campaign_name', $campaignNames);
         }
 
         if (filled($filters['campaign_status'] ?? null)) {
@@ -1308,13 +1325,20 @@ class CampaignDashboardDatasetService
             'campaign_acquired',
             'campaign_type',
             'campaign_id',
-            'campaign_name',
             'lead_status',
             'vehicle_interest',
         ] as $field) {
             if (filled($filters[$field] ?? null)) {
                 $query->where($column($field), $filters[$field]);
             }
+        }
+
+        $campaignNames = $filters['campaign_name'] ?? [];
+
+        if (is_array($campaignNames) && count($campaignNames) > 0) {
+            $query->whereIn($column('campaign_name'), $campaignNames);
+        } elseif (filled($campaignNames ?? null)) {
+            $query->where($column('campaign_name'), $campaignNames);
         }
 
         if (filled($filters['delegation'] ?? null)) {
@@ -1420,7 +1444,10 @@ class CampaignDashboardDatasetService
     private function filterOptions(): array
     {
         return [
-            'platforms' => $this->distinctFromBoth('platform'),
+            'platforms' => collect($this->distinctFromBoth('platform'))
+                ->filter(fn (string $platform): bool => in_array($platform, ['google_ads', 'meta'], true))
+                ->values()
+                ->all(),
             'source_types' => [
                 ['value' => 'platform_campaign', 'label' => 'Campana plataforma'],
                 ['value' => 'salesforce_origin', 'label' => 'Procedencia Salesforce'],
@@ -1515,6 +1542,30 @@ class CampaignDashboardDatasetService
             'start_at' => $start,
             'end_at' => $end->addDay()->startOfDay(),
         ];
+    }
+
+    /**
+     * @param mixed $value
+     * @return array<int, string>|string
+     */
+    private function campaignNameFilter(mixed $value): array|string
+    {
+        if (is_array($value)) {
+            return array_values(array_filter(array_map(
+                fn ($item) => trim((string) $item),
+                $value
+            ), fn (string $item): bool => $item !== ''));
+        }
+
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return '';
+        }
+
+        $parts = array_values(array_filter(array_map('trim', preg_split('/[|,]/', $value) ?: [])));
+
+        return count($parts) > 1 ? $parts : $value;
     }
 
     private function rowKey(array $row): string

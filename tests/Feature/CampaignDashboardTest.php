@@ -40,6 +40,32 @@ class CampaignDashboardTest extends TestCase
             ->assertSee('/informes/campanas', false);
     }
 
+    public function test_el_menu_oculta_campanas_en_area_manager_y_lo_muestra_en_director(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        $areaManagerSession = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_AREA_MANAGER,
+            'report_user_email' => 'area@hrmotor.com',
+        ];
+        $directorSession = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_DIRECTOR,
+            'report_user_email' => 'director@hrmotor.com',
+        ];
+
+        $this->withSession($areaManagerSession)
+            ->get('/informes/leads')
+            ->assertOk()
+            ->assertDontSee('/informes/campanas', false);
+
+        $this->withSession($directorSession)
+            ->get('/informes/leads')
+            ->assertOk()
+            ->assertSee('/informes/campanas', false);
+    }
+
     public function test_ui_drawer_and_columns_follow_platform_campaign_v1_contract(): void
     {
         $html = $this->get('/informes/campanas')->assertOk()->getContent();
@@ -102,6 +128,11 @@ class CampaignDashboardTest extends TestCase
             'report_user_role' => ReportUser::ROLE_VIEWER,
             'report_user_email' => 'viewer@hrmotor.com',
         ];
+        $directorSession = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_DIRECTOR,
+            'report_user_email' => 'director@hrmotor.com',
+        ];
 
         $this->withSession($adminSession)
             ->get('/informes/campanas')
@@ -120,17 +151,29 @@ class CampaignDashboardTest extends TestCase
 
         $this->withSession($viewerSession)
             ->get('/informes/campanas')
+            ->assertRedirect('/informes/leads');
+
+        $this->withSession($viewerSession)
+            ->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertForbidden();
+
+        $this->withSession($viewerSession)
+            ->get('/informes/campanas/export/campaigns.csv?'.$this->query())
+            ->assertForbidden();
+
+        $this->withSession($directorSession)
+            ->get('/informes/campanas')
             ->assertOk()
             ->assertDontSee('campaignDiagnosticsPanel', false)
             ->assertDontSee('Export CSV');
 
-        $this->withSession($viewerSession)
+        $this->withSession($directorSession)
             ->getJson('/informes/campanas/data/summary?'.$this->query())
             ->assertOk()
             ->assertJsonMissingPath('diagnostics')
             ->assertJsonPath('warnings', []);
 
-        $this->withSession($viewerSession)
+        $this->withSession($directorSession)
             ->get('/informes/campanas/export/campaigns.csv?'.$this->query())
             ->assertForbidden();
     }

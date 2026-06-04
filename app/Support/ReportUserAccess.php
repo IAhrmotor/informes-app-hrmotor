@@ -35,11 +35,40 @@ class ReportUserAccess
 
     public static function isAdmin(Request $request): bool
     {
-        return self::role($request) === ReportUser::ROLE_ADMIN;
+        return self::normalizeRole(self::role($request)) === ReportUser::ROLE_ADMIN;
+    }
+
+    public static function isDirector(Request $request): bool
+    {
+        return in_array(self::normalizeRole(self::role($request)), [
+            ReportUser::ROLE_DIRECTOR,
+            'direction',
+            'direccion',
+        ], true);
+    }
+
+    public static function canViewCampaigns(Request $request): bool
+    {
+        return in_array(self::normalizeRole(self::role($request)), [
+            ReportUser::ROLE_ADMIN,
+            ReportUser::ROLE_DIRECTOR,
+            'direction',
+            'direccion',
+        ], true);
     }
 
     public static function canExport(Request $request): bool
     {
         return self::isAdmin($request);
+    }
+
+    public static function canSeeSyncDiagnostics(Request $request): bool
+    {
+        return self::isAdmin($request);
+    }
+
+    private static function normalizeRole(string $role): string
+    {
+        return trim(mb_strtolower($role));
     }
 }

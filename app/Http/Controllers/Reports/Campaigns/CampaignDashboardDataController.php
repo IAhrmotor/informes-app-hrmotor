@@ -18,16 +18,22 @@ class CampaignDashboardDataController extends Controller
 
     public function summary(Request $request): JsonResponse
     {
+        abort_unless(ReportUserAccess::canViewCampaigns($request), 403);
+
         return response()->json($this->dataset->summary($request));
     }
 
     public function campaigns(Request $request): JsonResponse
     {
+        abort_unless(ReportUserAccess::canViewCampaigns($request), 403);
+
         return response()->json($this->dataset->campaignRows($request));
     }
 
     public function rankings(Request $request): JsonResponse
     {
+        abort_unless(ReportUserAccess::canViewCampaigns($request), 403);
+
         return response()->json($this->dataset->rankings($request));
     }
 

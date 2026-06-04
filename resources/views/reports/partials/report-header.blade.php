@@ -1,6 +1,20 @@
 @php
     $currentReport = $currentReport ?? 'leads';
     $subtitle = $subtitle ?? 'Leads';
+    $tabs = [
+        ['key' => 'leads', 'label' => 'Leads', 'subtitle' => 'Captacion y seguimiento comercial', 'route' => 'reports.leads.index'],
+        ['key' => 'reservations-sales', 'label' => 'Reservas / Ventas', 'subtitle' => 'Reservas, ventas y contratos', 'route' => 'reports.reservations-sales.index'],
+        ['key' => 'calls', 'label' => 'Llamadas', 'subtitle' => 'Actividad telefonica y atencion', 'route' => 'reports.calls.index'],
+        ['key' => 'campaigns', 'label' => 'Campañas', 'subtitle' => 'Rentabilidad digital', 'route' => 'reports.campaigns.index'],
+    ];
+
+    $visibleTabs = array_values(array_filter($tabs, function (array $tab): bool {
+        if ($tab['key'] === 'campaigns') {
+            return \App\Support\ReportUserAccess::canViewCampaigns(request());
+        }
+
+        return true;
+    }));
 @endphp
 
 <header class="app-header">
@@ -24,20 +38,10 @@
 </header>
 
 <nav class="report-switch" aria-label="Informes comerciales">
-    <a href="{{ route('reports.leads.index') }}" @class(['active' => $currentReport === 'leads'])>
-        <strong>Leads</strong>
-        <span>Captacion y seguimiento comercial</span>
-    </a>
-    <a href="{{ route('reports.reservations-sales.index') }}" @class(['active' => $currentReport === 'reservations-sales'])>
-        <strong>Reservas / Ventas</strong>
-        <span>Reservas, ventas y contratos</span>
-    </a>
-    <a href="{{ route('reports.calls.index') }}" @class(['active' => $currentReport === 'calls'])>
-        <strong>Llamadas</strong>
-        <span>Actividad telefonica y atencion</span>
-    </a>
-    <a href="{{ route('reports.campaigns.index') }}" @class(['active' => $currentReport === 'campaigns'])>
-        <strong>Campañas</strong>
-        <span>Rentabilidad digital</span>
-    </a>
+    @foreach ($visibleTabs as $tab)
+        <a href="{{ route($tab['route']) }}" @class(['active' => $currentReport === $tab['key']])>
+            <strong>{{ $tab['label'] }}</strong>
+            <span>{{ $tab['subtitle'] }}</span>
+        </a>
+    @endforeach
 </nav>

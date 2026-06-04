@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\Hash;
 class ReportUser extends Model
 {
     public const ROLE_ADMIN = 'admin';
+    public const ROLE_DIRECTOR = 'director';
+    public const ROLE_AREA_MANAGER = 'area_manager';
     public const ROLE_VIEWER = 'viewer';
 
     protected $fillable = [
@@ -38,5 +40,15 @@ class ReportUser extends Model
     public function isAdmin(): bool
     {
         return $this->role === self::ROLE_ADMIN;
+    }
+
+    public function isDirector(): bool
+    {
+        return $this->role === self::ROLE_DIRECTOR;
+    }
+
+    public function isAreaManager(): bool
+    {
+        return $this->role === self::ROLE_AREA_MANAGER;
     }
 }

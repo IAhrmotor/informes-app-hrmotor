@@ -37,6 +37,14 @@ body {
     padding: 28px;
 }
 
+.campaigns-topbar {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
 .app-header {
     display: flex;
     align-items: center;
@@ -1117,12 +1125,17 @@ th.num {
 }
 
 .campaigns-filter-bar {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     align-items: end;
 }
 
 .campaign-search {
     grid-column: span 2;
+}
+
+.campaign-filter-actions {
+    grid-column: span 2;
+    justify-self: end;
 }
 
 .campaign-filter-actions {
@@ -1181,6 +1194,66 @@ th.num {
     gap: 14px;
 }
 
+.campaign-name-toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.campaign-name-checklist {
+    display: grid;
+    gap: 8px;
+    max-height: 280px;
+    overflow: auto;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #fbfcfe;
+}
+
+.campaign-name-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid rgba(32, 42, 69, .08);
+    border-radius: 12px;
+    background: #fff;
+    cursor: pointer;
+    transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+.campaign-name-option:hover {
+    border-color: rgba(32, 42, 69, .18);
+    box-shadow: 0 10px 24px rgba(32, 42, 69, .06);
+    transform: translateY(-1px);
+}
+
+.campaign-name-option input {
+    margin-top: 2px;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--brand-accent);
+}
+
+.campaign-name-option span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.campaign-name-option strong {
+    color: var(--brand-primary);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.campaign-name-option small {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+}
+
 .campaign-diagnostics {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1233,6 +1306,68 @@ th.num {
 
 .campaign-chart-card {
     min-height: 280px;
+}
+
+.monthly-chart-card {
+    padding-bottom: 18px;
+}
+
+.monthly-chart-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.monthly-chart-ranges,
+.monthly-chart-compare,
+.monthly-pill-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.monthly-chart-filters {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.monthly-filter-label {
+    margin-bottom: 8px;
+    color: var(--brand-primary);
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.monthly-pill {
+    border: 1px solid rgba(32, 42, 69, .12);
+    border-radius: 999px;
+    background: #fff;
+    color: var(--brand-primary);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 9px 12px;
+    transition: background .16s ease, border-color .16s ease, color .16s ease, transform .16s ease;
+}
+
+.monthly-pill:hover {
+    border-color: rgba(32, 42, 69, .28);
+    transform: translateY(-1px);
+}
+
+.monthly-pill.is-active {
+    background: rgba(32, 42, 69, .1);
+    border-color: rgba(32, 42, 69, .28);
+    color: #17213c;
+}
+
+.monthly-chart-figure {
+    margin-top: 10px;
 }
 
 .panel-title.compact {
@@ -1301,6 +1436,18 @@ th.num {
     stroke: #17213c;
 }
 
+.evolution-bar.impressions,
+.line-series.impressions {
+    background: #5b677d;
+    stroke: #5b677d;
+}
+
+.evolution-bar.clicks,
+.line-series.clicks {
+    background: #ed8c1a;
+    stroke: #ed8c1a;
+}
+
 .evolution-bar.leads,
 .line-series.leads {
     background: #ed1b2f;
@@ -1323,6 +1470,17 @@ th.num {
 .line-series.purchases {
     background: #f04a5d;
     stroke: #f04a5d;
+}
+
+.evolution-bar.appraisals,
+.line-series.appraisals {
+    background: #7c3aed;
+    stroke: #7c3aed;
+}
+
+.line-series.is-compare {
+    stroke-dasharray: 6 5;
+    opacity: .42;
 }
 
 .evolution-bar.reservations,
@@ -1410,6 +1568,7 @@ th.num {
 
 .evolution-day[data-tooltip],
 .line-hover-point[data-tooltip],
+.line-point-dot[data-tooltip],
 .campaign-metric-bar[data-tooltip],
 .platform-chart-group[data-tooltip] {
     cursor: help;
@@ -1417,6 +1576,7 @@ th.num {
 
 .evolution-day[data-tooltip]::after,
 .line-hover-point[data-tooltip]::after,
+.line-point-dot[data-tooltip]::after,
 .campaign-metric-bar[data-tooltip]::after,
 .platform-chart-group[data-tooltip]::after {
     content: attr(data-tooltip);
@@ -1444,12 +1604,14 @@ th.num {
 
 .campaign-metric-bar[data-tooltip],
 .platform-chart-group[data-tooltip],
-.line-hover-point[data-tooltip] {
+.line-hover-point[data-tooltip],
+.line-point-dot[data-tooltip] {
     position: relative;
 }
 
 .evolution-day[data-tooltip]:hover::after,
 .line-hover-point[data-tooltip]:hover::after,
+.line-point-dot[data-tooltip]:hover::after,
 .campaign-metric-bar[data-tooltip]:hover::after,
 .platform-chart-group[data-tooltip]:hover::after {
     opacity: 1;
@@ -1469,6 +1631,12 @@ th.num {
     width: 100%;
     height: calc(100% - 30px);
     overflow: visible;
+}
+
+.line-point-layer {
+    position: absolute;
+    inset: 6px 0 30px;
+    z-index: 3;
 }
 
 .line-series {
@@ -1514,9 +1682,58 @@ th.num {
     stroke: #f04a5d;
 }
 
+.line-point-dot {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: #fff;
+    border: 2px solid currentColor;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, .65);
+    pointer-events: auto;
+}
+
+.line-point-dot.spend {
+    color: #17213c;
+}
+
+.line-point-dot.impressions {
+    color: #5b677d;
+}
+
+.line-point-dot.clicks {
+    color: #ed8c1a;
+}
+
+.line-point-dot.leads {
+    color: #ed1b2f;
+}
+
+.line-point-dot.opportunities {
+    color: #4b5f86;
+}
+
+.line-point-dot.reservations {
+    color: #33415f;
+}
+
+.line-point-dot.sales {
+    color: #ed1b2f;
+}
+
+.line-point-dot.appraisals {
+    color: #7c3aed;
+}
+
+.line-point-dot.purchases {
+    color: #f04a5d;
+}
+
 .line-hover-layer {
     position: absolute;
     inset: 6px 0 30px;
+    z-index: 2;
 }
 
 .line-hover-point {
@@ -1571,6 +1788,46 @@ th.num {
 .campaign-bar-list {
     display: grid;
     gap: 13px;
+}
+
+.campaign-funnel-list .campaign-metric-bar > div strong {
+    font-size: 15px;
+}
+
+.campaign-tables-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.campaign-table-card {
+    overflow: hidden;
+}
+
+.campaign-table-card .table-scroll-proxy,
+.campaign-table-card .table-wrap {
+    overflow-x: auto;
+}
+
+.campaign-table-card .table-wrap {
+    padding-bottom: 6px;
+}
+
+.campaign-table-card table {
+    width: 100%;
+    min-width: 1180px;
+    border-collapse: collapse;
+}
+
+.campaign-table-card thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #fff;
+}
+
+.campaign-table-card thead th[data-sortable="true"] {
+    cursor: pointer;
 }
 
 .campaign-metric-bar {
@@ -1692,19 +1949,26 @@ th.num {
 @media (max-width: 1000px) {
     .campaigns-filter-bar,
     .campaign-diagnostics,
-    .campaign-charts-grid {
+    .campaign-charts-grid,
+    .campaign-tables-grid {
         grid-template-columns: 1fr 1fr;
     }
 
     .campaign-search {
         grid-column: span 1;
     }
+
+    .campaign-filter-actions {
+        grid-column: span 2;
+        justify-self: stretch;
+    }
 }
 
 @media (max-width: 650px) {
     .campaigns-filter-bar,
     .campaign-diagnostics,
-    .campaign-charts-grid {
+    .campaign-charts-grid,
+    .campaign-tables-grid {
         grid-template-columns: 1fr;
     }
 
@@ -1712,9 +1976,20 @@ th.num {
         grid-column: auto;
     }
 
+    .campaign-search,
+    .campaign-filter-actions {
+        grid-column: auto;
+    }
+
     .campaign-filter-actions,
     .campaign-table-actions {
         align-items: stretch;
         flex-direction: column;
+    }
+
+    .campaigns-topbar {
+        justify-content: stretch;
+        flex-direction: column;
+        align-items: stretch;
     }
 }
