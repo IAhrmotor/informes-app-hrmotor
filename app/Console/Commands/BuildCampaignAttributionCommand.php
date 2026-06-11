@@ -11,13 +11,14 @@ class BuildCampaignAttributionCommand extends Command
     protected $signature = 'campaigns:build-attribution
         {--days=60 : Dias hacia atras de leads a procesar}
         {--months= : Meses hacia atras que se procesan; tiene prioridad sobre --days}
-        {--from= : Fecha inicial explicita en formato Y-m-d}';
+        {--from= : Fecha inicial explicita en formato Y-m-d}
+        {--to= : Fecha final exclusiva en formato Y-m-d; por defecto ahora}';
 
     protected $description = 'Construye la atribucion lead -> oportunidad -> reserva -> venta por campana.';
 
     public function handle(CampaignAttributionBuilderService $builder): int
     {
-        $end = CarbonImmutable::now();
+        $end = $this->periodEnd();
         $start = $this->periodStart($end);
 
         $result = $builder->build($start, $end);
@@ -101,5 +102,16 @@ class BuildCampaignAttributionCommand extends Command
         }
 
         return $end->subDays(max((int) $this->option('days'), 1))->startOfDay();
+    }
+
+    private function periodEnd(): CarbonImmutable
+    {
+        $to = $this->option('to');
+
+        if (filled($to)) {
+            return CarbonImmutable::parse($to)->startOfDay();
+        }
+
+        return CarbonImmutable::now();
     }
 }

@@ -75,8 +75,8 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('id="platformComparison"', $html);
         $this->assertStringContainsString('id="reviewCampaigns"', $html);
         $this->assertStringContainsString('id="campaignType"', $html);
-        $this->assertStringContainsString('id="selectedContextLabel"', $html);
-        $this->assertStringContainsString('id="updatedBadge"', $html);
+        $this->assertStringContainsString('data-context="venta"', $html);
+        $this->assertStringContainsString('data-context="tasacion"', $html);
         $this->assertStringContainsString('option value="active" selected', $html);
         $this->assertStringContainsString('id="rankingsToggle"', $html);
         $this->assertStringContainsString('id="rankingsPopover"', $html);
@@ -146,7 +146,8 @@ class CampaignDashboardTest extends TestCase
         $this->withSession($adminSession)
             ->get('/informes/campanas')
             ->assertOk()
-            ->assertSee('campaignDiagnosticsPanel', false)
+            ->assertSee('diagnosticsOpen', false)
+            ->assertSee('campaignDiagnosticsModal', false)
             ->assertSee('window.reportUserCanExport = true', false);
 
         $this->withSession($adminSession)
@@ -173,7 +174,8 @@ class CampaignDashboardTest extends TestCase
         $this->withSession($directorSession)
             ->get('/informes/campanas')
             ->assertOk()
-            ->assertDontSee('campaignDiagnosticsPanel', false)
+            ->assertDontSee('diagnosticsOpen', false)
+            ->assertDontSee('campaignDiagnosticsModal', false)
             ->assertSee('window.reportUserCanExport = false', false);
 
         $this->withSession($directorSession)
@@ -560,6 +562,68 @@ class CampaignDashboardTest extends TestCase
         $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
             ->assertOk()
             ->assertJsonPath('kpis.purchases', 4);
+    }
+
+    public function test_tasacion_cuenta_varias_oportunidades_de_la_misma_cuenta_sin_duplicar_leads(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'google_ads',
+            'metric_date' => '2026-05-10',
+            'account_id' => 'ads-1',
+            'campaign_id' => 'tasacion-search-multi',
+            'campaign_name' => 'TASADOR LANDING SEARCH 1',
+            'spend' => 120,
+            'impressions' => 1200,
+            'clicks' => 120,
+        ]));
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-tasacion-multi',
+            'name' => 'Lead Tasacion Multiple',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Convertido',
+            'record_type_name' => 'Tasacion',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'campaign_acquired' => 'TASADOR LANDING SEARCH 1',
+            'fuente_origen' => 'Google Ads',
+            'medio_origen' => 'CPC',
+            'email' => 'multi@example.com',
+            'phone' => '600000111',
+            'converted_account_id' => '001-tasacion-multi',
+        ]);
+
+        foreach ([
+            '006-tasacion-multi-1',
+            '006-tasacion-multi-2',
+        ] as $index => $salesforceId) {
+            SalesforceOpportunity::query()->create([
+                'salesforce_id' => $salesforceId,
+                'name' => 'Contrato tasacion multiple '.($index + 1),
+                'created_date' => '2026-05-1'.($index + 1).' 10:00:00',
+                'record_type_name' => 'Tasacion',
+                'stage_name' => 'Generar contrato',
+                'account_id' => '001-tasacion-multi',
+                'reservation' => false,
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-05-20',
+                'opo_for_importe_total' => -5000,
+            ]);
+        }
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01')
+        );
+
+        $this->assertSame(2, DB::table('campaign_lead_attributions')->where('lead_id', '00Q-tasacion-multi')->count());
+        $this->assertSame(2, DB::table('campaign_lead_attributions')->where('lead_id', '00Q-tasacion-multi')->where('has_purchase', true)->count());
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
+            ->assertOk()
+            ->assertJsonPath('kpis.leads_salesforce', 1)
+            ->assertJsonPath('kpis.opportunities', 2)
+            ->assertJsonPath('kpis.purchases', 2);
     }
 
     public function test_salesforce_campaign_without_platform_entra_en_kpis_y_tabla_como_campaigna_valida(): void

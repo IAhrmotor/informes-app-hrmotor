@@ -657,6 +657,7 @@ class CampaignDashboardDatasetService
         $endUtcExclusive = $end->addDay()->startOfDay()->utc();
         $months = [];
         $cursor = $start->startOfMonth();
+        $leadKeysByMonth = [];
         $opportunityKeysByMonth = [];
 
         while ($cursor->lessThanOrEqualTo($end)) {
@@ -762,7 +763,12 @@ class CampaignDashboardDatasetService
                     return;
                 }
 
-                $months[$month]['leads_salesforce']++;
+                $leadKey = $month.'|'.$row->lead_id;
+
+                if (! isset($leadKeysByMonth[$leadKey])) {
+                    $months[$month]['leads_salesforce']++;
+                    $leadKeysByMonth[$leadKey] = true;
+                }
 
                 if ((bool) $row->has_opportunity && filled($row->opportunity_id)) {
                     $opportunityKey = $month.'|'.$row->opportunity_id;
@@ -829,7 +835,8 @@ class CampaignDashboardDatasetService
                     return $carry;
                 }
 
-                $carry[$metricDate] = ($carry[$metricDate] ?? 0) + 1;
+                $carry[$metricDate] ??= [];
+                $carry[$metricDate][(string) $row->lead_id] = true;
 
                 return $carry;
             }, []);
@@ -843,7 +850,7 @@ class CampaignDashboardDatasetService
             $rows[] = [
                 'date' => $date,
                 'spend' => round((float) ($spendByDate[$date] ?? 0), 2),
-                'leads_salesforce' => (int) ($attributionByDate[$date] ?? 0),
+                'leads_salesforce' => isset($attributionByDate[$date]) ? count($attributionByDate[$date]) : 0,
             ];
             $cursor = $cursor->addDay();
         }

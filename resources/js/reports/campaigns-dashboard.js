@@ -1,12 +1,12 @@
 ﻿const numberFormatter = new Intl.NumberFormat('es-ES');
 const moneyFormatter = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
 const columnsStorageKey = 'hrmotor_campaign_columns_v5';
-const rankingsStorageKey = 'campaigns.visibleRankings.v5';
+const rankingsStorageKey = 'campaigns.visibleRankings.v7';
 const campaignContextStorageKey = 'campaigns.selectedContext.v1';
 const dailySeriesStorageKey = 'campaigns.dailyChart.visibleSeries';
 const dailyTypeStorageKey = 'campaigns.dailyChart.chartType';
 const monthlyMonthsStorageKey = 'campaigns.monthlyChart.months';
-const monthlyMetricsStorageKey = 'campaigns.monthlyChart.metrics';
+const monthlyMetricsStorageKey = 'campaigns.monthlyChart.metrics.v2';
 const monthlyCompareStorageKey = 'campaigns.monthlyChart.compare';
 const campaignNameSelectionStorageKey = 'campaigns.campaignNames.selected';
 const campaignPointIcon = '/brand/campaign-point.svg';
@@ -146,6 +146,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindResetFilters();
     bindSorting();
     bindDrawer();
+    bindDiagnosticsModal();
     bindCampaignNameActions();
     bindColumns();
     bindRankingSettings();
@@ -157,26 +158,41 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function bindTabs() {
-    document.querySelectorAll('.main-tab[data-panel]').forEach((button) => {
+    document.querySelectorAll('.main-tab[data-context]').forEach((button) => {
         button.addEventListener('click', async () => {
-            document.querySelectorAll('.main-tab[data-panel]').forEach((item) => item.classList.remove('active'));
-            document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.remove('active'));
-
-            button.classList.add('active');
-            document.getElementById(button.dataset.panel)?.classList.add('active');
-
-            if (button.dataset.context && button.dataset.context !== currentContext) {
-                currentContext = button.dataset.context;
-                persistCampaignContext();
-                syncCampaignTypeSelect();
-                visibleRankings = loadVisibleRankings(currentContext);
-                renderRankingsPopover();
-                await reloadAllData();
+            if (!button.dataset.context || button.dataset.context === currentContext) {
+                return;
             }
 
+            currentContext = button.dataset.context;
+            persistCampaignContext();
+            syncCampaignTypeSelect();
+            visibleRankings = loadVisibleRankings(currentContext);
+            monthlyVisibleMetrics = defaultMonthlyMetricKeys(currentContext);
+            persistMonthlyMetrics();
+            renderRankingsPopover();
+            await reloadAllData();
             syncCampaignTableScrollWidth();
         });
     });
+}
+
+function bindDiagnosticsModal() {
+    const drawer = document.getElementById('campaignDiagnosticsModal');
+    const openButton = document.getElementById('diagnosticsOpen');
+    const closeButton = document.getElementById('campaignDiagnosticsClose');
+    const backdrop = document.getElementById('campaignDiagnosticsCloseBackdrop');
+
+    if (!drawer || !openButton) {
+        return;
+    }
+
+    const open = () => drawer.setAttribute('aria-hidden', 'false');
+    const close = () => drawer.setAttribute('aria-hidden', 'true');
+
+    openButton.addEventListener('click', open);
+    closeButton?.addEventListener('click', close);
+    backdrop?.addEventListener('click', close);
 }
 
 function bindResetFilters() {
@@ -204,6 +220,8 @@ function bindResetFilters() {
         persistCampaignContext();
         syncCampaignTypeSelect();
         visibleRankings = loadVisibleRankings(currentContext);
+        monthlyVisibleMetrics = defaultMonthlyMetricKeys(currentContext);
+        persistMonthlyMetrics();
         renderRankingsPopover();
         campaignNameSelections = [];
         persistCampaignNameSelections();
@@ -217,7 +235,6 @@ function bindFilters() {
     [
         'startDate',
         'endDate',
-        'campaignType',
         'platform',
         'campaignStatus',
         'hasOpportunity',
@@ -251,6 +268,8 @@ function bindFilters() {
         currentContext = event.target.value || 'all';
         persistCampaignContext();
         visibleRankings = loadVisibleRankings(currentContext);
+        monthlyVisibleMetrics = defaultMonthlyMetricKeys(currentContext);
+        persistMonthlyMetrics();
         renderRankingsPopover();
         syncContextTabs();
         await reloadAllData();
@@ -597,22 +616,6 @@ async function reloadAllData() {
 }
 
 function renderSummary(data) {
-    const updatedBadge = document.getElementById('updatedBadge');
-    if (updatedBadge) {
-        updatedBadge.textContent = data.datos_actualizados
-            ? formatDateTime(data.datos_actualizados)
-            : 'Pendiente';
-    }
-    document.getElementById('periodLabel').textContent = periodText(data.periodo_actual);
-    const pivotLabel = document.getElementById('pivotLabel');
-    if (pivotLabel) {
-        pivotLabel.textContent = 'Lead.CreatedDate';
-    }
-    const contextLabel = document.getElementById('selectedContextLabel');
-    if (contextLabel) {
-        contextLabel.textContent = data.selected_context_label || contextLabel.textContent || '-';
-    }
-
     const empty = document.getElementById('emptyMessage');
     empty.classList.toggle('is-hidden', Boolean(data.ok));
 
@@ -797,7 +800,7 @@ function pointLayerHtml(rows, seriesDefinitions, tooltipFactory, showPoints, cha
                 const yPercent = (y / chartHeight) * 100;
                 const tooltip = tooltipFactory(row);
 
-                return `<span class="line-point-dot ${escapeHtml(series.className)}" style="left:${x.toFixed(2)}%;top:${yPercent.toFixed(2)}%;background-image:url('${campaignPointIcon}')" aria-hidden="true"></span>`;
+                return `<span class="line-point-dot ${escapeHtml(series.className)}" style="left:${x.toFixed(2)}%;top:${yPercent.toFixed(2)}%;background-image:url('${campaignPointIcon}')" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}" aria-hidden="true"></span>`;
             });
         })
         .join('');
@@ -874,17 +877,17 @@ function loadVisibleRankings(context = currentContext) {
 function defaultRankingKeys(context = currentContext) {
     switch (normalizeCampaignContext(context)) {
         case 'venta':
-            return ['top_spend', 'top_sales', 'best_cost_per_sale', 'review_campaigns'];
+            return ['best_cost_per_sale', 'review_campaigns', 'top_spend'];
         case 'tasacion':
-            return ['top_spend', 'top_purchases', 'best_cost_per_purchase', 'review_campaigns'];
+            return ['best_cost_per_purchase', 'review_campaigns', 'top_spend'];
         case 'exposicion':
-            return ['top_spend', 'top_leads_salesforce', 'best_cost_per_opportunity', 'review_campaigns'];
+            return ['best_cost_per_opportunity', 'review_campaigns', 'top_spend'];
         case 'branding':
-            return ['top_spend', 'top_impressions', 'best_cpc', 'best_ctr', 'review_campaigns'];
+            return ['best_cpc', 'review_campaigns', 'top_spend'];
         case 'otros':
         case 'all':
         default:
-            return ['top_spend', 'top_leads_salesforce', 'best_cost_per_result', 'review_campaigns'];
+            return ['best_cost_per_sale', 'review_campaigns', 'top_spend'];
     }
 }
 
@@ -912,8 +915,8 @@ function renderCharts(charts) {
 
     currentCharts = charts || {};
     root.innerHTML = `
-        ${monthlyEvolutionHtml(charts.monthly_evolution || charts.daily_evolution || [])}
         ${funnelHtml(charts.funnel || [])}
+        ${monthlyEvolutionHtml(charts.monthly_evolution || charts.daily_evolution || [])}
     `;
 }
 
@@ -1471,9 +1474,10 @@ function loadDailyChartType() {
 }
 
 function loadMonthlyVisibleMetrics() {
+    const defaults = defaultMonthlyMetricKeys();
+
     try {
         const saved = JSON.parse(localStorage.getItem(monthlyMetricsStorageKey) || 'null');
-        const defaults = ['spend', 'leads_salesforce', 'opportunities', 'reservations', 'sales', 'purchases', 'cost_per_result'];
         if (!Array.isArray(saved) || !saved.length) {
             return defaults;
         }
@@ -1481,7 +1485,24 @@ function loadMonthlyVisibleMetrics() {
         const known = saved.filter((key) => monthlySeriesDefinitions.some((series) => series.key === key));
         return known.length ? known : defaults;
     } catch (error) {
-        return ['spend', 'leads_salesforce', 'opportunities', 'reservations', 'sales', 'purchases', 'cost_per_result'];
+        return defaults;
+    }
+}
+
+function defaultMonthlyMetricKeys(context = currentContext) {
+    switch (normalizeCampaignContext(context)) {
+        case 'venta':
+            return ['spend', 'leads_salesforce', 'sales'];
+        case 'tasacion':
+            return ['spend', 'leads_salesforce', 'purchases'];
+        case 'exposicion':
+            return ['spend', 'leads_salesforce', 'opportunities'];
+        case 'branding':
+            return ['spend', 'impressions', 'leads_salesforce'];
+        case 'otros':
+        case 'all':
+        default:
+            return ['spend', 'leads_salesforce', 'cost_per_result'];
     }
 }
 
@@ -1573,7 +1594,7 @@ function selectedMonthlyRows(rows) {
 
 function selectedMonthlySeries() {
     if (!monthlyVisibleMetrics.length) {
-        monthlyVisibleMetrics = ['spend'];
+        monthlyVisibleMetrics = defaultMonthlyMetricKeys(currentContext);
     }
 
     return monthlyVisibleMetrics.filter((key) => monthlySeriesDefinitions.some((series) => series.key === key));

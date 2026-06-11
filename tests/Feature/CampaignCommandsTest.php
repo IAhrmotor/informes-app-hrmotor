@@ -116,6 +116,54 @@ class CampaignCommandsTest extends TestCase
         ]);
     }
 
+    public function test_rebuild_del_mismo_periodo_no_pierde_oportunidades_ya_atribuidas(): void
+    {
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-rebuild-opportunity',
+            'name' => 'Lead rebuild oportunidad',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Convertido',
+            'record_type_name' => 'Tasacion',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'campaign_acquired' => 'TASADOR LANDING SEARCH 1',
+            'converted_opportunity_id' => '006-rebuild-opportunity',
+        ]);
+
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-rebuild-opportunity',
+            'name' => 'Oportunidad rebuild',
+            'created_date' => '2026-05-12 10:00:00',
+            'record_type_name' => 'Tasacion',
+            'stage_name' => 'Generar contrato',
+            'account_id' => '001-rebuild-opportunity',
+            'reservation' => false,
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-20',
+            'opo_for_importe_total' => -9000,
+        ]);
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01')
+        );
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01')
+        );
+
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-rebuild-opportunity',
+            'opportunity_id' => '006-rebuild-opportunity',
+        ]);
+        $this->assertDatabaseHas('campaign_lead_attributions', [
+            'lead_id' => '00Q-rebuild-opportunity',
+            'opportunity_id' => '006-rebuild-opportunity',
+            'has_purchase' => true,
+        ]);
+    }
+
     public function test_sync_commands_no_fallan_sin_credenciales(): void
     {
         config()->set('services.meta_ads.access_token', null);

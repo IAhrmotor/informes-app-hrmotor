@@ -16,7 +16,7 @@
         window.reportUserCanExport = @json($reportUserCanExport ?? false);
     </script>
 </head>
-<body>
+<body class="campaigns-report">
 <div class="wrap">
     @include('reports.partials.report-header', ['currentReport' => 'campaigns', 'subtitle' => 'Rentabilidad digital'])
 
@@ -38,7 +38,7 @@
             <select id="platform"><option value="">Todas</option></select>
         </div>
         <div class="filter-group">
-            <label for="campaignType">Tipo campaña</label>
+            <label for="campaignType">Tipo campana</label>
             <select id="campaignType">
                 <option value="all" selected>Todos</option>
                 <option value="venta">Venta</option>
@@ -78,7 +78,7 @@
             </div>
             <div class="campaign-advanced-grid">
                 <div class="filter-group">
-                    <label>Nombre de campaña</label>
+                    <label>Nombre de campana</label>
                     <div class="campaign-name-toolbar">
                         <button type="button" class="main-tab" id="campaignNamesSelectAll">Seleccionar todas</button>
                         <button type="button" class="filter-reset" id="campaignNamesClear">Limpiar</button>
@@ -117,39 +117,52 @@
         </section>
     </aside>
 
-    <nav class="tabs-main" aria-label="Pestanas del informe">
-        <button class="main-tab active" data-context="venta" data-panel="panel-resumen">Venta</button>
-        <button class="main-tab" data-context="tasacion" data-panel="panel-resumen">Tasacion</button>
-        <button class="main-tab" data-panel="panel-campaigns">Campanas</button>
-    </nav>
+    @if (\App\Support\ReportUserAccess::canSeeSyncDiagnostics(request()))
+    <aside class="campaign-drawer campaign-diagnostics-drawer" id="campaignDiagnosticsModal" aria-hidden="true">
+        <div class="campaign-drawer-backdrop" id="campaignDiagnosticsCloseBackdrop"></div>
+        <section class="campaign-drawer-panel card" aria-label="Diagnostico de sincronizacion">
+            <div class="panel-title">
+                <div>
+                    <h2>Diagnostico de sincronizacion</h2>
+                    <div class="small">Estado de inversion, atribucion y calidad de tracking</div>
+                </div>
+                <button type="button" class="main-tab" id="campaignDiagnosticsClose">Cerrar</button>
+            </div>
+            <div class="campaign-diagnostics" id="campaignDiagnostics"></div>
+        </section>
+    </aside>
+    @endif
 
     <main>
-        <section id="panel-resumen" class="tab-panel active">
+        <section class="tab-panel active">
             <div class="notice" id="loadingMessage">Cargando datos de campanas...</div>
             <div class="notice is-hidden" id="emptyMessage">No hay campanas de plataforma para el periodo seleccionado.</div>
             <div id="warnings"></div>
+            <div class="campaign-legacy-context" aria-hidden="true">
+                <span id="periodLabel"></span>
+                <span id="pivotLabel"></span>
+                <span id="selectedContextLabel"></span>
+                <span id="updatedBadge"></span>
+            </div>
 
-            <section class="campaign-context-grid" aria-label="Contexto del periodo">
-                <div class="card campaign-context-card">
-                    <span>Periodo</span>
-                    <strong id="periodLabel">-</strong>
+            <section class="campaign-topbar">
+                <nav class="tabs-main campaign-context-tabs" aria-label="Contexto de campanas">
+                    <button type="button" class="main-tab active" data-context="all">Todos</button>
+                    <button type="button" class="main-tab" data-context="venta">Venta</button>
+                    <button type="button" class="main-tab" data-context="tasacion">Tasacion</button>
+                    <button type="button" class="main-tab" data-context="exposicion">Exposicion</button>
+                    <button type="button" class="main-tab" data-context="branding">Branding</button>
+                    <button type="button" class="main-tab" data-context="otros">Otros</button>
+                </nav>
+                @if (\App\Support\ReportUserAccess::canSeeSyncDiagnostics(request()))
+                <div class="campaign-topbar-actions">
+                    <button type="button" class="main-tab" id="diagnosticsOpen">Ver diagnostico</button>
                 </div>
-                <div class="card campaign-context-card">
-                    <span>Base informe</span>
-                    <strong id="pivotLabel">Lead.CreatedDate</strong>
-                </div>
-                <div class="card campaign-context-card">
-                    <span>Tipo campaña</span>
-                    <strong id="selectedContextLabel">Todos</strong>
-                </div>
-                <div class="card campaign-context-card">
-                    <span>Actualizacion</span>
-                    <strong id="updatedBadge">Pendiente</strong>
-                </div>
+                @endif
             </section>
 
             <section class="kpis dashboard-kpis" id="summaryKpis"></section>
-            <section class="campaign-charts-grid" id="campaignCharts"></section>
+
             <section class="card panel is-hidden" id="platformComparisonPanel">
                 <div class="panel-title">
                     <div>
@@ -159,26 +172,18 @@
                 </div>
                 <div class="campaign-bar-list platform-comparison-grid" id="platformComparison"></div>
             </section>
+
+            <section class="campaign-charts-grid" id="campaignCharts"></section>
+
             <section class="card panel">
                 <div class="panel-title">
                     <div>
                         <h2>Campanas a revisar</h2>
-                        <div class="small">Lista corta y accionable de campañas con señales de revisión</div>
+                        <div class="small">Lista corta y accionable de campanas con senales de revision</div>
                     </div>
                 </div>
                 <div class="review-campaigns" id="reviewCampaigns"></div>
             </section>
-            @if (\App\Support\ReportUserAccess::canSeeSyncDiagnostics(request()))
-            <section class="card panel" id="campaignDiagnosticsPanel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Diagnostico de sincronizacion</h2>
-                        <div class="small">Estado de inversion, atribucion y calidad de tracking</div>
-                    </div>
-                </div>
-                <div class="campaign-diagnostics" id="campaignDiagnostics"></div>
-            </section>
-            @endif
 
             <section class="card panel">
                 <div class="panel-title">
@@ -193,18 +198,8 @@
                 </div>
                 <div class="priority-grid" id="rankingsGrid"></div>
             </section>
-        </section>
 
-        <section id="panel-campaigns" class="tab-panel">
-            <section class="card panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Tabla principal</h2>
-                        <div class="small">Solo campanas reales de Google Ads y Meta Ads, sin datos personales</div>
-                    </div>
-                </div>
-                <div class="campaign-tables-grid" id="campaignTables"></div>
-            </section>
+            <section id="campaignTables"></section>
         </section>
     </main>
 </div>
