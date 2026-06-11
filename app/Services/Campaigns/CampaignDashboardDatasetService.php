@@ -77,7 +77,10 @@ class CampaignDashboardDatasetService
 
     public function filters(Request $request): array
     {
-        $context = $request->string('context')->toString();
+        $requestedType = $this->normalizeContext($request->string('campaign_type')->toString());
+        $context = $requestedType !== 'all'
+            ? $requestedType
+            : $request->string('context')->toString();
 
         return [
             'start_date' => $request->string('start_date')->toString(),
@@ -85,9 +88,7 @@ class CampaignDashboardDatasetService
             'platform' => $request->string('platform')->toString(),
             'account_id' => $request->string('account_id')->toString(),
             'search' => $request->string('search')->toString(),
-            'context' => in_array($context, ['venta', 'tasacion', 'all', 'todas', ''], true)
-                ? ($context !== '' ? $context : 'all')
-                : 'all',
+            'context' => $this->normalizeContext($context),
             'campaign_status' => $request->string('campaign_status')->toString() ?: 'active',
             'campaign_source_type' => $request->string('campaign_source_type')->toString(),
             'source_acquired' => $request->string('source_acquired')->toString(),
@@ -95,7 +96,7 @@ class CampaignDashboardDatasetService
             'campaign_acquired' => $request->string('campaign_acquired')->toString(),
             'campaign_id' => $request->string('campaign_id')->toString(),
             'campaign_name' => $this->campaignNameFilter($request->input('campaign_name')),
-            'campaign_type' => $request->string('campaign_type')->toString(),
+            'campaign_type' => $requestedType === 'all' ? '' : $requestedType,
             'delegation' => $request->string('delegation')->toString(),
             'zone' => $request->string('zone')->toString(),
             'lead_status' => $request->string('lead_status')->toString(),
@@ -188,10 +189,12 @@ class CampaignDashboardDatasetService
                 DB::raw('NULL as account_id'),
                 'cla.campaign_id',
                 'cla.campaign_name',
-                DB::raw("CASE WHEN cla.platform = 'salesforce' THEN 'salesforce_origin' ELSE 'platform_campaign' END as campaign_source_type"),
+                DB::raw("CASE WHEN cla.platform = 'salesforce' THEN 'salesforce_campaign_without_spend' ELSE 'platform_campaign' END as campaign_source_type"),
                 DB::raw('MIN(cla.source_acquired) as source_acquired'),
                 DB::raw('MIN(cla.medium_acquired) as medium_acquired'),
                 DB::raw('MIN(cla.campaign_acquired) as campaign_acquired'),
+                DB::raw('MIN(cla.source_campaign_name) as source_campaign_name'),
+                DB::raw('MIN(cla.campaign_type) as campaign_type'),
                 DB::raw('MIN(cla.acquired_id) as acquired_id'),
                 DB::raw('MIN(cla.content_acquired) as content_acquired'),
                 DB::raw("MIN(CASE WHEN cla.has_opportunity = 1 THEN 'Cruzada por ID' ELSE 'Sin leads Salesforce' END) as match_status"),
@@ -260,11 +263,12 @@ class CampaignDashboardDatasetService
             $rows[$key]['source_acquired'] = $row['source_acquired'];
             $rows[$key]['medium_acquired'] = $row['medium_acquired'];
             $rows[$key]['campaign_acquired'] = $row['campaign_acquired'];
+            $rows[$key]['source_campaign_name'] = $row['source_campaign_name'] ?? $row['campaign_acquired'];
             $rows[$key]['acquired_id'] = $row['acquired_id'] ?? null;
             $rows[$key]['content_acquired'] = $row['content_acquired'] ?? null;
             $rows[$key]['campaign_source_type'] = $this->deriveSourceType($row);
             $rows[$key]['match_status'] = $row['match_status'] ?: ($rows[$key]['campaign_source_type'] === 'salesforce_origin' ? 'Procedencia Salesforce' : 'Sin inversion asociada');
-            $rows[$key]['campaign_type'] = $this->campaignType($rows[$key]);
+            $rows[$key]['campaign_type'] = $row['campaign_type'] ?? $this->campaignType($rows[$key]);
             $rows[$key]['leads_salesforce'] = (int) $row['leads_salesforce'];
             $rows[$key]['opportunities'] = (int) $row['opportunities'];
             $rows[$key]['reservations'] = (int) $row['reservations'];
@@ -289,6 +293,7 @@ class CampaignDashboardDatasetService
             'source_acquired' => $source['source_acquired'] ?? null,
             'medium_acquired' => $source['medium_acquired'] ?? null,
             'campaign_acquired' => $source['campaign_acquired'] ?? null,
+            'source_campaign_name' => $source['source_campaign_name'] ?? ($source['campaign_acquired'] ?? null),
             'acquired_id' => $source['acquired_id'] ?? null,
             'content_acquired' => $source['content_acquired'] ?? null,
             'campaign_id' => $source['campaign_id'] ?? null,
@@ -338,6 +343,8 @@ class CampaignDashboardDatasetService
             'estimated_roi' => $saleAmount !== null ? $this->divide($saleAmount - $spend, $spend) : null,
             'cost_per_appraisal' => $this->divide($spend, $row['appraisals_generated'] ?? 0),
             'cost_per_purchase' => $this->divide($spend, $row['purchases'] ?? 0),
+            'result_count' => $this->resultCountForRow($row),
+            'cost_per_result' => $this->costPerResultForRow($row),
             'click_to_lead_salesforce' => $this->divide($row['leads_salesforce'], $row['clicks']),
             'click_to_lead_platform' => $row['platform_leads'] !== null ? $this->divide($row['platform_leads'], $row['clicks']) : null,
             'lead_to_opportunity' => $this->divide($row['opportunities'], $row['leads_salesforce']),
@@ -405,7 +412,7 @@ class CampaignDashboardDatasetService
 
     private function includeCampaignForContext(array $row, array $filters): bool
     {
-        if ($this->campaignTypeResolver->shouldExclude($row['campaign_name'] ?? null)) {
+        if ($this->campaignTypeResolver->shouldExclude($row['source_campaign_name'] ?? ($row['campaign_name'] ?? null))) {
             return false;
         }
 
@@ -420,6 +427,20 @@ class CampaignDashboardDatasetService
 
     private function campaignType(array $row): string
     {
+        if (in_array(($row['campaign_type'] ?? null), ['venta', 'tasacion', 'exposicion', 'branding', 'otros'], true)) {
+            return (string) $row['campaign_type'];
+        }
+
+        $sourceCampaignName = $row['source_campaign_name'] ?? $row['campaign_acquired'] ?? null;
+
+        if (filled($sourceCampaignName)) {
+            $sourceType = $this->campaignTypeResolver->sourceCampaignType($sourceCampaignName);
+
+            if ($sourceType !== null) {
+                return $sourceType;
+            }
+        }
+
         return $this->campaignTypeResolver->typeFor(
             $row['platform'] ?? null,
             $row['campaign_id'] ?? null,
@@ -500,7 +521,6 @@ class CampaignDashboardDatasetService
 
     private function mainCampaignRows(array $rows, array $filters): array
     {
-        $rows = $this->platformRows($rows);
         $rows = array_values(array_filter($rows, fn (array $row): bool => $this->includeCampaignForContext($row, $filters)));
 
         if (filled($filters['campaign_status'] ?? null)) {
@@ -520,7 +540,7 @@ class CampaignDashboardDatasetService
 
     private function platformRows(array $rows): array
     {
-        return array_values(array_filter($rows, fn (array $row): bool => ($row['campaign_source_type'] ?? null) === 'platform_campaign'));
+        return array_values(array_filter($rows, fn (array $row): bool => in_array(($row['platform'] ?? null), ['google_ads', 'meta'], true)));
     }
 
     private function summaryFromRows(array $rows, array $allRows, array $filters, array $period): array
@@ -557,10 +577,13 @@ class CampaignDashboardDatasetService
                 ? array_sum(array_map(fn (array $row) => (float) ($row['appraisal_amount'] ?? 0), $rows))
                 : null,
         ]);
+        $totals['result_count'] = $this->resultCountForRows($rows);
+        $totals['cost_per_result'] = $this->divide((float) $totals['spend'], (int) $totals['result_count']);
 
         return [
             'ok' => count($rows) > 0,
             'selected_context' => $filters['context'],
+            'selected_context_label' => $this->contextLabel($filters['context']),
             'period_mode' => 'lead_pivot',
             'periodo_actual' => [
                 'inicio' => $period['start'],
@@ -583,6 +606,7 @@ class CampaignDashboardDatasetService
     {
         return [
             'top_spend' => $this->top(array_values(array_filter($rows, fn (array $row): bool => (float) ($row['spend'] ?? 0) > 0)), 'spend'),
+            'top_impressions' => $this->top($rows, 'impressions'),
             'top_leads_salesforce' => $this->top($rows, 'leads_salesforce'),
             'top_opportunities' => $this->top($rows, 'opportunities'),
             'top_reservations' => $this->top($rows, 'reservations'),
@@ -590,8 +614,13 @@ class CampaignDashboardDatasetService
             'top_purchases' => $this->top($rows, 'purchases'),
             'top_sale_amount' => $this->top($rows, 'sale_amount', requireValue: true),
             'best_roas' => $this->top($rows, 'roas', requireValue: true),
+            'best_ctr' => $this->top($rows, 'ctr', requireValue: true),
+            'best_cpc' => $this->top($rows, 'cpc', ascending: true, requireValue: true),
             'best_cost_per_sale' => $this->top($rows, 'cost_per_sale', ascending: true, requireValue: true),
             'best_cost_per_purchase' => $this->top($rows, 'cost_per_purchase', ascending: true, requireValue: true),
+            'best_cost_per_lead' => $this->top($rows, 'cost_per_lead', ascending: true, requireValue: true),
+            'best_cost_per_opportunity' => $this->top($rows, 'cost_per_opportunity', ascending: true, requireValue: true),
+            'best_cost_per_result' => $this->top($rows, 'cost_per_result', ascending: true, requireValue: true),
             'best_lead_to_purchase' => $this->top($rows, 'lead_to_purchase', requireValue: true),
             'worst_cost_per_sale' => $this->top($rows, 'cost_per_sale', requireValue: true),
             'high_spend_low_conversion' => collect($rows)->sortByDesc('spend')->sortBy('sales')->take(5)->values()->all(),
@@ -686,17 +715,15 @@ class CampaignDashboardDatasetService
         $this->applyLeadAttributionFilters($attributionQuery, $filters, 'cla');
 
         if (filled($filters['campaign_source_type'] ?? null)) {
-            if ($filters['campaign_source_type'] === 'salesforce_origin') {
-                $attributionQuery->where('cla.platform', 'salesforce');
-            } elseif ($filters['campaign_source_type'] === 'platform_campaign') {
+            if ($filters['campaign_source_type'] === 'platform_campaign') {
                 $attributionQuery->where('cla.platform', '<>', 'salesforce');
+            } else {
+                $attributionQuery->where('cla.platform', 'salesforce');
             }
         }
 
-        if ($filters['context'] === 'venta') {
-            $attributionQuery->where('cla.campaign_type', 'venta');
-        } elseif ($filters['context'] === 'tasacion') {
-            $attributionQuery->where('cla.campaign_type', 'tasacion');
+        if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
+            $attributionQuery->where('cla.campaign_type', $filters['context']);
         }
 
         $attributionQuery
@@ -765,17 +792,15 @@ class CampaignDashboardDatasetService
         $this->applyLeadAttributionFilters($attributionQuery, $filters, 'cla');
 
         if (filled($filters['campaign_source_type'] ?? null)) {
-            if ($filters['campaign_source_type'] === 'salesforce_origin') {
-                $attributionQuery->where('cla.platform', 'salesforce');
-            } elseif ($filters['campaign_source_type'] === 'platform_campaign') {
+            if ($filters['campaign_source_type'] === 'platform_campaign') {
                 $attributionQuery->where('cla.platform', '<>', 'salesforce');
+            } else {
+                $attributionQuery->where('cla.platform', 'salesforce');
             }
         }
 
-        if ($filters['context'] === 'venta') {
-            $attributionQuery->where('cla.campaign_type', 'venta');
-        } elseif ($filters['context'] === 'tasacion') {
-            $attributionQuery->where('cla.campaign_type', 'tasacion');
+        if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
+            $attributionQuery->where('cla.campaign_type', $filters['context']);
         }
 
         $attributionByDate = $attributionQuery
@@ -814,17 +839,15 @@ class CampaignDashboardDatasetService
         $this->applyLeadAttributionFilters($query, $filters, 'cla');
 
         if (filled($filters['campaign_source_type'] ?? null)) {
-            if ($filters['campaign_source_type'] === 'salesforce_origin') {
-                $query->where('cla.platform', 'salesforce');
-            } elseif ($filters['campaign_source_type'] === 'platform_campaign') {
+            if ($filters['campaign_source_type'] === 'platform_campaign') {
                 $query->where('cla.platform', '<>', 'salesforce');
+            } else {
+                $query->where('cla.platform', 'salesforce');
             }
         }
 
-        if ($filters['context'] === 'venta') {
-            $query->where('cla.campaign_type', 'venta');
-        } elseif ($filters['context'] === 'tasacion') {
-            $query->where('cla.campaign_type', 'tasacion');
+        if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
+            $query->where('cla.campaign_type', $filters['context']);
         }
 
         $reservationsByDate = (clone $query)
@@ -862,48 +885,72 @@ class CampaignDashboardDatasetService
 
     private function funnelChart(array $rows, string $context = 'venta'): array
     {
-        if ($context === 'tasacion') {
-            return [
-                ['label' => 'Impresiones', 'value' => array_sum(array_column($rows, 'impressions'))],
-                ['label' => 'Clicks', 'value' => array_sum(array_column($rows, 'clicks'))],
-                ['label' => 'Leads Salesforce', 'value' => array_sum(array_column($rows, 'leads_salesforce'))],
-                ['label' => 'Oportunidades / citas', 'value' => array_sum(array_column($rows, 'opportunities'))],
-                ['label' => 'Tasaciones generadas', 'value' => array_sum(array_column($rows, 'appraisals_generated'))],
-                ['label' => 'Compras', 'value' => array_sum(array_column($rows, 'purchases'))],
-            ];
-        }
-
-        return [
+        $rows = array_values($rows);
+        $base = [
             ['label' => 'Impresiones', 'value' => array_sum(array_column($rows, 'impressions'))],
             ['label' => 'Clicks', 'value' => array_sum(array_column($rows, 'clicks'))],
             ['label' => 'Leads Salesforce', 'value' => array_sum(array_column($rows, 'leads_salesforce'))],
-            ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
-            ['label' => 'Reservas', 'value' => array_sum(array_column($rows, 'reservations'))],
-            ['label' => 'Ventas', 'value' => array_sum(array_column($rows, 'sales'))],
         ];
+
+        $steps = match ($context) {
+            'tasacion' => [
+                ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
+                ['label' => 'Compras', 'value' => array_sum(array_column($rows, 'purchases'))],
+            ],
+            'exposicion' => [
+                ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
+            ],
+            'branding' => [
+                ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
+            ],
+            default => [
+                ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
+                ['label' => 'Reservas', 'value' => array_sum(array_column($rows, 'reservations'))],
+                ['label' => 'Ventas', 'value' => array_sum(array_column($rows, 'sales'))],
+            ],
+        };
+
+        if (in_array($context, ['all', 'todas', '', null, 'otros'], true)) {
+            $steps = [
+                ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
+                ['label' => 'Resultados', 'value' => array_sum(array_map(fn (array $row) => $this->resultCountForRow($row), $rows))],
+            ];
+        }
+
+        return array_merge($base, $steps);
     }
 
     private function platformBars(array $rows): array
     {
         return collect($rows)
+            ->filter(fn (array $row): bool => in_array(($row['platform'] ?? null), ['google_ads', 'meta'], true))
             ->groupBy('platform')
             ->map(function ($items, string $platform): array {
                 $spend = round((float) $items->sum('spend'), 2);
                 $leads = (int) $items->sum('leads_salesforce');
                 $opportunities = (int) $items->sum('opportunities');
                 $purchases = (int) $items->sum('purchases');
+                $sales = (int) $items->sum('sales');
+                $resultCount = $this->resultCountForRows($items->all());
+                $resultLabel = $this->resultLabelForContext($this->contextForRows($items->all()));
 
                 return [
                     'platform' => $platform,
                     'spend' => $spend,
+                    'impressions' => (int) $items->sum('impressions'),
+                    'clicks' => (int) $items->sum('clicks'),
                     'leads_salesforce' => $leads,
                     'opportunities' => $opportunities,
                     'reservations' => (int) $items->sum('reservations'),
-                    'sales' => (int) $items->sum('sales'),
+                    'sales' => $sales,
                     'purchases' => $purchases,
+                    'result_label' => $resultLabel,
+                    'result_count' => $resultCount,
                     'cost_per_lead' => $this->divide($spend, $leads),
                     'cost_per_opportunity' => $this->divide($spend, $opportunities),
                     'cost_per_purchase' => $this->divide($spend, $purchases),
+                    'cost_per_sale' => $this->divide($spend, $sales),
+                    'cost_per_result' => $this->divide($spend, $resultCount),
                     'lead_to_purchase' => $this->divide($purchases, $leads),
                 ];
             })
@@ -914,66 +961,76 @@ class CampaignDashboardDatasetService
 
     private function reviewCampaigns(array $rows, array $filters): array
     {
-        $context = $filters['context'] ?? 'venta';
+        $rows = array_values($rows);
+        $avgCostByType = collect($rows)
+            ->groupBy(fn (array $row) => $this->campaignType($row))
+            ->map(function ($items): ?float {
+                $costs = $items
+                    ->map(fn (array $row) => $this->costPerResultForRow($row))
+                    ->filter(fn ($value) => $value !== null && $value > 0);
+
+                return $costs->isNotEmpty() ? round((float) $costs->avg(), 4) : null;
+            })
+            ->all();
 
         return collect($rows)
-            ->map(function (array $row) use ($context): ?array {
+            ->map(function (array $row) use ($avgCostByType): ?array {
                 $spend = (float) ($row['spend'] ?? 0);
                 $clicks = (int) ($row['clicks'] ?? 0);
                 $leads = (int) ($row['leads_salesforce'] ?? 0);
                 $opportunities = (int) ($row['opportunities'] ?? 0);
-                $sales = $context === 'tasacion' ? (int) ($row['purchases'] ?? 0) : (int) ($row['sales'] ?? 0);
+                $resultCount = $this->resultCountForRow($row);
+                $costPerResult = $this->costPerResultForRow($row);
+                $type = $this->campaignType($row);
+                $avgCost = $avgCostByType[$type] ?? null;
 
-                if ($spend > 0 && $leads === 0) {
-                    return $this->reviewRow($row, 'Revisar tracking', 'inversion y cero leads', 'Inversion', $spend);
+                if ($spend > 100 && $leads === 0) {
+                    return $this->reviewRow($row, 'Revisar tracking', 'inversion superior a 100 € y cero leads', 'Leads Salesforce', $leads, $costPerResult, $resultCount);
                 }
 
-                if ($clicks >= 500 && $leads === 0) {
-                    return $this->reviewRow($row, 'Revisar conversion', 'muchos clicks y cero leads', 'Clicks', $clicks);
+                if ($clicks > 300 && $leads <= 1) {
+                    return $this->reviewRow($row, 'Revisar conversion', 'mas de 300 clicks y leads bajos o nulos', 'Leads Salesforce', $leads, $costPerResult, $resultCount);
                 }
 
-                if ($leads >= 20 && $opportunities === 0) {
-                    return $this->reviewRow($row, 'Revisar calidad', 'muchos leads y cero oportunidades', 'Leads', $leads);
+                if ($leads > 0 && $opportunities === 0) {
+                    return $this->reviewRow($row, 'Revisar calidad', 'hay leads Salesforce pero no oportunidades', 'Oportunidades', $opportunities, $costPerResult, $resultCount);
                 }
 
-                if ($opportunities >= 10 && $sales === 0) {
-                    return $this->reviewRow(
-                        $row,
-                        $context === 'tasacion' ? 'Revisar cierre de compra' : 'Revisar cierre',
-                        $context === 'tasacion' ? 'muchas oportunidades y cero compras' : 'muchas oportunidades y cero ventas',
-                        'Oportunidades',
-                        $opportunities
-                    );
+                if ($opportunities > 0 && $resultCount === 0) {
+                    return $this->reviewRow($row, 'Revisar cierre', 'hay oportunidades pero no hay resultado final', 'Resultado', $resultCount, $costPerResult, $resultCount);
                 }
 
-                if (! $this->campaignIsActive($row) && ($spend > 0 || $leads > 0 || $sales > 0)) {
-                    return $this->reviewRow($row, 'Revisar estado', 'campana inactiva con inversion o resultados recientes', 'Resultados', $sales ?: $leads);
+                if ($avgCost !== null && $costPerResult !== null && $costPerResult > ($avgCost * 2)) {
+                    return $this->reviewRow($row, 'Coste alto', 'coste por resultado por encima del doble de la media del tipo', 'Coste por resultado', $costPerResult, $costPerResult, $resultCount);
                 }
 
-                if ($context === 'venta' && $sales > 0 && ($row['sale_amount'] ?? null) === null) {
-                    return $this->reviewRow($row, 'Revisar importe', 'sin importe economico aunque hay ventas', 'Ventas', $sales);
+                if (! $this->campaignIsActive($row) && ($spend > 0 || $leads > 0 || $resultCount > 0)) {
+                    return $this->reviewRow($row, 'Revisar estado', 'campana inactiva con inversion o resultados recientes', 'Resultado', $resultCount ?: $leads, $costPerResult, $resultCount);
                 }
 
                 return null;
             })
             ->filter()
-            ->sortByDesc('value')
+            ->sortByDesc(fn (array $row) => $row['value'] ?? 0)
             ->take(8)
             ->values()
             ->all();
     }
 
-    private function reviewRow(array $row, string $reason, string $detail, string $metric, float|int|null $value): array
+    private function reviewRow(array $row, string $reason, string $detail, string $metric, float|int|null $value, float|int|null $costPerResult = null, ?int $resultCount = null): array
     {
         return [
             'campaign' => $this->displayCampaign($row),
             'campaign_name' => $row['campaign_name'] ?? null,
             'campaign_id' => $row['campaign_id'] ?? null,
             'platform' => $row['platform'] ?? null,
+            'campaign_type' => $row['campaign_type'] ?? null,
             'reason' => $reason,
             'detail' => $detail,
             'metric' => $metric,
             'value' => $value,
+            'cost_per_result' => $costPerResult,
+            'result_count' => $resultCount,
         ];
     }
 
@@ -1327,7 +1384,6 @@ class CampaignDashboardDatasetService
             'source_acquired',
             'medium_acquired',
             'campaign_acquired',
-            'campaign_type',
             'campaign_id',
             'lead_status',
             'vehicle_interest',
@@ -1394,7 +1450,6 @@ class CampaignDashboardDatasetService
             'platform',
             'campaign_id',
             'campaign_name',
-            'campaign_type',
             'source_acquired',
             'medium_acquired',
             'campaign_acquired',
@@ -1427,7 +1482,8 @@ class CampaignDashboardDatasetService
             $query->where(function ($subQuery) use ($search, $column): void {
                 $subQuery
                     ->where($column('campaign_id'), 'like', $search)
-                    ->orWhere($column('campaign_name'), 'like', $search);
+                    ->orWhere($column('campaign_name'), 'like', $search)
+                    ->orWhere($column('source_campaign_name'), 'like', $search);
             });
         }
 
@@ -1448,13 +1504,21 @@ class CampaignDashboardDatasetService
     private function filterOptions(): array
     {
         return [
+            'campaign_types' => [
+                ['value' => 'all', 'label' => 'Todos'],
+                ['value' => 'venta', 'label' => 'Venta'],
+                ['value' => 'tasacion', 'label' => 'Tasacion'],
+                ['value' => 'exposicion', 'label' => 'Exposicion'],
+                ['value' => 'branding', 'label' => 'Branding'],
+                ['value' => 'otros', 'label' => 'Otros'],
+            ],
             'platforms' => collect($this->distinctFromBoth('platform'))
                 ->filter(fn (string $platform): bool => in_array($platform, ['google_ads', 'meta'], true))
                 ->values()
                 ->all(),
             'source_types' => [
                 ['value' => 'platform_campaign', 'label' => 'Campana plataforma'],
-                ['value' => 'salesforce_origin', 'label' => 'Procedencia Salesforce'],
+                ['value' => 'salesforce_campaign_without_spend', 'label' => 'Campana Salesforce sin inversion'],
             ],
             'classifications' => ['Potenciar', 'Revisar', 'Parar', 'Revisar tracking', 'Sin datos suficientes'],
             'campaign_statuses' => [
@@ -1488,6 +1552,77 @@ class CampaignDashboardDatasetService
             'vehicles' => $this->distinct('campaign_lead_attributions', 'vehicle_interest'),
             'months' => $this->monthOptions(),
         ];
+    }
+
+    private function normalizeContext(mixed $context): string
+    {
+        $context = $this->normalizer->key($context);
+
+        return in_array($context, ['venta', 'tasacion', 'exposicion', 'branding', 'otros', 'all', 'todas'], true)
+            ? ($context === 'todas' ? 'all' : $context)
+            : 'all';
+    }
+
+    private function contextLabel(?string $context): string
+    {
+        return match ($this->normalizeContext($context)) {
+            'venta' => 'Venta',
+            'tasacion' => 'Tasacion',
+            'exposicion' => 'Exposicion',
+            'branding' => 'Branding',
+            'otros' => 'Otros',
+            default => 'Todos',
+        };
+    }
+
+    private function contextForRows(array $rows): string
+    {
+        $types = collect($rows)
+            ->map(fn (array $row) => $this->campaignType($row))
+            ->filter()
+            ->unique()
+            ->values();
+
+        return $types->count() === 1 ? (string) $types->first() : 'all';
+    }
+
+    private function resultLabelForContext(?string $context): string
+    {
+        return match ($this->normalizeContext($context)) {
+            'venta' => 'Ventas',
+            'tasacion' => 'Compras',
+            'exposicion' => 'Oportunidades',
+            'branding' => 'Leads',
+            'otros' => 'Resultados',
+            default => 'Resultados',
+        };
+    }
+
+    private function resultCountForRow(array $row): int
+    {
+        return match ($this->campaignType($row)) {
+            'venta' => (int) ($row['sales'] ?? 0),
+            'tasacion' => (int) ($row['purchases'] ?? 0),
+            'exposicion' => (int) ($row['opportunities'] ?? 0),
+            'branding' => (int) ($row['leads_salesforce'] ?? 0),
+            default => max((int) ($row['sales'] ?? 0), (int) ($row['purchases'] ?? 0), (int) ($row['opportunities'] ?? 0), (int) ($row['leads_salesforce'] ?? 0)),
+        };
+    }
+
+    private function resultCountForRows(array $rows): int
+    {
+        return array_sum(array_map(fn (array $row) => $this->resultCountForRow($row), $rows));
+    }
+
+    private function costPerResultForRow(array $row): ?float
+    {
+        $resultCount = $this->resultCountForRow($row);
+
+        if ($resultCount <= 0) {
+            return null;
+        }
+
+        return $this->divide((float) ($row['spend'] ?? 0), $resultCount);
     }
 
     private function monthOptions(): array
@@ -1609,7 +1744,6 @@ class CampaignDashboardDatasetService
             'source_acquired',
             'medium_acquired',
             'campaign_acquired',
-            'campaign_type',
             'campaign_source_type',
             'delegation',
             'zone',

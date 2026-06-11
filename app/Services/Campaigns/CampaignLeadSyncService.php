@@ -8,6 +8,7 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use RuntimeException;
 
 class CampaignLeadSyncService
@@ -239,6 +240,66 @@ SOQL;
                 'updated_at',
             ]
         );
+
+        if (Schema::hasTable('salesforce_leads')) {
+            DB::table('salesforce_leads')->upsert(
+                array_map(fn (array $row): array => [
+                    'salesforce_id' => $row['salesforce_id'],
+                    'name' => $row['name'],
+                    'created_date' => $row['created_date'],
+                    'status' => $row['status'],
+                    'owner_id' => $row['owner_id'],
+                    'owner_name' => $row['owner_name'],
+                    'phone' => $row['phone'],
+                    'mobile_phone' => $row['mobile_phone'],
+                    'email' => $row['email'],
+                    'is_converted' => $row['is_converted'],
+                    'converted_date' => $row['converted_date'],
+                    'converted_account_id' => $row['converted_account_id'],
+                    'converted_contact_id' => $row['converted_contact_id'],
+                    'converted_opportunity_id' => $row['converted_opportunity_id'],
+                    'fuente_origen' => $row['fuente_origen'],
+                    'medio_origen' => $row['medio_origen'],
+                    'campaign_acquired' => $row['campaign_acquired'],
+                    'acquired_id' => $row['acquired_id'],
+                    'content_acquired' => $row['content_acquired'],
+                    'vehicle_interest' => $row['vehicle_interest'],
+                    'delegacion_encargada_text' => $row['delegacion_encargada_text'],
+                    'delegacion_encargada' => $row['delegacion_encargada_id'],
+                    'delegacion_encargada_bueno' => $row['delegacion_encargada_bueno'],
+                    'raw_payload' => $row['raw_payload'],
+                    'created_at' => $row['created_at'],
+                    'updated_at' => $row['updated_at'],
+                ], $rows),
+                ['salesforce_id'],
+                [
+                    'name',
+                    'created_date',
+                    'status',
+                    'owner_id',
+                    'owner_name',
+                    'phone',
+                    'mobile_phone',
+                    'email',
+                    'is_converted',
+                    'converted_date',
+                    'converted_account_id',
+                    'converted_contact_id',
+                    'converted_opportunity_id',
+                    'fuente_origen',
+                    'medio_origen',
+                    'campaign_acquired',
+                    'acquired_id',
+                    'content_acquired',
+                    'vehicle_interest',
+                    'delegacion_encargada_text',
+                    'delegacion_encargada',
+                    'delegacion_encargada_bueno',
+                    'raw_payload',
+                    'updated_at',
+                ]
+            );
+        }
 
         return count($rows);
     }

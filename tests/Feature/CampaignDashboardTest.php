@@ -25,6 +25,7 @@ class CampaignDashboardTest extends TestCase
     {
         parent::setUp();
 
+        config()->set('services.informes_auth.enabled', false);
         Cache::flush();
     }
 
@@ -32,7 +33,7 @@ class CampaignDashboardTest extends TestCase
     {
         $this->get('/informes/campanas')
             ->assertOk()
-            ->assertSee('/informes/campanas/export/campaigns.csv', false)
+            ->assertSee('window.reportUserCanExport = true', false)
             ->assertSee('campaignCharts', false);
 
         $this->get('/informes/leads')
@@ -72,7 +73,10 @@ class CampaignDashboardTest extends TestCase
 
         $this->assertStringContainsString('id="campaignCharts"', $html);
         $this->assertStringContainsString('id="platformComparison"', $html);
-        $this->assertStringNotContainsString('id="reviewCampaigns"', $html);
+        $this->assertStringContainsString('id="reviewCampaigns"', $html);
+        $this->assertStringContainsString('id="campaignType"', $html);
+        $this->assertStringContainsString('id="selectedContextLabel"', $html);
+        $this->assertStringContainsString('id="updatedBadge"', $html);
         $this->assertStringContainsString('option value="active" selected', $html);
         $this->assertStringContainsString('id="rankingsToggle"', $html);
         $this->assertStringContainsString('id="rankingsPopover"', $html);
@@ -83,12 +87,12 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('campaigns.dailyChart.chartType', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('data-series', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('data-chart-type', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
-        $this->assertStringContainsString('function lineX(index, total)', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('campaign-detail-toggle', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('line-label-layer', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('campaignPointIcon', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString("{ value: 'current_year', label: 'Ano actual' }", file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('Evolucion de tasaciones y compras', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
-        $this->assertStringNotContainsString('Campanas a revisar', $html);
+        $this->assertStringContainsString('Campanas a revisar', $html);
         $this->assertStringNotContainsString('#7d494e', file_get_contents(resource_path('css/reports/leads-dashboard.css')));
         $this->assertStringNotContainsString('brand-block', $html);
         $this->assertStringNotContainsString('id="mediumAcquired"', $html);
@@ -143,7 +147,7 @@ class CampaignDashboardTest extends TestCase
             ->get('/informes/campanas')
             ->assertOk()
             ->assertSee('campaignDiagnosticsPanel', false)
-            ->assertSee('Export CSV');
+            ->assertSee('window.reportUserCanExport = true', false);
 
         $this->withSession($adminSession)
             ->getJson('/informes/campanas/data/summary?'.$this->query())
@@ -170,7 +174,7 @@ class CampaignDashboardTest extends TestCase
             ->get('/informes/campanas')
             ->assertOk()
             ->assertDontSee('campaignDiagnosticsPanel', false)
-            ->assertDontSee('Export CSV');
+            ->assertSee('window.reportUserCanExport = false', false);
 
         $this->withSession($directorSession)
             ->getJson('/informes/campanas/data/summary?'.$this->query())
@@ -558,7 +562,7 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('kpis.purchases', 4);
     }
 
-    public function test_salesforce_campaign_without_platform_creates_internal_attribution_but_not_main_campaign_row(): void
+    public function test_salesforce_campaign_without_platform_entra_en_kpis_y_tabla_como_campaigna_valida(): void
     {
         SalesforceLead::query()->create([
             'salesforce_id' => '00Q-sf-only',
@@ -589,19 +593,26 @@ class CampaignDashboardTest extends TestCase
             'match_status' => 'Sin inversion asociada',
             'campaign_source_type' => 'salesforce_campaign_without_spend',
         ]);
+        $this->assertDatabaseHas('campaign_lead_attributions', [
+            'lead_id' => '00Q-sf-only',
+            'campaign_name' => 'Campana solo Salesforce',
+            'source_campaign_name' => 'Campana solo Salesforce',
+            'campaign_type' => 'venta',
+        ]);
 
         $this->getJson('/informes/campanas/data/campaigns?'.$this->query())
             ->assertOk()
-            ->assertJsonPath('total', 0)
-            ->assertJsonPath('items', []);
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('items.0.campaign_name', 'Campana solo Salesforce')
+            ->assertJsonPath('items.0.platform', 'salesforce');
 
         $this->getJson('/informes/campanas/data/summary?'.$this->query())
             ->assertOk()
-            ->assertJsonPath('kpis.leads_salesforce', 0)
+            ->assertJsonPath('kpis.leads_salesforce', 1)
             ->assertJsonPath('diagnostics.salesforce_only_by_campaign', 1);
     }
 
-    public function test_tasador_sin_metricas_google_cuenta_como_campana_tasacion_google_ads(): void
+    public function test_tasador_generico_queda_excluido_de_metricas_de_campanas(): void
     {
         SalesforceLead::query()->create([
             'salesforce_id' => '00Q-tasador-manual',
@@ -624,34 +635,19 @@ class CampaignDashboardTest extends TestCase
             CarbonImmutable::parse('2026-06-01')
         );
 
-        $this->assertDatabaseHas('campaign_lead_attributions', [
+        $this->assertDatabaseMissing('campaign_lead_attributions', [
             'lead_id' => '00Q-tasador-manual',
-            'platform' => 'google_ads',
-            'campaign_id' => null,
-            'campaign_name' => 'tasador',
-            'campaign_type' => 'tasacion',
-        ]);
-        $this->assertDatabaseHas('campaign_attributions', [
-            'lead_id' => '00Q-tasador-manual',
-            'platform' => 'google_ads',
-            'campaign_id' => null,
-            'campaign_name' => 'tasador',
-            'attribution_method' => 'manual_google_tasador',
-            'campaign_source_type' => 'platform_campaign',
         ]);
 
         $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
             ->assertOk()
-            ->assertJsonPath('kpis.leads_salesforce', 1)
+            ->assertJsonPath('kpis.leads_salesforce', 0)
             ->assertJsonPath('kpis.spend', 0);
 
         $this->getJson('/informes/campanas/data/campaigns?'.$this->query().'&context=tasacion')
             ->assertOk()
-            ->assertJsonPath('total', 1)
-            ->assertJsonPath('items.0.platform', 'google_ads')
-            ->assertJsonPath('items.0.campaign_name', 'tasador')
-            ->assertJsonPath('items.0.campaign_type', 'tasacion')
-            ->assertJsonPath('items.0.leads_salesforce', 1);
+            ->assertJsonPath('total', 0)
+            ->assertJsonPath('items', []);
     }
 
     public function test_platform_spend_without_salesforce_leads_is_review_tracking(): void
@@ -893,7 +889,7 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('kpis.sale_amount', null);
     }
 
-    public function test_salesforce_source_medium_only_stays_in_diagnostics_and_not_main_campaigns(): void
+    public function test_salesforce_source_medium_only_no_genera_atribucion_de_campana(): void
     {
         SalesforceLead::query()->create([
             'salesforce_id' => '00Q-origin',
@@ -915,10 +911,8 @@ class CampaignDashboardTest extends TestCase
             CarbonImmutable::parse('2026-06-01')
         );
 
-        $this->assertDatabaseHas('campaign_attributions', [
+        $this->assertDatabaseMissing('campaign_lead_attributions', [
             'lead_id' => '00Q-origin',
-            'campaign_source_type' => 'salesforce_origin',
-            'match_status' => 'Procedencia Salesforce',
         ]);
 
         $this->getJson('/informes/campanas/data/campaigns?'.$this->query())
@@ -929,11 +923,11 @@ class CampaignDashboardTest extends TestCase
         $this->getJson('/informes/campanas/data/summary?'.$this->query())
             ->assertOk()
             ->assertJsonPath('kpis.leads_salesforce', 0)
-            ->assertJsonPath('diagnostics.salesforce_origins', 1)
-            ->assertJsonPath('diagnostics.salesforce_only_by_origin', 1);
+            ->assertJsonPath('diagnostics.salesforce_origins', 0)
+            ->assertJsonPath('diagnostics.salesforce_only_by_origin', 0);
     }
 
-    public function test_rankings_and_charts_exclude_salesforce_origins(): void
+    public function test_rankings_and_charts_no_recuperan_procedencias_sin_campaign_acquired(): void
     {
         CampaignPlatformDailyMetric::query()->create($this->metricRow([
             'platform' => 'meta',
@@ -981,7 +975,7 @@ class CampaignDashboardTest extends TestCase
 
         $this->assertSame(900, $summary['charts']['funnel'][0]['value']);
         $this->assertSame(90, $summary['charts']['funnel'][1]['value']);
-        $this->assertSame(1, $summary['diagnostics']['salesforce_origins']);
+        $this->assertSame(0, $summary['diagnostics']['salesforce_origins']);
     }
 
     public function test_google_maps_chatbot_and_exposicion_do_not_appear_as_main_campaigns(): void

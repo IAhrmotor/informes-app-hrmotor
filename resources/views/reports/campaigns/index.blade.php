@@ -38,6 +38,17 @@
             <select id="platform"><option value="">Todas</option></select>
         </div>
         <div class="filter-group">
+            <label for="campaignType">Tipo campaña</label>
+            <select id="campaignType">
+                <option value="all" selected>Todos</option>
+                <option value="venta">Venta</option>
+                <option value="tasacion">Tasacion</option>
+                <option value="exposicion">Exposicion</option>
+                <option value="branding">Branding</option>
+                <option value="otros">Otros</option>
+            </select>
+        </div>
+        <div class="filter-group">
             <label for="campaignStatus">Estado campana</label>
             <select id="campaignStatus">
                 <option value="">Todas</option>
@@ -118,14 +129,22 @@
             <div class="notice is-hidden" id="emptyMessage">No hay campanas de plataforma para el periodo seleccionado.</div>
             <div id="warnings"></div>
 
-            <section class="period-strip">
-                <div class="card period-card">
+            <section class="campaign-context-grid" aria-label="Contexto del periodo">
+                <div class="card campaign-context-card">
                     <span>Periodo</span>
                     <strong id="periodLabel">-</strong>
                 </div>
-                <div class="card period-card">
+                <div class="card campaign-context-card">
                     <span>Base informe</span>
                     <strong id="pivotLabel">Lead.CreatedDate</strong>
+                </div>
+                <div class="card campaign-context-card">
+                    <span>Tipo campaña</span>
+                    <strong id="selectedContextLabel">Todos</strong>
+                </div>
+                <div class="card campaign-context-card">
+                    <span>Actualizacion</span>
+                    <strong id="updatedBadge">Pendiente</strong>
                 </div>
             </section>
 
@@ -138,7 +157,16 @@
                         <div class="small">Google Ads frente a Meta Ads en el contexto seleccionado</div>
                     </div>
                 </div>
-                <div class="campaign-bar-list" id="platformComparison"></div>
+                <div class="campaign-bar-list platform-comparison-grid" id="platformComparison"></div>
+            </section>
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Campanas a revisar</h2>
+                        <div class="small">Lista corta y accionable de campañas con señales de revisión</div>
+                    </div>
+                </div>
+                <div class="review-campaigns" id="reviewCampaigns"></div>
             </section>
             @if (\App\Support\ReportUserAccess::canSeeSyncDiagnostics(request()))
             <section class="card panel" id="campaignDiagnosticsPanel">
@@ -147,7 +175,6 @@
                         <h2>Diagnostico de sincronizacion</h2>
                         <div class="small">Estado de inversion, atribucion y calidad de tracking</div>
                     </div>
-                    <span class="badge" id="updatedBadge">Datos actualizados: pendiente</span>
                 </div>
                 <div class="campaign-diagnostics" id="campaignDiagnostics"></div>
             </section>
@@ -174,15 +201,6 @@
                     <div>
                         <h2>Tabla principal</h2>
                         <div class="small">Solo campanas reales de Google Ads y Meta Ads, sin datos personales</div>
-                    </div>
-                    <div class="campaign-table-actions">
-                        <div class="columns-menu">
-                            <button type="button" class="main-tab" id="columnsToggle">Columnas</button>
-                            <div class="columns-popover card is-hidden" id="columnsPopover"></div>
-                        </div>
-                        @if ($reportUserCanExport ?? false)
-                            <a class="main-tab" id="exportCsv" href="/informes/campanas/export/campaigns.csv">Export CSV</a>
-                        @endif
                     </div>
                 </div>
                 <div class="campaign-tables-grid" id="campaignTables"></div>

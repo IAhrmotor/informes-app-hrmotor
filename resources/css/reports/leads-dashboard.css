@@ -822,8 +822,25 @@ th.num {
     margin-bottom: 18px;
 }
 
+.campaign-context-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
 .period-card {
     padding: 16px 18px;
+}
+
+.campaign-context-card {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    min-height: 88px;
+    background: linear-gradient(180deg, #fff 0%, #fbfcfe 100%);
 }
 
 .period-card span {
@@ -839,6 +856,23 @@ th.num {
     display: block;
     margin-top: 6px;
     font-size: 16px;
+    color: var(--brand-primary);
+}
+
+.campaign-context-card span {
+    color: var(--brand-accent);
+    display: block;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.campaign-context-card strong {
+    display: block;
+    margin-top: 0;
+    font-size: 18px;
+    line-height: 1.25;
     color: var(--brand-primary);
 }
 
@@ -1125,7 +1159,7 @@ th.num {
 }
 
 .campaigns-filter-bar {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     align-items: end;
 }
 
@@ -1136,9 +1170,6 @@ th.num {
 .campaign-filter-actions {
     grid-column: span 2;
     justify-self: end;
-}
-
-.campaign-filter-actions {
     gap: 10px;
 }
 
@@ -1298,6 +1329,99 @@ th.num {
     grid-template-columns: 1.4fr 1fr;
     gap: 16px;
     margin-bottom: 18px;
+}
+
+.platform-comparison-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.platform-comparison-card {
+    padding: 18px;
+    min-height: 100%;
+    background: linear-gradient(180deg, #fff 0%, #fbfcfe 100%);
+}
+
+.platform-comparison-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: baseline;
+    margin-bottom: 14px;
+}
+
+.platform-comparison-head strong {
+    color: var(--brand-primary);
+    font-size: 18px;
+    font-weight: 900;
+}
+
+.platform-comparison-head span {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 750;
+    text-align: right;
+}
+
+.platform-comparison-metrics {
+    display: grid;
+    gap: 12px;
+}
+
+.review-campaigns {
+    display: grid;
+    gap: 12px;
+}
+
+.review-card {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: center;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: linear-gradient(180deg, #fff 0%, #fbfcfe 100%);
+}
+
+.review-card-copy {
+    min-width: 0;
+}
+
+.review-card-copy strong {
+    display: block;
+    color: var(--brand-primary);
+    font-size: 14px;
+    font-weight: 900;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.review-card-copy small {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.review-card-metric {
+    flex: 0 0 auto;
+    text-align: right;
+}
+
+.review-card-metric span {
+    display: block;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.review-card-metric strong {
+    color: var(--brand-primary);
+    font-size: 14px;
+    font-weight: 900;
 }
 
 .campaign-chart-wide {
@@ -1798,12 +1922,28 @@ th.num {
 
 .campaign-tables-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 16px;
 }
 
 .campaign-table-card {
     overflow: hidden;
+}
+
+.campaign-table-card .panel-title {
+    margin-bottom: 12px;
+}
+
+.campaign-table-actions {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.campaign-detail-toggle {
+    margin-right: auto;
 }
 
 .campaign-table-card .table-scroll-proxy,
@@ -1883,13 +2023,6 @@ th.num {
     font-size: 14px;
 }
 
-.campaign-table-actions {
-    display: flex;
-    align-items: flex-start;
-    justify-content: flex-end;
-    gap: 10px;
-}
-
 .table-scroll-proxy {
     height: 14px;
     overflow-x: auto;
@@ -1946,6 +2079,8 @@ th.num {
 
 .campaign-kpi {
     border-top: 4px solid rgba(32, 42, 69, .85);
+    min-height: 126px;
+    align-items: flex-start;
 }
 
 @media (max-width: 1000px) {
@@ -1953,6 +2088,11 @@ th.num {
     .campaign-diagnostics,
     .campaign-charts-grid,
     .campaign-tables-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .campaign-context-grid,
+    .platform-comparison-grid {
         grid-template-columns: 1fr 1fr;
     }
 
@@ -1970,7 +2110,9 @@ th.num {
     .campaigns-filter-bar,
     .campaign-diagnostics,
     .campaign-charts-grid,
-    .campaign-tables-grid {
+    .campaign-tables-grid,
+    .campaign-context-grid,
+    .platform-comparison-grid {
         grid-template-columns: 1fr;
     }
 
@@ -1981,6 +2123,10 @@ th.num {
     .campaign-search,
     .campaign-filter-actions {
         grid-column: auto;
+    }
+
+    .campaign-context-card strong {
+        font-size: 22px;
     }
 
     .campaign-filter-actions,

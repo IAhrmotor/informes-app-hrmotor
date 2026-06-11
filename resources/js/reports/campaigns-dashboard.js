@@ -1,7 +1,8 @@
-const numberFormatter = new Intl.NumberFormat('es-ES');
+﻿const numberFormatter = new Intl.NumberFormat('es-ES');
 const moneyFormatter = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
-const columnsStorageKey = 'hrmotor_campaign_columns_v4';
-const rankingsStorageKey = 'campaigns.visibleRankings';
+const columnsStorageKey = 'hrmotor_campaign_columns_v5';
+const rankingsStorageKey = 'campaigns.visibleRankings.v5';
+const campaignContextStorageKey = 'campaigns.selectedContext.v1';
 const dailySeriesStorageKey = 'campaigns.dailyChart.visibleSeries';
 const dailyTypeStorageKey = 'campaigns.dailyChart.chartType';
 const monthlyMonthsStorageKey = 'campaigns.monthlyChart.months';
@@ -12,15 +13,21 @@ const campaignPointIcon = '/brand/campaign-point.svg';
 
 let campaignRows = [];
 let tableSort = {
+    all: { key: 'spend', direction: 'desc' },
     venta: { key: 'spend', direction: 'desc' },
     tasacion: { key: 'spend', direction: 'desc' },
+    exposicion: { key: 'spend', direction: 'desc' },
+    branding: { key: 'spend', direction: 'desc' },
+    otros: { key: 'spend', direction: 'desc' },
 };
 let searchTimer = null;
 let syncingTableScroll = false;
 let dailyVisibleSeries = loadDailyVisibleSeries();
 let dailyChartType = loadDailyChartType();
 let currentCharts = {};
-let currentContext = 'venta';
+let currentRankings = {};
+let currentContext = loadCampaignContext();
+let campaignDetailsVisible = false;
 let campaignNameSelections = loadCampaignNameSelections();
 let monthlySelectedMonths = [];
 let monthlyVisibleMetrics = loadMonthlyVisibleMetrics();
@@ -44,8 +51,8 @@ const monthlySeriesDefinitions = [
     { key: 'opportunities', label: 'Oportunidades', formatter: formatNumber, className: 'opportunities' },
     { key: 'reservations', label: 'Reservas', formatter: formatNumber, className: 'reservations' },
     { key: 'sales', label: 'Ventas', formatter: formatNumber, className: 'sales' },
-    { key: 'appraisals_generated', label: 'Tasaciones', formatter: formatNumber, className: 'appraisals' },
     { key: 'purchases', label: 'Compras', formatter: formatNumber, className: 'purchases' },
+    { key: 'cost_per_result', label: 'Coste por resultado', formatter: formatMoney, className: 'results' },
 ];
 
 const monthlyTasacionSeriesDefinitions = [
@@ -57,6 +64,7 @@ const monthlyTasacionSeriesDefinitions = [
 
 const rankingDefinitions = [
     { key: 'top_spend', title: 'Campanas con mas inversion', metric: 'spend', formatter: formatMoney, visible: true },
+    { key: 'top_impressions', title: 'Campanas con mas impresiones', metric: 'impressions', formatter: formatNumber, visible: false },
     { key: 'top_leads_salesforce', title: 'Mas leads Salesforce', metric: 'leads_salesforce', formatter: formatNumber, visible: true },
     { key: 'top_opportunities', title: 'Mas oportunidades', metric: 'opportunities', formatter: formatNumber, visible: false },
     { key: 'top_reservations', title: 'Mas reservas', metric: 'reservations', formatter: formatNumber, visible: false },
@@ -64,8 +72,13 @@ const rankingDefinitions = [
     { key: 'top_purchases', title: 'Mas compras', metric: 'purchases', formatter: formatNumber, visible: false },
     { key: 'top_sale_amount', title: 'Mayor importe vendido', metric: 'sale_amount', formatter: formatMoney, visible: false },
     { key: 'best_roas', title: 'Mejor ROAS', metric: 'roas', formatter: formatMultiplier, visible: false },
+    { key: 'best_ctr', title: 'Mejor CTR', metric: 'ctr', formatter: formatPercentRatio, visible: false },
+    { key: 'best_cpc', title: 'Mejor CPC', metric: 'cpc', formatter: formatMoney, visible: false },
     { key: 'best_cost_per_sale', title: 'Mejor coste por venta', metric: 'cost_per_sale', formatter: formatMoney, visible: true },
     { key: 'best_cost_per_purchase', title: 'Mejor coste por compra', metric: 'cost_per_purchase', formatter: formatMoney, visible: false },
+    { key: 'best_cost_per_lead', title: 'Mejor coste por lead', metric: 'cost_per_lead', formatter: formatMoney, visible: false },
+    { key: 'best_cost_per_opportunity', title: 'Mejor coste por oportunidad', metric: 'cost_per_opportunity', formatter: formatMoney, visible: false },
+    { key: 'best_cost_per_result', title: 'Mejor coste por resultado', metric: 'cost_per_result', formatter: formatMoney, visible: false },
     { key: 'best_lead_to_purchase', title: 'Mejor conversion lead -> compra', metric: 'lead_to_purchase', formatter: formatPercentRatio, visible: false },
     { key: 'worst_cost_per_sale', title: 'Peor coste por venta', metric: 'cost_per_sale', formatter: formatMoney, visible: false },
     { key: 'high_spend_low_conversion', title: 'Mucho gasto y poca conversion', metric: 'spend', formatter: formatMoney, visible: false },
@@ -81,6 +94,7 @@ const rankingDefinitions = [
 const columnDefinitions = [
     { key: 'campaign', label: 'Campana', visible: true, formatter: (_value, row) => campaignLabel(row) },
     { key: 'platform', label: 'Plataforma', visible: true, formatter: formatPlatform },
+    { key: 'campaign_status_label', label: 'Estado', visible: true },
     { key: 'spend', label: 'Inversion', visible: true, numeric: true, formatter: formatMoney },
     { key: 'impressions', label: 'Impresiones', visible: true, numeric: true, formatter: formatNumber },
     { key: 'clicks', label: 'Clicks', visible: true, numeric: true, formatter: formatNumber },
@@ -91,35 +105,38 @@ const columnDefinitions = [
     { key: 'reservations', label: 'Reservas', visible: true, numeric: true, formatter: formatNumber },
     { key: 'sales', label: 'Ventas', visible: true, numeric: true, formatter: formatNumber },
     { key: 'sale_amount', label: 'Importe vendido', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'purchases', label: 'Compras', visible: true, numeric: true, formatter: formatNumber },
+    { key: 'cost_per_lead', label: 'Coste por lead', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_opportunity', label: 'Coste por oportunidad', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_reservation', label: 'Coste por reserva', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_sale', label: 'Coste por venta', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_purchase', label: 'Coste por compra', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_result', label: 'Coste por resultado', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'result_count', label: 'Resultados', visible: true, numeric: true, formatter: formatNumber },
+    { key: 'roas', label: 'ROAS', visible: true, numeric: true, formatter: formatMultiplier },
+    { key: 'estimated_roi', label: 'ROI estimado', visible: true, numeric: true, formatter: formatPercentRatio },
     { key: 'account_id', label: 'Cuenta', visible: false },
-    { key: 'campaign_id', label: 'Campaign ID', visible: true },
+    { key: 'campaign_id', label: 'Campaign ID', visible: false },
     { key: 'source_acquired', label: 'Fuente adquirida', visible: false },
     { key: 'medium_acquired', label: 'Medio adquirido', visible: false },
     { key: 'acquired_id', label: 'ID adquirido', visible: false },
     { key: 'content_acquired', label: 'Contenido adquirido', visible: false },
-    { key: 'cost_per_lead', label: 'CPL', visible: true, numeric: true, formatter: formatMoney },
-    { key: 'cost_per_opportunity', label: 'CPO', visible: true, numeric: true, formatter: formatMoney },
-    { key: 'cost_per_reservation', label: 'CPR', visible: true, numeric: true, formatter: formatMoney },
-    { key: 'cost_per_sale', label: 'CPV', visible: true, numeric: true, formatter: formatMoney },
-    { key: 'roas', label: 'ROAS', visible: true, numeric: true, formatter: formatMultiplier },
-    { key: 'estimated_roi', label: 'ROI estimado', visible: true, numeric: true, formatter: formatPercentRatio },
     { key: 'classification', label: 'Clasificacion', visible: false },
-    { key: 'campaign_status_label', label: 'Estado campana', visible: true },
     { key: 'campaign_start_date', label: 'Fecha inicio campana', visible: false, formatter: formatDate },
     { key: 'campaign_end_date', label: 'Fecha fin campana', visible: false, formatter: formatDate },
     { key: 'last_spend_date', label: 'Ultima fecha con inversion', visible: false, formatter: formatDate },
     { key: 'appraisals_generated', label: 'Tasaciones generadas', visible: false, numeric: true, formatter: formatNumber },
-    { key: 'purchases', label: 'Compras firmadas', visible: false, numeric: true, formatter: formatNumber },
     { key: 'cost_per_appraisal', label: 'Coste por tasacion', visible: false, numeric: true, formatter: formatMoney },
-    { key: 'cost_per_purchase', label: 'Coste por compra', visible: false, numeric: true, formatter: formatMoney },
     { key: 'lead_to_opportunity', label: 'Lead -> oportunidad', visible: false, numeric: true, formatter: formatPercentRatio },
     { key: 'opportunity_to_reservation', label: 'Oportunidad -> reserva', visible: false, numeric: true, formatter: formatPercentRatio },
     { key: 'reservation_to_sale', label: 'Reserva -> venta', visible: false, numeric: true, formatter: formatPercentRatio },
     { key: 'lead_to_sale', label: 'Lead -> venta', visible: false, numeric: true, formatter: formatPercentRatio },
+    { key: 'lead_to_purchase', label: 'Lead -> compra', visible: false, numeric: true, formatter: formatPercentRatio },
+    { key: 'opportunity_to_purchase', label: 'Oportunidad -> compra', visible: false, numeric: true, formatter: formatPercentRatio },
 ];
 
 let visibleColumns = loadVisibleColumns();
-let visibleRankings = loadVisibleRankings();
+let visibleRankings = loadVisibleRankings(currentContext);
 
 document.addEventListener('DOMContentLoaded', async () => {
     populatePeriodPreset();
@@ -133,6 +150,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindColumns();
     bindRankingSettings();
     bindMonthlyChartControls();
+    bindCampaignTableActions();
     bindTableScroll();
     applyColumnVisibility();
     await reloadAllData();
@@ -149,6 +167,10 @@ function bindTabs() {
 
             if (button.dataset.context && button.dataset.context !== currentContext) {
                 currentContext = button.dataset.context;
+                persistCampaignContext();
+                syncCampaignTypeSelect();
+                visibleRankings = loadVisibleRankings(currentContext);
+                renderRankingsPopover();
                 await reloadAllData();
             }
 
@@ -160,6 +182,7 @@ function bindTabs() {
 function bindResetFilters() {
     document.getElementById('resetFilters')?.addEventListener('click', async () => {
         [
+            'campaignType',
             'platform',
             'campaignSearch',
             'campaignStatus',
@@ -177,6 +200,11 @@ function bindResetFilters() {
 
         document.getElementById('periodPreset').value = 'last_30_days';
         document.getElementById('campaignStatus').value = 'active';
+        currentContext = 'all';
+        persistCampaignContext();
+        syncCampaignTypeSelect();
+        visibleRankings = loadVisibleRankings(currentContext);
+        renderRankingsPopover();
         campaignNameSelections = [];
         persistCampaignNameSelections();
         renderCampaignNameChecklist(campaignRows);
@@ -189,6 +217,7 @@ function bindFilters() {
     [
         'startDate',
         'endDate',
+        'campaignType',
         'platform',
         'campaignStatus',
         'hasOpportunity',
@@ -216,6 +245,15 @@ function bindFilters() {
     document.getElementById('campaignSearch')?.addEventListener('input', () => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(reloadAllData, 350);
+    });
+
+    document.getElementById('campaignType')?.addEventListener('change', async (event) => {
+        currentContext = event.target.value || 'all';
+        persistCampaignContext();
+        visibleRankings = loadVisibleRankings(currentContext);
+        renderRankingsPopover();
+        syncContextTabs();
+        await reloadAllData();
     });
 }
 
@@ -282,15 +320,102 @@ function bindCampaignNameActions() {
 
 function bindColumns() {
     renderColumnsPopover();
-    document.getElementById('columnsToggle')?.addEventListener('click', () => {
-        document.getElementById('columnsPopover')?.classList.toggle('is-hidden');
+    document.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+            return;
+        }
+
+        const toggle = target.closest('#columnsToggle');
+        const popover = document.getElementById('columnsPopover');
+
+        if (toggle && popover) {
+            popover.classList.toggle('is-hidden');
+            return;
+        }
+
+        if (popover && !target.closest('.columns-menu')) {
+            popover.classList.add('is-hidden');
+        }
+    });
+
+    document.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) {
+            return;
+        }
+
+        if (!target.matches('[data-column-toggle]')) {
+            return;
+        }
+
+        const column = target.dataset.columnToggle;
+        if (!column) {
+            return;
+        }
+
+        if (target.checked) {
+            if (!visibleColumns.includes(column)) {
+                visibleColumns = [...visibleColumns, column];
+            }
+        } else if (visibleColumns.length > 1) {
+            visibleColumns = visibleColumns.filter((item) => item !== column);
+        } else {
+            target.checked = true;
+            return;
+        }
+
+        persistVisibleColumns();
+        applyColumnVisibility();
+        syncCampaignTableScrollWidth();
     });
 }
 
 function bindRankingSettings() {
     renderRankingsPopover();
-    document.getElementById('rankingsToggle')?.addEventListener('click', () => {
-        document.getElementById('rankingsPopover')?.classList.toggle('is-hidden');
+    document.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+            return;
+        }
+
+        const toggle = target.closest('#rankingsToggle');
+        const popover = document.getElementById('rankingsPopover');
+
+        if (toggle && popover) {
+            popover.classList.toggle('is-hidden');
+            return;
+        }
+
+        if (popover && !target.closest('.ranking-settings')) {
+            popover.classList.add('is-hidden');
+        }
+    });
+
+    document.addEventListener('change', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement) || !target.matches('[data-ranking-toggle]')) {
+            return;
+        }
+
+        const ranking = target.dataset.rankingToggle;
+        if (!ranking) {
+            return;
+        }
+
+        if (target.checked) {
+            if (!visibleRankings.includes(ranking)) {
+                visibleRankings = [...visibleRankings, ranking];
+            }
+        } else if (visibleRankings.length > 1) {
+            visibleRankings = visibleRankings.filter((item) => item !== ranking);
+        } else {
+            target.checked = true;
+            return;
+        }
+
+        persistVisibleRankings();
+        renderRankings(currentRankings || {});
     });
 }
 
@@ -458,6 +583,7 @@ async function reloadAllData() {
         renderFilterOptions(summary.filters || {}, campaigns.items || []);
         campaignRows = campaigns.items || [];
         renderCampaignTables(campaignRows);
+        currentRankings = (rankings && rankings.rankings) || {};
         renderRankings((rankings && rankings.rankings) || {});
         const exportLink = document.getElementById('exportCsv');
         if (exportLink) {
@@ -474,13 +600,17 @@ function renderSummary(data) {
     const updatedBadge = document.getElementById('updatedBadge');
     if (updatedBadge) {
         updatedBadge.textContent = data.datos_actualizados
-            ? `Datos actualizados: ${formatDateTime(data.datos_actualizados)}`
-            : 'Datos actualizados: pendiente';
+            ? formatDateTime(data.datos_actualizados)
+            : 'Pendiente';
     }
     document.getElementById('periodLabel').textContent = periodText(data.periodo_actual);
     const pivotLabel = document.getElementById('pivotLabel');
     if (pivotLabel) {
         pivotLabel.textContent = 'Lead.CreatedDate';
+    }
+    const contextLabel = document.getElementById('selectedContextLabel');
+    if (contextLabel) {
+        contextLabel.textContent = data.selected_context_label || contextLabel.textContent || '-';
     }
 
     const empty = document.getElementById('emptyMessage');
@@ -488,6 +618,8 @@ function renderSummary(data) {
 
     renderWarnings(data.warnings || []);
     currentContext = data.selected_context || currentContext;
+    syncCampaignTypeSelect();
+    syncContextTabs();
     renderKpis(data.kpis || {}, currentContext);
     renderCharts(data.charts || {});
     renderPlatformComparison(data.platform_comparison || []);
@@ -505,118 +637,25 @@ function renderWarnings(warnings) {
     });
 }
 
-function renderKpis(kpis, context = 'venta') {
+function renderKpis(kpis, context = 'all') {
     const root = document.getElementById('summaryKpis');
-    let cards = [
-        ['Inversion total', formatMoney(kpis.spend), `CPC ${formatMoney(kpis.cpc)}`],
-        ['Impresiones', formatNumber(kpis.impressions), `CTR ${formatPercentRatio(kpis.ctr)}`],
-        ['Clicks', formatNumber(kpis.clicks), `Leads SF ${formatNumber(kpis.leads_salesforce)}`],
-        ['Leads Salesforce', formatNumber(kpis.leads_salesforce), `CPL ${formatMoney(kpis.cost_per_lead)}`],
-        ['Oportunidades', formatNumber(kpis.opportunities), `CPO ${formatMoney(kpis.cost_per_opportunity)}`],
-        ['Reservas', formatNumber(kpis.reservations), `CPR ${formatMoney(kpis.cost_per_reservation)}`],
-        ['Ventas', formatNumber(kpis.sales), `CPV ${formatMoney(kpis.cost_per_sale)}`],
-        ['Importe vendido', formatMoney(kpis.sale_amount), `ROAS ${formatMultiplier(kpis.roas)} · ROI ${formatPercentRatio(kpis.estimated_roi)}`],
-    ];
-
-    if (context === 'tasacion') {
-        cards = [
-            ['Inversion total', formatMoney(kpis.spend), `CPC ${formatMoney(kpis.cpc)}`],
-            ['Impresiones', formatNumber(kpis.impressions), `CTR ${formatPercentRatio(kpis.ctr)}`],
-            ['Clicks', formatNumber(kpis.clicks), `Leads SF ${formatNumber(kpis.leads_salesforce)}`],
-            ['Leads Salesforce', formatNumber(kpis.leads_salesforce), `CPL ${formatMoney(kpis.cost_per_lead)}`],
-            ['Oportunidades / citas', formatNumber(kpis.opportunities), `CPO ${formatMoney(kpis.cost_per_opportunity)}`],
-            ['Tasaciones generadas', formatNumber(kpis.appraisals_generated), `Coste ${formatMoney(kpis.cost_per_appraisal)}`],
-            ['Compras / contratos', formatNumber(kpis.purchases), `Coste ${formatMoney(kpis.cost_per_purchase)}`],
-            ['Conversion lead -> compra', formatPercentRatio(kpis.lead_to_purchase), `Cita -> compra ${formatPercentRatio(kpis.opportunity_to_purchase)}`],
-        ];
-    }
-
-    root.innerHTML = '';
-    cards.forEach(([label, value, hint]) => {
-        root.insertAdjacentHTML('beforeend', `
-            <div class="card kpi campaign-kpi">
-                <div>
-                    <div class="kpi-label">${escapeHtml(label)}</div>
-                    <div class="kpi-value">${escapeHtml(value)}</div>
-                    <div class="kpi-hint">${escapeHtml(hint)}</div>
-                </div>
-            </div>
-        `);
-    });
-}
-
-function renderCharts(charts) {
-    const root = document.getElementById('campaignCharts');
 
     if (!root) {
         return;
     }
 
-    currentCharts = charts || {};
-    root.innerHTML = `
-        ${monthlyEvolutionHtml(charts.monthly_evolution || charts.daily_evolution || [])}
-        ${funnelHtml(charts.funnel || [])}
-        ${platformBarsHtml(charts.platforms || [])}
-    `;
-}
-
-function monthlyEvolutionHtml(rows) {
-    const visibleRows = visibleMonthlyRows(rows);
-    const selectedRows = selectedMonthlyRows(visibleRows);
-    const definitions = selectedMonthlySeries();
-    const content = selectedRows.length
-        ? genericLineChartHtml(buildMonthlyChartRows(rows, selectedRows), buildMonthlySeriesDefinitions(definitions), monthlyTooltip, true)
-        : '<div class="empty-state">Sin datos</div>';
-
-    return `
-        <article class="card panel campaign-chart-card campaign-chart-wide monthly-chart-card">
-            <div class="panel-title compact">
+    root.innerHTML = '';
+    kpiCardsForContext(context, kpis).forEach((card) => {
+        root.insertAdjacentHTML('beforeend', `
+            <div class="card kpi campaign-kpi">
                 <div>
-                    <h2>Evolucion historica</h2>
-                    <div class="small">Media mensual de los meses seleccionados. Puedes comparar con el mismo periodo del año anterior.</div>
+                    <div class="kpi-label">${escapeHtml(card.label)}</div>
+                    <div class="kpi-value">${escapeHtml(card.value)}</div>
+                    <div class="kpi-hint">${escapeHtml(card.hint || '')}</div>
                 </div>
             </div>
-            <div class="monthly-chart-toolbar">
-                <div class="monthly-chart-ranges">
-                    <button type="button" class="monthly-pill" data-month-range="3">Últimos 3 meses</button>
-                    <button type="button" class="monthly-pill" data-month-range="6">Últimos 6 meses</button>
-                    <button type="button" class="monthly-pill" data-month-range="12">Últimos 12 meses</button>
-                    <button type="button" class="monthly-pill" data-month-range="all">Todo</button>
-                </div>
-                <div class="monthly-chart-compare">
-                    <button type="button" class="monthly-pill ${monthlyCompareMode === 'none' ? 'is-active' : ''}" data-compare-mode="none">Sin comparación</button>
-                    <button type="button" class="monthly-pill ${monthlyCompareMode === 'prev_year' ? 'is-active' : ''}" data-compare-mode="prev_year">Año anterior</button>
-                </div>
-            </div>
-            <div class="monthly-chart-filters">
-                <div>
-                    <div class="monthly-filter-label">Meses</div>
-                    <div class="monthly-pill-group" id="monthlyMonthPills">
-                        ${visibleRows.map((row) => {
-                            const monthKey = monthKeyFromDate(row.date);
-                            const active = monthlySelectedMonths.includes(monthKey);
-                            return `
-                                <button type="button" class="monthly-pill ${active ? 'is-active' : ''}" data-month-key="${escapeHtml(monthKey)}">
-                                    ${escapeHtml(monthLabel(row))}
-                                </button>
-                            `;
-                        }).join('')}
-                    </div>
-                </div>
-                <div>
-                    <div class="monthly-filter-label">Métricas</div>
-                    <div class="monthly-pill-group" id="monthlyMetricPills">
-                        ${monthlySeriesDefinitions.map((series) => `
-                            <button type="button" class="monthly-pill ${monthlyVisibleMetrics.includes(series.key) ? 'is-active' : ''}" data-month-metric="${escapeHtml(series.key)}">
-                                ${escapeHtml(series.label)}
-                            </button>
-                        `).join('')}
-                    </div>
-                </div>
-            </div>
-            <div class="campaign-evolution campaign-evolution-lines monthly-chart-figure">${content}</div>
-        </article>
-    `;
+        `);
+    });
 }
 
 function dailyEvolutionHtml(rows) {
@@ -764,32 +803,6 @@ function pointLayerHtml(rows, seriesDefinitions, tooltipFactory, showPoints, cha
         .join('');
 }
 
-function funnelHtml(rows) {
-    const max = Math.max(...rows.map((row) => Number(row.value || 0)), 0);
-    const content = rows.length
-        ? rows.map((row, index) => {
-            const previous = index > 0 ? Number(rows[index - 1].value || 0) : null;
-            const rate = previous ? Number(row.value || 0) / previous : null;
-            const tooltip = `${row.label}: ${formatNumber(Number(row.value || 0))}${rate === null ? '' : `\nConversion etapa anterior: ${formatPercentRatio(rate)}`}`;
-
-            return metricBarHtml(row.label, row.value, max, formatNumber, tooltip, true);
-        })
-            .join('')
-        : '<div class="empty-state">Sin datos</div>';
-
-    return `
-        <article class="card panel campaign-chart-card">
-            <div class="panel-title compact">
-                <div>
-                    <h2>Embudo</h2>
-                    <div class="small">Clicks a ventas</div>
-                </div>
-            </div>
-            <div class="campaign-bar-list campaign-funnel-list">${content}</div>
-        </article>
-    `;
-}
-
 function platformBarsHtml(rows) {
     const maxSpend = Math.max(...rows.map((row) => Number(row.spend || 0)), 0);
     const maxLeads = Math.max(...rows.map((row) => Number(row.leads_salesforce || 0)), 0);
@@ -818,6 +831,226 @@ function platformBarsHtml(rows) {
     `;
 }
 
+function normalizeCampaignContext(value) {
+    const key = String(value || '').toLowerCase();
+    return ['all', 'venta', 'tasacion', 'exposicion', 'branding', 'otros'].includes(key) ? key : 'all';
+}
+
+function persistCampaignContext() {
+    localStorage.setItem(campaignContextStorageKey, currentContext);
+}
+
+function syncCampaignTypeSelect() {
+    const select = document.getElementById('campaignType');
+    if (!select) {
+        return;
+    }
+
+    select.value = normalizeCampaignContext(currentContext);
+}
+
+function syncContextTabs() {
+    document.querySelectorAll('.main-tab[data-context]').forEach((button) => {
+        button.classList.toggle('active', normalizeCampaignContext(button.dataset.context) === normalizeCampaignContext(currentContext));
+    });
+}
+
+function loadVisibleRankings(context = currentContext) {
+    try {
+        const saved = JSON.parse(localStorage.getItem(rankingsStorageKey) || 'null');
+        if (Array.isArray(saved) && saved.length) {
+            const known = saved.filter((key) => rankingDefinitions.some((ranking) => ranking.key === key));
+            if (known.length) {
+                return known.filter((key) => rankingAllowedInContext(key, context));
+            }
+        }
+    } catch (error) {
+        return defaultRankingKeys(context);
+    }
+
+    return defaultRankingKeys(context);
+}
+
+function defaultRankingKeys(context = currentContext) {
+    switch (normalizeCampaignContext(context)) {
+        case 'venta':
+            return ['top_spend', 'top_sales', 'best_cost_per_sale', 'review_campaigns'];
+        case 'tasacion':
+            return ['top_spend', 'top_purchases', 'best_cost_per_purchase', 'review_campaigns'];
+        case 'exposicion':
+            return ['top_spend', 'top_leads_salesforce', 'best_cost_per_opportunity', 'review_campaigns'];
+        case 'branding':
+            return ['top_spend', 'top_impressions', 'best_cpc', 'best_ctr', 'review_campaigns'];
+        case 'otros':
+        case 'all':
+        default:
+            return ['top_spend', 'top_leads_salesforce', 'best_cost_per_result', 'review_campaigns'];
+    }
+}
+
+function rankingAllowedInContext(key, context = currentContext) {
+    const normalized = normalizeCampaignContext(context);
+
+    const hidden = {
+        venta: ['top_purchases', 'best_cost_per_purchase', 'best_lead_to_purchase', 'top_impressions', 'best_cost_per_result'],
+        tasacion: ['top_sales', 'best_cost_per_sale', 'best_roas', 'worst_cost_per_sale', 'top_impressions', 'best_cost_per_result'],
+        exposicion: ['top_sales', 'top_purchases', 'best_cost_per_sale', 'best_cost_per_purchase', 'best_roas', 'worst_cost_per_sale'],
+        branding: ['top_sales', 'top_purchases', 'best_cost_per_sale', 'best_cost_per_purchase', 'best_cost_per_opportunity', 'best_lead_to_purchase', 'worst_cost_per_sale'],
+        all: ['best_roas', 'worst_cost_per_sale', 'many_leads_few_sales', 'many_leads_few_purchases'],
+        otros: ['top_sales', 'top_purchases', 'best_cost_per_sale', 'best_cost_per_purchase', 'best_lead_to_purchase', 'worst_cost_per_sale'],
+    };
+
+    return !(hidden[normalized] || []).includes(key);
+}
+
+function renderCharts(charts) {
+    const root = document.getElementById('campaignCharts');
+
+    if (!root) {
+        return;
+    }
+
+    currentCharts = charts || {};
+    root.innerHTML = `
+        ${monthlyEvolutionHtml(charts.monthly_evolution || charts.daily_evolution || [])}
+        ${funnelHtml(charts.funnel || [])}
+    `;
+}
+
+function monthlyEvolutionHtml(rows) {
+    const visibleRows = visibleMonthlyRows(rows);
+    const selectedRows = selectedMonthlyRows(visibleRows);
+    const definitions = selectedMonthlySeries();
+    const content = selectedRows.length
+        ? genericLineChartHtml(buildMonthlyChartRows(rows, selectedRows), buildMonthlySeriesDefinitions(definitions), monthlyTooltip, true)
+        : '<div class="empty-state">Sin datos</div>';
+
+    return `
+        <article class="card panel campaign-chart-card campaign-chart-wide monthly-chart-card">
+            <div class="panel-title compact">
+                <div>
+                    <h2>Evolucion mensual</h2>
+                    <div class="small">Ultimos meses seleccionados. La comparacion con el ano anterior esta desactivada por defecto.</div>
+                </div>
+            </div>
+            <div class="monthly-chart-toolbar">
+                <div class="monthly-chart-ranges">
+                    <button type="button" class="monthly-pill" data-month-range="3">Ultimos 3 meses</button>
+                    <button type="button" class="monthly-pill" data-month-range="6">Ultimos 6 meses</button>
+                    <button type="button" class="monthly-pill" data-month-range="12">Ultimos 12 meses</button>
+                    <button type="button" class="monthly-pill" data-month-range="all">Todo</button>
+                </div>
+                <div class="monthly-chart-compare">
+                    <button type="button" class="monthly-pill ${monthlyCompareMode === 'none' ? 'is-active' : ''}" data-compare-mode="none">Sin comparacion</button>
+                    <button type="button" class="monthly-pill ${monthlyCompareMode === 'prev_year' ? 'is-active' : ''}" data-compare-mode="prev_year">Ano anterior</button>
+                </div>
+            </div>
+            <div class="monthly-chart-filters">
+                <div>
+                    <div class="monthly-filter-label">Metricas</div>
+                    <div class="monthly-pill-group" id="monthlyMetricPills">
+                        ${monthlySeriesDefinitions.map((series) => `
+                            <button type="button" class="monthly-pill ${monthlyVisibleMetrics.includes(series.key) ? 'is-active' : ''}" data-month-metric="${escapeHtml(series.key)}">
+                                ${escapeHtml(series.label)}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+            <div class="campaign-evolution campaign-evolution-lines monthly-chart-figure">${content}</div>
+        </article>
+    `;
+}
+
+function visibleMonthlyRows(rows) {
+    return rows || [];
+}
+
+function funnelHtml(rows) {
+    const context = normalizeCampaignContext(currentContext);
+    const steps = funnelStepsForContext(context, rows || []);
+    const max = Math.max(...steps.map((row) => Number(row.value || 0)), 0);
+    const content = steps.length
+        ? steps.map((row, index) => {
+            const previous = index > 0 ? Number(steps[index - 1].value || 0) : null;
+            const rate = previous ? Number(row.value || 0) / previous : null;
+            const tooltip = `${row.label}: ${formatNumber(Number(row.value || 0))}${rate === null ? '' : `\nConversion etapa anterior: ${formatPercentRatio(rate)}`}`;
+
+            return metricBarHtml(row.label, row.value, max, formatNumber, tooltip, true);
+        }).join('')
+        : '<div class="empty-state">Sin datos</div>';
+
+    return `
+        <article class="card panel campaign-chart-card">
+            <div class="panel-title compact">
+                <div>
+                    <h2>Embudo simple</h2>
+                    <div class="small">${escapeHtml(funnelSubtitleForContext(context))}</div>
+                </div>
+            </div>
+            <div class="campaign-bar-list campaign-funnel-list">${content}</div>
+        </article>
+    `;
+}
+
+function funnelStepsForContext(context, rows) {
+    const totals = {
+        impressions: rows.reduce((sum, row) => sum + Number(row.impressions || 0), 0),
+        clicks: rows.reduce((sum, row) => sum + Number(row.clicks || 0), 0),
+        leads_salesforce: rows.reduce((sum, row) => sum + Number(row.leads_salesforce || 0), 0),
+        opportunities: rows.reduce((sum, row) => sum + Number(row.opportunities || 0), 0),
+        reservations: rows.reduce((sum, row) => sum + Number(row.reservations || 0), 0),
+        sales: rows.reduce((sum, row) => sum + Number(row.sales || 0), 0),
+        purchases: rows.reduce((sum, row) => sum + Number(row.purchases || 0), 0),
+    };
+
+    switch (context) {
+        case 'tasacion':
+            return [
+                { label: 'Clicks', value: totals.clicks },
+                { label: 'Leads Salesforce', value: totals.leads_salesforce },
+                { label: 'Oportunidades', value: totals.opportunities },
+                { label: 'Compras', value: totals.purchases },
+            ];
+        case 'exposicion':
+            return [
+                { label: 'Clicks', value: totals.clicks },
+                { label: 'Leads Salesforce', value: totals.leads_salesforce },
+                { label: 'Oportunidades', value: totals.opportunities },
+            ];
+        case 'branding':
+            return [
+                { label: 'Clicks', value: totals.clicks },
+                { label: 'Leads Salesforce', value: totals.leads_salesforce },
+                { label: 'Oportunidades', value: totals.opportunities },
+            ];
+        case 'otros':
+        case 'all':
+        default:
+            return [
+                { label: 'Clicks', value: totals.clicks },
+                { label: 'Leads Salesforce', value: totals.leads_salesforce },
+                { label: 'Oportunidades', value: totals.opportunities },
+                { label: 'Resultados', value: totals.sales + totals.purchases + totals.opportunities + totals.leads_salesforce },
+            ];
+    }
+}
+
+function funnelSubtitleForContext(context) {
+    switch (context) {
+        case 'tasacion':
+            return 'Clicks, leads Salesforce, oportunidades y compras';
+        case 'exposicion':
+            return 'Clicks, leads Salesforce y oportunidades';
+        case 'branding':
+            return 'Clicks, leads Salesforce y oportunidades';
+        case 'otros':
+        case 'all':
+        default:
+            return 'Clicks, leads Salesforce, oportunidades y resultado agregado';
+    }
+}
+
 function renderPlatformComparison(rows) {
     const panel = document.getElementById('platformComparisonPanel');
     const root = document.getElementById('platformComparison');
@@ -826,23 +1059,138 @@ function renderPlatformComparison(rows) {
         return;
     }
 
-    panel.classList.toggle('is-hidden', currentContext !== 'tasacion');
+    const ordered = ['google_ads', 'meta'].map((platform) => {
+        const match = (rows || []).find((row) => row.platform === platform);
+        return match || emptyPlatformComparisonRow(platform);
+    });
 
-    const maxSpend = Math.max(...rows.map((row) => Number(row.spend || 0)), 0);
-    const maxLeads = Math.max(...rows.map((row) => Number(row.leads_salesforce || 0)), 0);
-    const maxPurchases = Math.max(...rows.map((row) => Number(row.purchases || 0)), 0);
+    const maxSpend = Math.max(...ordered.map((row) => Number(row.spend || 0)), 0);
+    const maxLeads = Math.max(...ordered.map((row) => Number(row.leads_salesforce || 0)), 0);
+    const maxOpportunities = Math.max(...ordered.map((row) => Number(row.opportunities || 0)), 0);
+    const maxResult = Math.max(...ordered.map((row) => Number(row.result_count || 0)), 0);
 
-    root.innerHTML = rows.length
-        ? rows.map((row) => `
-            <div class="platform-chart-group" title="${escapeHtml(platformComparisonTooltip(row))}" data-tooltip="${escapeHtml(platformComparisonTooltip(row))}">
+    panel.classList.remove('is-hidden');
+    root.innerHTML = ordered.map((row) => platformComparisonCardHtml(row, maxSpend, maxLeads, maxOpportunities, maxResult)).join('');
+}
+
+function emptyPlatformComparisonRow(platform) {
+    return {
+        platform,
+        spend: 0,
+        leads_salesforce: 0,
+        opportunities: 0,
+        reservations: 0,
+        sales: 0,
+        purchases: 0,
+        result_count: 0,
+        cost_per_lead: null,
+        cost_per_opportunity: null,
+        cost_per_purchase: null,
+        cost_per_sale: null,
+        cost_per_result: null,
+    };
+}
+
+function platformComparisonCardHtml(row, maxSpend, maxLeads, maxOpportunities, maxResult) {
+    const context = normalizeCampaignContext(currentContext);
+    const resultLabel = platformResultLabelForContext(context);
+    const resultValue = platformResultValueForContext(row, context);
+    const resultCost = platformResultCostForContext(row, context);
+    const costLabel = {
+        venta: 'Coste por venta',
+        tasacion: 'Coste por compra',
+        exposicion: 'Coste por oportunidad',
+        branding: 'Coste por lead',
+        otros: 'Coste por resultado',
+        all: 'Coste por resultado',
+    }[context] || 'Coste por resultado';
+
+    return `
+        <article class="card platform-comparison-card">
+            <div class="platform-comparison-head">
                 <strong>${escapeHtml(formatPlatform(row.platform))}</strong>
-                ${metricBarHtml('Inversion', row.spend, maxSpend, formatMoney)}
-                ${metricBarHtml('Leads', row.leads_salesforce, maxLeads, formatNumber)}
-                ${metricBarHtml('Compras', row.purchases, maxPurchases, formatNumber)}
-                ${metricBarHtml('Coste por compra', row.cost_per_purchase, Math.max(...rows.map((item) => Number(item.cost_per_purchase || 0)), 0), formatMoney)}
+                <span>${escapeHtml(platformComparisonSubtitleForContext(context))}</span>
             </div>
-        `).join('')
-        : '<div class="empty-state">Sin datos</div>';
+            <div class="platform-comparison-metrics">
+                ${metricBarHtml('Inversion', row.spend, maxSpend, formatMoney)}
+                ${metricBarHtml('Leads Salesforce', row.leads_salesforce, maxLeads, formatNumber)}
+                ${metricBarHtml('Oportunidades', row.opportunities, maxOpportunities, formatNumber)}
+                ${metricBarHtml(resultLabel, resultValue, maxResult, formatNumber)}
+                <div class="campaign-metric-bar campaign-metric-text">
+                    <div>
+                        <span>${escapeHtml(costLabel)}</span>
+                        <strong>${escapeHtml(formatMoney(resultCost))}</strong>
+                    </div>
+                </div>
+            </div>
+        </article>
+    `;
+}
+
+function platformComparisonSubtitleForContext(context) {
+    switch (context) {
+        case 'tasacion':
+            return 'Google Ads y Meta Ads con foco en compras';
+        case 'exposicion':
+            return 'Google Ads y Meta Ads con foco en oportunidades';
+        case 'branding':
+            return 'Google Ads y Meta Ads con foco en leads';
+        case 'otros':
+        case 'all':
+        default:
+            return 'Google Ads y Meta Ads con resultados agregados';
+    }
+}
+
+function platformResultLabelForContext(context) {
+    switch (context) {
+        case 'venta':
+            return 'Ventas';
+        case 'tasacion':
+            return 'Compras';
+        case 'exposicion':
+            return 'Oportunidades';
+        case 'branding':
+            return 'Leads Salesforce';
+        case 'otros':
+        case 'all':
+        default:
+            return 'Resultados';
+    }
+}
+
+function platformResultValueForContext(row, context) {
+    switch (context) {
+        case 'venta':
+            return Number(row.sales || 0);
+        case 'tasacion':
+            return Number(row.purchases || 0);
+        case 'exposicion':
+            return Number(row.opportunities || 0);
+        case 'branding':
+            return Number(row.leads_salesforce || 0);
+        case 'otros':
+        case 'all':
+        default:
+            return Number(row.result_count || 0);
+    }
+}
+
+function platformResultCostForContext(row, context) {
+    switch (context) {
+        case 'venta':
+            return row.cost_per_sale;
+        case 'tasacion':
+            return row.cost_per_purchase;
+        case 'exposicion':
+            return row.cost_per_opportunity;
+        case 'branding':
+            return row.cost_per_lead;
+        case 'otros':
+        case 'all':
+        default:
+            return row.cost_per_result;
+    }
 }
 
 function renderReviewCampaigns(rows) {
@@ -853,239 +1201,161 @@ function renderReviewCampaigns(rows) {
     }
 
     root.innerHTML = rows.length
-        ? rows.map((row) => `
-            <div class="portal-row">
-                <span>
-                    ${escapeHtml(row.campaign || row.campaign_name || '-')}
+        ? rows.slice(0, 8).map((row) => `
+            <article class="review-card">
+                <div class="review-card-copy">
+                    <strong>${escapeHtml(row.campaign || row.campaign_name || '-')}</strong>
                     <small>${escapeHtml(formatPlatform(row.platform))} · ${escapeHtml(row.detail || row.reason || '')}</small>
-                </span>
-                <strong>${escapeHtml(row.metric || '')}: ${escapeHtml(formatReviewValue(row))}</strong>
-            </div>
-        `).join('')
-        : '<div class="empty-state">Sin datos</div>';
-}
-
-function metricBarHtml(label, value, max, formatter, tooltip = null, useLogScale = false) {
-    return `
-        <div class="campaign-metric-bar" ${tooltip ? `title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}"` : ''}>
-            <div>
-                <span>${escapeHtml(label)}</span>
-                <strong>${escapeHtml(formatter(value))}</strong>
-            </div>
-            <i><b style="width:${useLogScale ? logBarWidth(value, max) : barWidth(value, max)}%"></b></i>
-        </div>
-    `;
-}
-
-function renderDiagnostics(diagnostics) {
-    const root = document.getElementById('campaignDiagnostics');
-    if (!root) {
-        return;
-    }
-
-    const items = [
-        ['Ultima sync Meta', formatDateTime(diagnostics.last_meta_sync)],
-        ['Ultima sync Google Ads', formatDateTime(diagnostics.last_google_sync)],
-        ['Ultima atribucion', formatDateTime(diagnostics.last_attribution_build)],
-        ['Filas Meta', formatNumber(diagnostics.meta_metric_rows)],
-        ['Filas Google Ads', formatNumber(diagnostics.google_metric_rows)],
-        ['Campanas plataforma', formatNumber(diagnostics.platform_campaigns)],
-        ['Procedencias excluidas', formatNumber(diagnostics.salesforce_origins)],
-        ['Salesforce sin inversion / procedencia sin coste', formatNumber(diagnostics.campaigns_salesforce_without_spend)],
-        ['Cruzadas por ID', formatNumber(diagnostics.campaigns_matched_by_id)],
-        ['Cruzadas por nombre', formatNumber(diagnostics.campaigns_matched_by_name)],
-        ['Leads atribuibles Salesforce', formatNumber(diagnostics.salesforce_leads_with_campaign_period)],
-        ['Candidatos validos', formatNumber(diagnostics.valid_candidate_leads)],
-        ['Atribuciones', formatNumber(diagnostics.built_attributions)],
-        ['Inversion sin leads', formatNumber(diagnostics.campaigns_spend_without_salesforce_leads)],
-        ['Leads en campanas plataforma', formatNumber(diagnostics.leads_platform_campaigns)],
-        ['Leads en procedencias Salesforce', formatNumber(diagnostics.leads_salesforce_origins)],
-        ['Ventas atribuidas', formatNumber(diagnostics.attributed_sales)],
-        ['Ventas con importe disponible', formatNumber(diagnostics.sales_with_amount_available)],
-        ['Oportunidades CV firmado', formatNumber(diagnostics.opportunities_cv_signed)],
-        ['Ventas atribuidas con amount > 0', formatNumber(diagnostics.attributed_sales_with_amount)],
-        ['Suma amount ventas atribuidas', formatMoney(diagnostics.attributed_sales_amount_sum)],
-        ['Ventas con importe total > 0', formatNumber(diagnostics.sales_with_opo_for_importe_total)],
-        ['Suma importe total ventas', formatMoney(diagnostics.sum_opo_for_importe_total_sales)],
-        ['Ventas con Amount > 0', formatNumber(diagnostics.sales_with_amount)],
-        ['Suma Amount ventas', formatMoney(diagnostics.sum_amount_sales)],
-        ['Estado importe total', amountFieldStatusLabel(diagnostics.opo_for_importe_total_field_status || diagnostics.amount_field_status)],
-        ['Estado Amount fallback', amountFieldStatusLabel(diagnostics.amount_fallback_field_status)],
-        ['Campo importe usado', saleAmountFieldUsedLabel(diagnostics.sale_amount_field_used)],
-        ['Candidatos con campana adquirida', formatNumber(diagnostics.candidates_with_campaign_acquired)],
-        ['Candidatos solo fuente/medio', formatNumber(diagnostics.candidates_only_source_medium)],
-        ['Candidatos con acquired_id', formatNumber(diagnostics.candidates_with_acquired_id)],
-        ['Candidatos con content_acquired', formatNumber(diagnostics.candidates_with_content_acquired)],
-        ['Match ad_id', formatNumber(diagnostics.match_ad_id)],
-        ['Match adset/adgroup', formatNumber(diagnostics.match_adset_or_adgroup)],
-        ['Match campaign_id', formatNumber(diagnostics.match_campaign_id)],
-        ['Match nombre exacto', formatNumber(diagnostics.match_campaign_name_exact)],
-        ['Match nombre flexible', formatNumber(diagnostics.match_campaign_name_flexible)],
-        ['Salesforce-only por campana', formatNumber(diagnostics.salesforce_only_by_campaign)],
-        ['Salesforce-only por procedencia', formatNumber(diagnostics.salesforce_only_by_origin)],
-    ];
-
-    root.innerHTML = `
-        <div class="diagnostic-note">
-            Las procedencias Salesforce se recogen para analisis de tracking, pero no forman parte de la tabla principal de campanas reales.
-        </div>
-        ${items.map(([label, value]) => `
-            <div class="diagnostic-item">
-                <span>${escapeHtml(label)}</span>
-                <strong>${escapeHtml(value)}</strong>
-            </div>
-        `).join('')}
-    `;
-}
-
-function renderRankings(rankings) {
-    const root = document.getElementById('rankingsGrid');
-    const groups = rankingDefinitions
-        .filter((definition) => visibleRankings.includes(definition.key) && rankingAllowedInContext(definition.key))
-        .map((definition) => [
-            definition.title,
-            rankings[definition.key] || [],
-            definition.metric,
-            definition.formatter,
-        ]);
-
-    root.innerHTML = '';
-    groups.forEach(([title, rows, key, formatter]) => {
-        const items = rows.length
-            ? rows.map((row) => `
-                <div class="portal-row">
-                    <span>${escapeHtml(campaignLabel(row))}<small>${escapeHtml(formatPlatform(row.platform))}</small></span>
-                    <strong>${escapeHtml(formatter(row[key]))}</strong>
                 </div>
-            `).join('')
-            : '<div class="empty-state">Sin datos</div>';
-
-        root.insertAdjacentHTML('beforeend', `
-            <article class="priority-item">
-                <div class="priority-head"><b>${escapeHtml(title)}</b></div>
-                <div class="portal-list">${items}</div>
+                <div class="review-card-metric">
+                    <span>${escapeHtml(row.metric || 'Resultado')}</span>
+                    <strong>${escapeHtml(formatReviewValue(row))}</strong>
+                </div>
             </article>
-        `);
-    });
-}
-
-function rankingAllowedInContext(key) {
-    const tasacionHidden = ['top_reservations', 'top_sales', 'top_sale_amount', 'best_roas', 'best_cost_per_sale', 'worst_cost_per_sale', 'many_leads_few_sales'];
-    const ventaHidden = ['top_purchases', 'best_cost_per_purchase', 'best_lead_to_purchase', 'many_leads_few_purchases'];
-
-    return currentContext === 'tasacion'
-        ? !tasacionHidden.includes(key)
-        : !ventaHidden.includes(key);
-}
-
-function renderCampaignTables(rows) {
-    const root = document.getElementById('campaignTables');
-    if (!root) {
-        return;
-    }
-
-    const ventaRows = rows.filter((row) => row.campaign_type === 'venta');
-    const tasacionRows = rows.filter((row) => row.campaign_type === 'tasacion');
-
-    root.innerHTML = [
-        renderCampaignTable('venta', 'Campañas de venta', 'Inversión y resultados de campañas orientadas a venta', ventaRows),
-        renderCampaignTable('tasacion', 'Campañas de tasación', 'Inversión y resultados de campañas orientadas a tasación', tasacionRows),
-    ].join('');
-
-    applyColumnVisibility();
-    syncCampaignTableScrollWidth();
-}
-
-function renderCampaignTable(tableType, title, subtitle, rows) {
-    const columns = activeColumns(tableType);
-    const sortedRows = sortedCampaignRows(rows, tableType);
-    const emptyColspan = Math.max(columns.length, 1);
-    const headers = columns.map((column) => `
-        <th data-column="${escapeHtml(column.key)}" ${column.numeric ? 'class="num"' : ''} data-sortable="true" data-key="${escapeHtml(column.key)}">
-            ${escapeHtml(column.label)}
-        </th>
-    `).join('');
-    const body = sortedRows.length
-        ? sortedRows.map((row) => `
-            <tr>
-                ${columns.map((column) => {
-                    const formatter = column.formatter || ((value) => value);
-                    return cellHtml([
-                        formatter(row[column.key], row),
-                        column.numeric,
-                        row[column.key],
-                        column.key,
-                    ]);
-                }).join('')}
-            </tr>
         `).join('')
-        : `<tr><td colspan="${emptyColspan}">No hay campañas de ${tableType === 'venta' ? 'venta' : 'tasación'} para los filtros seleccionados.</td></tr>`;
-
-    return `
-        <article class="card panel campaign-table-card">
-            <div class="panel-title compact">
-                <div>
-                    <h2>${escapeHtml(title)}</h2>
-                    <div class="small">${escapeHtml(subtitle)}</div>
-                </div>
-            </div>
-            <div class="table-scroll-proxy" data-table-scroll-proxy="${escapeHtml(tableType)}"><div></div></div>
-            <div class="table-wrap" data-table-wrap="${escapeHtml(tableType)}">
-                <table data-table-type="${escapeHtml(tableType)}">
-                    <thead>
-                        <tr>${headers}</tr>
-                    </thead>
-                    <tbody>
-                        ${body}
-                    </tbody>
-                </table>
-            </div>
-        </article>
-    `;
+        : '<div class="empty-state">Sin campañas a revisar</div>';
 }
 
-function cellHtml([value, numeric, sortValue, columnKey]) {
-    const className = numeric ? ' class="num"' : '';
-    const sortAttr = sortValue === undefined ? '' : ` data-sort-value="${escapeHtml(sortValue ?? '')}"`;
-    const columnAttr = columnKey ? ` data-column="${escapeHtml(columnKey)}"` : '';
-
-    return `<td${className}${columnAttr}${sortAttr}>${escapeHtml(value ?? '-')}</td>`;
+function loadCampaignContext() {
+    try {
+        return normalizeCampaignContext(localStorage.getItem(campaignContextStorageKey) || 'all');
+    } catch (error) {
+        return 'all';
+    }
 }
 
-function sortedCampaignRows(rows, tableType) {
-    const sortState = tableSort[tableType] || { key: 'spend', direction: 'desc' };
-    const direction = sortState.direction === 'asc' ? 1 : -1;
+function monthlyResultCountForRow(row) {
+    const context = normalizeCampaignContext(currentContext);
 
-    return [...rows].sort((a, b) => {
-        const left = a[sortState.key];
-        const right = b[sortState.key];
+    switch (context) {
+        case 'venta':
+            return Number(row.sales || 0);
+        case 'tasacion':
+            return Number(row.purchases || 0);
+        case 'exposicion':
+            return Number(row.opportunities || 0);
+        case 'branding':
+            return Number(row.leads_salesforce || 0);
+        case 'otros':
+        case 'all':
+        default:
+            return Number(row.sales || 0)
+                + Number(row.purchases || 0)
+                + Number(row.opportunities || 0)
+                + Number(row.leads_salesforce || 0);
+    }
+}
 
-        if (left === null || left === undefined || left === '') {
-            return 1;
+function monthlyCostPerResultForRow(row) {
+    const resultCount = monthlyResultCountForRow(row);
+    return resultCount > 0 ? Number(row.spend || 0) / resultCount : 0;
+}
+
+function bindCampaignTableActions() {
+    document.getElementById('campaignTables')?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-toggle-campaign-detail]');
+        if (!button) {
+            return;
         }
 
-        if (right === null || right === undefined || right === '') {
-            return -1;
-        }
-
-        if (typeof left === 'number' || typeof right === 'number') {
-            return (Number(left) - Number(right)) * direction;
-        }
-
-        return String(left).localeCompare(String(right), 'es', { sensitivity: 'base' }) * direction;
+        campaignDetailsVisible = !campaignDetailsVisible;
+        renderCampaignTables(campaignRows);
     });
+}
+
+function kpiCardsForContext(context, kpis) {
+    const normalized = normalizeCampaignContext(context);
+    const totalResults = formatNumber(kpis.result_count);
+
+    switch (normalized) {
+        case 'venta':
+            return [
+                { label: 'Inversion', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
+                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
+                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}` },
+                { label: 'Reservas', value: formatNumber(kpis.reservations), hint: `CPR ${formatMoney(kpis.cost_per_reservation)}` },
+                { label: 'Ventas', value: formatNumber(kpis.sales), hint: `CPV ${formatMoney(kpis.cost_per_sale)}` },
+                { label: 'Importe vendido', value: formatMoney(kpis.sale_amount), hint: `ROAS ${formatMultiplier(kpis.roas)} · ROI ${formatPercentRatio(kpis.estimated_roi)}` },
+                { label: 'Coste por venta', value: formatMoney(kpis.cost_per_sale), hint: `Resultados ${formatNumber(kpis.sales)}` },
+                { label: 'ROAS / ROI', value: formatMultiplier(kpis.roas), hint: `ROI ${formatPercentRatio(kpis.estimated_roi)}` },
+            ];
+        case 'tasacion':
+            return [
+                { label: 'Inversion', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
+                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
+                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}` },
+                { label: 'Compras', value: formatNumber(kpis.purchases), hint: `CP compra ${formatMoney(kpis.cost_per_purchase)}` },
+                { label: 'Coste por lead', value: formatMoney(kpis.cost_per_lead), hint: `Leads ${formatNumber(kpis.leads_salesforce)}` },
+                { label: 'Coste por oportunidad', value: formatMoney(kpis.cost_per_opportunity), hint: `Oportunidades ${formatNumber(kpis.opportunities)}` },
+                { label: 'Coste por compra', value: formatMoney(kpis.cost_per_purchase), hint: `Compras ${formatNumber(kpis.purchases)}` },
+                { label: 'Conversion lead -> compra', value: formatPercentRatio(kpis.lead_to_purchase), hint: `Oportunidad -> compra ${formatPercentRatio(kpis.opportunity_to_purchase)}` },
+            ];
+        case 'exposicion':
+            return [
+                { label: 'Inversion', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
+                { label: 'Impresiones', value: formatNumber(kpis.impressions), hint: `CTR ${formatPercentRatio(kpis.ctr)}` },
+                { label: 'Clicks', value: formatNumber(kpis.clicks), hint: `Leads SF ${formatNumber(kpis.leads_salesforce)}` },
+                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
+                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}` },
+                { label: 'Coste por lead', value: formatMoney(kpis.cost_per_lead), hint: `Leads ${formatNumber(kpis.leads_salesforce)}` },
+                { label: 'Coste por oportunidad', value: formatMoney(kpis.cost_per_opportunity), hint: `Oportunidades ${formatNumber(kpis.opportunities)}` },
+                { label: 'CTR / CPC', value: formatPercentRatio(kpis.ctr), hint: `CPC ${formatMoney(kpis.cpc)}` },
+            ];
+        case 'branding':
+            return [
+                { label: 'Inversion', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
+                { label: 'Impresiones', value: formatNumber(kpis.impressions), hint: `CTR ${formatPercentRatio(kpis.ctr)}` },
+                { label: 'Clicks', value: formatNumber(kpis.clicks), hint: `Leads SF ${formatNumber(kpis.leads_salesforce)}` },
+                { label: 'CTR', value: formatPercentRatio(kpis.ctr), hint: `CPC ${formatMoney(kpis.cpc)}` },
+                { label: 'CPC', value: formatMoney(kpis.cpc), hint: `Clicks ${formatNumber(kpis.clicks)}` },
+                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
+                { label: 'Coste por lead', value: formatMoney(kpis.cost_per_lead), hint: `Leads ${formatNumber(kpis.leads_salesforce)}` },
+                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `Total ${totalResults}` },
+            ];
+        case 'otros':
+        case 'all':
+        default:
+            return [
+                { label: 'Inversion', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
+                { label: 'Impresiones', value: formatNumber(kpis.impressions), hint: `CTR ${formatPercentRatio(kpis.ctr)}` },
+                { label: 'Clicks', value: formatNumber(kpis.clicks), hint: `Leads SF ${formatNumber(kpis.leads_salesforce)}` },
+                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
+                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}` },
+                { label: 'Reservas', value: formatNumber(kpis.reservations), hint: `Ventas ${formatNumber(kpis.sales)} · Compras ${formatNumber(kpis.purchases)}` },
+                { label: 'Ventas / Compras', value: totalResults, hint: `Ventas ${formatNumber(kpis.sales)} · Compras ${formatNumber(kpis.purchases)}` },
+                { label: 'Coste por resultado', value: formatMoney(kpis.cost_per_result), hint: `Resultados ${totalResults}` },
+            ];
+    }
 }
 
 function renderFilterOptions(filters, rows = []) {
+    populateCampaignTypeSelect(filters.campaign_types || []);
     populatePlatformSelect(filters.platforms || []);
     populateSelect('campaignStatus', filters.campaign_statuses || [], 'Todas');
     populateSelect('classification', filters.classifications || [], 'Todas');
     renderCampaignNameChecklist(rows);
+    syncCampaignTypeSelect();
+}
+
+function populateCampaignTypeSelect(options) {
+    const select = document.getElementById('campaignType');
+    if (!select) {
+        return;
+    }
+
+    const current = normalizeCampaignContext(select.value || currentContext);
+    select.innerHTML = (options || []).map((option) => {
+        const value = typeof option === 'object' ? option.value : option;
+        const label = typeof option === 'object' ? option.label : option;
+
+        return `<option value="${escapeHtml(value || 'all')}">${escapeHtml(label || 'Todos')}</option>`;
+    }).join('');
+
+    select.value = [...select.options].some((option) => option.value === current) ? current : 'all';
 }
 
 function populatePlatformSelect(options) {
     const select = document.getElementById('platform');
-
     if (!select) {
         return;
     }
@@ -1100,10 +1370,7 @@ function populatePlatformSelect(options) {
     filtered.forEach((option) => {
         const value = typeof option === 'object' ? option.value : option;
         const label = typeof option === 'object' ? option.label : option;
-        const platformLabel = formatPlatform(value);
-        const display = label ? platformLabel : platformLabel;
-
-        select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(value)}">${escapeHtml(display)}</option>`);
+        select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(value)}">${escapeHtml(label || formatPlatform(value))}</option>`);
     });
 
     select.value = [...select.options].some((option) => option.value === current) ? current : '';
@@ -1111,22 +1378,21 @@ function populatePlatformSelect(options) {
 
 function populateSelect(id, options, emptyLabel) {
     const select = document.getElementById(id);
-    const current = select?.value || '';
-
     if (!select) {
         return;
     }
 
+    const current = select.value || '';
     select.innerHTML = `<option value="">${escapeHtml(emptyLabel)}</option>`;
-    options.forEach((option) => {
+
+    (options || []).forEach((option) => {
         const value = typeof option === 'object' ? option.value : option;
         const label = typeof option === 'object' ? option.label : option;
-
         if (!value) {
             return;
         }
 
-        select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`);
+        select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(value)}">${escapeHtml(label || value)}</option>`);
     });
 
     select.value = [...select.options].some((option) => option.value === current) ? current : '';
@@ -1138,17 +1404,16 @@ function renderCampaignNameChecklist(rows) {
         return;
     }
 
-    const options = [...new Map(rows
+    const options = [...new Map((rows || [])
         .filter((row) => row.campaign_name)
         .map((row) => [row.campaign_name, row]))
         .values()];
-
-    const availableNames = options.map((row) => row.campaign_name);
 
     root.innerHTML = options.length
         ? options.map((row) => {
             const name = row.campaign_name;
             const checked = campaignNameSelections.includes(name);
+
             return `
                 <label class="campaign-name-option">
                     <input type="checkbox" value="${escapeHtml(name)}" ${checked ? 'checked' : ''}>
@@ -1159,7 +1424,7 @@ function renderCampaignNameChecklist(rows) {
                 </label>
             `;
         }).join('')
-        : '<div class="empty-state">No hay campañas disponibles</div>';
+        : '<div class="empty-state">No hay campanas disponibles</div>';
 
     persistCampaignNameSelections();
 
@@ -1170,6 +1435,67 @@ function renderCampaignNameChecklist(rows) {
             reloadAllData();
         });
     });
+}
+
+function loadCampaignNameSelections() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(campaignNameSelectionStorageKey) || 'null');
+        return Array.isArray(saved) ? saved.filter((value) => typeof value === 'string' && value.trim()) : [];
+    } catch (error) {
+        return [];
+    }
+}
+
+function loadDailyVisibleSeries() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(dailySeriesStorageKey) || 'null');
+        const defaults = dailySeriesDefinitions.map((series) => series.key);
+        if (!Array.isArray(saved) || !saved.length) {
+            return defaults.slice(0, 1);
+        }
+
+        const known = saved.filter((key) => dailySeriesDefinitions.some((series) => series.key === key));
+        return known.length ? known : defaults.slice(0, 1);
+    } catch (error) {
+        return dailySeriesDefinitions.slice(0, 1).map((series) => series.key);
+    }
+}
+
+function loadDailyChartType() {
+    try {
+        const saved = localStorage.getItem(dailyTypeStorageKey) || 'lines';
+        return saved === 'bars' ? 'bars' : 'lines';
+    } catch (error) {
+        return 'lines';
+    }
+}
+
+function loadMonthlyVisibleMetrics() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(monthlyMetricsStorageKey) || 'null');
+        const defaults = ['spend', 'leads_salesforce', 'opportunities', 'reservations', 'sales', 'purchases', 'cost_per_result'];
+        if (!Array.isArray(saved) || !saved.length) {
+            return defaults;
+        }
+
+        const known = saved.filter((key) => monthlySeriesDefinitions.some((series) => series.key === key));
+        return known.length ? known : defaults;
+    } catch (error) {
+        return ['spend', 'leads_salesforce', 'opportunities', 'reservations', 'sales', 'purchases', 'cost_per_result'];
+    }
+}
+
+function loadMonthlyCompareMode() {
+    try {
+        const saved = localStorage.getItem(monthlyCompareStorageKey) || 'none';
+        return saved === 'prev_year' ? 'prev_year' : 'none';
+    } catch (error) {
+        return 'none';
+    }
+}
+
+function persistCampaignNameSelections() {
+    localStorage.setItem(campaignNameSelectionStorageKey, JSON.stringify(campaignNameSelections));
 }
 
 function currentFilters() {
@@ -1191,14 +1517,7 @@ function currentFilters() {
 }
 
 function currentCampaignFilters() {
-    const params = new URLSearchParams(currentFilters());
-    params.set('context', 'all');
-
-    return params.toString();
-}
-
-function persistCampaignNameSelections() {
-    localStorage.setItem(campaignNameSelectionStorageKey, JSON.stringify(campaignNameSelections));
+    return currentFilters();
 }
 
 function persistMonthlySelection() {
@@ -1211,6 +1530,15 @@ function persistMonthlyMetrics() {
 
 function persistMonthlyCompareMode() {
     localStorage.setItem(monthlyCompareStorageKey, monthlyCompareMode);
+}
+
+function loadSavedMonthlySelection() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(monthlyMonthsStorageKey) || 'null');
+        return Array.isArray(saved) ? saved.filter((value) => typeof value === 'string' && value.trim()) : [];
+    } catch (error) {
+        return [];
+    }
 }
 
 function selectedMonthlyRows(rows) {
@@ -1234,7 +1562,6 @@ function selectedMonthlyRows(rows) {
     }
 
     const selectedRows = rows.filter((row) => monthlySelectedMonths.includes(monthKeyFromDate(row.date)));
-
     if (!selectedRows.length && availableMonths.length) {
         monthlySelectedMonths = availableMonths.slice(-6);
         persistMonthlySelection();
@@ -1242,15 +1569,6 @@ function selectedMonthlyRows(rows) {
     }
 
     return selectedRows;
-}
-
-function loadSavedMonthlySelection() {
-    try {
-        const saved = JSON.parse(localStorage.getItem(monthlyMonthsStorageKey) || 'null');
-        return Array.isArray(saved) ? saved.filter((value) => typeof value === 'string' && value.trim()) : [];
-    } catch (error) {
-        return [];
-    }
 }
 
 function selectedMonthlySeries() {
@@ -1262,10 +1580,10 @@ function selectedMonthlySeries() {
 }
 
 function buildMonthlyChartRows(allRows, selectedRows) {
-    const monthMap = new Map(allRows.map((row) => [monthKeyFromDate(row.date), row]));
+    const monthMap = new Map((allRows || []).map((row) => [monthKeyFromDate(row.date), row]));
     const compareOffset = monthlyCompareMode === 'prev_year' ? 12 : 0;
 
-    return selectedRows.map((row) => {
+    return (selectedRows || []).map((row) => {
         const monthKey = monthKeyFromDate(row.date);
         const compareKey = shiftMonthKey(monthKey, compareOffset);
         const compareRow = compareOffset ? monthMap.get(compareKey) : null;
@@ -1273,9 +1591,16 @@ function buildMonthlyChartRows(allRows, selectedRows) {
             date: row.date,
             month_key: monthKey,
             label: monthLabel(row),
+            result_count: monthlyResultCountForRow(row),
         };
 
         selectedMonthlySeries().forEach((metric) => {
+            if (metric === 'cost_per_result') {
+                chartRow[metric] = monthlyCostPerResultForRow(row);
+                chartRow[`${metric}_compare`] = compareRow ? monthlyCostPerResultForRow(compareRow) : 0;
+                return;
+            }
+
             chartRow[metric] = Number(row[metric] || 0);
             chartRow[`${metric}_compare`] = Number(compareRow?.[metric] || 0);
         });
@@ -1285,7 +1610,7 @@ function buildMonthlyChartRows(allRows, selectedRows) {
 }
 
 function buildMonthlySeriesDefinitions(metrics) {
-    return metrics.flatMap((metric) => {
+    return (metrics || []).flatMap((metric) => {
         const definition = monthlySeriesDefinitions.find((series) => series.key === metric);
         if (!definition) {
             return [];
@@ -1297,7 +1622,7 @@ function buildMonthlySeriesDefinitions(metrics) {
                 ? {
                     ...definition,
                     key: `${definition.key}_compare`,
-                    label: `${definition.label} año anterior`,
+                    label: `${definition.label} ano anterior`,
                     className: `${definition.className} is-compare`,
                     isCompare: true,
                 }
@@ -1307,214 +1632,15 @@ function buildMonthlySeriesDefinitions(metrics) {
 }
 
 function applyMonthlyRange(value, rows) {
-    const availableMonths = rows.map((row) => monthKeyFromDate(row.date));
+    const availableMonths = (rows || []).map((row) => monthKeyFromDate(row.date));
 
     if (value === 'all') {
         monthlySelectedMonths = availableMonths;
         return;
     }
 
-    const count = Number(value);
-    if (!Number.isFinite(count) || count <= 0) {
-        return;
-    }
-
-    monthlySelectedMonths = availableMonths.slice(-count);
-}
-
-function monthKeyFromDate(value) {
-    return String(value || '').slice(0, 7);
-}
-
-function monthLabel(row) {
-    const date = new Date(row.date);
-    if (Number.isNaN(date.getTime())) {
-        return row.label || '-';
-    }
-
-    return new Intl.DateTimeFormat('es-ES', { month: 'short', year: 'numeric' })
-        .format(date)
-        .replace('.', '')
-        .replace(/^./, (letter) => letter.toUpperCase());
-}
-
-function shiftMonthKey(monthKey, months) {
-    const [year, month] = monthKey.split('-').map((part) => Number(part));
-    if (!year || !month) {
-        return monthKey;
-    }
-
-    const date = new Date(year, month - 1 - months, 1);
-    return [
-        date.getFullYear(),
-        String(date.getMonth() + 1).padStart(2, '0'),
-    ].join('-');
-}
-
-function renderColumnsPopover() {
-    const root = document.getElementById('columnsPopover');
-    if (!root) {
-        return;
-    }
-
-    root.innerHTML = columnDefinitions.map((column) => `
-        <label class="column-option">
-            <input type="checkbox" value="${escapeHtml(column.key)}" ${visibleColumns.includes(column.key) ? 'checked' : ''}>
-            <span>${escapeHtml(column.label)}</span>
-        </label>
-    `).join('');
-
-    root.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-        input.addEventListener('change', () => {
-            visibleColumns = [...root.querySelectorAll('input[type="checkbox"]:checked')].map((item) => item.value);
-            if (!visibleColumns.length) {
-                visibleColumns = ['campaign'];
-            }
-            localStorage.setItem(columnsStorageKey, JSON.stringify(visibleColumns));
-            renderCampaignTables(campaignRows);
-        });
-    });
-}
-
-function renderRankingsPopover() {
-    const root = document.getElementById('rankingsPopover');
-    if (!root) {
-        return;
-    }
-
-    root.innerHTML = rankingDefinitions.map((ranking) => `
-        <label class="column-option switch-option">
-            <input type="checkbox" value="${escapeHtml(ranking.key)}" ${visibleRankings.includes(ranking.key) ? 'checked' : ''}>
-            <span>${escapeHtml(ranking.title)}</span>
-        </label>
-    `).join('');
-
-    root.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-        input.addEventListener('change', () => {
-            visibleRankings = [...root.querySelectorAll('input[type="checkbox"]:checked')].map((item) => item.value);
-            if (!visibleRankings.length) {
-                visibleRankings = defaultRankingKeys();
-                renderRankingsPopover();
-            }
-            localStorage.setItem(rankingsStorageKey, JSON.stringify(visibleRankings));
-            fetchJson(`/informes/campanas/data/rankings?${currentFilters()}`)
-                .then((payload) => renderRankings((payload && payload.rankings) || {}))
-                .catch(showLoadError);
-        });
-    });
-}
-
-function loadVisibleColumns() {
-    try {
-        const saved = JSON.parse(localStorage.getItem(columnsStorageKey) || 'null');
-        if (Array.isArray(saved) && saved.length) {
-            const known = saved.filter((key) => columnDefinitions.some((column) => column.key === key));
-
-            if (known.length) {
-                return known;
-            }
-        }
-    } catch (error) {
-        return columnDefinitions.filter((column) => column.visible).map((column) => column.key);
-    }
-
-    return columnDefinitions.filter((column) => column.visible).map((column) => column.key);
-}
-
-function loadVisibleRankings() {
-    try {
-        const saved = JSON.parse(localStorage.getItem(rankingsStorageKey) || 'null');
-        if (Array.isArray(saved) && saved.length) {
-            const known = saved.filter((key) => rankingDefinitions.some((ranking) => ranking.key === key));
-
-            if (known.length) {
-                return known;
-            }
-        }
-    } catch (error) {
-        return defaultRankingKeys();
-    }
-
-    return defaultRankingKeys();
-}
-
-function loadDailyVisibleSeries() {
-    const defaults = ['spend', 'leads_salesforce'];
-
-    try {
-        const saved = JSON.parse(localStorage.getItem(dailySeriesStorageKey) || 'null');
-        if (Array.isArray(saved) && saved.length) {
-            const known = saved.filter((key) => defaults.includes(key));
-
-            if (known.length) {
-                return known;
-            }
-        }
-    } catch (error) {
-        return defaults;
-    }
-
-    return defaults;
-}
-
-function loadDailyChartType() {
-    const saved = localStorage.getItem(dailyTypeStorageKey);
-
-    return saved === 'lines' ? 'lines' : 'bars';
-}
-
-function loadCampaignNameSelections() {
-    try {
-        const saved = JSON.parse(localStorage.getItem(campaignNameSelectionStorageKey) || 'null');
-        return Array.isArray(saved) ? saved.filter((value) => typeof value === 'string' && value.trim()) : [];
-    } catch (error) {
-        return [];
-    }
-}
-
-function loadMonthlyVisibleMetrics() {
-    const defaults = ['spend', 'leads_salesforce'];
-
-    try {
-        const saved = JSON.parse(localStorage.getItem(monthlyMetricsStorageKey) || 'null');
-        if (Array.isArray(saved) && saved.length) {
-            const known = saved.filter((key) => monthlySeriesDefinitions.some((series) => series.key === key));
-
-            if (known.length) {
-                return known;
-            }
-        }
-    } catch (error) {
-        return defaults;
-    }
-
-    return defaults;
-}
-
-function loadMonthlyCompareMode() {
-    const saved = localStorage.getItem(monthlyCompareStorageKey);
-
-    return saved === 'prev_year' ? 'prev_year' : 'none';
-}
-
-function visibleMonthlyRows(rows) {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const filtered = rows.filter((row) => {
-        const date = new Date(row.date);
-        if (Number.isNaN(date.getTime())) {
-            return false;
-        }
-
-        return date.getFullYear() === year && date.getMonth() <= month;
-    });
-
-    return filtered.length ? filtered : rows;
-}
-
-function defaultRankingKeys() {
-    return rankingDefinitions.filter((ranking) => ranking.visible).map((ranking) => ranking.key);
+    const months = Number(value);
+    monthlySelectedMonths = availableMonths.slice(-months);
 }
 
 function activeColumns(context = currentContext) {
@@ -1529,12 +1655,16 @@ function applyColumnVisibility() {
 }
 
 function columnAllowedInContext(key, context = currentContext) {
-    const tasacionHidden = ['reservations', 'sales', 'sale_amount', 'cost_per_reservation', 'cost_per_sale', 'roas', 'estimated_roi', 'opportunity_to_reservation', 'reservation_to_sale', 'lead_to_sale'];
-    const ventaHidden = ['appraisals_generated', 'purchases', 'cost_per_appraisal', 'cost_per_purchase', 'lead_to_purchase', 'opportunity_to_purchase', 'appraisal_amount'];
+    const hiddenByContext = {
+        venta: ['purchases', 'cost_per_lead', 'cost_per_opportunity', 'cost_per_purchase', 'cost_per_result', 'result_count', 'lead_to_purchase', 'opportunity_to_purchase', 'appraisals_generated', 'cost_per_appraisal', 'appraisal_amount'],
+        tasacion: ['reservations', 'sales', 'sale_amount', 'cost_per_reservation', 'cost_per_sale', 'cost_per_result', 'result_count', 'roas', 'estimated_roi', 'opportunity_to_reservation', 'reservation_to_sale', 'lead_to_sale'],
+        exposicion: ['reservations', 'sales', 'sale_amount', 'purchases', 'cost_per_reservation', 'cost_per_sale', 'cost_per_purchase', 'cost_per_result', 'result_count', 'roas', 'estimated_roi', 'opportunity_to_reservation', 'reservation_to_sale', 'lead_to_sale', 'lead_to_purchase', 'opportunity_to_purchase', 'appraisals_generated', 'cost_per_appraisal', 'appraisal_amount'],
+        branding: ['reservations', 'sales', 'sale_amount', 'purchases', 'cost_per_reservation', 'cost_per_sale', 'cost_per_purchase', 'cost_per_opportunity', 'cost_per_result', 'result_count', 'roas', 'estimated_roi', 'opportunity_to_reservation', 'reservation_to_sale', 'lead_to_sale', 'lead_to_purchase', 'opportunity_to_purchase', 'appraisals_generated', 'cost_per_appraisal', 'appraisal_amount'],
+        otros: ['appraisals_generated', 'cost_per_appraisal', 'appraisal_amount', 'cost_per_purchase'],
+        all: ['appraisals_generated', 'cost_per_appraisal', 'appraisal_amount', 'cost_per_purchase'],
+    };
 
-    return context === 'tasacion'
-        ? !tasacionHidden.includes(key)
-        : !ventaHidden.includes(key);
+    return !(hiddenByContext[normalizeCampaignContext(context)] || []).includes(key);
 }
 
 function syncCampaignTableScrollWidth() {
@@ -1562,7 +1692,6 @@ function setDefaultDates() {
 
 function populatePeriodPreset() {
     const select = document.getElementById('periodPreset');
-
     if (!select) {
         return;
     }
@@ -1632,8 +1761,7 @@ function applyPeriodPreset(value) {
         return;
     }
 
-    const selected = [...document.querySelectorAll('#periodPreset option')]
-        .find((option) => option.value === value);
+    const selected = [...document.querySelectorAll('#periodPreset option')].find((option) => option.value === value);
     if (selected?.dataset.start && selected?.dataset.end) {
         startDate.value = selected.dataset.start;
         endDate.value = selected.dataset.end;
@@ -1650,13 +1778,16 @@ function setLoadingState(isLoading) {
 
 function showLoadError(error) {
     const empty = document.getElementById('emptyMessage');
+    if (!empty) {
+        return;
+    }
+
     empty.classList.remove('is-hidden');
     empty.textContent = error?.message || 'No se han podido cargar los datos de campanas.';
 }
 
 async function fetchJson(url) {
     const response = await fetch(url, { headers: { Accept: 'application/json' } });
-
     if (!response.ok) {
         throw new Error(`Error cargando ${url}`);
     }
@@ -1698,9 +1829,36 @@ function toInputDate(date) {
     ].join('-');
 }
 
+function monthKeyFromDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function shiftMonthKey(monthKey, offset) {
+    if (!monthKey || !offset) {
+        return monthKey;
+    }
+
+    const [year, month] = monthKey.split('-').map(Number);
+    const date = new Date(year, month - 1 + offset, 1);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthLabel(row) {
+    const date = new Date(row.date || row.metric_date || row.month_key || row.metric_month || row.month || row.date_from || '');
+    if (Number.isNaN(date.getTime())) {
+        return row.label || '-';
+    }
+
+    return new Intl.DateTimeFormat('es-ES', { month: 'short', year: 'numeric' }).format(date);
+}
+
 function formatDate(value) {
     const date = new Date(value);
-
     if (Number.isNaN(date.getTime())) {
         return value || '-';
     }
@@ -1710,7 +1868,6 @@ function formatDate(value) {
 
 function formatShortDate(value) {
     const date = new Date(value);
-
     if (Number.isNaN(date.getTime())) {
         return value || '-';
     }
@@ -1720,7 +1877,6 @@ function formatShortDate(value) {
 
 function formatDateTime(value) {
     const date = new Date(value);
-
     if (!value || Number.isNaN(date.getTime())) {
         return value || 'Sin datos';
     }
@@ -1763,171 +1919,265 @@ function formatMultiplier(value) {
         return '-';
     }
 
-    return `${Number(value).toFixed(2)}x`;
+    return Number(value).toFixed(2);
 }
 
 function formatPlatform(value) {
     return {
-        meta: 'Meta Ads',
         google_ads: 'Google Ads',
+        meta: 'Meta Ads',
         salesforce: 'Salesforce',
     }[value] || value || '-';
 }
 
-function amountFieldStatusLabel(value) {
-    return {
-        missing: 'No existe columna local',
-        exists_with_values: 'Existe con importes',
-        exists_but_zero: 'Existe, pero ventas firmadas estan a 0',
-        exists_but_no_attributed_values: 'Existe, pero sin importes atribuidos',
-    }[value] || value || 'Sin datos';
-}
-
-function saleAmountFieldUsedLabel(value) {
-    return {
-        opo_for_importe_total: 'opo_for_importe_total',
-        amount: 'amount',
-        none: 'Sin importe disponible',
-    }[value] || value || 'Sin datos';
-}
-
-function dailyTooltip(row) {
-    return [
-        `Fecha: ${formatDate(row.date)}`,
-        ...activeDailySeries().map((series) => {
-            const label = series.key === 'leads_salesforce' ? 'Leads Salesforce' : series.label;
-
-            return `${label}: ${series.formatter(Number(row[series.key] || 0))}`;
-        }),
-    ].join('\n');
-}
-
-function conversionTooltip(row) {
-    const firstLabel = currentContext === 'tasacion' ? 'Tasaciones / citas' : 'Reservas';
-    const secondLabel = currentContext === 'tasacion' ? 'Compras' : 'Ventas';
-
-    return [
-        `Fecha: ${formatDate(row.date)}`,
-        `${firstLabel}: ${formatNumber(Number(row.reservations || 0))}`,
-        `${secondLabel}: ${formatNumber(Number(row.sales || 0))}`,
-    ].join('\n');
-}
-
-function monthlyTooltip(row) {
-    const definitions = selectedMonthlySeries()
-        .map((key) => monthlySeriesDefinitions.find((series) => series.key === key))
-        .filter(Boolean);
-
-    const lines = [`Mes: ${row.label || formatShortDate(row.date)}`];
-    definitions.forEach((series) => {
-        lines.push(`${series.label}: ${series.formatter(Number(row[series.key] || 0))}`);
-
-        if (monthlyCompareMode === 'prev_year') {
-            lines.push(`${series.label} año anterior: ${series.formatter(Number(row[`${series.key}_compare`] || 0))}`);
-        }
-    });
-
-    return lines.join('\n');
-}
-
-function dailyMax(rows, key) {
-    return Math.max(...rows.map((row) => Number(row[key] || 0)), 0);
-}
-
-function activeDailySeries() {
-    return dailySeriesDefinitions.filter((series) => dailyVisibleSeries.includes(series.key));
-}
-
-function lineX(index, total) {
-    return total <= 1 ? 50 : (index / (total - 1)) * 100;
-}
-
-function lineY(value, max, chartHeight) {
-    return chartHeight - pointBottom(value, max);
-}
-
-function showDateLabel(index, total, labelEvery) {
-    return index === 0 || index === total - 1 || index % labelEvery === 0;
-}
-
-function axisLabelEvery(total) {
-    if (total <= 14) {
-        return 1;
-    }
-
-    return Math.max(2, Math.ceil(total / 10));
-}
-
-function platformTooltip(row) {
-    return [
-        `Plataforma: ${formatPlatform(row.platform)}`,
-        `Inversion: ${formatMoney(Number(row.spend || 0))}`,
-        `Leads Salesforce: ${formatNumber(Number(row.leads_salesforce || 0))}`,
-        `Ventas: ${formatNumber(Number(row.sales || 0))}`,
-    ].join('\n');
-}
-
-function platformComparisonTooltip(row) {
-    return [
-        `Plataforma: ${formatPlatform(row.platform)}`,
-        `Inversion: ${formatMoney(Number(row.spend || 0))}`,
-        `Leads: ${formatNumber(Number(row.leads_salesforce || 0))}`,
-        `Oportunidades / citas: ${formatNumber(Number(row.opportunities || 0))}`,
-        `Compras: ${formatNumber(Number(row.purchases || 0))}`,
-        `Coste por lead: ${formatMoney(row.cost_per_lead)}`,
-        `Coste por compra: ${formatMoney(row.cost_per_purchase)}`,
-        `Conversion lead -> compra: ${formatPercentRatio(row.lead_to_purchase)}`,
-    ].join('\n');
-}
-
 function formatReviewValue(row) {
-    const value = Number(row.value || 0);
-    return String(row.metric || '').toLowerCase().includes('inversion')
-        ? formatMoney(value)
-        : formatNumber(value);
-}
-
-function barWidth(value, max) {
-    if (!max || Number.isNaN(Number(value))) {
-        return 0;
-    }
-
-    return Math.max(4, Math.round((Number(value) / max) * 100));
-}
-
-function logBarWidth(value, max) {
-    const safeValue = Math.max(Number(value) || 0, 0);
-    const safeMax = Math.max(Number(max) || 0, 0);
-
-    if (!safeMax) {
-        return 0;
-    }
-
-    const scaled = Math.log10(safeValue + 1) / Math.log10(safeMax + 1);
-    return Math.max(12, Math.round(scaled * 100));
-}
-
-function barHeight(value, max) {
-    if (!max || Number.isNaN(Number(value))) {
-        return 0;
-    }
-
-    return Math.max(6, Math.round((Number(value) / max) * 100));
-}
-
-function pointBottom(value, max) {
-    if (!max || Number.isNaN(Number(value))) {
-        return 4;
-    }
-
-    return Math.max(4, Math.round((Number(value) / max) * 90));
+    return row.value !== null && row.value !== undefined ? (Number.isFinite(Number(row.value)) ? formatNumber(row.value) : String(row.value)) : '-';
 }
 
 function escapeHtml(value) {
-    return String(value)
+    return String(value ?? '')
         .replaceAll('&', '&amp;')
         .replaceAll('<', '&lt;')
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#039;');
+}
+
+function cellHtml([value, numeric, rawValue, columnKey]) {
+    const classes = ['table-cell'];
+    if (numeric) {
+        classes.push('num');
+    }
+
+    return `<td class="${classes.join(' ')}" data-column="${escapeHtml(columnKey)}" title="${escapeHtml(rawValue ?? '')}">${escapeHtml(value)}</td>`;
+}
+
+function sortedCampaignRows(rows, tableType) {
+    const sortState = tableSort[tableType] || tableSort.all;
+    const direction = sortState.direction === 'asc' ? 1 : -1;
+
+    return [...(rows || [])].sort((a, b) => {
+        const left = a[sortState.key];
+        const right = b[sortState.key];
+
+        if (left === null || left === undefined || left === '') {
+            return 1;
+        }
+
+        if (right === null || right === undefined || right === '') {
+            return -1;
+        }
+
+        if (typeof left === 'number' || typeof right === 'number') {
+            return (Number(left) - Number(right)) * direction;
+        }
+
+        return String(left).localeCompare(String(right), 'es', { sensitivity: 'base' }) * direction;
+    });
+}
+
+function metricBarHtml(label, value, max, formatter, tooltip = null, useLogScale = false) {
+    const numericValue = Number(value || 0);
+    const denominator = max > 0 ? max : 1;
+    const width = useLogScale && numericValue > 0
+        ? Math.max(4, (Math.log10(numericValue + 1) / Math.log10(denominator + 1)) * 100)
+        : (numericValue / denominator) * 100;
+
+    return `
+        <div class="campaign-metric-bar" ${tooltip ? `title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}"` : ''}>
+            <div>
+                <span>${escapeHtml(label)}</span>
+                <strong>${escapeHtml(formatter(numericValue))}</strong>
+            </div>
+            <i><b style="width:${Math.min(100, Math.max(0, width))}%"></b></i>
+        </div>
+    `;
+}
+
+function renderColumnsPopover() {
+    const root = document.getElementById('columnsPopover');
+    if (!root) {
+        return;
+    }
+
+    root.innerHTML = columnDefinitions.map((column) => `
+        <label class="column-option switch-option">
+            <input type="checkbox" data-column-toggle="${escapeHtml(column.key)}" ${visibleColumns.includes(column.key) ? 'checked' : ''}>
+            <span>${escapeHtml(column.label)}</span>
+        </label>
+    `).join('');
+}
+
+function renderRankingsPopover() {
+    const root = document.getElementById('rankingsPopover');
+    if (!root) {
+        return;
+    }
+
+    root.innerHTML = rankingDefinitions.map((ranking) => `
+        <label class="column-option switch-option">
+            <input type="checkbox" data-ranking-toggle="${escapeHtml(ranking.key)}" ${visibleRankings.includes(ranking.key) ? 'checked' : ''}>
+            <span>${escapeHtml(ranking.title)}</span>
+        </label>
+    `).join('');
+}
+
+function renderRankings(rankings) {
+    const root = document.getElementById('rankingsGrid');
+    if (!root) {
+        return;
+    }
+
+    currentRankings = rankings || {};
+    const context = normalizeCampaignContext(currentContext);
+    const visible = rankingDefinitions.filter((ranking) => visibleRankings.includes(ranking.key) && rankingAllowedInContext(ranking.key, context));
+
+    root.innerHTML = visible.length
+        ? visible.map((ranking) => {
+            const rows = currentRankings[ranking.key] || [];
+            const max = Math.max(...rows.map((row) => Number(row[ranking.metric] || 0)), 0);
+            const body = rows.length
+                ? rows.map((row) => metricBarHtml(campaignLabel(row), row[ranking.metric], max, ranking.formatter)).join('')
+                : '<div class="empty-state">Sin datos</div>';
+
+            return `
+                <article class="card panel">
+                    <div class="panel-title compact">
+                        <div>
+                            <h2>${escapeHtml(ranking.title)}</h2>
+                        </div>
+                    </div>
+                    <div class="campaign-bar-list">${body}</div>
+                </article>
+            `;
+        }).join('')
+        : '<div class="empty-state">Sin rankings visibles</div>';
+}
+
+function renderDiagnostics(diagnostics) {
+    const root = document.getElementById('campaignDiagnostics');
+    if (!root) {
+        return;
+    }
+
+    const entries = [
+        ['Ultima sync Meta', formatDateTime(diagnostics.last_meta_sync)],
+        ['Ultima sync Google Ads', formatDateTime(diagnostics.last_google_sync)],
+        ['Filas Meta', formatNumber(diagnostics.meta_metric_rows)],
+        ['Filas Google Ads', formatNumber(diagnostics.google_metric_rows)],
+    ];
+
+    root.innerHTML = entries.map(([label, value]) => `
+        <div class="diagnostic-item">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+        </div>
+    `).join('');
+}
+
+function renderCampaignTables(rows) {
+    const root = document.getElementById('campaignTables');
+    if (!root) {
+        return;
+    }
+
+    const context = normalizeCampaignContext(currentContext);
+    const titleMap = {
+        venta: ['Detalle de campanas de venta', 'Vista detallada de campanas orientadas a venta'],
+        tasacion: ['Detalle de campanas de tasacion', 'Vista detallada de campanas orientadas a tasacion'],
+        exposicion: ['Detalle de campanas de exposicion', 'Vista detallada de campanas orientadas a exposicion'],
+        branding: ['Detalle de campanas de branding', 'Vista detallada de campanas orientadas a branding'],
+        otros: ['Detalle de campanas', 'Vista general de campanas no clasificadas en un tipo principal'],
+        all: ['Detalle de campanas', 'Vista general por tipos de campana'],
+    };
+    const [title, subtitle] = titleMap[context] || titleMap.all;
+
+    root.innerHTML = renderCampaignTable(context, title, subtitle, rows || []);
+    renderColumnsPopover();
+    applyColumnVisibility();
+    syncCampaignTableScrollWidth();
+}
+
+function renderCampaignTable(tableType, title, subtitle, rows) {
+    const columns = activeColumns(tableType);
+    const sortedRows = sortedCampaignRows(rows, tableType);
+    const emptyColspan = Math.max(columns.length, 1);
+    const headers = columns.map((column) => `
+        <th data-column="${escapeHtml(column.key)}" ${column.numeric ? 'class="num"' : ''} data-sortable="true" data-key="${escapeHtml(column.key)}">
+            ${escapeHtml(column.label)}
+        </th>
+    `).join('');
+    const body = sortedRows.length
+        ? sortedRows.map((row) => `
+            <tr>
+                ${columns.map((column) => {
+                    const formatter = column.formatter || ((value) => value);
+                    return cellHtml([
+                        formatter(row[column.key], row),
+                        column.numeric,
+                        row[column.key],
+                        column.key,
+                    ]);
+                }).join('')}
+            </tr>
+        `).join('')
+        : `<tr><td colspan="${emptyColspan}">No hay campanas para los filtros seleccionados.</td></tr>`;
+
+    return `
+        <article class="card panel campaign-table-card">
+            <div class="panel-title compact">
+                <div>
+                    <h2>${escapeHtml(title)}</h2>
+                    <div class="small">${escapeHtml(subtitle)}</div>
+                </div>
+                <div class="campaign-table-actions">
+                    <button type="button" class="main-tab campaign-detail-toggle" data-toggle-campaign-detail>
+                        ${campaignDetailsVisible ? 'Ocultar detalle de campanas' : 'Mostrar detalle de campanas'}
+                    </button>
+                    <div class="columns-menu">
+                        <button type="button" class="main-tab" id="columnsToggle">Columnas</button>
+                        <div class="columns-popover card is-hidden" id="columnsPopover"></div>
+                    </div>
+                    ${window.reportUserCanExport ? '<a class="main-tab" id="exportCsv" href="/informes/campanas/export/campaigns.csv">Export CSV</a>' : ''}
+                </div>
+            </div>
+            <div class="${campaignDetailsVisible ? '' : 'is-hidden'}" id="campaignDetailBody">
+                <div class="table-scroll-proxy" data-table-scroll-proxy="${escapeHtml(tableType)}"><div></div></div>
+                <div class="table-wrap" data-table-wrap="${escapeHtml(tableType)}">
+                    <table data-table-type="${escapeHtml(tableType)}">
+                        <thead>
+                            <tr>${headers}</tr>
+                        </thead>
+                        <tbody>
+                            ${body}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </article>
+    `;
+}
+
+function loadVisibleColumns() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(columnsStorageKey) || 'null');
+        const defaults = columnDefinitions.filter((column) => column.visible).map((column) => column.key);
+
+        if (!Array.isArray(saved) || !saved.length) {
+            return defaults;
+        }
+
+        const known = saved.filter((key) => columnDefinitions.some((column) => column.key === key));
+        return known.length ? known : defaults;
+    } catch (error) {
+        return columnDefinitions.filter((column) => column.visible).map((column) => column.key);
+    }
+}
+
+function persistVisibleColumns() {
+    localStorage.setItem(columnsStorageKey, JSON.stringify(visibleColumns));
+}
+
+function persistVisibleRankings() {
+    localStorage.setItem(rankingsStorageKey, JSON.stringify(visibleRankings));
 }

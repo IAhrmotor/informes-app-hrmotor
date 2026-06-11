@@ -33,7 +33,7 @@ class CampaignAttributionBuilderService
         $stats = $this->emptyStats($start, $end);
         $leads = $this->candidateLeads($start, $end, $stats);
         $opportunities = $this->candidateOpportunities($leads);
-        $assignments = $this->assignOpportunities($leads, $opportunities);
+        $assignments = $this->assignOpportunities($leads, $opportunities, $this->claimedOpportunityIds());
         $now = now();
 
         DB::table('campaign_attributions')
@@ -154,13 +154,14 @@ class CampaignAttributionBuilderService
                 foreach ($chunk as $lead) {
                     $this->fillCampaignFieldsFromRawPayload($lead);
 
-                    if (! $this->hasAnyAcquisitionValue($lead)) {
+                    if (! filled($this->normalizer->clean($lead->campaign_acquired))) {
                         continue;
                     }
 
                     $stats['leads_with_acquisition_not_null']++;
 
-                    if (! $this->hasValidAcquisition($lead)) {
+                    if ($this->campaignTypeResolver->shouldExclude($lead->campaign_acquired)
+                        || $this->campaignTypeResolver->sourceCampaignType($lead->campaign_acquired) === null) {
                         $stats['discarded_invalid_values']++;
 
                         continue;
@@ -179,16 +180,29 @@ class CampaignAttributionBuilderService
 
     private function leadSourceTable(CarbonInterface $start, CarbonInterface $end): string
     {
-        if (! Schema::hasTable('campaign_salesforce_leads')) {
-            return 'salesforce_leads';
+        if (Schema::hasTable('salesforce_leads')) {
+            $hasSalesforceLeads = DB::table('salesforce_leads')
+                ->where('created_date', '>=', $start)
+                ->where('created_date', '<', $end)
+                ->exists();
+
+            if ($hasSalesforceLeads) {
+                return 'salesforce_leads';
+            }
         }
 
-        $hasCampaignLeads = DB::table('campaign_salesforce_leads')
-            ->where('created_date', '>=', $start)
-            ->where('created_date', '<', $end)
-            ->exists();
+        if (Schema::hasTable('campaign_salesforce_leads')) {
+            $hasCampaignLeads = DB::table('campaign_salesforce_leads')
+                ->where('created_date', '>=', $start)
+                ->where('created_date', '<', $end)
+                ->exists();
 
-        return $hasCampaignLeads ? 'campaign_salesforce_leads' : 'salesforce_leads';
+            if ($hasCampaignLeads) {
+                return 'campaign_salesforce_leads';
+            }
+        }
+
+        return 'salesforce_leads';
     }
 
     private function leadSelectColumns(string $sourceTable): array
@@ -260,34 +274,6 @@ class CampaignAttributionBuilderService
             'delegacion_encargada_bueno',
             'raw_payload',
         ];
-    }
-
-    private function hasValidAcquisition(object $lead): bool
-    {
-        return $this->normalizer->hasClearSalesforceAttribution(
-            $lead->campaign_acquired,
-            $lead->acquired_id,
-            $lead->content_acquired,
-            $lead->fuente_origen,
-            $lead->medio_origen,
-        );
-    }
-
-    private function hasAnyAcquisitionValue(object $lead): bool
-    {
-        foreach ([
-            $lead->campaign_acquired,
-            $lead->acquired_id,
-            $lead->content_acquired,
-            $lead->fuente_origen,
-            $lead->medio_origen,
-        ] as $value) {
-            if (filled($this->normalizer->clean($value))) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function fillCampaignFieldsFromRawPayload(object $lead): void
@@ -437,42 +423,15 @@ class CampaignAttributionBuilderService
             }
         }
 
-        if ($this->isManualGoogleTasadorCampaign($lead->campaign_acquired)) {
-            return [
-                'platform' => 'google_ads',
-                'account_id' => null,
-                'campaign_id' => null,
-                'campaign_name' => 'tasador',
-                'method' => 'manual_google_tasador',
-                'confidence' => 'medium',
-                'match_status' => 'Sin inversion asociada',
-                'campaign_source_type' => 'platform_campaign',
-                'matched_to_platform' => false,
-            ];
-        }
-
-        $hasCampaign = $this->normalizer->isValidAttributionValue($lead->campaign_acquired);
-        $hasOrigin = $this->normalizer->isValidAttributionValue($lead->fuente_origen)
-            || $this->normalizer->isValidAttributionValue($lead->medio_origen);
-        $sourceType = $hasCampaign ? 'salesforce_campaign_without_spend' : 'salesforce_origin';
-        $campaignName = $hasCampaign
-            ? $this->normalizer->clean($lead->campaign_acquired)
-            : $this->originLabel($lead->fuente_origen, $lead->medio_origen);
-
-        if (! $hasCampaign && ! $hasOrigin) {
-            $campaignName = $this->firstValidValue($lead->content_acquired, $lead->acquired_id);
-            $sourceType = 'salesforce_campaign_without_spend';
-        }
-
         return [
             'platform' => 'salesforce',
             'account_id' => null,
-            'campaign_id' => $sourceType === 'salesforce_campaign_without_spend' && $this->normalizer->isValidAttributionValue($lead->acquired_id) ? $lead->acquired_id : null,
-            'campaign_name' => $campaignName,
+            'campaign_id' => $this->normalizer->isValidAttributionValue($lead->acquired_id) ? $lead->acquired_id : null,
+            'campaign_name' => $this->normalizer->clean($lead->campaign_acquired),
             'method' => 'salesforce_only',
             'confidence' => 'low',
-            'match_status' => $sourceType === 'salesforce_origin' ? 'Procedencia Salesforce' : 'Sin inversion asociada',
-            'campaign_source_type' => $sourceType,
+            'match_status' => 'Sin inversion asociada',
+            'campaign_source_type' => 'salesforce_campaign_without_spend',
             'matched_to_platform' => false,
         ];
     }
@@ -619,10 +578,16 @@ class CampaignAttributionBuilderService
         return $opportunities;
     }
 
-    private function assignOpportunities(Collection $leads, Collection $opportunities): array
+    private function assignOpportunities(Collection $leads, Collection $opportunities, array $claimedOpportunityIds = []): array
     {
         $assignments = [];
-        $claimedOpportunityIds = [];
+        $claimedOpportunityIds = array_fill_keys(
+            array_values(array_filter(array_map(
+                static fn ($value): string => (string) $value,
+                array_keys($claimedOpportunityIds)
+            ))),
+            true
+        );
 
         foreach ($leads as $lead) {
             if (blank($lead->converted_opportunity_id)) {
@@ -731,6 +696,16 @@ class CampaignAttributionBuilderService
         }
 
         return $assignments;
+    }
+
+    private function claimedOpportunityIds(): array
+    {
+        return DB::table('campaign_attributions')
+            ->whereNotNull('opportunity_id')
+            ->pluck('opportunity_id')
+            ->filter(fn ($value): bool => filled($value))
+            ->mapWithKeys(fn ($value): array => [(string) $value => true])
+            ->all();
     }
 
     private function leadMatchIndexes(Collection $leads): array
@@ -978,12 +953,13 @@ class CampaignAttributionBuilderService
                 'campaign_name' => $row['campaign_name'],
                 'campaign_id' => $row['campaign_id'],
                 'platform' => $row['platform'],
-                'campaign_type' => $this->campaignTypeResolver->typeFor($row['platform'], $row['campaign_id'], $row['campaign_name']),
+                'source_campaign_name' => $row['campaign_acquired'],
+                'campaign_type' => $this->campaignTypeResolver->sourceCampaignType($row['campaign_acquired']) ?? 'otros',
                 'opportunity_id' => $row['opportunity_id'],
                 'has_opportunity' => $row['has_opportunity'],
                 'has_reservation' => $row['has_reservation'],
                 'has_sale' => $row['has_sale'],
-                'has_purchase' => $this->campaignTypeResolver->isTasacion($row['platform'], $row['campaign_id'], $row['campaign_name']) && $row['has_purchase'],
+                'has_purchase' => $this->campaignTypeResolver->sourceCampaignType($row['campaign_acquired']) === 'tasacion' && $row['has_purchase'],
                 'sold_amount' => $row['sale_amount'],
                 'source_acquired' => $row['source_acquired'],
                 'medium_acquired' => $row['medium_acquired'],
@@ -1005,6 +981,7 @@ class CampaignAttributionBuilderService
                 'campaign_name',
                 'campaign_id',
                 'platform',
+                'source_campaign_name',
                 'campaign_type',
                 'opportunity_id',
                 'has_opportunity',
