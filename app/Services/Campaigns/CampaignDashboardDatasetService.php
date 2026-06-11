@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Schema;
 class CampaignDashboardDatasetService
 {
     private const CACHE_TTL_MINUTES = 10;
+    private const REPORT_TIMEZONE = 'Europe/Madrid';
 
     public function __construct(
         private readonly CampaignValueNormalizer $normalizer,
@@ -650,10 +651,13 @@ class CampaignDashboardDatasetService
 
     private function monthlyEvolution(array $filters, array $period): array
     {
-        $start = CarbonImmutable::parse($period['end'])->subMonthsNoOverflow(23)->startOfMonth()->startOfDay();
-        $end = CarbonImmutable::parse($period['end'])->endOfDay();
+        $start = CarbonImmutable::parse($period['end_local'])->subMonthsNoOverflow(23)->startOfMonth()->startOfDay();
+        $end = CarbonImmutable::parse($period['end_local'])->endOfDay();
+        $startUtc = $start->utc();
+        $endUtcExclusive = $end->addDay()->startOfDay()->utc();
         $months = [];
         $cursor = $start->startOfMonth();
+        $opportunityKeysByMonth = [];
 
         while ($cursor->lessThanOrEqualTo($end)) {
             $key = $cursor->format('Y-m');
@@ -709,8 +713,8 @@ class CampaignDashboardDatasetService
             });
 
         $attributionQuery = DB::table('campaign_lead_attributions as cla')
-            ->where('cla.lead_created_date', '>=', $start)
-            ->where('cla.lead_created_date', '<=', $end);
+            ->where('cla.lead_created_date', '>=', $startUtc)
+            ->where('cla.lead_created_date', '<', $endUtcExclusive);
 
         $this->applyLeadAttributionFilters($attributionQuery, $filters, 'cla');
 
@@ -728,20 +732,20 @@ class CampaignDashboardDatasetService
 
         $attributionQuery
             ->select([
-                DB::raw('SUBSTR(cla.lead_created_date, 1, 7) as metric_month'),
+                'cla.lead_id',
+                'cla.lead_created_date',
                 'cla.platform',
                 'cla.campaign_id',
                 'cla.campaign_name',
-                DB::raw('COUNT(DISTINCT cla.lead_id) as leads_salesforce'),
-                DB::raw('COUNT(DISTINCT CASE WHEN cla.has_opportunity = 1 THEN cla.opportunity_id END) as opportunities'),
-                DB::raw('SUM(CASE WHEN cla.has_reservation = 1 THEN 1 ELSE 0 END) as reservations'),
-                DB::raw('SUM(CASE WHEN cla.has_sale = 1 THEN 1 ELSE 0 END) as sales'),
-                DB::raw('SUM(CASE WHEN cla.has_opportunity = 1 AND cla.campaign_type = \'tasacion\' THEN 1 ELSE 0 END) as appraisals_generated'),
-                DB::raw('SUM(CASE WHEN cla.has_purchase = 1 THEN 1 ELSE 0 END) as purchases'),
+                'cla.opportunity_id',
+                'cla.has_opportunity',
+                'cla.has_reservation',
+                'cla.has_sale',
+                'cla.has_purchase',
+                'cla.campaign_type',
             ])
-            ->groupBy(DB::raw('SUBSTR(cla.lead_created_date, 1, 7)'), 'cla.platform', 'cla.campaign_id', 'cla.campaign_name')
             ->get()
-            ->each(function (object $row) use (&$months, $filters): void {
+            ->each(function (object $row) use (&$months, $filters, &$opportunityKeysByMonth): void {
                 $campaign = [
                     'platform' => $row->platform,
                     'campaign_id' => $row->campaign_id,
@@ -752,18 +756,27 @@ class CampaignDashboardDatasetService
                     return;
                 }
 
-                $month = (string) $row->metric_month;
+                $month = $this->reportDateTime($row->lead_created_date)?->format('Y-m');
 
-                if (! isset($months[$month])) {
+                if ($month === null || ! isset($months[$month])) {
                     return;
                 }
 
-                $months[$month]['leads_salesforce'] += (int) $row->leads_salesforce;
-                $months[$month]['opportunities'] += (int) $row->opportunities;
-                $months[$month]['reservations'] += (int) $row->reservations;
-                $months[$month]['sales'] += (int) $row->sales;
-                $months[$month]['appraisals_generated'] += (int) $row->appraisals_generated;
-                $months[$month]['purchases'] += (int) $row->purchases;
+                $months[$month]['leads_salesforce']++;
+
+                if ((bool) $row->has_opportunity && filled($row->opportunity_id)) {
+                    $opportunityKey = $month.'|'.$row->opportunity_id;
+
+                    if (! isset($opportunityKeysByMonth[$opportunityKey])) {
+                        $months[$month]['opportunities']++;
+                        $opportunityKeysByMonth[$opportunityKey] = true;
+                    }
+                }
+
+                $months[$month]['reservations'] += (int) ((bool) $row->has_reservation);
+                $months[$month]['sales'] += (int) ((bool) $row->has_sale);
+                $months[$month]['appraisals_generated'] += (int) ((bool) $row->has_opportunity && $row->campaign_type === 'tasacion');
+                $months[$month]['purchases'] += (int) ((bool) $row->has_purchase);
             });
 
         return array_values($months);
@@ -805,12 +818,21 @@ class CampaignDashboardDatasetService
 
         $attributionByDate = $attributionQuery
             ->select([
-                DB::raw('DATE(cla.lead_created_date) as metric_date'),
-                DB::raw('COUNT(DISTINCT cla.lead_id) as leads_salesforce'),
+                'cla.lead_id',
+                'cla.lead_created_date',
             ])
-            ->groupBy(DB::raw('DATE(cla.lead_created_date)'))
             ->get()
-            ->keyBy('metric_date');
+            ->reduce(function (array $carry, object $row): array {
+                $metricDate = $this->reportDateTime($row->lead_created_date)?->toDateString();
+
+                if ($metricDate === null) {
+                    return $carry;
+                }
+
+                $carry[$metricDate] = ($carry[$metricDate] ?? 0) + 1;
+
+                return $carry;
+            }, []);
 
         $rows = [];
         $cursor = CarbonImmutable::parse($period['start'])->startOfDay();
@@ -818,11 +840,10 @@ class CampaignDashboardDatasetService
 
         while ($cursor->lessThanOrEqualTo($end)) {
             $date = $cursor->toDateString();
-            $attribution = $attributionByDate->get($date);
             $rows[] = [
                 'date' => $date,
                 'spend' => round((float) ($spendByDate[$date] ?? 0), 2),
-                'leads_salesforce' => (int) ($attribution->leads_salesforce ?? 0),
+                'leads_salesforce' => (int) ($attributionByDate[$date] ?? 0),
             ];
             $cursor = $cursor->addDay();
         }
@@ -850,21 +871,25 @@ class CampaignDashboardDatasetService
             $query->where('cla.campaign_type', $filters['context']);
         }
 
-        $reservationsByDate = (clone $query)
+        $rowsByDate = (clone $query)
             ->select([
-                DB::raw('DATE(cla.lead_created_date) as metric_date'),
-                DB::raw('SUM(CASE WHEN cla.has_reservation = 1 THEN 1 ELSE 0 END) as reservations'),
+                'cla.lead_created_date',
+                'cla.has_reservation',
+                'cla.has_sale',
             ])
-            ->groupBy(DB::raw('DATE(cla.lead_created_date)'))
-            ->pluck('reservations', 'metric_date');
+            ->get()
+            ->reduce(function (array $carry, object $row): array {
+                $metricDate = $this->reportDateTime($row->lead_created_date)?->toDateString();
 
-        $salesByDate = (clone $query)
-            ->select([
-                DB::raw('DATE(cla.lead_created_date) as metric_date'),
-                DB::raw('SUM(CASE WHEN cla.has_sale = 1 THEN 1 ELSE 0 END) as sales'),
-            ])
-            ->groupBy(DB::raw('DATE(cla.lead_created_date)'))
-            ->pluck('sales', 'metric_date');
+                if ($metricDate === null) {
+                    return $carry;
+                }
+
+                $carry[$metricDate]['reservations'] = ($carry[$metricDate]['reservations'] ?? 0) + (int) ((bool) $row->has_reservation);
+                $carry[$metricDate]['sales'] = ($carry[$metricDate]['sales'] ?? 0) + (int) ((bool) $row->has_sale);
+
+                return $carry;
+            }, []);
 
         $rows = [];
         $cursor = CarbonImmutable::parse($period['start'])->startOfDay();
@@ -874,8 +899,8 @@ class CampaignDashboardDatasetService
             $date = $cursor->toDateString();
             $rows[] = [
                 'date' => $date,
-                'reservations' => (int) ($reservationsByDate[$date] ?? 0),
-                'sales' => (int) ($salesByDate[$date] ?? 0),
+                'reservations' => (int) ($rowsByDate[$date]['reservations'] ?? 0),
+                'sales' => (int) ($rowsByDate[$date]['sales'] ?? 0),
             ];
             $cursor = $cursor->addDay();
         }
@@ -1668,7 +1693,7 @@ class CampaignDashboardDatasetService
 
     private function period(array $filters): array
     {
-        $end = $this->parseDate($filters['end_date'], CarbonImmutable::now())->endOfDay();
+        $end = $this->parseDate($filters['end_date'], CarbonImmutable::now(self::REPORT_TIMEZONE))->endOfDay();
         $start = $this->parseDate($filters['start_date'], $end->subDays(30))->startOfDay();
 
         if ($start->greaterThan($end)) {
@@ -1678,8 +1703,10 @@ class CampaignDashboardDatasetService
         return [
             'start' => $start->toDateString(),
             'end' => $end->toDateString(),
-            'start_at' => $start,
-            'end_at' => $end->addDay()->startOfDay(),
+            'start_at' => $start->utc(),
+            'end_at' => $end->addDay()->startOfDay()->utc(),
+            'start_local' => $start,
+            'end_local' => $end,
         ];
     }
 
@@ -1793,10 +1820,19 @@ class CampaignDashboardDatasetService
         }
 
         try {
-            return CarbonImmutable::parse($value);
+            return CarbonImmutable::parse($value, self::REPORT_TIMEZONE)->setTimezone(self::REPORT_TIMEZONE);
         } catch (\Throwable) {
             return $fallback;
         }
+    }
+
+    private function reportDateTime(mixed $value): ?CarbonImmutable
+    {
+        if (blank($value)) {
+            return null;
+        }
+
+        return CarbonImmutable::parse($value)->setTimezone(self::REPORT_TIMEZONE);
     }
 
     private function lastUpdated(): ?CarbonImmutable

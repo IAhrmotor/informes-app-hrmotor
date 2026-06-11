@@ -978,6 +978,61 @@ class CampaignDashboardTest extends TestCase
         $this->assertSame(0, $summary['diagnostics']['salesforce_origins']);
     }
 
+    public function test_periodo_local_madrid_incluye_y_excluye_bordes_utc_en_leads_salesforce(): void
+    {
+        $rows = [
+            ['lead_id' => '00Q-local-start-1', 'lead_created_date' => '2026-04-30 23:03:10'],
+            ['lead_id' => '00Q-local-start-2', 'lead_created_date' => '2026-04-30 23:20:51'],
+            ['lead_id' => '00Q-local-mid', 'lead_created_date' => '2026-05-15 12:00:00'],
+            ['lead_id' => '00Q-local-end-out', 'lead_created_date' => '2026-05-31 22:15:41'],
+        ];
+
+        foreach ($rows as $row) {
+            DB::table('campaign_lead_attributions')->insert([
+                'lead_id' => $row['lead_id'],
+                'lead_created_date' => $row['lead_created_date'],
+                'campaign_name' => 'Expiey_Leads_Geo_Tasación_Nuevas Ubicaciones',
+                'campaign_id' => null,
+                'platform' => 'salesforce',
+                'source_campaign_name' => 'Expiey_Leads_Geo_Tasación_Nuevas Ubicaciones',
+                'campaign_type' => 'tasacion',
+                'opportunity_id' => null,
+                'has_opportunity' => false,
+                'has_reservation' => false,
+                'has_sale' => false,
+                'has_purchase' => false,
+                'sold_amount' => null,
+                'source_acquired' => 'Google Ads',
+                'medium_acquired' => 'CPC',
+                'campaign_acquired' => 'Expiey_Leads_Geo_Tasación_Nuevas Ubicaciones',
+                'acquired_id' => null,
+                'content_acquired' => null,
+                'lead_status' => 'Potencial',
+                'lead_delegation' => 'Alcobendas',
+                'lead_zone' => 'Madrid',
+                'commercial_user_id' => null,
+                'commercial_user_name' => null,
+                'vehicle_interest' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        $summary = $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(3, $summary['kpis']['leads_salesforce']);
+
+        $mayMonth = collect($summary['charts']['monthly_evolution'])->firstWhere('date', '2026-05-01');
+        $mayFirstDay = collect($summary['charts']['daily_evolution'])->firstWhere('date', '2026-05-01');
+        $mayLastDay = collect($summary['charts']['daily_evolution'])->firstWhere('date', '2026-05-31');
+
+        $this->assertSame(3, $mayMonth['leads_salesforce']);
+        $this->assertSame(2, $mayFirstDay['leads_salesforce']);
+        $this->assertSame(0, $mayLastDay['leads_salesforce']);
+    }
+
     public function test_google_maps_chatbot_and_exposicion_do_not_appear_as_main_campaigns(): void
     {
         foreach ([

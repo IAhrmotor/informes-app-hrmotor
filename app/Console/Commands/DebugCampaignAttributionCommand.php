@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\DB;
 
 class DebugCampaignAttributionCommand extends Command
 {
+    private const REPORT_TIMEZONE = 'Europe/Madrid';
+
     protected $signature = 'campaigns:debug-attribution
         {--from= : Fecha inicial explicita en formato Y-m-d}
         {--to= : Fecha final explicita en formato Y-m-d}';
@@ -18,8 +20,16 @@ class DebugCampaignAttributionCommand extends Command
 
     public function handle(CampaignTypeResolver $resolver): int
     {
-        $start = CarbonImmutable::parse($this->option('from') ?: now()->startOfMonth()->toDateString())->startOfDay();
-        $end = CarbonImmutable::parse($this->option('to') ?: now()->toDateString())->addDay()->startOfDay();
+        $startLocal = CarbonImmutable::parse(
+            $this->option('from') ?: now(self::REPORT_TIMEZONE)->startOfMonth()->toDateString(),
+            self::REPORT_TIMEZONE
+        )->startOfDay();
+        $endLocalExclusive = CarbonImmutable::parse(
+            $this->option('to') ?: now(self::REPORT_TIMEZONE)->toDateString(),
+            self::REPORT_TIMEZONE
+        )->addDay()->startOfDay();
+        $start = $startLocal->utc();
+        $end = $endLocalExclusive->utc();
 
         $leads = DB::table('salesforce_leads')
             ->where('created_date', '>=', $start)
@@ -52,7 +62,8 @@ class DebugCampaignAttributionCommand extends Command
             ])
             ->values();
 
-        $this->line('Periodo: '.$start->toDateString().' a '.$end->subDay()->toDateString());
+        $this->line('Periodo local: '.$startLocal->toDateString().' a '.$endLocalExclusive->subDay()->toDateString());
+        $this->line('Rango UTC consultado: '.$start->toDateTimeString().' a '.$end->subSecond()->toDateTimeString());
         $this->line('Tabla base: salesforce_leads');
         $this->newLine();
 
