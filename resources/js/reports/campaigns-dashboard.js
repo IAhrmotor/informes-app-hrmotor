@@ -604,22 +604,21 @@ async function reloadAllData() {
 
     try {
         const query = currentFilters();
-        const campaignsQuery = currentCampaignFilters();
-        const [summary, campaigns, rankings] = await Promise.all([
+        const [summary, rankings] = await Promise.all([
             fetchJson(`/informes/campanas/data/summary?${query}`),
-            fetchJson(`/informes/campanas/data/campaigns?${campaignsQuery}`),
             fetchJson(`/informes/campanas/data/rankings?${query}`),
         ]);
+        const campaignItems = Array.isArray(summary?.campaigns) ? summary.campaigns : [];
 
         renderSummary(summary || {});
-        renderFilterOptions(summary.filters || {}, campaigns.items || []);
-        campaignRows = campaigns.items || [];
+        renderFilterOptions(summary.filters || {}, campaignItems);
+        campaignRows = campaignItems;
         renderCampaignTables(campaignRows);
         currentRankings = (rankings && rankings.rankings) || {};
         renderRankings((rankings && rankings.rankings) || {});
         const exportLink = document.getElementById('exportCsv');
         if (exportLink) {
-            exportLink.href = `/informes/campanas/export/campaigns.csv?${campaignsQuery}`;
+            exportLink.href = `/informes/campanas/export/campaigns.csv?${query}`;
         }
     } catch (error) {
         showLoadError(error);
@@ -759,13 +758,20 @@ function reservationsSalesHtml(rows) {
     `;
 }
 
-function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory, showPoints = false) {
+function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory, showPoints = false, options = {}) {
     const width = 100;
     const chartHeight = 96;
+    const showYAxis = options.showYAxis === true;
+    const sharedScale = options.sharedScale === true;
     const labelEvery = axisLabelEvery(rows.length);
+    const sharedMax = sharedScale ? maxAcrossSeries(rows, seriesDefinitions) : null;
+    const axisMax = showYAxis ? (sharedMax ?? maxAcrossSeries(rows, seriesDefinitions)) : null;
+    const axisFormatter = options.yAxisFormatter || formatAxisValue;
+    const gridLines = showYAxis ? lineGridHtml(chartHeight) : '';
+    const yAxis = showYAxis ? lineYAxisHtml(chartHeight, axisMax, axisFormatter) : '';
     const seriesSvg = seriesDefinitions
         .map((series) => {
-            const max = dailyMax(rows, series.key);
+            const max = sharedScale ? sharedMax : dailyMax(rows, series.key);
             const coordinates = rows.map((row, index) => ({
                 x: lineX(index, rows.length),
                 y: lineY(row[series.key], max, chartHeight),
@@ -787,18 +793,20 @@ function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory, showPoint
     `).join('');
 
     return `
-        <div class="campaign-line-chart">
+        <div class="campaign-line-chart ${showYAxis ? 'has-y-axis' : ''}">
+            ${yAxis}
             <svg viewBox="-0.75 0 ${width + 1.5} ${chartHeight}" preserveAspectRatio="none" aria-hidden="true">
+                ${gridLines}
                 ${seriesSvg}
             </svg>
-            <div class="line-point-layer">${pointLayerHtml(rows, seriesDefinitions, tooltipFactory, showPoints, chartHeight)}</div>
+            <div class="line-point-layer">${pointLayerHtml(rows, seriesDefinitions, tooltipFactory, showPoints, chartHeight, sharedMax)}</div>
             <div class="line-hover-layer">${hoverPoints}</div>
             <div class="line-label-layer">${labels}</div>
         </div>
     `;
 }
 
-function pointLayerHtml(rows, seriesDefinitions, tooltipFactory, showPoints, chartHeight) {
+function pointLayerHtml(rows, seriesDefinitions, tooltipFactory, showPoints, chartHeight, sharedMax = null) {
     if (!showPoints) {
         return '';
     }
@@ -806,7 +814,7 @@ function pointLayerHtml(rows, seriesDefinitions, tooltipFactory, showPoints, cha
     return seriesDefinitions
         .filter((series) => !series.isCompare)
         .flatMap((series) => {
-            const max = dailyMax(rows, series.key);
+            const max = sharedMax ?? dailyMax(rows, series.key);
             return rows.map((row, index) => {
                 const x = lineX(index, rows.length);
                 const y = lineY(row[series.key], max, chartHeight);
@@ -938,7 +946,17 @@ function monthlyEvolutionHtml(rows) {
     const selectedRows = selectedMonthlyRows(visibleRows);
     const definitions = selectedMonthlySeries();
     const content = selectedRows.length
-        ? genericLineChartHtml(buildMonthlyChartRows(rows, selectedRows), buildMonthlySeriesDefinitions(definitions), monthlyTooltip, true)
+        ? genericLineChartHtml(
+            buildMonthlyChartRows(rows, selectedRows),
+            buildMonthlySeriesDefinitions(definitions),
+            monthlyTooltip,
+            true,
+            {
+                sharedScale: true,
+                showYAxis: true,
+                yAxisFormatter: monthlyAxisFormatter(definitions),
+            },
+        )
         : '<div class="empty-state">Sin datos</div>';
 
     return `
@@ -1010,6 +1028,21 @@ function funnelHtml(rows) {
 }
 
 function funnelStepsForContext(context, rows) {
+    if ((rows || []).every((row) => row && typeof row === 'object' && Object.hasOwn(row, 'label') && Object.hasOwn(row, 'value'))) {
+        const labelsByContext = {
+            venta: ['Clicks', 'Leads Salesforce', 'Oportunidades', 'Reservas', 'Ventas'],
+            tasacion: ['Clicks', 'Leads Salesforce', 'Oportunidades', 'Compras'],
+            exposicion: ['Clicks', 'Leads Salesforce', 'Oportunidades'],
+            branding: ['Clicks', 'Leads Salesforce', 'Oportunidades'],
+            otros: ['Clicks', 'Leads Salesforce', 'Oportunidades', 'Resultados'],
+            all: ['Clicks', 'Leads Salesforce', 'Oportunidades', 'Resultados'],
+        };
+
+        const allowedLabels = labelsByContext[context] || labelsByContext.all;
+
+        return rows.filter((row) => allowedLabels.includes(row.label));
+    }
+
     const totals = {
         impressions: rows.reduce((sum, row) => sum + Number(row.impressions || 0), 0),
         clicks: rows.reduce((sum, row) => sum + Number(row.clicks || 0), 0),
@@ -1128,18 +1161,22 @@ function platformComparisonCardHtml(row, maxSpend, maxLeads, maxOpportunities, m
                 <span>${escapeHtml(platformComparisonSubtitleForContext(context))}</span>
             </div>
             <div class="platform-comparison-metrics">
-                ${metricBarHtml('Inversion', row.spend, maxSpend, formatMoney)}
-                ${metricBarHtml('Leads Salesforce', row.leads_salesforce, maxLeads, formatNumber)}
-                ${metricBarHtml('Oportunidades', row.opportunities, maxOpportunities, formatNumber)}
-                ${metricBarHtml(resultLabel, resultValue, maxResult, formatNumber)}
-                <div class="campaign-metric-bar campaign-metric-text">
-                    <div>
-                        <span>${escapeHtml(costLabel)}</span>
-                        <strong>${escapeHtml(formatMoney(resultCost))}</strong>
-                    </div>
-                </div>
+                ${platformMetricItemHtml('Inversion', row.spend, formatMoney)}
+                ${platformMetricItemHtml('Leads Salesforce', row.leads_salesforce, formatNumber)}
+                ${platformMetricItemHtml('Oportunidades', row.opportunities, formatNumber)}
+                ${platformMetricItemHtml(resultLabel, resultValue, formatNumber)}
+                ${platformMetricItemHtml(costLabel, resultCost, formatMoney)}
             </div>
         </article>
+    `;
+}
+
+function platformMetricItemHtml(label, value, formatter) {
+    return `
+        <div class="platform-metric-item">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(formatter(value))}</strong>
+        </div>
     `;
 }
 
@@ -1689,6 +1726,10 @@ function dailyMax(rows, key) {
     return Math.max(...(rows || []).map((row) => Number(row?.[key] || 0)), 0);
 }
 
+function maxAcrossSeries(rows, seriesDefinitions) {
+    return Math.max(...(seriesDefinitions || []).map((series) => dailyMax(rows, series.key)), 0);
+}
+
 function barHeight(value, max) {
     if (max <= 0) {
         return 0;
@@ -1768,6 +1809,65 @@ function monthlyTooltip(row) {
     });
 
     return lines.join('\n');
+}
+
+function monthlyAxisFormatter(definitions) {
+    const selectedDefinitions = (definitions || [])
+        .map((metric) => monthlySeriesDefinitions.find((series) => series.key === metric))
+        .filter(Boolean);
+
+    if (selectedDefinitions.length === 1) {
+        return selectedDefinitions[0].formatter;
+    }
+
+    const formatterNames = [...new Set(selectedDefinitions.map((definition) => definition.formatter?.name || ''))];
+
+    if (formatterNames.length === 1 && selectedDefinitions[0]?.formatter) {
+        return selectedDefinitions[0].formatter;
+    }
+
+    return formatAxisValue;
+}
+
+function formatAxisValue(value) {
+    const numeric = Number(value || 0);
+    const absolute = Math.abs(numeric);
+
+    if (absolute >= 1000000) {
+        return `${(numeric / 1000000).toFixed(1)}M`;
+    }
+
+    if (absolute >= 1000) {
+        return `${(numeric / 1000).toFixed(1)}k`;
+    }
+
+    return formatNumber(numeric);
+}
+
+function lineGridHtml(chartHeight) {
+    return [0, 1 / 3, 2 / 3, 1].map((ratio) => {
+        const y = (chartHeight - (ratio * chartHeight)).toFixed(2);
+        return `<line class="line-grid" x1="0" x2="100" y1="${y}" y2="${y}" />`;
+    }).join('');
+}
+
+function lineYAxisHtml(_chartHeight, max, formatter) {
+    const safeMax = Number(max || 0);
+
+    return `
+        <div class="line-y-axis" aria-hidden="true">
+            ${[1, 2 / 3, 1 / 3, 0].map((ratio) => {
+                const value = safeMax * ratio;
+                const top = (100 - (ratio * 100)).toFixed(2);
+
+                return `
+                    <span class="line-y-axis-tick" style="top:${top}%">
+                        ${escapeHtml(formatter(value))}
+                    </span>
+                `;
+            }).join('')}
+        </div>
+    `;
 }
 
 function applyMonthlyRange(value, rows) {
