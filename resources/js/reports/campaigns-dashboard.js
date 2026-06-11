@@ -22,16 +22,16 @@ let tableSort = {
 };
 let searchTimer = null;
 let syncingTableScroll = false;
-let dailyVisibleSeries = loadDailyVisibleSeries();
-let dailyChartType = loadDailyChartType();
+let dailyVisibleSeries = [];
+let dailyChartType = 'lines';
 let currentCharts = {};
 let currentRankings = {};
-let currentContext = loadCampaignContext();
+let currentContext = 'all';
 let campaignDetailsVisible = false;
-let campaignNameSelections = loadCampaignNameSelections();
+let campaignNameSelections = [];
 let monthlySelectedMonths = [];
-let monthlyVisibleMetrics = loadMonthlyVisibleMetrics();
-let monthlyCompareMode = loadMonthlyCompareMode();
+let monthlyVisibleMetrics = [];
+let monthlyCompareMode = 'none';
 
 const dailySeriesDefinitions = [
     { key: 'spend', label: 'Inversion', formatter: formatMoney, className: 'spend' },
@@ -135,6 +135,13 @@ const columnDefinitions = [
     { key: 'opportunity_to_purchase', label: 'Oportunidad -> compra', visible: false, numeric: true, formatter: formatPercentRatio },
 ];
 
+currentContext = loadCampaignContext();
+dailyVisibleSeries = loadDailyVisibleSeries();
+dailyChartType = loadDailyChartType();
+campaignNameSelections = loadCampaignNameSelections();
+monthlyVisibleMetrics = loadMonthlyVisibleMetrics();
+monthlyCompareMode = loadMonthlyCompareMode();
+
 let visibleColumns = loadVisibleColumns();
 let visibleRankings = loadVisibleRankings(currentContext);
 
@@ -187,8 +194,14 @@ function bindDiagnosticsModal() {
         return;
     }
 
-    const open = () => drawer.setAttribute('aria-hidden', 'false');
-    const close = () => drawer.setAttribute('aria-hidden', 'true');
+    const open = () => {
+        drawer.classList.add('is-open');
+        drawer.setAttribute('aria-hidden', 'false');
+    };
+    const close = () => {
+        drawer.classList.remove('is-open');
+        drawer.setAttribute('aria-hidden', 'true');
+    };
 
     openButton.addEventListener('click', open);
     closeButton?.addEventListener('click', close);
@@ -1650,6 +1663,111 @@ function buildMonthlySeriesDefinitions(metrics) {
                 : null,
         ].filter(Boolean);
     });
+}
+
+function axisLabelEvery(length) {
+    if (length <= 6) {
+        return 1;
+    }
+
+    if (length <= 12) {
+        return 2;
+    }
+
+    return Math.ceil(length / 6);
+}
+
+function showDateLabel(index, length, labelEvery) {
+    if (index === 0 || index === length - 1) {
+        return true;
+    }
+
+    return index % Math.max(labelEvery, 1) === 0;
+}
+
+function dailyMax(rows, key) {
+    return Math.max(...(rows || []).map((row) => Number(row?.[key] || 0)), 0);
+}
+
+function barHeight(value, max) {
+    if (max <= 0) {
+        return 0;
+    }
+
+    return Math.max(4, (Number(value || 0) / max) * 100);
+}
+
+function lineX(index, length) {
+    if (length <= 1) {
+        return 50;
+    }
+
+    return (index / (length - 1)) * 100;
+}
+
+function lineY(value, max, chartHeight) {
+    if (max <= 0) {
+        return chartHeight / 2;
+    }
+
+    const ratio = Number(value || 0) / max;
+    return chartHeight - (ratio * chartHeight);
+}
+
+function dailyTooltip(row) {
+    return [
+        formatDate(row.date),
+        `Inversion: ${formatMoney(row.spend)}`,
+        `Leads Salesforce: ${formatNumber(row.leads_salesforce)}`,
+    ].join('\n');
+}
+
+function conversionTooltip(row) {
+    const context = normalizeCampaignContext(currentContext);
+
+    if (context === 'tasacion') {
+        return [
+            formatDate(row.date),
+            `Oportunidades: ${formatNumber(row.opportunities)}`,
+            `Compras: ${formatNumber(row.purchases)}`,
+        ].join('\n');
+    }
+
+    return [
+        formatDate(row.date),
+        `Reservas: ${formatNumber(row.reservations)}`,
+        `Ventas: ${formatNumber(row.sales)}`,
+    ].join('\n');
+}
+
+function platformTooltip(row) {
+    return [
+        formatPlatform(row.platform),
+        `Inversion: ${formatMoney(row.spend)}`,
+        `Leads Salesforce: ${formatNumber(row.leads_salesforce)}`,
+        `Oportunidades: ${formatNumber(row.opportunities)}`,
+        `Resultados: ${formatNumber(platformResultValueForContext(row, normalizeCampaignContext(currentContext)))}`,
+    ].join('\n');
+}
+
+function monthlyTooltip(row) {
+    const lines = [row.label || monthLabel(row)];
+
+    selectedMonthlySeries().forEach((metric) => {
+        const definition = monthlySeriesDefinitions.find((series) => series.key === metric);
+
+        if (!definition) {
+            return;
+        }
+
+        lines.push(`${definition.label}: ${definition.formatter(row[metric])}`);
+
+        if (monthlyCompareMode === 'prev_year') {
+            lines.push(`${definition.label} ano anterior: ${definition.formatter(row[`${metric}_compare`])}`);
+        }
+    });
+
+    return lines.join('\n');
 }
 
 function applyMonthlyRange(value, rows) {
