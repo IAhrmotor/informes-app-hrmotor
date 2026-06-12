@@ -171,7 +171,7 @@ class CampaignDashboardDatasetService
             ])
             ->groupBy('platform', 'account_id', 'campaign_id', 'campaign_name')
             ->get()
-            ->map(fn ($row) => (array) $row)
+            ->map(fn ($row) => $this->normalizeDashboardRow((array) $row))
             ->filter(fn (array $row): bool => $this->includeCampaignForContext($row, $filters))
             ->values()
             ->all();
@@ -204,15 +204,15 @@ class CampaignDashboardDatasetService
                 DB::raw('COUNT(DISTINCT cla.lead_id) as leads_salesforce'),
                 DB::raw('COUNT(DISTINCT CASE WHEN cla.has_opportunity = 1 THEN cla.opportunity_id END) as opportunities'),
                 DB::raw('SUM(CASE WHEN cla.has_reservation = 1 THEN 1 ELSE 0 END) as reservations'),
-                DB::raw('SUM(CASE WHEN cla.has_reservation = 1 AND cla.has_sale = 0 THEN 1 ELSE 0 END) as live_reservations'),
-                DB::raw('SUM(CASE WHEN cla.has_reservation = 1 AND cla.has_sale = 1 THEN 1 ELSE 0 END) as fallen_reservations'),
-                DB::raw('SUM(CASE WHEN cla.has_sale = 1 THEN 1 ELSE 0 END) as sales'),
-                DB::raw('SUM(CASE WHEN cla.has_sale = 1 THEN COALESCE(cla.sold_amount, CASE WHEN COALESCE(so.opo_for_importe_total, 0) > 0 THEN so.opo_for_importe_total ELSE NULL END) ELSE 0 END) as sale_amount'),
-                DB::raw('SUM(CASE WHEN cla.has_sale = 1 AND (cla.sold_amount IS NOT NULL OR COALESCE(so.opo_for_importe_total, 0) > 0) THEN 1 ELSE 0 END) as sale_amount_rows'),
+                DB::raw("SUM(CASE WHEN cla.has_reservation = 1 AND (COALESCE(cla.campaign_type, '') = 'tasacion' OR cla.has_sale = 0) THEN 1 ELSE 0 END) as live_reservations"),
+                DB::raw("SUM(CASE WHEN cla.has_reservation = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' AND cla.has_sale = 1 THEN 1 ELSE 0 END) as fallen_reservations"),
+                DB::raw("SUM(CASE WHEN cla.has_sale = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' THEN 1 ELSE 0 END) as sales"),
+                DB::raw("SUM(CASE WHEN cla.has_sale = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' THEN COALESCE(cla.sold_amount, CASE WHEN COALESCE(so.opo_for_importe_total, 0) > 0 THEN so.opo_for_importe_total ELSE NULL END) ELSE 0 END) as sale_amount"),
+                DB::raw("SUM(CASE WHEN cla.has_sale = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' AND (cla.sold_amount IS NOT NULL OR COALESCE(so.opo_for_importe_total, 0) > 0) THEN 1 ELSE 0 END) as sale_amount_rows"),
                 DB::raw('SUM(CASE WHEN cla.has_opportunity = 1 AND cla.campaign_type = \'tasacion\' THEN 1 ELSE 0 END) as appraisals_generated'),
-                DB::raw('SUM(CASE WHEN cla.has_purchase = 1 THEN 1 ELSE 0 END) as purchases'),
-                DB::raw('SUM(CASE WHEN cla.has_purchase = 1 THEN ABS(COALESCE(so.opo_for_importe_total, 0)) ELSE 0 END) as appraisal_amount'),
-                DB::raw('SUM(CASE WHEN cla.has_purchase = 1 AND so.opo_for_importe_total IS NOT NULL THEN 1 ELSE 0 END) as appraisal_amount_rows'),
+                DB::raw("SUM(CASE WHEN cla.has_purchase = 1 AND cla.campaign_type = 'tasacion' THEN 1 ELSE 0 END) as purchases"),
+                DB::raw("SUM(CASE WHEN cla.has_purchase = 1 AND cla.campaign_type = 'tasacion' THEN ABS(COALESCE(so.opo_for_importe_total, 0)) ELSE 0 END) as appraisal_amount"),
+                DB::raw("SUM(CASE WHEN cla.has_purchase = 1 AND cla.campaign_type = 'tasacion' AND so.opo_for_importe_total IS NOT NULL THEN 1 ELSE 0 END) as appraisal_amount_rows"),
                 DB::raw('MIN(cla.lead_status) as lead_status'),
                 DB::raw('MIN(cla.lead_delegation) as lead_delegation'),
                 DB::raw('MIN(cla.lead_zone) as lead_zone'),
@@ -222,7 +222,7 @@ class CampaignDashboardDatasetService
             ])
             ->groupBy('cla.platform', 'cla.campaign_id', 'cla.campaign_name')
             ->get()
-            ->map(fn ($row) => (array) $row)
+            ->map(fn ($row) => $this->normalizeDashboardRow((array) $row))
             ->filter(fn (array $row): bool => $this->includeCampaignForContext($row, $filters))
             ->values()
             ->all();
@@ -239,7 +239,7 @@ class CampaignDashboardDatasetService
             }
 
             $key = $this->rowKey($row);
-            $rows[$key] = $this->emptyCampaignRow($row);
+            $rows[$key] ??= $this->emptyCampaignRow($row);
             $rows[$key]['account_name'] = $row['account_name'];
             $rows[$key]['campaign_status'] = $row['campaign_status'] ?? null;
             $rows[$key]['campaign_effective_status'] = $row['campaign_effective_status'] ?? null;
@@ -250,11 +250,15 @@ class CampaignDashboardDatasetService
             $rows[$key]['last_spend_date'] = $row['last_spend_date'] ?? null;
             $rows[$key]['campaign_status_label'] = $this->campaignStatusLabel($rows[$key]);
             $rows[$key]['campaign_type'] = $this->campaignType($rows[$key]);
-            $rows[$key]['spend'] = (float) $row['spend'];
-            $rows[$key]['impressions'] = (int) $row['impressions'];
-            $rows[$key]['clicks'] = (int) $row['clicks'];
-            $rows[$key]['platform_leads'] = (int) $row['platform_leads_rows'] > 0 ? (int) $row['platform_leads'] : null;
-            $rows[$key]['platform_conversions'] = (float) $row['platform_conversions'];
+            $rows[$key]['spend'] = round((float) $rows[$key]['spend'] + (float) $row['spend'], 2);
+            $rows[$key]['impressions'] += (int) $row['impressions'];
+            $rows[$key]['clicks'] += (int) $row['clicks'];
+
+            if ((int) $row['platform_leads_rows'] > 0) {
+                $rows[$key]['platform_leads'] = (int) ($rows[$key]['platform_leads'] ?? 0) + (int) $row['platform_leads'];
+            }
+
+            $rows[$key]['platform_conversions'] = (float) ($rows[$key]['platform_conversions'] ?? 0) + (float) $row['platform_conversions'];
             $rows[$key]['match_status'] = 'Sin leads Salesforce';
             $rows[$key]['campaign_source_type'] = 'platform_campaign';
         }
@@ -451,6 +455,27 @@ class CampaignDashboardDatasetService
         );
     }
 
+    private function normalizeDashboardRow(array $row): array
+    {
+        $platform = $row['platform'] ?? null;
+        $campaignName = $row['campaign_name'] ?? null;
+        $sourceCampaignName = $row['source_campaign_name'] ?? ($row['campaign_acquired'] ?? null);
+
+        if (
+            $this->campaignTypeResolver->isMetaInstantFormsCampaign($platform, $campaignName)
+            || $this->campaignTypeResolver->isMetaDirectFormCampaignName($sourceCampaignName)
+        ) {
+            $row['platform'] = 'meta';
+            $row['campaign_id'] = $this->campaignTypeResolver->metaDirectFormCampaignId();
+            $row['campaign_name'] = $this->campaignTypeResolver->metaDirectFormCampaignName();
+            $row['source_campaign_name'] = $this->campaignTypeResolver->metaDirectFormCampaignName();
+            $row['campaign_acquired'] = $this->campaignTypeResolver->metaDirectFormCampaignName();
+            $row['campaign_type'] = 'venta';
+        }
+
+        return $row;
+    }
+
     private function campaignStatusLabel(array $row): string
     {
         return $this->campaignIsActive($row) ? 'Activa' : 'Inactiva';
@@ -476,6 +501,16 @@ class CampaignDashboardDatasetService
     private function recordTypeSql(): string
     {
         return "LOWER(COALESCE(so.record_type_name, ''))";
+    }
+
+    private function isSaleAttributionRow(object $row): bool
+    {
+        return (bool) ($row->has_sale ?? false) && ($row->campaign_type ?? null) !== 'tasacion';
+    }
+
+    private function isPurchaseAttributionRow(object $row): bool
+    {
+        return (bool) ($row->has_purchase ?? false) && ($row->campaign_type ?? null) === 'tasacion';
     }
 
     private function closedLostSql(): string
@@ -795,9 +830,9 @@ class CampaignDashboardDatasetService
                 }
 
                 $months[$month]['reservations'] += (int) ((bool) $row->has_reservation);
-                $months[$month]['sales'] += (int) ((bool) $row->has_sale);
+                $months[$month]['sales'] += (int) $this->isSaleAttributionRow($row);
                 $months[$month]['appraisals_generated'] += (int) ((bool) $row->has_opportunity && $row->campaign_type === 'tasacion');
-                $months[$month]['purchases'] += (int) ((bool) $row->has_purchase);
+                $months[$month]['purchases'] += (int) $this->isPurchaseAttributionRow($row);
             });
 
         return array_values($months);
@@ -898,6 +933,8 @@ class CampaignDashboardDatasetService
                 'cla.lead_created_date',
                 'cla.has_reservation',
                 'cla.has_sale',
+                'cla.has_purchase',
+                'cla.campaign_type',
             ])
             ->get()
             ->reduce(function (array $carry, object $row): array {
@@ -908,7 +945,8 @@ class CampaignDashboardDatasetService
                 }
 
                 $carry[$metricDate]['reservations'] = ($carry[$metricDate]['reservations'] ?? 0) + (int) ((bool) $row->has_reservation);
-                $carry[$metricDate]['sales'] = ($carry[$metricDate]['sales'] ?? 0) + (int) ((bool) $row->has_sale);
+                $carry[$metricDate]['sales'] = ($carry[$metricDate]['sales'] ?? 0) + (int) $this->isSaleAttributionRow($row);
+                $carry[$metricDate]['purchases'] = ($carry[$metricDate]['purchases'] ?? 0) + (int) $this->isPurchaseAttributionRow($row);
 
                 return $carry;
             }, []);
@@ -923,6 +961,7 @@ class CampaignDashboardDatasetService
                 'date' => $date,
                 'reservations' => (int) ($rowsByDate[$date]['reservations'] ?? 0),
                 'sales' => (int) ($rowsByDate[$date]['sales'] ?? 0),
+                'purchases' => (int) ($rowsByDate[$date]['purchases'] ?? 0),
             ];
             $cursor = $cursor->addDay();
         }
@@ -1162,6 +1201,9 @@ class CampaignDashboardDatasetService
 
         $attributedSales = $this->attributionBase($period, $filters)
             ->where('has_sale', true)
+            ->where(function ($query): void {
+                $query->whereNull('campaign_type')->orWhere('campaign_type', '<>', 'tasacion');
+            })
             ->count();
 
         if ($attributedSales === 0) {
@@ -1177,6 +1219,11 @@ class CampaignDashboardDatasetService
         $salesWithLocalOpportunity = $this->attributionBase($period, $filters)
             ->join('salesforce_opportunities as so', 'so.salesforce_id', '=', 'campaign_lead_attributions.opportunity_id')
             ->where('campaign_lead_attributions.has_sale', true)
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('campaign_lead_attributions.campaign_type')
+                    ->orWhere('campaign_lead_attributions.campaign_type', '<>', 'tasacion');
+            })
             ->count();
 
         if ($salesWithLocalOpportunity === 0) {
@@ -1292,6 +1339,9 @@ class CampaignDashboardDatasetService
             ->where('cla.lead_created_date', '>=', $period['start_at'])
             ->where('cla.lead_created_date', '<', $period['end_at'])
             ->where('cla.has_sale', true)
+            ->where(function ($subQuery): void {
+                $subQuery->whereNull('cla.campaign_type')->orWhere('cla.campaign_type', '<>', 'tasacion');
+            })
             ->where("so.{$column}", '>', 0);
 
         return $aggregate === 'sum'
@@ -1305,7 +1355,10 @@ class CampaignDashboardDatasetService
             ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
             ->where('cla.lead_created_date', '>=', $period['start_at'])
             ->where('cla.lead_created_date', '<', $period['end_at'])
-            ->where('cla.has_sale', true);
+            ->where('cla.has_sale', true)
+            ->where(function ($subQuery): void {
+                $subQuery->whereNull('cla.campaign_type')->orWhere('cla.campaign_type', '<>', 'tasacion');
+            });
 
         $fallbackSql = 'NULL';
 

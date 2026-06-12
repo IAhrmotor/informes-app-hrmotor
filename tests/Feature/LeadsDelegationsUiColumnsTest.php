@@ -21,14 +21,23 @@ class LeadsDelegationsUiColumnsTest extends TestCase
         $this->assertMatchesRegularExpression('/Delegaci.{1,4}n del lead/', $section);
         $this->assertStringContainsString('delegationRows', $section);
         $this->assertStringContainsString('Leads totales', $section);
+        $this->assertStringContainsString('Potencial con owner gen', $section);
+        $this->assertStringContainsString('% pendiente', $section);
         $this->assertStringNotContainsString('Zona comercial', $section);
         $this->assertStringNotContainsString('Grupo Lead', $section);
+        $this->assertStringNotContainsString('Convertidos</th>', $section);
+        $this->assertStringNotContainsString('Descartados</th>', $section);
+        $this->assertStringNotContainsString('Potenciales sin trabajar</th>', $section);
+        $this->assertStringNotContainsString('Gestionados</th>', $section);
 
         $js = file_get_contents(resource_path('js/reports/leads-dashboard.js'));
         $renderDelegations = $this->sectionBetween($js, 'function renderDelegations', 'function renderPortals');
 
         $this->assertStringContainsString('(row) => row.delegacion', $renderDelegations);
+        $this->assertStringContainsString('row.leads_unassigned', $renderDelegations);
+        $this->assertStringContainsString('row.leads_unassigned_pct', $renderDelegations);
         $this->assertStringNotContainsString('row.zone', $renderDelegations);
+        $this->assertStringNotContainsString('row.convertidos', $renderDelegations);
     }
 
     private function sectionBetween(string $content, string $startNeedle, string $endNeedle): string

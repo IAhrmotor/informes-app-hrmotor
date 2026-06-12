@@ -31,6 +31,12 @@ class MetaAdsClient
 
     public function insights(string $accountId, CarbonInterface $start, CarbonInterface $end): array
     {
+        $until = $end->toDateString();
+
+        if ($start->toDateString() === $until) {
+            return [];
+        }
+
         $apiVersion = trim((string) config('services.meta_ads.api_version', 'v25.0'));
         $accessToken = trim((string) config('services.meta_ads.access_token'));
 
@@ -53,7 +59,7 @@ class MetaAdsClient
             'time_increment' => 1,
             'time_range' => json_encode([
                 'since' => $start->toDateString(),
-                'until' => $end->toDateString(),
+                'until' => $end->subDay()->toDateString(),
             ]),
             'fields' => implode(',', [
                 'date_start',

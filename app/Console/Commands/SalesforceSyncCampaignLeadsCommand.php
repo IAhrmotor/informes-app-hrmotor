@@ -12,6 +12,8 @@ class SalesforceSyncCampaignLeadsCommand extends Command
     protected $signature = 'salesforce:sync-campaign-leads
         {--days=90 : Numero de dias hacia atras que se sincronizan}
         {--months= : Meses hacia atras que se sincronizan; tiene prioridad sobre --days}
+        {--from= : Fecha inicial explicita en formato Y-m-d}
+        {--to= : Fecha final exclusiva explicita en formato Y-m-d}
         {--fresh : Borra leads de campana del periodo antes de sincronizar}
         {--debug-soql : Imprime la query SOQL ejecutada}';
 
@@ -19,12 +21,18 @@ class SalesforceSyncCampaignLeadsCommand extends Command
 
     public function handle(CampaignLeadSyncService $sync): int
     {
-        $end = CarbonImmutable::now();
+        $end = $this->periodEnd();
         $start = $this->periodStart($end);
+
+        if ($end->lessThanOrEqualTo($start)) {
+            $this->error('El rango indicado no es valido: --to debe ser posterior a --from.');
+
+            return self::FAILURE;
+        }
 
         $this->info('Sincronizando Salesforce Leads de campana.');
         $this->line('Periodo inicio: '.$start->utc()->format('Y-m-d\TH:i:s\Z'));
-        $this->line('Periodo fin: '.$end->utc()->format('Y-m-d\TH:i:s\Z'));
+        $this->line('Periodo fin exclusivo: '.$end->utc()->format('Y-m-d\TH:i:s\Z'));
 
         if ($this->option('debug-soql')) {
             $this->newLine();
@@ -58,6 +66,12 @@ class SalesforceSyncCampaignLeadsCommand extends Command
 
     private function periodStart(CarbonImmutable $end): CarbonImmutable
     {
+        $from = $this->option('from');
+
+        if (filled($from)) {
+            return CarbonImmutable::parse($from)->startOfDay();
+        }
+
         $months = $this->option('months');
 
         if ($months !== null && $months !== '') {
@@ -65,5 +79,16 @@ class SalesforceSyncCampaignLeadsCommand extends Command
         }
 
         return $end->subDays(max((int) $this->option('days'), 1))->startOfDay();
+    }
+
+    private function periodEnd(): CarbonImmutable
+    {
+        $to = $this->option('to');
+
+        if (filled($to)) {
+            return CarbonImmutable::parse($to)->startOfDay();
+        }
+
+        return CarbonImmutable::now();
     }
 }

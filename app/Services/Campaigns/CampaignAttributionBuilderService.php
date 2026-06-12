@@ -106,6 +106,17 @@ class CampaignAttributionBuilderService
         $stats['peak_memory_mb'] = round(memory_get_peak_usage(true) / 1024 / 1024, 2);
         $stats = array_merge($stats, $this->topDiagnostics($start, $end));
 
+        if ($stats['total_leads_in_range'] === 0 && ($stats['top_platform_spend'] ?? []) !== []) {
+            $stats['warnings'][] = sprintf(
+                'No hay leads Salesforce en %s entre %s y %s. Ejecuta salesforce:sync-campaign-leads --from=%s --to=%s y revisa si Salesforce devuelve leads para ese tramo.',
+                $stats['lead_source_table'],
+                $start->toDateString(),
+                $end->subDay()->toDateString(),
+                $start->toDateString(),
+                $end->toDateString(),
+            );
+        }
+
         $this->invalidateCache();
 
         return $stats;
@@ -130,6 +141,7 @@ class CampaignAttributionBuilderService
             ->chunkById(self::LEAD_CHUNK_SIZE, function (Collection $chunk) use (&$leads, &$stats): void {
                 foreach ($chunk as $lead) {
                     $this->fillCampaignFieldsFromRawPayload($lead);
+                    $this->normalizeLeadCampaign($lead);
 
                     if (! filled($this->normalizer->clean($lead->campaign_acquired))) {
                         continue;
@@ -277,6 +289,7 @@ class CampaignAttributionBuilderService
             'email' => 'Email',
             'converted_account_id' => 'ConvertedAccountId',
             'converted_opportunity_id' => 'ConvertedOpportunityId',
+            'portal_text' => 'Portal_Text__c',
         ] as $localField => $salesforceField) {
             if (! $this->normalizer->isValidAttributionValue($lead->{$localField} ?? null) && filled(data_get($payload, $salesforceField))) {
                 $lead->{$localField} = data_get($payload, $salesforceField);
@@ -284,11 +297,27 @@ class CampaignAttributionBuilderService
         }
     }
 
+    private function normalizeLeadCampaign(object $lead): void
+    {
+        $hasMetaInstantFormsName = $this->campaignTypeResolver->isMetaDirectFormCampaignName($lead->campaign_acquired ?? null);
+        $isMetaDirectFormLead = $this->campaignTypeResolver->isMetaDirectFormLead(
+            $lead->portal_text ?? null,
+            $lead->fuente_origen ?? null,
+        );
+
+        if (! $hasMetaInstantFormsName && ! $isMetaDirectFormLead) {
+            return;
+        }
+
+        $lead->campaign_acquired = $this->campaignTypeResolver->metaDirectFormCampaignName();
+        $lead->acquired_id = $this->campaignTypeResolver->metaDirectFormCampaignId();
+    }
+
     private function metricLookup(CarbonInterface $start, CarbonInterface $end): array
     {
         $rows = DB::table('campaign_platform_daily_metrics')
             ->where('metric_date', '>=', $start->toDateString())
-            ->where('metric_date', '<=', CarbonImmutable::parse($end)->toDateString())
+            ->where('metric_date', '<', CarbonImmutable::parse($end)->toDateString())
             ->select([
                 'platform',
                 'account_id',
@@ -310,6 +339,7 @@ class CampaignAttributionBuilderService
         ];
 
         foreach ($rows as $row) {
+            $row = $this->normalizeMetricLookupRow($row);
             $payload = [
                 'platform' => $row->platform,
                 'account_id' => $row->account_id,
@@ -342,6 +372,16 @@ class CampaignAttributionBuilderService
         }
 
         return $lookup;
+    }
+
+    private function normalizeMetricLookupRow(object $row): object
+    {
+        if ($this->campaignTypeResolver->isMetaInstantFormsCampaign($row->platform ?? null, $row->campaign_name ?? null)) {
+            $row->campaign_id = $this->campaignTypeResolver->metaDirectFormCampaignId();
+            $row->campaign_name = $this->campaignTypeResolver->metaDirectFormCampaignName();
+        }
+
+        return $row;
     }
 
     private function resolveCampaign(object $lead, array $metrics): array
@@ -965,20 +1005,23 @@ class CampaignAttributionBuilderService
         }
 
         if ($leadRows !== []) {
-            $payload = array_map(fn (array $row): array => [
+            $payload = array_map(function (array $row): array {
+                $sourceCampaignType = $this->campaignTypeResolver->sourceCampaignType($row['campaign_acquired']) ?? 'otros';
+
+                return [
                     'lead_id' => $row['lead_id'],
                     'lead_created_date' => $row['lead_created_at'],
                     'campaign_name' => $row['campaign_name'],
                     'campaign_id' => $row['campaign_id'],
                     'platform' => $row['platform'],
                     'source_campaign_name' => $row['campaign_acquired'],
-                    'campaign_type' => $this->campaignTypeResolver->sourceCampaignType($row['campaign_acquired']) ?? 'otros',
+                    'campaign_type' => $sourceCampaignType,
                     'opportunity_id' => $row['opportunity_id'],
                     'has_opportunity' => $row['has_opportunity'],
                     'has_reservation' => $row['has_reservation'],
-                    'has_sale' => $row['has_sale'],
-                    'has_purchase' => $this->campaignTypeResolver->sourceCampaignType($row['campaign_acquired']) === 'tasacion' && $row['has_purchase'],
-                    'sold_amount' => $row['sale_amount'],
+                    'has_sale' => $sourceCampaignType === 'venta' && $row['has_sale'],
+                    'has_purchase' => $sourceCampaignType === 'tasacion' && $row['has_purchase'],
+                    'sold_amount' => $sourceCampaignType === 'venta' ? $row['sale_amount'] : null,
                     'source_acquired' => $row['source_acquired'],
                     'medium_acquired' => $row['medium_acquired'],
                     'campaign_acquired' => $row['campaign_acquired'],
@@ -992,7 +1035,8 @@ class CampaignAttributionBuilderService
                     'vehicle_interest' => $row['vehicle_interest'],
                     'created_at' => $row['created_at'],
                     'updated_at' => $row['updated_at'],
-                ], $leadRows);
+                ];
+            }, $leadRows);
 
             foreach (array_chunk($payload, self::UPSERT_CHUNK_SIZE) as $chunk) {
                 DB::table('campaign_lead_attributions')->insert($chunk);
@@ -1004,6 +1048,18 @@ class CampaignAttributionBuilderService
     {
         $opportunity = $assignment['opportunity'] ?? null;
         $opportunityFlags = $this->opportunityFlags($lead, $opportunity);
+        $sourceCampaignType = $this->campaignTypeResolver->sourceCampaignType($lead->campaign_acquired);
+
+        if ($sourceCampaignType === 'tasacion') {
+            $opportunityFlags['has_sale'] = false;
+            $opportunityFlags['sale_date'] = null;
+            $opportunityFlags['sale_amount'] = null;
+        }
+
+        if ($sourceCampaignType === 'venta') {
+            $opportunityFlags['has_purchase'] = false;
+        }
+
         $decorated = $this->leadDataset->decorateLead($lead);
 
         return [
@@ -1128,7 +1184,8 @@ class CampaignAttributionBuilderService
     {
         return [
             'range_start' => $start->toDateString(),
-            'range_end' => $end->toDateString(),
+            'range_end' => $end->subDay()->toDateString(),
+            'range_end_exclusive' => $end->toDateString(),
             'lead_source_table' => 'salesforce_leads',
             'total_leads_in_range' => 0,
             'leads_with_acquisition_not_null' => 0,
@@ -1212,7 +1269,7 @@ class CampaignAttributionBuilderService
     {
         return DB::table('campaign_platform_daily_metrics')
             ->where('metric_date', '>=', $start->toDateString())
-            ->where('metric_date', '<=', CarbonImmutable::parse($end)->toDateString())
+            ->where('metric_date', '<', CarbonImmutable::parse($end)->toDateString())
             ->select([
                 'platform',
                 'campaign_id',

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Campanas | HR Motor - Informes comerciales</title>
+    <title>Campañas | HR Motor - Informes comerciales</title>
     <link rel="icon" href="/brand/favicon.ico" sizes="any">
     <link rel="shortcut icon" href="/brand/favicon.ico">
     @include('partials.font-assets')
@@ -28,29 +28,29 @@
         </div>
         <div class="filter-group">
             <label for="startDate">Inicio</label>
-            <input type="date" id="startDate">
+            <input type="date" id="startDate" min="2026-01-01" max="2026-12-31">
         </div>
         <div class="filter-group">
             <label for="endDate">Fin</label>
-            <input type="date" id="endDate">
+            <input type="date" id="endDate" min="2026-01-01" max="2026-12-31">
         </div>
         <div class="filter-group">
             <label for="platform">Plataforma</label>
             <select id="platform"><option value="">Todas</option></select>
         </div>
         <div class="filter-group">
-            <label for="campaignType">Tipo campana</label>
+            <label for="campaignType">Tipo de campaña</label>
             <select id="campaignType">
                 <option value="all" selected>Todos</option>
                 <option value="venta">Venta</option>
-                <option value="tasacion">Tasacion</option>
-                <option value="exposicion">Exposicion</option>
+                <option value="tasacion">Tasación</option>
+                <option value="exposicion">Exposición</option>
                 <option value="branding">Branding</option>
                 <option value="otros">Otros</option>
             </select>
         </div>
         <div class="filter-group">
-            <label for="campaignStatus">Estado campana</label>
+            <label for="campaignStatus">Estado de campaña</label>
             <select id="campaignStatus">
                 <option value="">Todas</option>
                 <option value="active" selected>Activas</option>
@@ -58,7 +58,7 @@
             </select>
         </div>
         <div class="filter-group campaign-search">
-            <label for="campaignSearch">Buscar campana</label>
+            <label for="campaignSearch">Buscar campaña</label>
             <input type="search" id="campaignSearch" placeholder="Nombre, ID, fuente o medio">
         </div>
         <div class="filter-actions campaign-filter-actions">
@@ -73,13 +73,13 @@
             <div class="panel-title">
                 <div>
                     <h2>Filtros avanzados</h2>
-                    <div class="small">Segmenta campanas reales por campana, resultado y clasificacion</div>
+                    <div class="small">Segmenta campañas reales por campaña, resultado y clasificación</div>
                 </div>
                 <button type="button" class="main-tab" id="advancedFiltersClose">Cerrar</button>
             </div>
             <div class="campaign-advanced-grid">
                 <div class="filter-group">
-                    <label>Nombre de campana</label>
+                    <label>Nombre de campaña</label>
                     <div class="campaign-name-toolbar">
                         <button type="button" class="main-tab" id="campaignNamesSelectAll">Seleccionar todas</button>
                         <button type="button" class="filter-reset" id="campaignNamesClear">Limpiar</button>
@@ -90,7 +90,7 @@
                     <label for="hasOpportunity">Oportunidad</label>
                     <select id="hasOpportunity">
                         <option value="">Todas</option>
-                        <option value="yes">Si</option>
+                        <option value="yes">Sí</option>
                         <option value="no">No</option>
                     </select>
                 </div>
@@ -98,7 +98,7 @@
                     <label for="hasReservation">Reserva</label>
                     <select id="hasReservation">
                         <option value="">Todas</option>
-                        <option value="yes">Si</option>
+                        <option value="yes">Sí</option>
                         <option value="no">No</option>
                     </select>
                 </div>
@@ -106,12 +106,12 @@
                     <label for="hasSale">Venta</label>
                     <select id="hasSale">
                         <option value="">Todas</option>
-                        <option value="yes">Si</option>
+                        <option value="yes">Sí</option>
                         <option value="no">No</option>
                     </select>
                 </div>
                 <div class="filter-group">
-                    <label for="classification">Clasificacion</label>
+                    <label for="classification">Clasificación</label>
                     <select id="classification"><option value="">Todas</option></select>
                 </div>
             </div>
@@ -121,11 +121,11 @@
     @if (\App\Support\ReportUserAccess::canSeeSyncDiagnostics(request()))
     <aside class="campaign-drawer campaign-diagnostics-drawer" id="campaignDiagnosticsModal" aria-hidden="true">
         <div class="campaign-drawer-backdrop" id="campaignDiagnosticsCloseBackdrop"></div>
-        <section class="campaign-drawer-panel card" aria-label="Diagnostico de sincronizacion">
+        <section class="campaign-drawer-panel card" aria-label="Diagnóstico de sincronización">
             <div class="panel-title">
                 <div>
-                    <h2>Diagnostico de sincronizacion</h2>
-                    <div class="small">Estado de inversion, atribucion y calidad de tracking</div>
+                    <h2>Diagnóstico de sincronización</h2>
+                    <div class="small">Estado de inversión, atribución y calidad de tracking</div>
                 </div>
                 <button type="button" class="main-tab" id="campaignDiagnosticsClose">Cerrar</button>
             </div>
@@ -136,8 +136,8 @@
 
     <main>
         <section class="tab-panel active">
-            <div class="notice" id="loadingMessage">Cargando datos de campanas...</div>
-            <div class="notice is-hidden" id="emptyMessage">No hay campanas de plataforma para el periodo seleccionado.</div>
+            <div class="notice" id="loadingMessage">Cargando datos de campañas...</div>
+            <div class="notice is-hidden" id="emptyMessage">No hay campañas de plataforma para el periodo seleccionado.</div>
             <div id="warnings"></div>
             <div class="campaign-legacy-context" aria-hidden="true">
                 <span id="periodLabel"></span>
@@ -147,17 +147,17 @@
             </div>
 
             <section class="campaign-topbar">
-                <nav class="tabs-main campaign-context-tabs" aria-label="Contexto de campanas">
+                <nav class="tabs-main campaign-context-tabs" aria-label="Contexto de campañas">
                     <button type="button" class="main-tab active" data-context="all">Todos</button>
                     <button type="button" class="main-tab" data-context="venta">Venta</button>
-                    <button type="button" class="main-tab" data-context="tasacion">Tasacion</button>
-                    <button type="button" class="main-tab" data-context="exposicion">Exposicion</button>
+                    <button type="button" class="main-tab" data-context="tasacion">Tasación</button>
+                    <button type="button" class="main-tab" data-context="exposicion">Exposición</button>
                     <button type="button" class="main-tab" data-context="branding">Branding</button>
                     <button type="button" class="main-tab" data-context="otros">Otros</button>
                 </nav>
                 @if (\App\Support\ReportUserAccess::canSeeSyncDiagnostics(request()))
                 <div class="campaign-topbar-actions">
-                    <button type="button" class="main-tab" id="diagnosticsOpen">Ver diagnostico</button>
+                    <button type="button" class="main-tab" id="diagnosticsOpen">Ver diagnóstico</button>
                 </div>
                 @endif
             </section>
@@ -180,7 +180,7 @@
                 <div class="panel-title">
                     <div>
                         <h2>Rankings</h2>
-                        <div class="small">Campanas reales de Google Ads y Meta Ads</div>
+                        <div class="small">Campañas reales de Google Ads y Meta Ads</div>
                     </div>
                     <div class="ranking-settings">
                         <button type="button" class="main-tab" id="rankingsToggle">Configurar rankings</button>

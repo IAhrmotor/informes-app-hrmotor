@@ -7,6 +7,9 @@ use Illuminate\Support\Facades\Schema;
 
 class CampaignTypeResolver
 {
+    private const META_DIRECT_FORM_CAMPAIGN_ID = 'meta_instantforms_direct_form';
+    private const META_DIRECT_FORM_CAMPAIGN_NAME = 'Formulario Directo Meta';
+
     private const TASACION_SOURCE_KEYS = [
         'tasador landing search 1',
         'expiey leads geo tasacion',
@@ -28,6 +31,10 @@ class CampaignTypeResolver
 
     public function typeFor(mixed $platform, mixed $campaignId, mixed $campaignName): string
     {
+        if ($this->isMetaInstantFormsCampaign($platform, $campaignName)) {
+            return 'venta';
+        }
+
         $mapped = $this->mappedType($platform, $campaignId, $campaignName);
 
         if ($mapped !== null) {
@@ -102,9 +109,43 @@ class CampaignTypeResolver
             return null;
         }
 
+        if ($this->isMetaDirectFormCampaignName($campaignName)) {
+            return 'venta';
+        }
+
         return $this->isTasacionNameKey($this->normalizer->key($campaignName))
             ? 'tasacion'
             : 'venta';
+    }
+
+    public function isMetaInstantFormsCampaign(mixed $platform, mixed $campaignName): bool
+    {
+        return $this->normalizer->key($platform) === 'meta'
+            && $this->isMetaDirectFormCampaignName($campaignName);
+    }
+
+    public function isMetaDirectFormCampaignName(mixed $campaignName): bool
+    {
+        $nameKey = $this->normalizer->key($campaignName);
+
+        return $nameKey === $this->normalizer->key(self::META_DIRECT_FORM_CAMPAIGN_NAME)
+            || str_contains($nameKey, 'instantforms');
+    }
+
+    public function isMetaDirectFormLead(mixed $portalText, mixed $source): bool
+    {
+        return $this->normalizer->key($portalText) === 'meta'
+            && $this->normalizer->key($source) === 'facebook';
+    }
+
+    public function metaDirectFormCampaignId(): string
+    {
+        return self::META_DIRECT_FORM_CAMPAIGN_ID;
+    }
+
+    public function metaDirectFormCampaignName(): string
+    {
+        return self::META_DIRECT_FORM_CAMPAIGN_NAME;
     }
 
     public function isExactTasador(mixed $campaignName): bool

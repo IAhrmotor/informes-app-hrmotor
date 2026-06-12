@@ -8,9 +8,14 @@ use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
 use App\Services\Campaigns\CampaignAttributionBuilderService;
 use App\Services\Campaigns\CampaignLeadSyncService;
+use App\Services\Campaigns\GoogleCampaignSyncService;
+use App\Services\Campaigns\MetaCampaignSyncService;
+use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyUsersSyncService;
+use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Mockery\MockInterface;
 use Tests\TestCase;
 
 class CampaignCommandsTest extends TestCase
@@ -177,6 +182,122 @@ class CampaignCommandsTest extends TestCase
 
         $this->artisan('campaigns:sync-google', ['--days' => 1])
             ->expectsOutputToContain('Google Ads configurado: no')
+            ->assertExitCode(0);
+    }
+
+    public function test_platform_sync_commands_accept_explicit_from_and_to_range(): void
+    {
+        $this->mock(MetaCampaignSyncService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('sync')
+                ->once()
+                ->withArgs(function ($start, $end): bool {
+                    return $start->equalTo(CarbonImmutable::parse('2026-01-01')->startOfDay())
+                        && $end->equalTo(CarbonImmutable::parse('2026-02-01')->startOfDay());
+                })
+                ->andReturn([
+                    'configured' => true,
+                    'processed' => 0,
+                    'saved' => 0,
+                    'warnings' => [],
+                ]);
+        });
+
+        $this->mock(GoogleCampaignSyncService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('sync')
+                ->once()
+                ->withArgs(function ($start, $end): bool {
+                    return $start->equalTo(CarbonImmutable::parse('2026-01-01')->startOfDay())
+                        && $end->equalTo(CarbonImmutable::parse('2026-02-01')->startOfDay());
+                })
+                ->andReturn([
+                    'configured' => true,
+                    'processed' => 0,
+                    'saved' => 0,
+                    'warnings' => [],
+                ]);
+        });
+
+        $this->artisan('campaigns:sync-meta', [
+            '--from' => '2026-01-01',
+            '--to' => '2026-02-01',
+        ])->assertExitCode(0);
+
+        $this->artisan('campaigns:sync-google', [
+            '--from' => '2026-01-01',
+            '--to' => '2026-02-01',
+        ])->assertExitCode(0);
+    }
+
+    public function test_salesforce_sync_commands_accept_explicit_from_and_to_range(): void
+    {
+        $this->mock(CampaignLeadSyncService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('sync')
+                ->once()
+                ->withArgs(function ($start, $end, $fresh): bool {
+                    return $fresh === false
+                        && $start->equalTo(CarbonImmutable::parse('2026-01-01')->startOfDay())
+                        && $end->equalTo(CarbonImmutable::parse('2026-02-01')->startOfDay());
+                })
+                ->andReturn([
+                    'table' => 'campaign_salesforce_leads',
+                    'deleted' => 0,
+                    'queried' => 0,
+                    'saved' => 0,
+                    'with_campaign_acquired' => 0,
+                    'with_acquired_id' => 0,
+                    'with_content_acquired' => 0,
+                    'with_fuente_origen' => 0,
+                    'with_medio_origen' => 0,
+                    'without_acquisition' => 0,
+                    'warnings' => [],
+                ]);
+        });
+
+        $this->mock(SalesforceMonthlyUsersSyncService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('sync')
+                ->once()
+                ->andReturn([
+                    'queried' => 0,
+                    'saved' => 0,
+                ]);
+        });
+
+        $this->mock(SalesforceOpportunitySyncService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('sync')
+                ->once()
+                ->withArgs(function ($start, $end): bool {
+                    return $start->equalTo(CarbonImmutable::parse('2026-01-01')->startOfDay())
+                        && $end->equalTo(CarbonImmutable::parse('2026-02-01')->startOfDay());
+                })
+                ->andReturn([
+                    'queried' => 0,
+                    'saved' => 0,
+                    'stats' => [
+                        'opportunity' => 0,
+                        'lead' => 0,
+                        'opportunity_source' => 0,
+                        'fallback_exposicion' => 0,
+                        'fallback_web' => 0,
+                        'unclassified' => 0,
+                        'reservas_vivas' => 0,
+                        'caidas' => 0,
+                        'cv_firmados' => 0,
+                    ],
+                ]);
+        });
+
+        $this->artisan('salesforce:sync-campaign-leads', [
+            '--from' => '2026-01-01',
+            '--to' => '2026-02-01',
+        ])
+            ->expectsOutputToContain('Periodo fin exclusivo: 2026-02-01T00:00:00Z')
+            ->assertExitCode(0);
+
+        $this->artisan('salesforce:sync-opportunities', [
+            '--from' => '2026-01-01',
+            '--to' => '2026-02-01',
+        ])
+            ->expectsOutputToContain('Periodo fin exclusivo: 2026-02-01T00:00:00Z')
             ->assertExitCode(0);
     }
 

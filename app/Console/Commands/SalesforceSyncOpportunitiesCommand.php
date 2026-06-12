@@ -15,6 +15,8 @@ class SalesforceSyncOpportunitiesCommand extends Command
     protected $signature = 'salesforce:sync-opportunities
         {--days=60 : Numero de dias hacia atras que se sincronizan}
         {--months= : Meses hacia atras que se sincronizan; tiene prioridad sobre --days}
+        {--from= : Fecha inicial explicita en formato Y-m-d}
+        {--to= : Fecha final exclusiva explicita en formato Y-m-d}
         {--fresh : Borra solo la tabla de oportunidades Salesforce antes de sincronizar}
         {--debug-soql : Imprime la query SOQL ejecutada}';
 
@@ -24,8 +26,14 @@ class SalesforceSyncOpportunitiesCommand extends Command
         SalesforceMonthlyUsersSyncService $usersSync,
         SalesforceOpportunitySyncService $opportunitiesSync,
     ): int {
-        $periodEnd = CarbonImmutable::now();
+        $periodEnd = $this->periodEnd();
         $periodStart = $this->periodStart($periodEnd);
+
+        if ($periodEnd->lessThanOrEqualTo($periodStart)) {
+            $this->error('El rango indicado no es valido: --to debe ser posterior a --from.');
+
+            return self::FAILURE;
+        }
 
         if ($this->option('fresh')) {
             SalesforceOpportunity::query()->delete();
@@ -35,7 +43,7 @@ class SalesforceSyncOpportunitiesCommand extends Command
         try {
             $this->info('Sincronizando Salesforce Reservas / Ventas.');
             $this->line('Periodo inicio: '.$periodStart->utc()->format('Y-m-d\TH:i:s\Z'));
-            $this->line('Periodo fin: '.$periodEnd->utc()->format('Y-m-d\TH:i:s\Z'));
+            $this->line('Periodo fin exclusivo: '.$periodEnd->utc()->format('Y-m-d\TH:i:s\Z'));
 
             $users = $usersSync->sync();
             $this->line('Usuarios consultados: '.$users['queried']);
@@ -87,12 +95,29 @@ class SalesforceSyncOpportunitiesCommand extends Command
 
     private function periodStart(CarbonImmutable $end): CarbonImmutable
     {
+        $from = $this->option('from');
+
+        if (filled($from)) {
+            return CarbonImmutable::parse($from)->startOfDay();
+        }
+
         $months = $this->option('months');
 
         if ($months !== null && $months !== '') {
-            return $end->subMonthsNoOverflow(max((int) $months, 1));
+            return $end->subMonthsNoOverflow(max((int) $months, 1))->startOfDay();
         }
 
-        return $end->subDays(max((int) $this->option('days'), 1));
+        return $end->subDays(max((int) $this->option('days'), 1))->startOfDay();
+    }
+
+    private function periodEnd(): CarbonImmutable
+    {
+        $to = $this->option('to');
+
+        if (filled($to)) {
+            return CarbonImmutable::parse($to)->startOfDay();
+        }
+
+        return CarbonImmutable::now();
     }
 }

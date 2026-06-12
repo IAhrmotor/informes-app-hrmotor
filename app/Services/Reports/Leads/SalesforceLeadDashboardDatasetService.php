@@ -234,12 +234,22 @@ class SalesforceLeadDashboardDatasetService
         $commercialGroups = [];
         $delegationGroups = [];
         $portalGroups = [];
-        $currentRows = $this->decoratedLeadsForPeriod($periods['current']);
-        $previousRows = $this->decoratedLeadsForPeriod($periods['previous']);
+        $filterOptions = $this->emptyFilterOptionsAccumulator();
 
-        foreach ($currentRows as $lead) {
+        $this->eachPeriodLead($periods['current'], function (array $lead) use (
+            &$current,
+            &$commercialZoneGroups,
+            &$commercialDelegationGroups,
+            &$commercialGroups,
+            &$delegationGroups,
+            &$portalGroups,
+            &$filterOptions,
+            $filters,
+        ): void {
+            $this->collectFilterOptions($filterOptions, $lead);
+
             if (! $this->passesFilters($lead, $filters)) {
-                continue;
+                return;
             }
 
             $this->addToBucket($current, $lead);
@@ -256,17 +266,16 @@ class SalesforceLeadDashboardDatasetService
             }
 
             $this->addGroup($delegationGroups, $lead['lead_delegation'], $lead['lead_delegation'], [], $lead);
-
             $this->addGroup($portalGroups, $lead['portal'], $lead['portal'], [], $lead);
-        }
+        });
 
-        foreach ($previousRows as $lead) {
+        $this->eachPeriodLead($periods['previous'], function (array $lead) use (&$previous, $filters): void {
             if (! $this->passesFilters($lead, $filters)) {
-                continue;
+                return;
             }
 
             $this->addToBucket($previous, $lead);
-        }
+        });
 
         $current = $this->finalizeBucket($current);
         $previous = $this->finalizeBucket($previous);
@@ -291,7 +300,7 @@ class SalesforceLeadDashboardDatasetService
                 'insights' => $executiveInsights['insights'],
                 'executive_insights' => $executiveInsights['insights'],
                 'executive_insights_source' => $executiveInsights['source'],
-                'filters' => $this->filterOptions($currentRows),
+                'filters' => $this->filterOptionsFromAccumulator($filterOptions),
             ],
             'commercial_zones' => $commercialZones,
             'commercial_delegations' => $commercialDelegations,
@@ -301,42 +310,15 @@ class SalesforceLeadDashboardDatasetService
         ];
     }
 
-    private function eachDecoratedLead(array $filters, array $period, callable $callback): void
+    private function eachPeriodLead(array $period, callable $callback): void
     {
         $referenceDate = CarbonImmutable::parse($period['end']);
 
-        $this->baseQuery($period)->chunkById(1000, function (Collection $rows) use ($filters, $callback, $referenceDate): void {
+        $this->baseQuery($period)->chunkById(1000, function (Collection $rows) use ($callback, $referenceDate): void {
             foreach ($rows as $row) {
-                $lead = $this->decorateLead($row, $row, $referenceDate);
-
-                if ($this->passesFilters($lead, $filters)) {
-                    $callback($lead);
-                }
+                $callback($this->decorateLead($row, $row, $referenceDate));
             }
         }, 'salesforce_leads.id', 'id');
-    }
-
-    private function decoratedLeadsForPeriod(array $period): array
-    {
-        return Cache::remember(
-            'lead-dashboard-period-rows-v5:'.md5(json_encode([
-                'period' => $this->periodPayload($period),
-                'version' => $this->dataVersion(),
-            ])),
-            now()->addMinutes(self::CACHE_TTL_MINUTES),
-            function () use ($period): array {
-                $rows = [];
-                $referenceDate = CarbonImmutable::parse($period['end']);
-
-                $this->baseQuery($period)->chunkById(1000, function (Collection $chunk) use (&$rows, $referenceDate): void {
-                    foreach ($chunk as $row) {
-                        $rows[] = $this->decorateLead($row, $row, $referenceDate);
-                    }
-                }, 'salesforce_leads.id', 'id');
-
-                return $rows;
-            }
-        );
     }
 
     private function baseQuery(array $period): Builder
@@ -552,6 +534,7 @@ class SalesforceLeadDashboardDatasetService
         return array_merge($bucket, [
             'conversion_pct' => $this->percentage($bucket['convertidos'], $total),
             'descarte_pct' => $this->percentage($bucket['descartados'], $total),
+            'leads_unassigned_pct' => $this->percentage($bucket['leads_unassigned'], $total),
             'gestionados_pct' => $this->percentage($bucket['gestionados'], $total),
             'llamadas_pct' => $this->percentage($bucket['llamadas'], $total),
             'formularios_pct' => $this->percentage($bucket['formularios'], $total),
@@ -847,9 +830,65 @@ class SalesforceLeadDashboardDatasetService
         ];
     }
 
+    private function emptyFilterOptionsAccumulator(): array
+    {
+        return [
+            'portals' => [],
+            'lead_delegations' => [],
+            'zones' => [],
+        ];
+    }
+
+    private function collectFilterOptions(array &$options, array $lead): void
+    {
+        if (filled($lead['portal'] ?? null)) {
+            $options['portals'][$lead['portal']] = true;
+        }
+
+        if (filled($lead['lead_delegation'] ?? null)) {
+            $options['lead_delegations'][$lead['lead_delegation']] = true;
+        }
+
+        if (filled($lead['commercial_zone'] ?? null) && $lead['commercial_zone'] !== LeadDelegationNormalizer::UNCLASSIFIED) {
+            $options['zones'][$lead['commercial_zone']] = true;
+        }
+    }
+
+    private function filterOptionsFromAccumulator(array $options): array
+    {
+        $commercialDelegations = $this->commercialUsers()
+            ->pluck('user_delegation')
+            ->map(fn ($delegation) => $this->normalizeCommercialDelegation($delegation)['delegation'])
+            ->filter()
+            ->unique();
+
+        $zones = collect($this->delegationNormalizer->knownZones())
+            ->merge(array_keys($options['zones']))
+            ->filter()
+            ->reject(fn (string $zone) => $zone === LeadDelegationNormalizer::UNCLASSIFIED)
+            ->unique();
+
+        return [
+            'commercials' => $this->commercialUsers()
+                ->map(fn ($user, string $id) => ['id' => $id, 'name' => $user['name']])
+                ->sortBy('name')
+                ->values()
+                ->all(),
+            'portals' => collect(array_keys($options['portals']))
+                ->filter()
+                ->sort()
+                ->values()
+                ->all(),
+            'lead_delegations' => $this->delegationNormalizer->sortLabels(array_keys($options['lead_delegations'])),
+            'lead_types' => self::LEAD_TYPES,
+            'commercial_delegations' => $this->delegationNormalizer->sortLabels($commercialDelegations->all()),
+            'zones' => $this->delegationNormalizer->sortLabels($zones->all()),
+        ];
+    }
+
     private function cacheKey(array $filters, array $periods): string
     {
-        return 'lead-dashboard-v7:'.md5(json_encode([
+        return 'lead-dashboard-v8:'.md5(json_encode([
             'filters' => $filters,
             'periods' => [
                 'current' => $this->periodPayload($periods['current']),

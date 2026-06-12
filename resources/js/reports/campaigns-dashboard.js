@@ -10,6 +10,9 @@ const monthlyMetricsStorageKey = 'campaigns.monthlyChart.metrics.v2';
 const monthlyCompareStorageKey = 'campaigns.monthlyChart.compare';
 const campaignNameSelectionStorageKey = 'campaigns.campaignNames.selected';
 const campaignPointIcon = '/brand/campaign-point.svg';
+const monthlyChartEnabled = false;
+const campaignPeriodMinDate = '2026-01-01';
+const campaignPeriodMaxDate = '2026-12-31';
 
 let campaignRows = [];
 let tableSort = {
@@ -34,7 +37,7 @@ let monthlyVisibleMetrics = [];
 let monthlyCompareMode = 'none';
 
 const dailySeriesDefinitions = [
-    { key: 'spend', label: 'Inversion', formatter: formatMoney, className: 'spend' },
+    { key: 'spend', label: 'Inversión', formatter: formatMoney, className: 'spend' },
     { key: 'leads_salesforce', label: 'Leads SF', formatter: formatNumber, className: 'leads' },
 ];
 
@@ -44,7 +47,7 @@ const conversionSeriesDefinitions = [
 ];
 
 const monthlySeriesDefinitions = [
-    { key: 'spend', label: 'Inversion', formatter: formatMoney, className: 'spend' },
+    { key: 'spend', label: 'Inversión', formatter: formatMoney, className: 'spend' },
     { key: 'impressions', label: 'Impresiones', formatter: formatNumber, className: 'impressions' },
     { key: 'clicks', label: 'Clicks', formatter: formatNumber, className: 'clicks' },
     { key: 'leads_salesforce', label: 'Leads', formatter: formatNumber, className: 'leads' },
@@ -56,15 +59,15 @@ const monthlySeriesDefinitions = [
 ];
 
 const monthlyTasacionSeriesDefinitions = [
-    { key: 'spend', label: 'Inversion', formatter: formatMoney, className: 'spend' },
+    { key: 'spend', label: 'Inversión', formatter: formatMoney, className: 'spend' },
     { key: 'leads_salesforce', label: 'Leads', formatter: formatNumber, className: 'leads' },
     { key: 'opportunities', label: 'Oportunidades', formatter: formatNumber, className: 'opportunities' },
     { key: 'purchases', label: 'Compras', formatter: formatNumber, className: 'purchases' },
 ];
 
 const rankingDefinitions = [
-    { key: 'top_spend', title: 'Campanas con mas inversion', metric: 'spend', formatter: formatMoney, visible: true },
-    { key: 'top_impressions', title: 'Campanas con mas impresiones', metric: 'impressions', formatter: formatNumber, visible: false },
+    { key: 'top_spend', title: 'Campañas con más inversión', metric: 'spend', formatter: formatMoney, visible: true },
+    { key: 'top_impressions', title: 'Campañas con más impresiones', metric: 'impressions', formatter: formatNumber, visible: false },
     { key: 'top_leads_salesforce', title: 'Mas leads Salesforce', metric: 'leads_salesforce', formatter: formatNumber, visible: true },
     { key: 'top_opportunities', title: 'Mas oportunidades', metric: 'opportunities', formatter: formatNumber, visible: false },
     { key: 'top_reservations', title: 'Mas reservas', metric: 'reservations', formatter: formatNumber, visible: false },
@@ -81,10 +84,10 @@ const rankingDefinitions = [
     { key: 'best_cost_per_result', title: 'Mejor coste por resultado', metric: 'cost_per_result', formatter: formatMoney, visible: false },
     { key: 'best_lead_to_purchase', title: 'Mejor conversion lead -> compra', metric: 'lead_to_purchase', formatter: formatPercentRatio, visible: false },
     { key: 'worst_cost_per_sale', title: 'Peor coste por venta', metric: 'cost_per_sale', formatter: formatMoney, visible: false },
-    { key: 'high_spend_low_conversion', title: 'Mucho gasto y poca conversion', metric: 'spend', formatter: formatMoney, visible: false },
+    { key: 'high_spend_low_conversion', title: 'Mucho gasto y poca conversión', metric: 'spend', formatter: formatMoney, visible: false },
     { key: 'many_leads_few_sales', title: 'Muchos leads y pocas ventas', metric: 'leads_salesforce', formatter: formatNumber, visible: false },
     { key: 'many_leads_few_purchases', title: 'Muchos leads y pocas compras', metric: 'leads_salesforce', formatter: formatNumber, visible: false },
-    { key: 'review_campaigns', title: 'Campanas a revisar', metric: 'value', formatter: formatNumber, visible: true },
+    { key: 'review_campaigns', title: 'Campañas a revisar', metric: 'value', formatter: formatNumber, visible: true },
     { key: 'review_tracking', title: 'Revisar tracking', metric: 'spend', formatter: formatMoney, visible: true },
     { key: 'boost', title: 'Potenciar', metric: 'spend', formatter: formatMoney, visible: true },
     { key: 'review', title: 'Revisar', metric: 'spend', formatter: formatMoney, visible: false },
@@ -92,10 +95,10 @@ const rankingDefinitions = [
 ];
 
 const columnDefinitions = [
-    { key: 'campaign', label: 'Campana', visible: true, formatter: (_value, row) => campaignLabel(row) },
+    { key: 'campaign', label: 'Campaña', visible: true, formatter: (_value, row) => campaignLabel(row) },
     { key: 'platform', label: 'Plataforma', visible: true, formatter: formatPlatform },
     { key: 'campaign_status_label', label: 'Estado', visible: true },
-    { key: 'spend', label: 'Inversion', visible: true, numeric: true, formatter: formatMoney },
+    { key: 'spend', label: 'Inversión', visible: true, numeric: true, formatter: formatMoney },
     { key: 'impressions', label: 'Impresiones', visible: true, numeric: true, formatter: formatNumber },
     { key: 'clicks', label: 'Clicks', visible: true, numeric: true, formatter: formatNumber },
     { key: 'ctr', label: 'CTR', visible: true, numeric: true, formatter: formatPercentRatio },
@@ -121,12 +124,12 @@ const columnDefinitions = [
     { key: 'medium_acquired', label: 'Medio adquirido', visible: false },
     { key: 'acquired_id', label: 'ID adquirido', visible: false },
     { key: 'content_acquired', label: 'Contenido adquirido', visible: false },
-    { key: 'classification', label: 'Clasificacion', visible: false },
-    { key: 'campaign_start_date', label: 'Fecha inicio campana', visible: false, formatter: formatDate },
-    { key: 'campaign_end_date', label: 'Fecha fin campana', visible: false, formatter: formatDate },
-    { key: 'last_spend_date', label: 'Ultima fecha con inversion', visible: false, formatter: formatDate },
+    { key: 'classification', label: 'Clasificación', visible: false },
+    { key: 'campaign_start_date', label: 'Fecha inicio de campaña', visible: false, formatter: formatDate },
+    { key: 'campaign_end_date', label: 'Fecha fin de campaña', visible: false, formatter: formatDate },
+    { key: 'last_spend_date', label: 'Última fecha con inversión', visible: false, formatter: formatDate },
     { key: 'appraisals_generated', label: 'Tasaciones generadas', visible: false, numeric: true, formatter: formatNumber },
-    { key: 'cost_per_appraisal', label: 'Coste por tasacion', visible: false, numeric: true, formatter: formatMoney },
+    { key: 'cost_per_appraisal', label: 'Coste por tasación', visible: false, numeric: true, formatter: formatMoney },
     { key: 'lead_to_opportunity', label: 'Lead -> oportunidad', visible: false, numeric: true, formatter: formatPercentRatio },
     { key: 'opportunity_to_reservation', label: 'Oportunidad -> reserva', visible: false, numeric: true, formatter: formatPercentRatio },
     { key: 'reservation_to_sale', label: 'Reserva -> venta', visible: false, numeric: true, formatter: formatPercentRatio },
@@ -147,6 +150,7 @@ let visibleRankings = loadVisibleRankings(currentContext);
 
 document.addEventListener('DOMContentLoaded', async () => {
     populatePeriodPreset();
+    applyCampaignDateBounds();
     setDefaultDates();
     bindTabs();
     bindFilters();
@@ -685,8 +689,8 @@ function dailyEvolutionHtml(rows) {
         <article class="card panel campaign-chart-card campaign-chart-wide">
             <div class="panel-title compact">
                 <div>
-                    <h2>Evolucion diaria</h2>
-                    <div class="small">Inversion diaria y leads creados</div>
+                    <h2>Evolución diaria</h2>
+                    <div class="small">Inversión diaria y leads creados</div>
                 </div>
             </div>
             <div class="daily-chart-toolbar">
@@ -740,7 +744,7 @@ function reservationsSalesHtml(rows) {
     const content = rows.length
         ? groupedBarsChartHtml(rows, conversionSeriesDefinitions, conversionTooltip)
         : '<div class="empty-state">Sin datos</div>';
-    const title = currentContext === 'tasacion' ? 'Evolucion de tasaciones y compras' : 'Evolucion de reservas y ventas';
+    const title = currentContext === 'tasacion' ? 'Evolución de tasaciones y compras' : 'Evolución de reservas y ventas';
     const subtitle = currentContext === 'tasacion'
         ? 'Tasaciones/citas y compras de leads del periodo'
         : 'Reservas y ventas de leads del periodo';
@@ -837,7 +841,7 @@ function platformBarsHtml(rows) {
         ? rows.map((row) => `
             <div class="platform-chart-group" title="${escapeHtml(platformTooltip(row))}" data-tooltip="${escapeHtml(platformTooltip(row))}">
                 <strong>${escapeHtml(formatPlatform(row.platform))}</strong>
-                ${metricBarHtml('Inversion', row.spend, maxSpend, formatMoney)}
+                ${metricBarHtml('Inversión', row.spend, maxSpend, formatMoney)}
                 ${metricBarHtml('Leads SF', row.leads_salesforce, maxLeads, formatNumber)}
                 ${metricBarHtml('Ventas', row.sales, maxSales, formatNumber)}
             </div>
@@ -849,7 +853,7 @@ function platformBarsHtml(rows) {
             <div class="panel-title compact">
                 <div>
                     <h2>Por plataforma</h2>
-                    <div class="small">Inversion, leads y ventas</div>
+                    <div class="small">Inversión, leads y ventas</div>
                 </div>
             </div>
             <div class="campaign-bar-list">${content}</div>
@@ -937,9 +941,9 @@ function renderCharts(charts) {
     }
 
     currentCharts = charts || {};
-    root.innerHTML = `
-        ${monthlyEvolutionHtml(charts.monthly_evolution || charts.daily_evolution || [])}
-    `;
+    root.innerHTML = monthlyChartEnabled
+        ? `${monthlyEvolutionHtml(charts.monthly_evolution || charts.daily_evolution || [])}`
+        : '';
 }
 
 function monthlyEvolutionHtml(rows) {
@@ -964,25 +968,25 @@ function monthlyEvolutionHtml(rows) {
         <article class="card panel campaign-chart-card campaign-chart-wide monthly-chart-card">
             <div class="panel-title compact">
                 <div>
-                    <h2>Evolucion mensual</h2>
-                    <div class="small">Ultimos meses seleccionados. La comparacion con el ano anterior esta desactivada por defecto.</div>
+                    <h2>Evolución mensual</h2>
+                    <div class="small">Últimos meses seleccionados. La comparación con el año anterior está desactivada por defecto.</div>
                 </div>
             </div>
             <div class="monthly-chart-toolbar">
                 <div class="monthly-chart-ranges">
-                    <button type="button" class="monthly-pill" data-month-range="3">Ultimos 3 meses</button>
-                    <button type="button" class="monthly-pill" data-month-range="6">Ultimos 6 meses</button>
-                    <button type="button" class="monthly-pill" data-month-range="12">Ultimos 12 meses</button>
+                    <button type="button" class="monthly-pill" data-month-range="3">Últimos 3 meses</button>
+                    <button type="button" class="monthly-pill" data-month-range="6">Últimos 6 meses</button>
+                    <button type="button" class="monthly-pill" data-month-range="12">Últimos 12 meses</button>
                     <button type="button" class="monthly-pill" data-month-range="all">Todo</button>
                 </div>
                 <div class="monthly-chart-compare">
-                    <button type="button" class="monthly-pill ${monthlyCompareMode === 'none' ? 'is-active' : ''}" data-compare-mode="none">Sin comparacion</button>
-                    <button type="button" class="monthly-pill ${monthlyCompareMode === 'prev_year' ? 'is-active' : ''}" data-compare-mode="prev_year">Ano anterior</button>
+                    <button type="button" class="monthly-pill ${monthlyCompareMode === 'none' ? 'is-active' : ''}" data-compare-mode="none">Sin comparación</button>
+                    <button type="button" class="monthly-pill ${monthlyCompareMode === 'prev_year' ? 'is-active' : ''}" data-compare-mode="prev_year">Año anterior</button>
                 </div>
             </div>
             <div class="monthly-chart-filters">
                 <div>
-                    <div class="monthly-filter-label">Metricas</div>
+                    <div class="monthly-filter-label">Métricas</div>
                     <div class="monthly-pill-group" id="monthlyMetricPills">
                         ${monthlySeriesDefinitions.map((series) => `
                             <button type="button" class="monthly-pill ${monthlyVisibleMetrics.includes(series.key) ? 'is-active' : ''}" data-month-metric="${escapeHtml(series.key)}">
@@ -1176,7 +1180,7 @@ function platformComparisonCardHtml(row, maxSpend, maxLeads, maxOpportunities, m
                 <span>${escapeHtml(platformComparisonSubtitleForContext(context))}</span>
             </div>
             <div class="platform-comparison-metrics">
-                ${platformMetricItemHtml('Inversion', row.spend, formatMoney)}
+                ${platformMetricItemHtml('Inversión', row.spend, formatMoney)}
                 ${platformMetricItemHtml('Leads Salesforce', row.leads_salesforce, formatNumber)}
                 ${platformMetricItemHtml('Oportunidades', row.opportunities, formatNumber)}
                 ${platformMetricItemHtml(resultLabel, resultValue, formatNumber)}
@@ -1338,7 +1342,7 @@ function kpiCardsForContext(context, kpis) {
     switch (normalized) {
         case 'venta':
             return [
-                { label: 'Inversion', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
+                { label: 'Inversión', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
                 { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
                 { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}` },
                 { label: 'Reservas', value: formatNumber(kpis.reservations), hint: `CPR ${formatMoney(kpis.cost_per_reservation)}` },
@@ -1349,7 +1353,7 @@ function kpiCardsForContext(context, kpis) {
             ];
         case 'tasacion':
             return [
-                { label: 'Inversion', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
+                { label: 'Inversión', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
                 { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
                 { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}` },
                 { label: 'Compras', value: formatNumber(kpis.purchases), hint: `CP compra ${formatMoney(kpis.cost_per_purchase)}` },
@@ -1360,7 +1364,7 @@ function kpiCardsForContext(context, kpis) {
             ];
         case 'exposicion':
             return [
-                { label: 'Inversion', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
+                { label: 'Inversión', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
                 { label: 'Impresiones', value: formatNumber(kpis.impressions), hint: `CTR ${formatPercentRatio(kpis.ctr)}` },
                 { label: 'Clicks', value: formatNumber(kpis.clicks), hint: `Leads SF ${formatNumber(kpis.leads_salesforce)}` },
                 { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
@@ -1371,7 +1375,7 @@ function kpiCardsForContext(context, kpis) {
             ];
         case 'branding':
             return [
-                { label: 'Inversion', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
+                { label: 'Inversión', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
                 { label: 'Impresiones', value: formatNumber(kpis.impressions), hint: `CTR ${formatPercentRatio(kpis.ctr)}` },
                 { label: 'Clicks', value: formatNumber(kpis.clicks), hint: `Leads SF ${formatNumber(kpis.leads_salesforce)}` },
                 { label: 'CTR', value: formatPercentRatio(kpis.ctr), hint: `CPC ${formatMoney(kpis.cpc)}` },
@@ -1384,7 +1388,7 @@ function kpiCardsForContext(context, kpis) {
         case 'all':
         default:
             return [
-                { label: 'Inversion', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
+                { label: 'Inversión', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
                 { label: 'Impresiones', value: formatNumber(kpis.impressions), hint: `CTR ${formatPercentRatio(kpis.ctr)}` },
                 { label: 'Clicks', value: formatNumber(kpis.clicks), hint: `Leads SF ${formatNumber(kpis.leads_salesforce)}` },
                 { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
@@ -1492,7 +1496,7 @@ function renderCampaignNameChecklist(rows) {
                 </label>
             `;
         }).join('')
-        : '<div class="empty-state">No hay campanas disponibles</div>';
+        : '<div class="empty-state">No hay campañas disponibles</div>';
 
     persistCampaignNameSelections();
 
@@ -1708,7 +1712,7 @@ function buildMonthlySeriesDefinitions(metrics) {
                 ? {
                     ...definition,
                     key: `${definition.key}_compare`,
-                    label: `${definition.label} ano anterior`,
+                    label: `${definition.label} año anterior`,
                     className: `${definition.className} is-compare`,
                     isCompare: true,
                 }
@@ -1773,7 +1777,7 @@ function lineY(value, max, chartHeight) {
 function dailyTooltip(row) {
     return [
         formatDate(row.date),
-        `Inversion: ${formatMoney(row.spend)}`,
+        `Inversión: ${formatMoney(row.spend)}`,
         `Leads Salesforce: ${formatNumber(row.leads_salesforce)}`,
     ].join('\n');
 }
@@ -1799,7 +1803,7 @@ function conversionTooltip(row) {
 function platformTooltip(row) {
     return [
         formatPlatform(row.platform),
-        `Inversion: ${formatMoney(row.spend)}`,
+        `Inversión: ${formatMoney(row.spend)}`,
         `Leads Salesforce: ${formatNumber(row.leads_salesforce)}`,
         `Oportunidades: ${formatNumber(row.opportunities)}`,
         `Resultados: ${formatNumber(platformResultValueForContext(row, normalizeCampaignContext(currentContext)))}`,
@@ -1819,7 +1823,7 @@ function monthlyTooltip(row) {
         lines.push(`${definition.label}: ${definition.formatter(row[metric])}`);
 
         if (monthlyCompareMode === 'prev_year') {
-            lines.push(`${definition.label} ano anterior: ${definition.formatter(row[`${metric}_compare`])}`);
+            lines.push(`${definition.label} año anterior: ${definition.formatter(row[`${metric}_compare`])}`);
         }
     });
 
@@ -1944,12 +1948,12 @@ function syncCampaignTableScrollWidth() {
 }
 
 function setDefaultDates() {
-    const end = new Date();
+    const end = lastCompleteDay();
     const start = new Date();
     start.setDate(end.getDate() - 30);
 
-    document.getElementById('startDate').value = toInputDate(start);
-    document.getElementById('endDate').value = toInputDate(end);
+    document.getElementById('startDate').value = clampCampaignDate(start);
+    document.getElementById('endDate').value = clampCampaignDate(end);
 }
 
 function populatePeriodPreset() {
@@ -1959,9 +1963,9 @@ function populatePeriodPreset() {
     }
 
     const options = [
-        { value: 'last_30_days', label: 'Ultimos 30 dias' },
+        { value: 'last_30_days', label: 'Últimos 30 días' },
         { value: 'current_month', label: 'Mes actual' },
-        { value: 'current_year', label: 'Ano actual' },
+        { value: 'current_year', label: 'Año actual' },
         ...monthPresetOptions(),
         { value: 'custom', label: 'Personalizado' },
     ];
@@ -1976,20 +1980,19 @@ function populatePeriodPreset() {
 
 function monthPresetOptions() {
     const formatter = new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric' });
-    const today = new Date();
-    const startOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastVisibleMonth = campaignLastVisibleMonth();
     const months = [];
 
-    for (let index = 0; index < 12; index += 1) {
-        const month = new Date(startOfThisMonth.getFullYear(), startOfThisMonth.getMonth() - index, 1);
+    for (let monthIndex = lastVisibleMonth.getMonth(); monthIndex >= 0; monthIndex -= 1) {
+        const month = new Date(2026, monthIndex, 1);
         const end = new Date(month.getFullYear(), month.getMonth() + 1, 0);
         const label = formatter.format(month).replace(/^./, (letter) => letter.toUpperCase());
 
         months.push({
             value: `month_${month.getFullYear()}_${String(month.getMonth() + 1).padStart(2, '0')}`,
             label,
-            start: toInputDate(month),
-            end: toInputDate(end),
+            start: clampCampaignDate(month),
+            end: clampCampaignDate(end),
         });
     }
 
@@ -2011,15 +2014,19 @@ function applyPeriodPreset(value) {
 
     if (value === 'current_month') {
         const today = new Date();
-        startDate.value = toInputDate(new Date(today.getFullYear(), today.getMonth(), 1));
-        endDate.value = toInputDate(new Date(today.getFullYear(), today.getMonth() + 1, 0));
+        const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        const end = lastCompleteDay();
+        startDate.value = clampCampaignDate(monthStart);
+        endDate.value = clampCampaignDate(end < monthStart ? monthStart : end);
         return;
     }
 
     if (value === 'current_year') {
         const today = new Date();
-        startDate.value = toInputDate(new Date(today.getFullYear(), 0, 1));
-        endDate.value = toInputDate(today);
+        const yearStart = new Date(today.getFullYear(), 0, 1);
+        const end = lastCompleteDay();
+        startDate.value = clampCampaignDate(yearStart);
+        endDate.value = clampCampaignDate(end < yearStart ? yearStart : end);
         return;
     }
 
@@ -2028,6 +2035,49 @@ function applyPeriodPreset(value) {
         startDate.value = selected.dataset.start;
         endDate.value = selected.dataset.end;
     }
+}
+
+function applyCampaignDateBounds() {
+    ['startDate', 'endDate'].forEach((id) => {
+        const input = document.getElementById(id);
+
+        if (!input) {
+            return;
+        }
+
+        input.min = campaignPeriodMinDate;
+        input.max = campaignPeriodMaxDate;
+    });
+}
+
+function campaignLastVisibleMonth() {
+    const today = lastCompleteDay();
+
+    if (today.getFullYear() < 2026) {
+        return new Date(2026, 0, 1);
+    }
+
+    if (today.getFullYear() > 2026) {
+        return new Date(2026, 11, 1);
+    }
+
+    return new Date(2026, today.getMonth(), 1);
+}
+
+function clampCampaignDate(date) {
+    const min = new Date(`${campaignPeriodMinDate}T00:00:00`);
+    const max = new Date(`${campaignPeriodMaxDate}T00:00:00`);
+    const value = new Date(date);
+
+    if (value < min) {
+        return toInputDate(min);
+    }
+
+    if (value > max) {
+        return toInputDate(max);
+    }
+
+    return toInputDate(value);
 }
 
 function setLoadingState(isLoading) {
@@ -2045,7 +2095,15 @@ function showLoadError(error) {
     }
 
     empty.classList.remove('is-hidden');
-    empty.textContent = error?.message || 'No se han podido cargar los datos de campanas.';
+    empty.textContent = error?.message || 'No se han podido cargar los datos de campañas.';
+}
+
+function lastCompleteDay() {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - 1);
+
+    return date;
 }
 
 async function fetchJson(url) {
@@ -2355,8 +2413,8 @@ function renderDiagnostics(diagnostics) {
     }
 
     const entries = [
-        ['Ultima sync Meta', formatDateTime(diagnostics.last_meta_sync)],
-        ['Ultima sync Google Ads', formatDateTime(diagnostics.last_google_sync)],
+        ['Última sync Meta', formatDateTime(diagnostics.last_meta_sync)],
+        ['Última sync Google Ads', formatDateTime(diagnostics.last_google_sync)],
         ['Filas Meta', formatNumber(diagnostics.meta_metric_rows)],
         ['Filas Google Ads', formatNumber(diagnostics.google_metric_rows)],
     ];
@@ -2377,12 +2435,12 @@ function renderCampaignTables(rows) {
 
     const context = normalizeCampaignContext(currentContext);
     const titleMap = {
-        venta: ['Detalle de campanas de venta', 'Vista detallada de campanas orientadas a venta'],
-        tasacion: ['Detalle de campanas de tasacion', 'Vista detallada de campanas orientadas a tasacion'],
-        exposicion: ['Detalle de campanas de exposicion', 'Vista detallada de campanas orientadas a exposicion'],
-        branding: ['Detalle de campanas de branding', 'Vista detallada de campanas orientadas a branding'],
-        otros: ['Detalle de campanas', 'Vista general de campanas no clasificadas en un tipo principal'],
-        all: ['Detalle de campanas', 'Vista general por tipos de campana'],
+        venta: ['Detalle de campañas de venta', 'Vista detallada de campañas orientadas a venta'],
+        tasacion: ['Detalle de campañas de tasación', 'Vista detallada de campañas orientadas a tasación'],
+        exposicion: ['Detalle de campañas de exposición', 'Vista detallada de campañas orientadas a exposición'],
+        branding: ['Detalle de campañas de branding', 'Vista detallada de campañas orientadas a branding'],
+        otros: ['Detalle de campañas', 'Vista general de campañas no clasificadas en un tipo principal'],
+        all: ['Detalle de campañas', 'Vista general por tipos de campaña'],
     };
     const [title, subtitle] = titleMap[context] || titleMap.all;
 
@@ -2415,7 +2473,7 @@ function renderCampaignTable(tableType, title, subtitle, rows) {
                 }).join('')}
             </tr>
         `).join('')
-        : `<tr><td colspan="${emptyColspan}">No hay campanas para los filtros seleccionados.</td></tr>`;
+        : `<tr><td colspan="${emptyColspan}">No hay campañas para los filtros seleccionados.</td></tr>`;
 
     return `
         <article class="card panel campaign-table-card">
@@ -2426,7 +2484,7 @@ function renderCampaignTable(tableType, title, subtitle, rows) {
                 </div>
                 <div class="campaign-table-actions">
                     <button type="button" class="main-tab campaign-detail-toggle" data-toggle-campaign-detail>
-                        ${campaignDetailsVisible ? 'Ocultar detalle de campanas' : 'Mostrar detalle de campanas'}
+                        ${campaignDetailsVisible ? 'Ocultar detalle de campañas' : 'Mostrar detalle de campañas'}
                     </button>
                     <div class="columns-menu">
                         <button type="button" class="main-tab" id="columnsToggle">Columnas</button>

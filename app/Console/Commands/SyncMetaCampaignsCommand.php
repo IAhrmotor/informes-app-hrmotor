@@ -11,14 +11,21 @@ class SyncMetaCampaignsCommand extends Command
     protected $signature = 'campaigns:sync-meta
         {--days=60 : Dias hacia atras que se sincronizan}
         {--months= : Meses hacia atras que se sincronizan; tiene prioridad sobre --days}
-        {--from= : Fecha inicial explicita en formato Y-m-d}';
+        {--from= : Fecha inicial explicita en formato Y-m-d}
+        {--to= : Fecha final exclusiva explicita en formato Y-m-d}';
 
     protected $description = 'Sincroniza metricas diarias de Meta Ads para el informe de campanas.';
 
     public function handle(MetaCampaignSyncService $sync): int
     {
-        $end = CarbonImmutable::now();
+        $end = $this->periodEnd();
         $start = $this->periodStart($end);
+
+        if ($end->lessThanOrEqualTo($start)) {
+            $this->error('El rango indicado no es valido: --to debe ser posterior a --from.');
+
+            return self::FAILURE;
+        }
 
         $result = $sync->sync($start, $end);
 
@@ -48,5 +55,16 @@ class SyncMetaCampaignsCommand extends Command
         }
 
         return $end->subDays(max((int) $this->option('days'), 1))->startOfDay();
+    }
+
+    private function periodEnd(): CarbonImmutable
+    {
+        $to = $this->option('to');
+
+        if (filled($to)) {
+            return CarbonImmutable::parse($to)->startOfDay();
+        }
+
+        return CarbonImmutable::now();
     }
 }

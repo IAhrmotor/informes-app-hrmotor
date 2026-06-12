@@ -51,7 +51,7 @@ class GoogleCampaignSyncService
                     ->where('platform', 'google_ads')
                     ->where('account_id', $customerId)
                     ->where('metric_date', '>=', $start->toDateString())
-                    ->where('metric_date', '<=', $end->toDateString())
+                    ->where('metric_date', '<', $end->toDateString())
                     ->delete();
 
                 foreach ($rows as $row) {

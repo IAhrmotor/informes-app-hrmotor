@@ -4,6 +4,7 @@ namespace App\Services\Campaigns;
 
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -53,33 +54,42 @@ class MetaCampaignSyncService
                 Log::warning(end($warnings));
             }
 
-            foreach ($rows as $row) {
-                $campaign = $campaigns->get((string) data_get($row, 'campaign_id'));
-                $processed++;
-                $this->metrics->upsert([
-                    'platform' => 'meta',
-                    'metric_date' => data_get($row, 'date_start'),
-                    'account_id' => data_get($row, 'account_id') ?: $accountId,
-                    'account_name' => data_get($row, 'account_name'),
-                    'campaign_id' => data_get($row, 'campaign_id'),
-                    'campaign_name' => data_get($row, 'campaign_name'),
-                    'campaign_status' => data_get($campaign, 'status'),
-                    'campaign_effective_status' => data_get($campaign, 'effective_status'),
-                    'campaign_start_date' => $this->dateOnly(data_get($campaign, 'start_time')),
-                    'campaign_end_date' => $this->dateOnly(data_get($campaign, 'stop_time')),
-                    'adset_id' => data_get($row, 'adset_id'),
-                    'adset_name' => data_get($row, 'adset_name'),
-                    'ad_id' => data_get($row, 'ad_id'),
-                    'ad_name' => data_get($row, 'ad_name'),
-                    'spend' => (float) data_get($row, 'spend', 0),
-                    'impressions' => (int) data_get($row, 'impressions', 0),
-                    'clicks' => (int) data_get($row, 'clicks', 0),
-                    'platform_leads' => $this->extractLeads(data_get($row, 'actions', [])),
-                    'currency' => data_get($row, 'account_currency'),
-                    'raw_payload' => $row,
-                ]);
-                $saved++;
-            }
+            DB::transaction(function () use ($rows, $campaigns, $accountId, $start, $end, &$processed, &$saved): void {
+                DB::table('campaign_platform_daily_metrics')
+                    ->where('platform', 'meta')
+                    ->whereIn('account_id', $this->accountDeleteCandidates($accountId, $rows))
+                    ->where('metric_date', '>=', $start->toDateString())
+                    ->where('metric_date', '<', $end->toDateString())
+                    ->delete();
+
+                foreach ($rows as $row) {
+                    $campaign = $campaigns->get((string) data_get($row, 'campaign_id'));
+                    $processed++;
+                    $this->metrics->upsert([
+                        'platform' => 'meta',
+                        'metric_date' => data_get($row, 'date_start'),
+                        'account_id' => data_get($row, 'account_id') ?: $accountId,
+                        'account_name' => data_get($row, 'account_name'),
+                        'campaign_id' => data_get($row, 'campaign_id'),
+                        'campaign_name' => data_get($row, 'campaign_name'),
+                        'campaign_status' => data_get($campaign, 'status'),
+                        'campaign_effective_status' => data_get($campaign, 'effective_status'),
+                        'campaign_start_date' => $this->dateOnly(data_get($campaign, 'start_time')),
+                        'campaign_end_date' => $this->dateOnly(data_get($campaign, 'stop_time')),
+                        'adset_id' => data_get($row, 'adset_id'),
+                        'adset_name' => data_get($row, 'adset_name'),
+                        'ad_id' => data_get($row, 'ad_id'),
+                        'ad_name' => data_get($row, 'ad_name'),
+                        'spend' => (float) data_get($row, 'spend', 0),
+                        'impressions' => (int) data_get($row, 'impressions', 0),
+                        'clicks' => (int) data_get($row, 'clicks', 0),
+                        'platform_leads' => $this->extractLeads(data_get($row, 'actions', [])),
+                        'currency' => data_get($row, 'account_currency'),
+                        'raw_payload' => $row,
+                    ]);
+                    $saved++;
+                }
+            });
         }
 
         $this->invalidateCache();
@@ -132,5 +142,19 @@ class MetaCampaignSyncService
     private function invalidateCache(): void
     {
         Cache::forever('campaign_dashboard_cache_version', ((int) Cache::get('campaign_dashboard_cache_version', 1)) + 1);
+    }
+
+    private function accountDeleteCandidates(string $accountId, array $rows): array
+    {
+        return collect([
+            $accountId,
+            preg_replace('/^act_/i', '', $accountId),
+            collect($rows)->pluck('account_id')->filter()->first(),
+        ])
+            ->filter(fn ($value) => filled($value))
+            ->map(fn ($value) => (string) $value)
+            ->unique()
+            ->values()
+            ->all();
     }
 }

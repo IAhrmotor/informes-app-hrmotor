@@ -260,7 +260,7 @@
                 <div class="panel-title">
                     <div>
                         <h2>Delegaciones por reparto de leads</h2>
-                        <div class="small">Agrupación por delegación normalizada del lead</div>
+                        <div class="small">Total entrado frente a leads en Potencial con owner genérico</div>
                     </div>
                 </div>
                 <div class="table-wrap">
@@ -269,11 +269,8 @@
                         <tr>
                             <th>Delegación del lead</th>
                             <th class="num">Leads totales</th>
-                            <th class="num">Convertidos</th>
-                            <th class="num">Descartados</th>
-                            <th class="num">Potenciales</th>
-                            <th class="num">Potenciales sin trabajar</th>
-                            <th class="num">Gestionados</th>
+                            <th class="num">Potencial con owner genérico</th>
+                            <th class="num">% pendiente</th>
                         </tr>
                         </thead>
                         <tbody id="delegationRows"></tbody>

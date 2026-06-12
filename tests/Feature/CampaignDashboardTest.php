@@ -89,8 +89,9 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('campaign-detail-toggle', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('line-label-layer', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('campaignPointIcon', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
-        $this->assertStringContainsString("{ value: 'current_year', label: 'Ano actual' }", file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
-        $this->assertStringContainsString('Evolucion de tasaciones y compras', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString("{ value: 'current_year', label: 'Año actual' }", file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('Evolución de tasaciones y compras', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('const monthlyChartEnabled = false;', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringNotContainsString('id="reviewCampaigns"', $html);
         $this->assertStringNotContainsString('#7d494e', file_get_contents(resource_path('css/reports/leads-dashboard.css')));
         $this->assertStringNotContainsString('brand-block', $html);
@@ -623,6 +624,143 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('kpis.leads_salesforce', 1)
             ->assertJsonPath('kpis.opportunities', 2)
             ->assertJsonPath('kpis.purchases', 2);
+    }
+
+    public function test_meta_instantforms_se_agrupa_como_formulario_directo_meta_y_cuenta_como_venta(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'meta',
+            'metric_date' => '2026-05-10',
+            'campaign_id' => 'meta-if-1',
+            'campaign_name' => 'Prospeccion InstantForms Mayo',
+            'spend' => 200,
+            'impressions' => 1000,
+            'clicks' => 100,
+        ]));
+
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'meta',
+            'metric_date' => '2026-05-11',
+            'campaign_id' => 'meta-if-2',
+            'campaign_name' => 'Remarketing InstantForms Mayo',
+            'spend' => 300,
+            'impressions' => 1200,
+            'clicks' => 90,
+        ]));
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-meta-direct-1',
+            'name' => 'Lead Meta Directo 1',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Potencial',
+            'record_type_name' => 'Venta',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'fuente_origen' => 'Facebook',
+            'portal_text' => 'Meta',
+            'campaign_acquired' => null,
+        ]);
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-meta-direct-2',
+            'name' => 'Lead Meta Directo 2',
+            'created_date' => '2026-05-11 10:00:00',
+            'status' => 'Potencial',
+            'record_type_name' => 'Venta',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'fuente_origen' => 'Facebook',
+            'portal_text' => 'Meta',
+            'campaign_acquired' => 'Prospeccion InstantForms Mayo',
+        ]);
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01')
+        );
+
+        $this->assertDatabaseHas('campaign_lead_attributions', [
+            'lead_id' => '00Q-meta-direct-1',
+            'campaign_name' => 'Formulario Directo Meta',
+            'campaign_type' => 'venta',
+            'campaign_acquired' => 'Formulario Directo Meta',
+        ]);
+        $this->assertDatabaseHas('campaign_lead_attributions', [
+            'lead_id' => '00Q-meta-direct-2',
+            'campaign_name' => 'Formulario Directo Meta',
+            'campaign_type' => 'venta',
+            'campaign_acquired' => 'Formulario Directo Meta',
+        ]);
+
+        $campaigns = $this->getJson('/informes/campanas/data/campaigns?'.$this->query().'&context=venta')
+            ->assertOk()
+            ->json('items');
+
+        $row = collect($campaigns)->firstWhere('campaign_name', 'Formulario Directo Meta');
+
+        $this->assertNotNull($row);
+        $this->assertSame('meta', $row['platform']);
+        $this->assertEquals(500.0, $row['spend']);
+        $this->assertSame(2, $row['leads_salesforce']);
+    }
+
+    public function test_campana_tasacion_no_contabiliza_ventas_aunque_la_oportunidad_sea_de_venta(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'google_ads',
+            'metric_date' => '2026-05-10',
+            'campaign_id' => 'tasacion-no-sale',
+            'campaign_name' => 'TASADOR LANDING SEARCH 1',
+            'spend' => 100,
+            'impressions' => 1000,
+            'clicks' => 100,
+        ]));
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-tasacion-no-sale',
+            'name' => 'Lead Tasacion Sin Venta',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Convertido',
+            'record_type_name' => 'Tasacion',
+            'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real',
+            'fuente_origen' => 'Google Ads',
+            'medio_origen' => 'CPC',
+            'campaign_acquired' => 'TASADOR LANDING SEARCH 1',
+            'converted_opportunity_id' => '006-tasacion-sale',
+        ]);
+
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-tasacion-sale',
+            'name' => 'Oportunidad Venta Cruzada',
+            'created_date' => '2026-05-11 10:00:00',
+            'record_type_name' => 'Venta',
+            'stage_name' => 'Contrato',
+            'reservation' => true,
+            'reservation_date' => '2026-05-12',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-15',
+            'opo_for_importe_total' => 15000,
+        ]);
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01')
+        );
+
+        $this->assertDatabaseHas('campaign_lead_attributions', [
+            'lead_id' => '00Q-tasacion-no-sale',
+            'campaign_type' => 'tasacion',
+            'has_sale' => false,
+            'has_purchase' => false,
+            'sold_amount' => null,
+        ]);
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
+            ->assertOk()
+            ->assertJsonPath('kpis.opportunities', 1)
+            ->assertJsonPath('kpis.sales', 0)
+            ->assertJsonPath('kpis.purchases', 0);
     }
 
     public function test_salesforce_campaign_without_platform_entra_en_kpis_y_tabla_como_campaigna_valida(): void
@@ -1330,6 +1468,18 @@ class CampaignDashboardTest extends TestCase
         ]);
 
         $this->assertSame(12345.67, app(CampaignSaleAmountResolver::class)->resolve($opportunity->fresh()));
+    }
+
+    public function test_builder_expone_rango_visible_hasta_el_dia_anterior_al_fin_exclusivo(): void
+    {
+        $result = app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-06-01'),
+            CarbonImmutable::parse('2026-06-09')
+        );
+
+        $this->assertSame('2026-06-01', $result['range_start']);
+        $this->assertSame('2026-06-08', $result['range_end']);
+        $this->assertSame('2026-06-09', $result['range_end_exclusive']);
     }
 
     private function query(): string

@@ -107,7 +107,7 @@ SELECT
 FROM campaign
 WHERE
   segments.date >= '{$startDate}'
-  AND segments.date <= '{$endDate}'
+  AND segments.date < '{$endDate}'
 ORDER BY segments.date ASC
 GAQL;
     }

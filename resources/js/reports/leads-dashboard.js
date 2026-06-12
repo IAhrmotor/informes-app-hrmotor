@@ -275,11 +275,8 @@ function renderDelegations(rows) {
     renderRows('delegationRows', rows, [
         [(row) => row.delegacion],
         [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
-        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
-        [(row) => formatNumber(row.potenciales), true],
-        [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
+        [(row) => formatNumber(row.leads_unassigned), true],
+        [(row) => formatPercent(row.leads_unassigned_pct), true, (row) => row.leads_unassigned_pct],
     ], 'No hay datos de delegaciones para los filtros seleccionados.');
 }
 
