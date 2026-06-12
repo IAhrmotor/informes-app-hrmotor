@@ -6,6 +6,7 @@
     <title>Campanas | HR Motor - Informes comerciales</title>
     <link rel="icon" href="/brand/favicon.ico" sizes="any">
     <link rel="shortcut icon" href="/brand/favicon.ico">
+    @include('partials.font-assets')
 
     @vite([
         'resources/css/reports/leads-dashboard.css',
@@ -174,16 +175,6 @@
             </section>
 
             <section class="campaign-charts-grid" id="campaignCharts"></section>
-
-            <section class="card panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Campanas a revisar</h2>
-                        <div class="small">Lista corta y accionable de campanas con senales de revision</div>
-                    </div>
-                </div>
-                <div class="review-campaigns" id="reviewCampaigns"></div>
-            </section>
 
             <section class="card panel">
                 <div class="panel-title">

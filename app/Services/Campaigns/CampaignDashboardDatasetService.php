@@ -607,6 +607,9 @@ class CampaignDashboardDatasetService
 
     private function rankingsFromRows(array $rows, array $filters): array
     {
+        $paidSaleRows = $this->rowsWithPositiveResultAndSpend($rows, 'sales', 'cost_per_sale');
+        $paidPurchaseRows = $this->rowsWithPositiveResultAndSpend($rows, 'purchases', 'cost_per_purchase');
+
         return [
             'top_spend' => $this->top(array_values(array_filter($rows, fn (array $row): bool => (float) ($row['spend'] ?? 0) > 0)), 'spend'),
             'top_impressions' => $this->top($rows, 'impressions'),
@@ -619,13 +622,13 @@ class CampaignDashboardDatasetService
             'best_roas' => $this->top($rows, 'roas', requireValue: true),
             'best_ctr' => $this->top($rows, 'ctr', requireValue: true),
             'best_cpc' => $this->top($rows, 'cpc', ascending: true, requireValue: true),
-            'best_cost_per_sale' => $this->top($rows, 'cost_per_sale', ascending: true, requireValue: true),
-            'best_cost_per_purchase' => $this->top($rows, 'cost_per_purchase', ascending: true, requireValue: true),
+            'best_cost_per_sale' => $this->top($paidSaleRows, 'cost_per_sale', ascending: true, requireValue: true),
+            'best_cost_per_purchase' => $this->top($paidPurchaseRows, 'cost_per_purchase', ascending: true, requireValue: true),
             'best_cost_per_lead' => $this->top($rows, 'cost_per_lead', ascending: true, requireValue: true),
             'best_cost_per_opportunity' => $this->top($rows, 'cost_per_opportunity', ascending: true, requireValue: true),
             'best_cost_per_result' => $this->top($rows, 'cost_per_result', ascending: true, requireValue: true),
             'best_lead_to_purchase' => $this->top($rows, 'lead_to_purchase', requireValue: true),
-            'worst_cost_per_sale' => $this->top($rows, 'cost_per_sale', requireValue: true),
+            'worst_cost_per_sale' => $this->top($paidSaleRows, 'cost_per_sale', requireValue: true),
             'high_spend_low_conversion' => collect($rows)->sortByDesc('spend')->sortBy('sales')->take(5)->values()->all(),
             'many_leads_few_sales' => collect($rows)->sortByDesc('leads_salesforce')->sortBy('sales')->take(5)->values()->all(),
             'many_leads_few_purchases' => collect($rows)->sortByDesc('leads_salesforce')->sortBy('purchases')->take(5)->values()->all(),
@@ -635,6 +638,16 @@ class CampaignDashboardDatasetService
             'review' => $this->classification($rows, 'Revisar'),
             'stop' => $this->classification($rows, 'Parar'),
         ];
+    }
+
+    private function rowsWithPositiveResultAndSpend(array $rows, string $resultKey, string $metricKey): array
+    {
+        return array_values(array_filter($rows, function (array $row) use ($resultKey, $metricKey): bool {
+            return (float) ($row['spend'] ?? 0) > 0
+                && (int) ($row[$resultKey] ?? 0) > 0
+                && ($row[$metricKey] ?? null) !== null
+                && (float) ($row[$metricKey] ?? 0) > 0;
+        }));
     }
 
     private function charts(array $rows, array $filters, array $period): array

@@ -6,6 +6,7 @@
     <title>Leads | HR Motor - Informes comerciales</title>
     <link rel="icon" href="/brand/favicon.ico" sizes="any">
     <link rel="shortcut icon" href="/brand/favicon.ico">
+    @include('partials.font-assets')
 
     @vite([
         'resources/css/reports/leads-dashboard.css',

@@ -73,7 +73,6 @@ class CampaignDashboardTest extends TestCase
 
         $this->assertStringContainsString('id="campaignCharts"', $html);
         $this->assertStringContainsString('id="platformComparison"', $html);
-        $this->assertStringContainsString('id="reviewCampaigns"', $html);
         $this->assertStringContainsString('id="campaignType"', $html);
         $this->assertStringContainsString('data-context="venta"', $html);
         $this->assertStringContainsString('data-context="tasacion"', $html);
@@ -92,7 +91,7 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('campaignPointIcon', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString("{ value: 'current_year', label: 'Ano actual' }", file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('Evolucion de tasaciones y compras', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
-        $this->assertStringContainsString('Campanas a revisar', $html);
+        $this->assertStringNotContainsString('id="reviewCampaigns"', $html);
         $this->assertStringNotContainsString('#7d494e', file_get_contents(resource_path('css/reports/leads-dashboard.css')));
         $this->assertStringNotContainsString('brand-block', $html);
         $this->assertStringNotContainsString('id="mediumAcquired"', $html);

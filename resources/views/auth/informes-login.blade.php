@@ -6,6 +6,7 @@
     <title>Iniciar sesión | HR Motor</title>
     <link rel="icon" href="/brand/favicon.ico" sizes="any">
     <link rel="shortcut icon" href="/brand/favicon.ico">
+    @include('partials.font-assets')
     @vite(['resources/css/app.css'])
 </head>
 <body class="login-page">

@@ -14,10 +14,10 @@ const campaignPointIcon = '/brand/campaign-point.svg';
 let campaignRows = [];
 let tableSort = {
     all: { key: 'spend', direction: 'desc' },
-    venta: { key: 'spend', direction: 'desc' },
-    tasacion: { key: 'spend', direction: 'desc' },
-    exposicion: { key: 'spend', direction: 'desc' },
-    branding: { key: 'spend', direction: 'desc' },
+    venta: { key: 'sales', direction: 'desc' },
+    tasacion: { key: 'purchases', direction: 'desc' },
+    exposicion: { key: 'opportunities', direction: 'desc' },
+    branding: { key: 'leads_salesforce', direction: 'desc' },
     otros: { key: 'spend', direction: 'desc' },
 };
 let searchTimer = null;
@@ -768,6 +768,7 @@ function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory, showPoint
     const axisMax = showYAxis ? (sharedMax ?? maxAcrossSeries(rows, seriesDefinitions)) : null;
     const axisFormatter = options.yAxisFormatter || formatAxisValue;
     const gridLines = showYAxis ? lineGridHtml(chartHeight) : '';
+    const axisFrame = showYAxis ? lineAxisFrameHtml(chartHeight) : '';
     const yAxis = showYAxis ? lineYAxisHtml(chartHeight, axisMax, axisFormatter) : '';
     const seriesSvg = seriesDefinitions
         .map((series) => {
@@ -796,6 +797,7 @@ function genericLineChartHtml(rows, seriesDefinitions, tooltipFactory, showPoint
         <div class="campaign-line-chart ${showYAxis ? 'has-y-axis' : ''}">
             ${yAxis}
             <svg viewBox="-0.75 0 ${width + 1.5} ${chartHeight}" preserveAspectRatio="none" aria-hidden="true">
+                ${axisFrame}
                 ${gridLines}
                 ${seriesSvg}
             </svg>
@@ -821,7 +823,7 @@ function pointLayerHtml(rows, seriesDefinitions, tooltipFactory, showPoints, cha
                 const yPercent = (y / chartHeight) * 100;
                 const tooltip = tooltipFactory(row);
 
-                return `<span class="line-point-dot ${escapeHtml(series.className)}" style="left:${x.toFixed(2)}%;top:${yPercent.toFixed(2)}%;background-image:url('${campaignPointIcon}')" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}" aria-hidden="true"></span>`;
+                return `<span class="line-point-dot ${escapeHtml(series.className)}" style="left:${x.toFixed(2)}%;top:${yPercent.toFixed(2)}%" title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}" aria-hidden="true"></span>`;
             });
         })
         .join('');
@@ -936,7 +938,6 @@ function renderCharts(charts) {
 
     currentCharts = charts || {};
     root.innerHTML = `
-        ${funnelHtml(charts.funnel || [])}
         ${monthlyEvolutionHtml(charts.monthly_evolution || charts.daily_evolution || [])}
     `;
 }
@@ -991,9 +992,23 @@ function monthlyEvolutionHtml(rows) {
                     </div>
                 </div>
             </div>
+            <div class="monthly-chart-legend">
+                ${monthlyLegendHtml(definitions)}
+            </div>
             <div class="campaign-evolution campaign-evolution-lines monthly-chart-figure">${content}</div>
         </article>
     `;
+}
+
+function monthlyLegendHtml(definitions) {
+    const series = buildMonthlySeriesDefinitions(definitions).filter((definition) => !definition.isCompare);
+
+    return series.map((definition) => `
+        <span class="chart-legend-item">
+            <i class="chart-legend-swatch ${escapeHtml(definition.className)}"></i>
+            <span>${escapeHtml(definition.label)}</span>
+        </span>
+    `).join('');
 }
 
 function visibleMonthlyRows(rows) {
@@ -1845,18 +1860,26 @@ function formatAxisValue(value) {
 }
 
 function lineGridHtml(chartHeight) {
-    return [0, 1 / 3, 2 / 3, 1].map((ratio) => {
+    return [0.75, 0.5, 0.25].map((ratio) => {
         const y = (chartHeight - (ratio * chartHeight)).toFixed(2);
         return `<line class="line-grid" x1="0" x2="100" y1="${y}" y2="${y}" />`;
     }).join('');
 }
 
+function lineAxisFrameHtml(chartHeight) {
+    return `
+        <line class="line-axis-frame" x1="0" x2="0" y1="0" y2="${chartHeight}" />
+        <line class="line-axis-frame is-bottom" x1="0" x2="100" y1="${chartHeight}" y2="${chartHeight}" />
+    `;
+}
+
 function lineYAxisHtml(_chartHeight, max, formatter) {
     const safeMax = Number(max || 0);
+    const ratios = [1, 0.75, 0.5, 0.25, 0];
 
     return `
         <div class="line-y-axis" aria-hidden="true">
-            ${[1, 2 / 3, 1 / 3, 0].map((ratio) => {
+            ${ratios.map((ratio) => {
                 const value = safeMax * ratio;
                 const top = (100 - (ratio * 100)).toFixed(2);
 
@@ -2273,10 +2296,16 @@ function renderRankings(rankings) {
 
     root.innerHTML = visible.length
         ? visible.map((ranking) => {
-            const rows = currentRankings[ranking.key] || [];
+            const rows = rankingRowsForDisplay(currentRankings[ranking.key] || [], ranking);
             const max = Math.max(...rows.map((row) => Number(row[ranking.metric] || 0)), 0);
             const body = rows.length
-                ? rows.map((row) => metricBarHtml(campaignLabel(row), row[ranking.metric], max, ranking.formatter)).join('')
+                ? rows.map((row) => metricBarHtml(
+                    campaignLabel(row),
+                    row[ranking.metric],
+                    max,
+                    ranking.formatter,
+                    rankingTooltip(row, ranking),
+                )).join('')
                 : '<div class="empty-state">Sin datos</div>';
 
             return `
@@ -2291,6 +2320,32 @@ function renderRankings(rankings) {
             `;
         }).join('')
         : '<div class="empty-state">Sin rankings visibles</div>';
+}
+
+function rankingRowsForDisplay(rows, ranking) {
+    if (!Array.isArray(rows)) {
+        return [];
+    }
+
+    if (ranking.key === 'best_cost_per_sale') {
+        return rows.filter((row) => Number(row.sales || 0) > 0 && Number(row.spend || 0) > 0 && Number(row.cost_per_sale || 0) > 0);
+    }
+
+    if (ranking.key === 'best_cost_per_purchase') {
+        return rows.filter((row) => Number(row.purchases || 0) > 0 && Number(row.spend || 0) > 0 && Number(row.cost_per_purchase || 0) > 0);
+    }
+
+    return rows;
+}
+
+function rankingTooltip(row, ranking) {
+    if (ranking.key !== 'review_campaigns') {
+        return null;
+    }
+
+    return [row.reason, row.detail, row.metric ? `${row.metric}: ${formatReviewValue(row)}` : null]
+        .filter(Boolean)
+        .join('\n');
 }
 
 function renderDiagnostics(diagnostics) {
