@@ -29,6 +29,7 @@ class CampaignDashboardDatasetService
         $payload = $this->payload($request);
         $summary = $payload['summary'];
         $summary['campaigns'] = $payload['campaigns'];
+        $summary['rankings'] = $payload['rankings'];
 
         if (! ReportUserAccess::isAdmin($request)) {
             $summary['warnings'] = [];

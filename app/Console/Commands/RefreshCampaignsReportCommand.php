@@ -16,6 +16,7 @@ class RefreshCampaignsReportCommand extends Command
         {--days=30 : Dias del periodo del informe}
         {--months= : Meses del periodo del informe; tiene prioridad sobre --days}
         {--from= : Fecha inicial explicita en formato Y-m-d}
+        {--window= : Opcion legacy sin efecto; mantener solo por compatibilidad}
         {--store : Guarda snapshot en base de datos}';
 
     protected $description = 'Calcula el informe de campanas y opcionalmente guarda un snapshot.';

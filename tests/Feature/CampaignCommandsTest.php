@@ -355,6 +355,19 @@ class CampaignCommandsTest extends TestCase
         $this->assertDatabaseMissing('campaign_lead_attributions', ['lead_id' => '00Q-hrrenting']);
     }
 
+    public function test_campaign_report_commands_accept_legacy_window_option(): void
+    {
+        $this->artisan('campaigns:build-attribution', [
+            '--days' => 3,
+            '--window' => 30,
+        ])->assertExitCode(0);
+
+        $this->artisan('reports:refresh-campaigns', [
+            '--days' => 3,
+            '--window' => 30,
+        ])->assertExitCode(0);
+    }
+
     public function test_build_attribution_respeta_oportunidades_ya_atribuidas_fuera_de_rango(): void
     {
         CampaignAttribution::query()->create([

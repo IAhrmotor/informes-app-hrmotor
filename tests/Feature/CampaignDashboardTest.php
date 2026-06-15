@@ -1174,6 +1174,7 @@ class CampaignDashboardTest extends TestCase
             ->assertOk()
             ->json();
 
+        $this->assertArrayHasKey('rankings', $summary);
         $this->assertSame(900, $summary['charts']['funnel'][0]['value']);
         $this->assertSame(90, $summary['charts']['funnel'][1]['value']);
         $this->assertSame(0, $summary['diagnostics']['salesforce_origins']);

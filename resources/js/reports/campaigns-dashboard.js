@@ -608,18 +608,15 @@ async function reloadAllData() {
 
     try {
         const query = currentFilters();
-        const [summary, rankings] = await Promise.all([
-            fetchJson(`/informes/campanas/data/summary?${query}`),
-            fetchJson(`/informes/campanas/data/rankings?${query}`),
-        ]);
+        const summary = await fetchJson(`/informes/campanas/data/summary?${query}`);
         const campaignItems = Array.isArray(summary?.campaigns) ? summary.campaigns : [];
 
         renderSummary(summary || {});
         renderFilterOptions(summary.filters || {}, campaignItems);
         campaignRows = campaignItems;
         renderCampaignTables(campaignRows);
-        currentRankings = (rankings && rankings.rankings) || {};
-        renderRankings((rankings && rankings.rankings) || {});
+        currentRankings = (summary && summary.rankings) || {};
+        renderRankings((summary && summary.rankings) || {});
         const exportLink = document.getElementById('exportCsv');
         if (exportLink) {
             exportLink.href = `/informes/campanas/export/campaigns.csv?${query}`;

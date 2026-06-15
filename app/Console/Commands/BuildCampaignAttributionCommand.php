@@ -12,7 +12,8 @@ class BuildCampaignAttributionCommand extends Command
         {--days=60 : Dias hacia atras de leads a procesar}
         {--months= : Meses hacia atras que se procesan; tiene prioridad sobre --days}
         {--from= : Fecha inicial explicita en formato Y-m-d}
-        {--to= : Fecha final exclusiva en formato Y-m-d; por defecto ahora}';
+        {--to= : Fecha final exclusiva en formato Y-m-d; por defecto ahora}
+        {--window= : Opcion legacy sin efecto; mantener solo por compatibilidad}';
 
     protected $description = 'Construye la atribucion lead -> oportunidad -> reserva -> venta por campana.';
 
