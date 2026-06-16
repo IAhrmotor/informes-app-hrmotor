@@ -1555,6 +1555,17 @@ th.num {
     margin-top: 4px;
 }
 
+.grafana-chart-inner {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 8px;
+    align-items: stretch;
+}
+
+.grafana-chart-body {
+    min-width: 0;
+}
+
 .grafana-plot {
     position: relative;
     height: 138px;
@@ -1640,7 +1651,7 @@ th.num {
     position: absolute;
     top: 0;
     bottom: 0;
-    left: 50%;
+    left: var(--guide-x, 50%);
     width: 1px;
     background: rgba(100, 116, 139, .22);
     opacity: 0;
@@ -1650,7 +1661,7 @@ th.num {
     content: attr(data-tooltip);
     position: absolute;
     z-index: 5;
-    left: clamp(0px, var(--tooltip-x), calc(100% - 150px));
+    left: var(--tooltip-x, 50%);
     top: clamp(8px, var(--tooltip-y), calc(100% - 54px));
     min-width: 142px;
     max-width: 190px;
@@ -1669,9 +1680,36 @@ th.num {
     pointer-events: none;
 }
 
+.grafana-hover-zone.is-first::after {
+    left: 0;
+    transform: translate(0, -100%);
+}
+
+.grafana-hover-zone.is-last::after {
+    left: auto;
+    right: 0;
+    transform: translate(0, -100%);
+}
+
 .grafana-hover-zone:hover::before,
 .grafana-hover-zone:hover::after {
     opacity: 1;
+}
+
+.grafana-y-axis {
+    position: relative;
+    height: 138px;
+}
+
+.grafana-y-axis-tick {
+    position: absolute;
+    right: 0;
+    transform: translateY(-50%);
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
 }
 
 .grafana-axis-labels {
@@ -1688,6 +1726,18 @@ th.num {
     font-size: 12px;
     font-weight: 700;
     white-space: nowrap;
+}
+
+.grafana-axis-labels span.is-first {
+    left: 0 !important;
+    transform: none;
+    text-align: left;
+}
+
+.grafana-axis-labels span.is-last {
+    left: 100% !important;
+    transform: translateX(-100%);
+    text-align: right;
 }
 
 .campaign-chart-card {
@@ -2514,6 +2564,11 @@ th.num {
 
     .campaign-chart-wide {
         grid-column: auto;
+    }
+
+    .grafana-chart-inner {
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 6px;
     }
 
     .campaign-search,

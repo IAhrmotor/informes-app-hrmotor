@@ -1090,10 +1090,13 @@ function grafanaMetricChartHtml(rows, definition) {
     const range = max - min || 1;
     const width = 100;
     const height = 72;
+    const plotTop = 6;
+    const plotBottom = 66;
+    const gridRatios = [0.75, 0.5, 0.25];
     const coordinates = rows.map((row, index) => {
         const value = numericChartValue(row[definition.key]) ?? 0;
         const x = rows.length === 1 ? 50 : (index / (rows.length - 1)) * width;
-        const y = height - (((value - min) / range) * (height - 12)) - 6;
+        const y = plotBottom - (((value - min) / range) * (plotBottom - plotTop));
 
         return { x, y, value };
     });
@@ -1103,6 +1106,16 @@ function grafanaMetricChartHtml(rows, definition) {
     const delta = previousValue !== null && previousValue !== 0 && lastValue !== null
         ? (lastValue - previousValue) / previousValue
         : null;
+    const yAxisTicks = gridRatios.map((ratio) => {
+        const y = plotBottom - (ratio * (plotBottom - plotTop));
+        const value = min + (range * ratio);
+
+        return {
+            top: (y / height) * 100,
+            label: definition.formatter(value),
+            y,
+        };
+    });
 
     return `
         <article class="grafana-panel">
@@ -1114,37 +1127,54 @@ function grafanaMetricChartHtml(rows, definition) {
                 <span class="grafana-delta ${delta !== null && delta < 0 ? 'is-negative' : ''}">${delta === null ? 'Sin datos' : escapeHtml(formatPercentRatio(delta))}</span>
             </div>
             <div class="grafana-chart">
-                <div class="grafana-plot">
-                    <svg viewBox="0 0 100 72" preserveAspectRatio="none" aria-hidden="true">
-                        <line class="grafana-grid-line" x1="0" x2="100" y1="12" y2="12" />
-                        <line class="grafana-grid-line" x1="0" x2="100" y1="36" y2="36" />
-                        <line class="grafana-grid-line" x1="0" x2="100" y1="60" y2="60" />
-                        <polyline class="grafana-line ${escapeHtml(definition.className)}" points="${points}" />
-                    </svg>
-                    <div class="grafana-point-layer">
-                        ${coordinates.map((point) => `<span class="grafana-point-dot ${escapeHtml(definition.className)}" style="left:${point.x.toFixed(4)}%;top:${(point.y / 72 * 100).toFixed(4)}%"></span>`).join('')}
+                <div class="grafana-chart-inner">
+                    <div class="grafana-y-axis" aria-hidden="true">
+                        ${yAxisTicks.map((tick) => `<span class="grafana-y-axis-tick" style="top:${tick.top.toFixed(4)}%">${escapeHtml(tick.label)}</span>`).join('')}
                     </div>
-                    <div class="grafana-hover-layer">
-                        ${rows.map((row, index) => grafanaHoverZoneHtml(row, coordinates[index], definition, rows.length)).join('')}
+                    <div class="grafana-chart-body">
+                        <div class="grafana-plot">
+                            <svg viewBox="0 0 100 72" preserveAspectRatio="none" aria-hidden="true">
+                                ${yAxisTicks.map((tick) => `<line class="grafana-grid-line" x1="0" x2="100" y1="${tick.y.toFixed(2)}" y2="${tick.y.toFixed(2)}" />`).join('')}
+                                <polyline class="grafana-line ${escapeHtml(definition.className)}" points="${points}" />
+                            </svg>
+                            <div class="grafana-point-layer">
+                                ${coordinates.map((point) => `<span class="grafana-point-dot ${escapeHtml(definition.className)}" style="left:${point.x.toFixed(4)}%;top:${(point.y / height * 100).toFixed(4)}%"></span>`).join('')}
+                            </div>
+                            <div class="grafana-hover-layer">
+                                ${rows.map((row, index) => grafanaHoverZoneHtml(row, coordinates, index, definition)).join('')}
+                            </div>
+                        </div>
+                        <div class="grafana-axis-labels">
+                            ${rows.map((row, index) => {
+                                const edgeClass = index === 0 ? 'is-first' : (index === rows.length - 1 ? 'is-last' : '');
+                                return `<span class="${edgeClass}" style="left:${coordinates[index].x.toFixed(2)}%">${escapeHtml(formatMonthLabel(row))}</span>`;
+                            }).join('')}
+                        </div>
                     </div>
-                </div>
-                <div class="grafana-axis-labels">
-                    ${rows.map((row, index) => `<span style="left:${coordinates[index].x.toFixed(2)}%">${escapeHtml(formatMonthLabel(row))}</span>`).join('')}
                 </div>
             </div>
         </article>
     `;
 }
 
-function grafanaHoverZoneHtml(row, point, definition, total) {
-    const width = 100 / Math.max(total, 1);
-    const left = total === 1 ? 0 : Math.max(0, point.x - (width / 2));
+function grafanaHoverZoneHtml(row, coordinates, index, definition) {
+    const total = coordinates.length;
+    const point = coordinates[index];
+    const leftBoundary = total <= 1
+        ? 0
+        : (index === 0 ? 0 : (coordinates[index - 1].x + point.x) / 2);
+    const rightBoundary = total <= 1
+        ? 100
+        : (index === total - 1 ? 100 : (point.x + coordinates[index + 1].x) / 2);
+    const width = Math.max(rightBoundary - leftBoundary, total === 1 ? 100 : 0);
+    const anchor = width > 0 ? ((point.x - leftBoundary) / width) * 100 : 50;
     const tooltip = `${formatMonthLabel(row)}\n${definition.label}: ${definition.formatter(numericChartValue(row[definition.key]))}`;
+    const edgeClass = index === 0 ? 'is-first' : (index === total - 1 ? 'is-last' : '');
 
     return `
         <span
-            class="grafana-hover-zone"
-            style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;--tooltip-x:${point.x.toFixed(2)}%;--tooltip-y:${(point.y / 72 * 100).toFixed(2)}%"
+            class="grafana-hover-zone ${edgeClass}"
+            style="left:${leftBoundary.toFixed(2)}%;width:${width.toFixed(2)}%;--guide-x:${anchor.toFixed(2)}%;--tooltip-x:${anchor.toFixed(2)}%;--tooltip-y:${(point.y / 72 * 100).toFixed(2)}%"
             data-tooltip="${escapeHtml(tooltip)}"
             aria-hidden="true"
         ></span>
