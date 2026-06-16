@@ -156,6 +156,12 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonStructure(['diagnostics']);
 
         $this->withSession($adminSession)
+            ->getJson('/informes/campanas/data/summary?'.$this->query().'&include_diagnostics=0')
+            ->assertOk()
+            ->assertJsonMissingPath('diagnostics')
+            ->assertJsonStructure(['rankings']);
+
+        $this->withSession($adminSession)
             ->get('/informes/campanas/export/campaigns.csv?'.$this->query())
             ->assertOk();
 

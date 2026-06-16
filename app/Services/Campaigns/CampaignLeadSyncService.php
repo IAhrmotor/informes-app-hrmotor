@@ -6,14 +6,20 @@ use App\Models\CampaignSalesforceLead;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Throwable;
 use RuntimeException;
 
 class CampaignLeadSyncService
 {
-    private const UPSERT_CHUNK_SIZE = 500;
+    private const UPSERT_CHUNK_SIZE = 200;
+    private const UPSERT_WRITE_CHUNK_SIZE = 100;
+    private const UPSERT_DEADLOCK_RETRIES = 4;
+    private const UPSERT_DEADLOCK_RETRY_SLEEP_MS = 250;
 
     public function __construct(
         private readonly SalesforceClient $client,
@@ -210,98 +216,157 @@ SOQL;
             return 0;
         }
 
-        DB::table('campaign_salesforce_leads')->upsert(
-            $rows,
-            ['salesforce_id'],
-            [
-                'name',
-                'created_date',
-                'status',
-                'owner_id',
-                'owner_name',
-                'phone',
-                'mobile_phone',
-                'email',
-                'is_converted',
-                'converted_date',
-                'converted_account_id',
-                'converted_contact_id',
-                'converted_opportunity_id',
-                'fuente_origen',
-                'medio_origen',
-                'campaign_acquired',
-                'acquired_id',
-                'content_acquired',
-                'vehicle_interest',
-                'delegacion_encargada_text',
-                'delegacion_encargada_id',
-                'delegacion_encargada_bueno',
-                'raw_payload',
-                'updated_at',
-            ]
-        );
+        usort($rows, fn (array $a, array $b): int => strcmp((string) ($a['salesforce_id'] ?? ''), (string) ($b['salesforce_id'] ?? '')));
+
+        foreach (array_chunk($rows, self::UPSERT_WRITE_CHUNK_SIZE) as $chunk) {
+            $this->retryDeadlock(function () use ($chunk): void {
+                DB::table('campaign_salesforce_leads')->upsert(
+                    $chunk,
+                    ['salesforce_id'],
+                    [
+                        'name',
+                        'created_date',
+                        'status',
+                        'owner_id',
+                        'owner_name',
+                        'phone',
+                        'mobile_phone',
+                        'email',
+                        'is_converted',
+                        'converted_date',
+                        'converted_account_id',
+                        'converted_contact_id',
+                        'converted_opportunity_id',
+                        'fuente_origen',
+                        'medio_origen',
+                        'campaign_acquired',
+                        'acquired_id',
+                        'content_acquired',
+                        'vehicle_interest',
+                        'delegacion_encargada_text',
+                        'delegacion_encargada_id',
+                        'delegacion_encargada_bueno',
+                        'raw_payload',
+                        'updated_at',
+                    ]
+                );
+            }, 'campaign_salesforce_leads');
+        }
 
         if (Schema::hasTable('salesforce_leads')) {
-            DB::table('salesforce_leads')->upsert(
-                array_map(fn (array $row): array => [
-                    'salesforce_id' => $row['salesforce_id'],
-                    'name' => $row['name'],
-                    'created_date' => $row['created_date'],
-                    'status' => $row['status'],
-                    'owner_id' => $row['owner_id'],
-                    'owner_name' => $row['owner_name'],
-                    'phone' => $row['phone'],
-                    'mobile_phone' => $row['mobile_phone'],
-                    'email' => $row['email'],
-                    'is_converted' => $row['is_converted'],
-                    'converted_date' => $row['converted_date'],
-                    'converted_account_id' => $row['converted_account_id'],
-                    'converted_contact_id' => $row['converted_contact_id'],
-                    'converted_opportunity_id' => $row['converted_opportunity_id'],
-                    'fuente_origen' => $row['fuente_origen'],
-                    'medio_origen' => $row['medio_origen'],
-                    'campaign_acquired' => $row['campaign_acquired'],
-                    'acquired_id' => $row['acquired_id'],
-                    'content_acquired' => $row['content_acquired'],
-                    'vehicle_interest' => $row['vehicle_interest'],
-                    'delegacion_encargada_text' => $row['delegacion_encargada_text'],
-                    'delegacion_encargada' => $row['delegacion_encargada_id'],
-                    'delegacion_encargada_bueno' => $row['delegacion_encargada_bueno'],
-                    'raw_payload' => $row['raw_payload'],
-                    'created_at' => $row['created_at'],
-                    'updated_at' => $row['updated_at'],
-                ], $rows),
-                ['salesforce_id'],
-                [
-                    'name',
-                    'created_date',
-                    'status',
-                    'owner_id',
-                    'owner_name',
-                    'phone',
-                    'mobile_phone',
-                    'email',
-                    'is_converted',
-                    'converted_date',
-                    'converted_account_id',
-                    'converted_contact_id',
-                    'converted_opportunity_id',
-                    'fuente_origen',
-                    'medio_origen',
-                    'campaign_acquired',
-                    'acquired_id',
-                    'content_acquired',
-                    'vehicle_interest',
-                    'delegacion_encargada_text',
-                    'delegacion_encargada',
-                    'delegacion_encargada_bueno',
-                    'raw_payload',
-                    'updated_at',
-                ]
-            );
+            $generalRows = array_map(fn (array $row): array => [
+                'salesforce_id' => $row['salesforce_id'],
+                'name' => $row['name'],
+                'created_date' => $row['created_date'],
+                'status' => $row['status'],
+                'owner_id' => $row['owner_id'],
+                'owner_name' => $row['owner_name'],
+                'phone' => $row['phone'],
+                'mobile_phone' => $row['mobile_phone'],
+                'email' => $row['email'],
+                'is_converted' => $row['is_converted'],
+                'converted_date' => $row['converted_date'],
+                'converted_account_id' => $row['converted_account_id'],
+                'converted_contact_id' => $row['converted_contact_id'],
+                'converted_opportunity_id' => $row['converted_opportunity_id'],
+                'fuente_origen' => $row['fuente_origen'],
+                'medio_origen' => $row['medio_origen'],
+                'campaign_acquired' => $row['campaign_acquired'],
+                'acquired_id' => $row['acquired_id'],
+                'content_acquired' => $row['content_acquired'],
+                'vehicle_interest' => $row['vehicle_interest'],
+                'delegacion_encargada_text' => $row['delegacion_encargada_text'],
+                'delegacion_encargada' => $row['delegacion_encargada_id'],
+                'delegacion_encargada_bueno' => $row['delegacion_encargada_bueno'],
+                'raw_payload' => $row['raw_payload'],
+                'created_at' => $row['created_at'],
+                'updated_at' => $row['updated_at'],
+            ], $rows);
+
+            foreach (array_chunk($generalRows, self::UPSERT_WRITE_CHUNK_SIZE) as $chunk) {
+                $this->retryDeadlock(function () use ($chunk): void {
+                    DB::table('salesforce_leads')->upsert(
+                        $chunk,
+                        ['salesforce_id'],
+                        [
+                            'name',
+                            'created_date',
+                            'status',
+                            'owner_id',
+                            'owner_name',
+                            'phone',
+                            'mobile_phone',
+                            'email',
+                            'is_converted',
+                            'converted_date',
+                            'converted_account_id',
+                            'converted_contact_id',
+                            'converted_opportunity_id',
+                            'fuente_origen',
+                            'medio_origen',
+                            'campaign_acquired',
+                            'acquired_id',
+                            'content_acquired',
+                            'vehicle_interest',
+                            'delegacion_encargada_text',
+                            'delegacion_encargada',
+                            'delegacion_encargada_bueno',
+                            'raw_payload',
+                            'updated_at',
+                        ]
+                    );
+                }, 'salesforce_leads');
+            }
         }
 
         return count($rows);
+    }
+
+    private function retryDeadlock(callable $callback, string $table): void
+    {
+        $attempt = 0;
+
+        beginning:
+        $attempt++;
+
+        try {
+            $callback();
+        } catch (Throwable $exception) {
+            if (! $this->isDeadlock($exception) || $attempt >= self::UPSERT_DEADLOCK_RETRIES) {
+                throw $exception;
+            }
+
+            Log::warning(sprintf(
+                'Deadlock en sync de leads de campaña al escribir %s. Reintento %d/%d.',
+                $table,
+                $attempt,
+                self::UPSERT_DEADLOCK_RETRIES
+            ));
+
+            usleep(self::UPSERT_DEADLOCK_RETRY_SLEEP_MS * $attempt * 1000);
+
+            goto beginning;
+        }
+    }
+
+    private function isDeadlock(Throwable $exception): bool
+    {
+        if ($exception instanceof QueryException) {
+            $errorInfo = $exception->errorInfo ?? [];
+            $sqlState = (string) ($errorInfo[0] ?? $exception->getCode());
+            $driverCode = (string) ($errorInfo[1] ?? '');
+            $message = mb_strtolower($exception->getMessage());
+
+            return $sqlState === '40001'
+                || $driverCode === '1213'
+                || str_contains($message, 'deadlock found')
+                || str_contains($message, 'serialization failure');
+        }
+
+        $message = mb_strtolower($exception->getMessage());
+
+        return str_contains($message, 'deadlock found')
+            || str_contains($message, 'serialization failure');
     }
 
     private function countMappedRecord(array &$stats, array $row): bool

@@ -35,6 +35,9 @@ let campaignNameSelections = [];
 let monthlySelectedMonths = [];
 let monthlyVisibleMetrics = [];
 let monthlyCompareMode = 'none';
+let currentDiagnostics = {};
+let currentDiagnosticsKey = '';
+let diagnosticsLoadingPromise = null;
 
 const dailySeriesDefinitions = [
     { key: 'spend', label: 'Inversión', formatter: formatMoney, className: 'spend' },
@@ -198,9 +201,14 @@ function bindDiagnosticsModal() {
         return;
     }
 
-    const open = () => {
+    const open = async () => {
         drawer.classList.add('is-open');
         drawer.setAttribute('aria-hidden', 'false');
+        try {
+            await loadDiagnostics();
+        } catch (_) {
+            // El modal permanece abierto para mostrar el mensaje de error renderizado.
+        }
     };
     const close = () => {
         drawer.classList.remove('is-open');
@@ -608,7 +616,9 @@ async function reloadAllData() {
 
     try {
         const query = currentFilters();
-        const summary = await fetchJson(`/informes/campanas/data/summary?${query}`);
+        const params = new URLSearchParams(query);
+        params.set('include_diagnostics', '0');
+        const summary = await fetchJson(`/informes/campanas/data/summary?${params.toString()}`);
         const campaignItems = Array.isArray(summary?.campaigns) ? summary.campaigns : [];
 
         renderSummary(summary || {});
@@ -617,6 +627,9 @@ async function reloadAllData() {
         renderCampaignTables(campaignRows);
         currentRankings = (summary && summary.rankings) || {};
         renderRankings((summary && summary.rankings) || {});
+        currentDiagnostics = {};
+        currentDiagnosticsKey = '';
+        renderDiagnostics({});
         const exportLink = document.getElementById('exportCsv');
         if (exportLink) {
             exportLink.href = `/informes/campanas/export/campaigns.csv?${query}`;
@@ -626,6 +639,53 @@ async function reloadAllData() {
     } finally {
         setLoadingState(false);
     }
+}
+
+async function loadDiagnostics() {
+    const root = document.getElementById('campaignDiagnostics');
+    const query = currentFilters();
+
+    if (currentDiagnosticsKey === query && Object.keys(currentDiagnostics).length > 0) {
+        renderDiagnostics(currentDiagnostics);
+
+        return currentDiagnostics;
+    }
+
+    if (root) {
+        root.innerHTML = '<div class="empty-state">Cargando diagnóstico...</div>';
+    }
+
+    if (diagnosticsLoadingPromise && currentDiagnosticsKey === query) {
+        return diagnosticsLoadingPromise;
+    }
+
+    const params = new URLSearchParams(query);
+    params.set('include_diagnostics', '1');
+    params.set('include_filters', '0');
+
+    currentDiagnosticsKey = query;
+    diagnosticsLoadingPromise = fetchJson(`/informes/campanas/data/summary?${params.toString()}`)
+        .then((summary) => {
+            currentDiagnostics = (summary && summary.diagnostics) || {};
+            renderDiagnostics(currentDiagnostics);
+
+            return currentDiagnostics;
+        })
+        .catch((error) => {
+            currentDiagnostics = {};
+            currentDiagnosticsKey = '';
+
+            if (root) {
+                root.innerHTML = `<div class="empty-state">${escapeHtml(error?.message || 'Error cargando diagnóstico')}</div>`;
+            }
+
+            throw error;
+        })
+        .finally(() => {
+            diagnosticsLoadingPromise = null;
+        });
+
+    return diagnosticsLoadingPromise;
 }
 
 function renderSummary(data) {

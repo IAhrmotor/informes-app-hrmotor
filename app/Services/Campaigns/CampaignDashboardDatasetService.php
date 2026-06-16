@@ -26,13 +26,16 @@ class CampaignDashboardDatasetService
 
     public function summary(Request $request): array
     {
-        $payload = $this->payload($request);
+        $includeDiagnostics = ReportUserAccess::isAdmin($request) && $request->boolean('include_diagnostics', true);
+        $payload = $this->payload($request, $includeDiagnostics, true);
         $summary = $payload['summary'];
         $summary['campaigns'] = $payload['campaigns'];
         $summary['rankings'] = $payload['rankings'];
 
         if (! ReportUserAccess::isAdmin($request)) {
             $summary['warnings'] = [];
+            unset($summary['diagnostics']);
+        } elseif (! $includeDiagnostics) {
             unset($summary['diagnostics']);
         }
 
@@ -41,7 +44,7 @@ class CampaignDashboardDatasetService
 
     public function campaignRows(Request $request): array
     {
-        $payload = $this->payload($request);
+        $payload = $this->payload($request, false, false);
 
         return [
             'ok' => true,
@@ -54,16 +57,16 @@ class CampaignDashboardDatasetService
     {
         return [
             'ok' => true,
-            'rankings' => $this->payload($request)['rankings'],
+            'rankings' => $this->payload($request, false, false)['rankings'],
         ];
     }
 
     public function exportRows(Request $request): array
     {
-        return $this->payload($request)['campaigns'];
+        return $this->payload($request, false, false)['campaigns'];
     }
 
-    public function payload(Request $request): array
+    public function payload(Request $request, bool $includeDiagnostics = true, bool $includeFilters = true): array
     {
         $filters = $this->filters($request);
         $period = $this->period($filters);
@@ -72,10 +75,12 @@ class CampaignDashboardDatasetService
             'campaign-dashboard-v3:'.md5(json_encode([
                 'filters' => $filters,
                 'period' => $period,
+                'include_diagnostics' => $includeDiagnostics,
+                'include_filters' => $includeFilters,
                 'version' => $this->dataVersion(),
             ])),
             now()->addMinutes(self::CACHE_TTL_MINUTES),
-            fn () => $this->buildPayload($filters, $period)
+            fn () => $this->buildPayload($filters, $period, $includeDiagnostics, $includeFilters)
         );
     }
 
@@ -113,7 +118,7 @@ class CampaignDashboardDatasetService
         ];
     }
 
-    private function buildPayload(array $filters, array $period): array
+    private function buildPayload(array $filters, array $period, bool $includeDiagnostics = true, bool $includeFilters = true): array
     {
         $metricRows = $this->metricRows($filters, $period);
         $attributionRows = $this->attributionRows($filters, $period);
@@ -130,7 +135,7 @@ class CampaignDashboardDatasetService
 
         usort($campaigns, fn (array $a, array $b) => ($b['spend'] <=> $a['spend']) ?: ($b['leads_salesforce'] <=> $a['leads_salesforce']));
 
-        $summary = $this->summaryFromRows($campaigns, $allCampaigns, $filters, $period);
+        $summary = $this->summaryFromRows($campaigns, $allCampaigns, $filters, $period, $includeDiagnostics, $includeFilters);
         $rankings = $this->rankingsFromRows($campaigns, $filters);
 
         return [
@@ -582,7 +587,7 @@ class CampaignDashboardDatasetService
         return array_values(array_filter($rows, fn (array $row): bool => in_array(($row['platform'] ?? null), ['google_ads', 'meta'], true)));
     }
 
-    private function summaryFromRows(array $rows, array $allRows, array $filters, array $period): array
+    private function summaryFromRows(array $rows, array $allRows, array $filters, array $period, bool $includeDiagnostics = true, bool $includeFilters = true): array
     {
         $charts = $this->charts($rows, $filters, $period);
         $totals = $this->withRatios([
@@ -636,8 +641,8 @@ class CampaignDashboardDatasetService
             'daily_results' => $charts['daily_reservations_sales'],
             'platform_comparison' => $charts['platforms'],
             'review_campaigns' => $this->reviewCampaigns($rows, $filters),
-            'diagnostics' => $this->diagnostics($allRows, $period, $filters),
-            'filters' => $this->filterOptions(),
+            'diagnostics' => $includeDiagnostics ? $this->diagnostics($allRows, $period, $filters) : [],
+            'filters' => $includeFilters ? $this->filterOptionsCached() : [],
         ];
     }
 
@@ -1655,6 +1660,15 @@ class CampaignDashboardDatasetService
         ];
     }
 
+    private function filterOptionsCached(): array
+    {
+        return Cache::remember(
+            'campaign-dashboard-filter-options-v1:'.md5(json_encode($this->filterOptionsVersion())),
+            now()->addMinutes(self::CACHE_TTL_MINUTES),
+            fn () => $this->filterOptions()
+        );
+    }
+
     private function normalizeContext(mixed $context): string
     {
         $context = $this->normalizer->key($context);
@@ -1931,9 +1945,17 @@ class CampaignDashboardDatasetService
     private function dataVersion(): array
     {
         return [
-            'attributions_count' => DB::table('campaign_lead_attributions')->count(),
-            'metrics_count' => CampaignPlatformDailyMetric::query()->count(),
             'attributions_updated_at' => DB::table('campaign_lead_attributions')->max('updated_at'),
+            'metrics_updated_at' => CampaignPlatformDailyMetric::query()->max('updated_at'),
+            'dashboard_cache_version' => Cache::get('campaign_dashboard_cache_version', 1),
+        ];
+    }
+
+    private function filterOptionsVersion(): array
+    {
+        return [
+            'campaign_lead_attributions_updated_at' => DB::table('campaign_lead_attributions')->max('updated_at'),
+            'campaign_attributions_updated_at' => DB::table('campaign_attributions')->max('updated_at'),
             'metrics_updated_at' => CampaignPlatformDailyMetric::query()->max('updated_at'),
             'dashboard_cache_version' => Cache::get('campaign_dashboard_cache_version', 1),
         ];
