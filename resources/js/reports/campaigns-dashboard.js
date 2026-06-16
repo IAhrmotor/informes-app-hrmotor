@@ -9,6 +9,7 @@ const monthlyMonthsStorageKey = 'campaigns.monthlyChart.months';
 const monthlyMetricsStorageKey = 'campaigns.monthlyChart.metrics.v2';
 const monthlyCompareStorageKey = 'campaigns.monthlyChart.compare';
 const campaignNameSelectionStorageKey = 'campaigns.campaignNames.selected';
+const metricChartsVisibilityStorageKey = 'campaigns.metricCharts.visible.v1';
 const campaignPointIcon = '/brand/campaign-point.svg';
 const monthlyChartEnabled = false;
 const campaignPeriodMinDate = '2026-01-01';
@@ -38,6 +39,7 @@ let monthlyCompareMode = 'none';
 let currentDiagnostics = {};
 let currentDiagnosticsKey = '';
 let diagnosticsLoadingPromise = null;
+let metricChartsVisible = loadMetricChartsVisible();
 
 const dailySeriesDefinitions = [
     { key: 'spend', label: 'Inversión', formatter: formatMoney, className: 'spend' },
@@ -165,6 +167,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindColumns();
     bindRankingSettings();
     bindMonthlyChartControls();
+    bindMetricChartsToggle();
     bindCampaignTableActions();
     bindTableScroll();
     applyColumnVisibility();
@@ -998,9 +1001,167 @@ function renderCharts(charts) {
     }
 
     currentCharts = charts || {};
-    root.innerHTML = monthlyChartEnabled
-        ? `${monthlyEvolutionHtml(charts.monthly_evolution || charts.daily_evolution || [])}`
+    root.innerHTML = metricChartsShellHtml(charts.monthly_evolution || []);
+}
+
+function bindMetricChartsToggle() {
+    document.addEventListener('click', (event) => {
+        const target = event.target;
+
+        if (!(target instanceof HTMLElement) || !target.closest('#metricChartsToggle')) {
+            return;
+        }
+
+        metricChartsVisible = !metricChartsVisible;
+        localStorage.setItem(metricChartsVisibilityStorageKey, metricChartsVisible ? '1' : '0');
+        renderCharts(currentCharts || {});
+    });
+}
+
+function loadMetricChartsVisible() {
+    return localStorage.getItem(metricChartsVisibilityStorageKey) !== '0';
+}
+
+function metricChartsShellHtml(rows) {
+    const visibleRows = metricChartRows(rows);
+    const charts = metricChartsVisible
+        ? `<div class="grafana-metric-grid">${metricChartDefinitions(currentContext).map((definition) => grafanaMetricChartHtml(visibleRows, definition)).join('')}</div>`
         : '';
+
+    return `
+        <section class="card panel grafana-charts-shell">
+            <div class="panel-title">
+                <div>
+                    <h2>Evolución mensual</h2>
+                    <div class="small">Últimos seis meses por métrica principal</div>
+                </div>
+                <button type="button" class="main-tab" id="metricChartsToggle" aria-expanded="${metricChartsVisible ? 'true' : 'false'}">
+                    ${metricChartsVisible ? 'Ocultar gráficas' : 'Mostrar gráficas'}
+                </button>
+            </div>
+            ${charts}
+        </section>
+    `;
+}
+
+function metricChartRows(rows) {
+    return (rows || [])
+        .slice(-6)
+        .map((row) => {
+            const results = normalizeCampaignContext(currentContext) === 'tasacion'
+                ? Number(row.purchases || 0)
+                : Number(row.sales || 0) + Number(row.purchases || 0);
+            const spend = Number(row.spend || 0);
+
+            return {
+                ...row,
+                result_count: results,
+                cost_per_result: results > 0 ? spend / results : null,
+            };
+        });
+}
+
+function metricChartDefinitions(context = currentContext) {
+    const normalized = normalizeCampaignContext(context);
+    const resultLabel = normalized === 'tasacion' ? 'Compras' : 'Ventas / compras';
+
+    return [
+        { key: 'spend', label: 'Inversión', formatter: formatMoney, className: 'spend' },
+        { key: 'result_count', label: resultLabel, formatter: formatNumber, className: 'sales' },
+        { key: 'cost_per_result', label: 'Coste por resultado', formatter: formatMoney, className: 'results' },
+        { key: 'leads_salesforce', label: 'Leads Salesforce', formatter: formatNumber, className: 'leads' },
+    ];
+}
+
+function grafanaMetricChartHtml(rows, definition) {
+    if (!rows.length) {
+        return `
+            <article class="grafana-panel">
+                <div class="grafana-panel-title">${escapeHtml(definition.label)}</div>
+                <div class="empty-state">Sin datos</div>
+            </article>
+        `;
+    }
+
+    const values = rows.map((row) => numericChartValue(row[definition.key]));
+    const finiteValues = values.filter((value) => value !== null);
+    const max = Math.max(...finiteValues, 0);
+    const min = Math.min(...finiteValues, 0);
+    const range = max - min || 1;
+    const width = 100;
+    const height = 72;
+    const coordinates = rows.map((row, index) => {
+        const value = numericChartValue(row[definition.key]) ?? 0;
+        const x = rows.length === 1 ? 50 : (index / (rows.length - 1)) * width;
+        const y = height - (((value - min) / range) * (height - 12)) - 6;
+
+        return { x, y, value };
+    });
+    const points = coordinates.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ');
+    const lastValue = finiteValues.length ? finiteValues[finiteValues.length - 1] : null;
+    const previousValue = finiteValues.length > 1 ? finiteValues[finiteValues.length - 2] : null;
+    const delta = previousValue !== null && previousValue !== 0 && lastValue !== null
+        ? (lastValue - previousValue) / previousValue
+        : null;
+
+    return `
+        <article class="grafana-panel">
+            <div class="grafana-panel-head">
+                <div>
+                    <div class="grafana-panel-title">${escapeHtml(definition.label)}</div>
+                    <div class="grafana-panel-value">${escapeHtml(definition.formatter(lastValue))}</div>
+                </div>
+                <span class="grafana-delta ${delta !== null && delta < 0 ? 'is-negative' : ''}">${delta === null ? 'Sin datos' : escapeHtml(formatPercentRatio(delta))}</span>
+            </div>
+            <div class="grafana-chart">
+                <div class="grafana-plot">
+                    <svg viewBox="0 0 100 72" preserveAspectRatio="none" aria-hidden="true">
+                        <line class="grafana-grid-line" x1="0" x2="100" y1="12" y2="12" />
+                        <line class="grafana-grid-line" x1="0" x2="100" y1="36" y2="36" />
+                        <line class="grafana-grid-line" x1="0" x2="100" y1="60" y2="60" />
+                        <polyline class="grafana-line ${escapeHtml(definition.className)}" points="${points}" />
+                    </svg>
+                    <div class="grafana-point-layer">
+                        ${coordinates.map((point) => `<span class="grafana-point-dot ${escapeHtml(definition.className)}" style="left:${point.x.toFixed(4)}%;top:${(point.y / 72 * 100).toFixed(4)}%"></span>`).join('')}
+                    </div>
+                    <div class="grafana-hover-layer">
+                        ${rows.map((row, index) => grafanaHoverZoneHtml(row, coordinates[index], definition, rows.length)).join('')}
+                    </div>
+                </div>
+                <div class="grafana-axis-labels">
+                    ${rows.map((row, index) => `<span style="left:${coordinates[index].x.toFixed(2)}%">${escapeHtml(formatMonthLabel(row))}</span>`).join('')}
+                </div>
+            </div>
+        </article>
+    `;
+}
+
+function grafanaHoverZoneHtml(row, point, definition, total) {
+    const width = 100 / Math.max(total, 1);
+    const left = total === 1 ? 0 : Math.max(0, point.x - (width / 2));
+    const tooltip = `${formatMonthLabel(row)}\n${definition.label}: ${definition.formatter(numericChartValue(row[definition.key]))}`;
+
+    return `
+        <span
+            class="grafana-hover-zone"
+            style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;--tooltip-x:${point.x.toFixed(2)}%;--tooltip-y:${(point.y / 72 * 100).toFixed(2)}%"
+            data-tooltip="${escapeHtml(tooltip)}"
+            aria-hidden="true"
+        ></span>
+    `;
+}
+
+function numericChartValue(value) {
+    const number = Number(value);
+
+    return Number.isFinite(number) ? number : null;
+}
+
+function formatMonthLabel(row) {
+    const date = String(row.date || '');
+    const match = date.match(/^(\d{4})-(\d{2})/);
+
+    return match ? `${match[2]}/${match[1]}` : date;
 }
 
 function monthlyEvolutionHtml(rows) {
@@ -1366,12 +1527,15 @@ function monthlyResultCountForRow(row) {
         case 'branding':
             return Number(row.leads_salesforce || 0);
         case 'otros':
+            return Math.max(
+                Number(row.sales || 0),
+                Number(row.purchases || 0),
+                Number(row.opportunities || 0),
+                Number(row.leads_salesforce || 0),
+            );
         case 'all':
         default:
-            return Number(row.sales || 0)
-                + Number(row.purchases || 0)
-                + Number(row.opportunities || 0)
-                + Number(row.leads_salesforce || 0);
+            return Number(row.sales || 0) + Number(row.purchases || 0);
     }
 }
 
@@ -2269,7 +2433,7 @@ function formatDateTime(value) {
 
 function formatNumber(value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
-        return '-';
+        return 'Sin datos';
     }
 
     return numberFormatter.format(Number(value));
@@ -2277,7 +2441,7 @@ function formatNumber(value) {
 
 function formatMoney(value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
-        return '-';
+        return 'Sin datos';
     }
 
     return moneyFormatter.format(Number(value));
@@ -2285,7 +2449,7 @@ function formatMoney(value) {
 
 function formatPercentRatio(value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
-        return '-';
+        return 'Sin datos';
     }
 
     return `${(Number(value) * 100).toFixed(1)}%`;
@@ -2293,7 +2457,7 @@ function formatPercentRatio(value) {
 
 function formatMultiplier(value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
-        return '-';
+        return 'Sin datos';
     }
 
     return Number(value).toFixed(2);
@@ -2308,7 +2472,7 @@ function formatPlatform(value) {
 }
 
 function formatReviewValue(row) {
-    return row.value !== null && row.value !== undefined ? (Number.isFinite(Number(row.value)) ? formatNumber(row.value) : String(row.value)) : '-';
+    return row.value !== null && row.value !== undefined ? (Number.isFinite(Number(row.value)) ? formatNumber(row.value) : String(row.value)) : 'Sin datos';
 }
 
 function escapeHtml(value) {

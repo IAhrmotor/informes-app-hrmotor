@@ -55,7 +55,7 @@ class CampaignTypeResolver
             return 'venta';
         }
 
-        if (str_contains($nameKey, 'visitas a la tienda') || str_contains($nameKey, 'pmax')) {
+        if ($this->isStoreVisitNameKey($nameKey)) {
             return 'exposicion';
         }
 
@@ -153,6 +153,11 @@ class CampaignTypeResolver
         return $this->normalizer->key($campaignName) === 'tasador';
     }
 
+    public function isStoreVisitCampaign(mixed $campaignName): bool
+    {
+        return $this->isStoreVisitNameKey($this->normalizer->key($campaignName));
+    }
+
     private function mappedType(mixed $platform, mixed $campaignId, mixed $campaignName): ?string
     {
         if (! Schema::hasTable('campaign_type_mappings')) {
@@ -206,5 +211,15 @@ class CampaignTypeResolver
         }
 
         return $nameKey !== 'tasador' && str_contains($nameKey, 'tasador');
+    }
+
+    private function isStoreVisitNameKey(string $nameKey): bool
+    {
+        return str_contains($nameKey, 'visitas a la tienda')
+            || str_contains($nameKey, 'visita a la tienda')
+            || str_contains($nameKey, 'visitas tienda')
+            || str_contains($nameKey, 'visita tienda')
+            || str_contains($nameKey, 'store visit')
+            || str_contains($nameKey, 'pmax');
     }
 }

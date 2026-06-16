@@ -1496,6 +1496,200 @@ th.num {
     grid-column: 1 / -1;
 }
 
+.grafana-charts-shell {
+    grid-column: 1 / -1;
+}
+
+.grafana-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+}
+
+.grafana-panel {
+    min-width: 0;
+    padding: 16px;
+    border: 1px solid rgba(148, 163, 184, .22);
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
+}
+
+.grafana-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.grafana-panel-title {
+    color: #1f2937;
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.grafana-panel-value {
+    margin-top: 4px;
+    color: #111827;
+    font-size: 22px;
+    font-weight: 900;
+}
+
+.grafana-delta {
+    flex: 0 0 auto;
+    color: #4ade80;
+    font-size: 12px;
+    font-weight: 850;
+}
+
+.grafana-delta.is-negative {
+    color: #f87171;
+}
+
+.grafana-chart {
+    position: relative;
+    margin-top: 4px;
+}
+
+.grafana-plot {
+    position: relative;
+    height: 138px;
+}
+
+.grafana-chart svg {
+    display: block;
+    width: 100%;
+    height: 138px;
+    overflow: visible;
+}
+
+.grafana-grid-line {
+    stroke: rgba(148, 163, 184, .28);
+    stroke-dasharray: 3 5;
+    stroke-width: .6;
+}
+
+.grafana-line {
+    fill: none;
+    stroke: #f97316;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2.4;
+    vector-effect: non-scaling-stroke;
+}
+
+.grafana-line.spend,
+.grafana-point-dot.spend {
+    stroke: #f97316;
+    border-color: #f97316;
+}
+
+.grafana-line.sales,
+.grafana-point-dot.sales {
+    stroke: #38bdf8;
+    border-color: #38bdf8;
+}
+
+.grafana-line.results,
+.grafana-point-dot.results {
+    stroke: #a78bfa;
+    border-color: #a78bfa;
+}
+
+.grafana-line.leads,
+.grafana-point-dot.leads {
+    stroke: #4ade80;
+    border-color: #4ade80;
+}
+
+.grafana-point-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.grafana-point-dot {
+    position: absolute;
+    width: 13px;
+    height: 13px;
+    border: 2px solid #f97316;
+    border-radius: 50%;
+    background: #fff;
+    transform: translate(-50%, -50%);
+    box-sizing: border-box;
+}
+
+.grafana-hover-layer {
+    position: absolute;
+    inset: 0;
+}
+
+.grafana-hover-zone {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    cursor: crosshair;
+}
+
+.grafana-hover-zone::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    background: rgba(100, 116, 139, .22);
+    opacity: 0;
+}
+
+.grafana-hover-zone::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    z-index: 5;
+    left: clamp(0px, var(--tooltip-x), calc(100% - 150px));
+    top: clamp(8px, var(--tooltip-y), calc(100% - 54px));
+    min-width: 142px;
+    max-width: 190px;
+    white-space: pre-line;
+    transform: translate(-50%, -100%);
+    border: 1px solid rgba(148, 163, 184, .28);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .98);
+    box-shadow: 0 14px 34px rgba(15, 23, 42, .12);
+    color: #111827;
+    font-size: 12px;
+    font-weight: 750;
+    line-height: 1.45;
+    padding: 9px 10px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.grafana-hover-zone:hover::before,
+.grafana-hover-zone:hover::after {
+    opacity: 1;
+}
+
+.grafana-axis-labels {
+    position: relative;
+    height: 20px;
+    margin-top: 8px;
+}
+
+.grafana-axis-labels span {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    color: #475569;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
 .campaign-chart-card {
     min-height: 280px;
 }
@@ -2292,7 +2486,8 @@ th.num {
     }
 
     .campaign-context-grid,
-    .platform-comparison-grid {
+    .platform-comparison-grid,
+    .grafana-metric-grid {
         grid-template-columns: 1fr 1fr;
     }
 
@@ -2312,7 +2507,8 @@ th.num {
     .campaign-charts-grid,
     .campaign-tables-grid,
     .campaign-context-grid,
-    .platform-comparison-grid {
+    .platform-comparison-grid,
+    .grafana-metric-grid {
         grid-template-columns: 1fr;
     }
 

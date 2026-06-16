@@ -1489,6 +1489,160 @@ class CampaignDashboardTest extends TestCase
         $this->assertSame('2026-06-09', $result['range_end_exclusive']);
     }
 
+    public function test_campaigns_review_excludes_store_visit_campaigns_without_leads(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'google_ads',
+            'campaign_id' => 'pmax-store-visits',
+            'campaign_name' => 'PMAX Visitas a la tienda',
+            'campaign_status' => 'ENABLED',
+            'campaign_effective_status' => null,
+            'spend' => 450,
+            'clicks' => 900,
+        ]));
+
+        $summary = $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=exposicion')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame([], $summary['review_campaigns']);
+        $this->assertSame([], $summary['rankings']['review_campaigns']);
+    }
+
+    public function test_sales_and_purchases_count_distinct_opportunities_inside_campaign(): void
+    {
+        DB::table('campaign_lead_attributions')->insert([
+            $this->attributionRow([
+                'lead_id' => '00Q-sale-1',
+                'campaign_id' => 'sale-campaign',
+                'campaign_name' => 'Venta real',
+                'campaign_type' => 'venta',
+                'opportunity_id' => '006-sale-shared',
+                'has_reservation' => true,
+                'has_sale' => true,
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-sale-2',
+                'campaign_id' => 'sale-campaign',
+                'campaign_name' => 'Venta real',
+                'campaign_type' => 'venta',
+                'opportunity_id' => '006-sale-shared',
+                'has_reservation' => true,
+                'has_sale' => true,
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-purchase-1',
+                'campaign_id' => 'tasacion-campaign',
+                'campaign_name' => 'Tasacion real',
+                'campaign_type' => 'tasacion',
+                'opportunity_id' => '006-purchase-shared',
+                'has_purchase' => true,
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-purchase-2',
+                'campaign_id' => 'tasacion-campaign',
+                'campaign_name' => 'Tasacion real',
+                'campaign_type' => 'tasacion',
+                'opportunity_id' => '006-purchase-shared',
+                'has_purchase' => true,
+            ]),
+        ]);
+
+        $summary = $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=all')
+            ->assertOk()
+            ->json();
+
+        $may = collect($summary['charts']['monthly_evolution'])
+            ->firstWhere('date', '2026-05-01');
+
+        $this->assertSame(1, $summary['kpis']['reservations']);
+        $this->assertSame(1, $summary['kpis']['sales']);
+        $this->assertSame(1, $summary['kpis']['purchases']);
+        $this->assertSame(2, $summary['kpis']['result_count']);
+        $this->assertSame(1, $may['reservations']);
+        $this->assertSame(1, $may['sales']);
+        $this->assertSame(1, $may['purchases']);
+    }
+
+    public function test_summary_kpis_and_funnel_deduplicate_shared_opportunities_across_campaigns(): void
+    {
+        DB::table('campaign_lead_attributions')->insert([
+            $this->attributionRow([
+                'lead_id' => '00Q-purchase-cross-1',
+                'campaign_id' => 'tasacion-cross-1',
+                'campaign_name' => 'Tasacion cruzada 1',
+                'source_campaign_name' => 'Tasacion cruzada 1',
+                'campaign_type' => 'tasacion',
+                'opportunity_id' => '006-purchase-cross',
+                'has_opportunity' => true,
+                'has_purchase' => true,
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-purchase-cross-2',
+                'campaign_id' => 'tasacion-cross-2',
+                'campaign_name' => 'Tasacion cruzada 2',
+                'source_campaign_name' => 'Tasacion cruzada 2',
+                'campaign_type' => 'tasacion',
+                'opportunity_id' => '006-purchase-cross',
+                'has_opportunity' => true,
+                'has_purchase' => true,
+            ]),
+        ]);
+
+        $summary = $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(2, $summary['kpis']['leads_salesforce']);
+        $this->assertSame(1, $summary['kpis']['opportunities']);
+        $this->assertSame(1, $summary['kpis']['purchases']);
+        $this->assertSame(1, $summary['charts']['funnel'][3]['value']);
+    }
+
+    public function test_review_campaigns_shows_leads_and_zero_opportunities_in_quality_case(): void
+    {
+        DB::table('campaign_lead_attributions')->insert([
+            $this->attributionRow([
+                'lead_id' => '00Q-review-quality-1',
+                'campaign_id' => 'review-quality-campaign',
+                'campaign_name' => 'Expiey_Catálogo_Campaign',
+                'source_campaign_name' => 'Expiey_Catálogo_Campaign',
+                'campaign_type' => 'venta',
+                'opportunity_id' => null,
+                'has_opportunity' => false,
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-review-quality-2',
+                'campaign_id' => 'review-quality-campaign',
+                'campaign_name' => 'Expiey_Catálogo_Campaign',
+                'source_campaign_name' => 'Expiey_Catálogo_Campaign',
+                'campaign_type' => 'venta',
+                'opportunity_id' => null,
+                'has_opportunity' => false,
+            ]),
+        ]);
+
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'platform' => 'meta',
+            'campaign_id' => 'review-quality-campaign',
+            'campaign_name' => 'Expiey_Catálogo_Campaign',
+            'spend' => 250,
+            'clicks' => 80,
+            'impressions' => 1000,
+        ]));
+
+        $summary = $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=all')
+            ->assertOk()
+            ->json();
+
+        $review = collect($summary['review_campaigns'])
+            ->firstWhere('campaign_name', 'Expiey_Catálogo_Campaign');
+
+        $this->assertNotNull($review);
+        $this->assertSame('Leads / oportunidades', $review['metric']);
+        $this->assertSame('2 / 0', $review['value']);
+    }
+
     private function query(): string
     {
         return http_build_query([
@@ -1517,5 +1671,24 @@ class CampaignDashboardTest extends TestCase
         $attributes['unique_key'] = CampaignPlatformDailyMetric::uniqueKey($attributes);
 
         return $attributes;
+    }
+
+    private function attributionRow(array $overrides = []): array
+    {
+        return array_merge([
+            'lead_id' => '00Q-default',
+            'lead_created_date' => '2026-05-10 10:00:00',
+            'platform' => 'meta',
+            'campaign_id' => 'campaign-default',
+            'campaign_name' => 'Campaign default',
+            'source_campaign_name' => 'Campaign default',
+            'campaign_type' => 'venta',
+            'opportunity_id' => null,
+            'has_reservation' => false,
+            'has_sale' => false,
+            'has_purchase' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ], $overrides);
     }
 }

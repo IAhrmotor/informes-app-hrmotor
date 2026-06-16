@@ -209,16 +209,16 @@ class CampaignDashboardDatasetService
                 DB::raw("MIN(CASE WHEN cla.has_opportunity = 1 THEN 'Cruzada por ID' ELSE 'Sin leads Salesforce' END) as match_status"),
                 DB::raw('COUNT(DISTINCT cla.lead_id) as leads_salesforce'),
                 DB::raw('COUNT(DISTINCT CASE WHEN cla.has_opportunity = 1 THEN cla.opportunity_id END) as opportunities'),
-                DB::raw('SUM(CASE WHEN cla.has_reservation = 1 THEN 1 ELSE 0 END) as reservations'),
-                DB::raw("SUM(CASE WHEN cla.has_reservation = 1 AND (COALESCE(cla.campaign_type, '') = 'tasacion' OR cla.has_sale = 0) THEN 1 ELSE 0 END) as live_reservations"),
-                DB::raw("SUM(CASE WHEN cla.has_reservation = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' AND cla.has_sale = 1 THEN 1 ELSE 0 END) as fallen_reservations"),
-                DB::raw("SUM(CASE WHEN cla.has_sale = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' THEN 1 ELSE 0 END) as sales"),
+                DB::raw('COUNT(DISTINCT CASE WHEN cla.has_reservation = 1 THEN cla.opportunity_id END) as reservations'),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_reservation = 1 AND (COALESCE(cla.campaign_type, '') = 'tasacion' OR cla.has_sale = 0) THEN cla.opportunity_id END) as live_reservations"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_reservation = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' AND cla.has_sale = 1 THEN cla.opportunity_id END) as fallen_reservations"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_sale = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' THEN cla.opportunity_id END) as sales"),
                 DB::raw("SUM(CASE WHEN cla.has_sale = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' THEN COALESCE(cla.sold_amount, CASE WHEN COALESCE(so.opo_for_importe_total, 0) > 0 THEN so.opo_for_importe_total ELSE NULL END) ELSE 0 END) as sale_amount"),
-                DB::raw("SUM(CASE WHEN cla.has_sale = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' AND (cla.sold_amount IS NOT NULL OR COALESCE(so.opo_for_importe_total, 0) > 0) THEN 1 ELSE 0 END) as sale_amount_rows"),
-                DB::raw('SUM(CASE WHEN cla.has_opportunity = 1 AND cla.campaign_type = \'tasacion\' THEN 1 ELSE 0 END) as appraisals_generated'),
-                DB::raw("SUM(CASE WHEN cla.has_purchase = 1 AND cla.campaign_type = 'tasacion' THEN 1 ELSE 0 END) as purchases"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_sale = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' AND (cla.sold_amount IS NOT NULL OR COALESCE(so.opo_for_importe_total, 0) > 0) THEN cla.opportunity_id END) as sale_amount_rows"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_opportunity = 1 AND cla.campaign_type = 'tasacion' THEN cla.opportunity_id END) as appraisals_generated"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_purchase = 1 AND cla.campaign_type = 'tasacion' THEN cla.opportunity_id END) as purchases"),
                 DB::raw("SUM(CASE WHEN cla.has_purchase = 1 AND cla.campaign_type = 'tasacion' THEN ABS(COALESCE(so.opo_for_importe_total, 0)) ELSE 0 END) as appraisal_amount"),
-                DB::raw("SUM(CASE WHEN cla.has_purchase = 1 AND cla.campaign_type = 'tasacion' AND so.opo_for_importe_total IS NOT NULL THEN 1 ELSE 0 END) as appraisal_amount_rows"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_purchase = 1 AND cla.campaign_type = 'tasacion' AND so.opo_for_importe_total IS NOT NULL THEN cla.opportunity_id END) as appraisal_amount_rows"),
                 DB::raw('MIN(cla.lead_status) as lead_status'),
                 DB::raw('MIN(cla.lead_delegation) as lead_delegation'),
                 DB::raw('MIN(cla.lead_zone) as lead_zone'),
@@ -589,7 +589,7 @@ class CampaignDashboardDatasetService
 
     private function summaryFromRows(array $rows, array $allRows, array $filters, array $period, bool $includeDiagnostics = true, bool $includeFilters = true): array
     {
-        $charts = $this->charts($rows, $filters, $period);
+        $attributionTotals = $this->distinctAttributionTotalsForRows($rows, $filters, $period);
         $totals = $this->withRatios([
             'platform' => null,
             'account_id' => null,
@@ -606,23 +606,20 @@ class CampaignDashboardDatasetService
                 ? array_sum(array_map(fn (array $row) => (int) ($row['platform_leads'] ?? 0), $rows))
                 : null,
             'platform_conversions' => array_sum(array_column($rows, 'platform_conversions')),
-            'leads_salesforce' => array_sum(array_column($rows, 'leads_salesforce')),
-            'opportunities' => array_sum(array_column($rows, 'opportunities')),
-            'reservations' => array_sum(array_column($rows, 'reservations')),
-            'live_reservations' => array_sum(array_column($rows, 'live_reservations')),
-            'fallen_reservations' => array_sum(array_column($rows, 'fallen_reservations')),
-            'sales' => array_sum(array_column($rows, 'sales')),
-            'sale_amount' => collect($rows)->contains(fn (array $row) => $row['sale_amount'] !== null)
-                ? array_sum(array_map(fn (array $row) => (float) ($row['sale_amount'] ?? 0), $rows))
-                : null,
-            'appraisals_generated' => array_sum(array_column($rows, 'appraisals_generated')),
-            'purchases' => array_sum(array_column($rows, 'purchases')),
-            'appraisal_amount' => collect($rows)->contains(fn (array $row) => $row['appraisal_amount'] !== null)
-                ? array_sum(array_map(fn (array $row) => (float) ($row['appraisal_amount'] ?? 0), $rows))
-                : null,
+            'leads_salesforce' => $attributionTotals['leads_salesforce'],
+            'opportunities' => $attributionTotals['opportunities'],
+            'reservations' => $attributionTotals['reservations'],
+            'live_reservations' => $attributionTotals['live_reservations'],
+            'fallen_reservations' => $attributionTotals['fallen_reservations'],
+            'sales' => $attributionTotals['sales'],
+            'sale_amount' => $attributionTotals['sale_amount'],
+            'appraisals_generated' => $attributionTotals['appraisals_generated'],
+            'purchases' => $attributionTotals['purchases'],
+            'appraisal_amount' => $attributionTotals['appraisal_amount'],
         ]);
-        $totals['result_count'] = $this->resultCountForRows($rows);
+        $totals['result_count'] = $this->resultCountForTotals($totals, $filters['context'] ?? 'all');
         $totals['cost_per_result'] = $this->divide((float) $totals['spend'], (int) $totals['result_count']);
+        $charts = $this->charts($rows, $filters, $period, $totals);
 
         return [
             'ok' => count($rows) > 0,
@@ -691,7 +688,7 @@ class CampaignDashboardDatasetService
         }));
     }
 
-    private function charts(array $rows, array $filters, array $period): array
+    private function charts(array $rows, array $filters, array $period, array $totals): array
     {
         $monthlyEvolution = $this->monthlyEvolution($filters, $period);
         $dailyEvolution = $this->dailyEvolution($filters, $period);
@@ -700,7 +697,7 @@ class CampaignDashboardDatasetService
             'monthly_evolution' => $monthlyEvolution,
             'daily_evolution' => $dailyEvolution,
             'daily_reservations_sales' => $this->dailyReservationsSales($filters, $period),
-            'funnel' => $this->funnelChart($rows, $filters['context'] ?? 'venta'),
+            'funnel' => $this->funnelChart($totals, $filters['context'] ?? 'venta'),
             'platforms' => $this->platformBars($rows),
         ];
     }
@@ -715,6 +712,10 @@ class CampaignDashboardDatasetService
         $cursor = $start->startOfMonth();
         $leadKeysByMonth = [];
         $opportunityKeysByMonth = [];
+        $reservationKeysByMonth = [];
+        $saleKeysByMonth = [];
+        $appraisalKeysByMonth = [];
+        $purchaseKeysByMonth = [];
 
         while ($cursor->lessThanOrEqualTo($end)) {
             $key = $cursor->format('Y-m');
@@ -802,7 +803,7 @@ class CampaignDashboardDatasetService
                 'cla.campaign_type',
             ])
             ->get()
-            ->each(function (object $row) use (&$months, $filters, &$opportunityKeysByMonth): void {
+            ->each(function (object $row) use (&$months, $filters, &$opportunityKeysByMonth, &$reservationKeysByMonth, &$saleKeysByMonth, &$appraisalKeysByMonth, &$purchaseKeysByMonth): void {
                 $campaign = [
                     'platform' => $row->platform,
                     'campaign_id' => $row->campaign_id,
@@ -835,10 +836,45 @@ class CampaignDashboardDatasetService
                     }
                 }
 
-                $months[$month]['reservations'] += (int) ((bool) $row->has_reservation);
-                $months[$month]['sales'] += (int) $this->isSaleAttributionRow($row);
-                $months[$month]['appraisals_generated'] += (int) ((bool) $row->has_opportunity && $row->campaign_type === 'tasacion');
-                $months[$month]['purchases'] += (int) $this->isPurchaseAttributionRow($row);
+                if (filled($row->opportunity_id)) {
+                    $opportunityId = (string) $row->opportunity_id;
+
+                    if ((bool) $row->has_reservation) {
+                        $reservationKey = $month.'|'.$opportunityId;
+
+                        if (! isset($reservationKeysByMonth[$reservationKey])) {
+                            $months[$month]['reservations']++;
+                            $reservationKeysByMonth[$reservationKey] = true;
+                        }
+                    }
+
+                    if ($this->isSaleAttributionRow($row)) {
+                        $saleKey = $month.'|'.$opportunityId;
+
+                        if (! isset($saleKeysByMonth[$saleKey])) {
+                            $months[$month]['sales']++;
+                            $saleKeysByMonth[$saleKey] = true;
+                        }
+                    }
+
+                    if ((bool) $row->has_opportunity && $row->campaign_type === 'tasacion') {
+                        $appraisalKey = $month.'|'.$opportunityId;
+
+                        if (! isset($appraisalKeysByMonth[$appraisalKey])) {
+                            $months[$month]['appraisals_generated']++;
+                            $appraisalKeysByMonth[$appraisalKey] = true;
+                        }
+                    }
+
+                    if ($this->isPurchaseAttributionRow($row)) {
+                        $purchaseKey = $month.'|'.$opportunityId;
+
+                        if (! isset($purchaseKeysByMonth[$purchaseKey])) {
+                            $months[$month]['purchases']++;
+                            $purchaseKeysByMonth[$purchaseKey] = true;
+                        }
+                    }
+                }
             });
 
         return array_values($months);
@@ -937,6 +973,7 @@ class CampaignDashboardDatasetService
         $rowsByDate = (clone $query)
             ->select([
                 'cla.lead_created_date',
+                'cla.opportunity_id',
                 'cla.has_reservation',
                 'cla.has_sale',
                 'cla.has_purchase',
@@ -950,9 +987,24 @@ class CampaignDashboardDatasetService
                     return $carry;
                 }
 
-                $carry[$metricDate]['reservations'] = ($carry[$metricDate]['reservations'] ?? 0) + (int) ((bool) $row->has_reservation);
-                $carry[$metricDate]['sales'] = ($carry[$metricDate]['sales'] ?? 0) + (int) $this->isSaleAttributionRow($row);
-                $carry[$metricDate]['purchases'] = ($carry[$metricDate]['purchases'] ?? 0) + (int) $this->isPurchaseAttributionRow($row);
+                if (filled($row->opportunity_id)) {
+                    $opportunityId = (string) $row->opportunity_id;
+                    $carry[$metricDate]['reservations_keys'] ??= [];
+                    $carry[$metricDate]['sales_keys'] ??= [];
+                    $carry[$metricDate]['purchases_keys'] ??= [];
+
+                    if ((bool) $row->has_reservation) {
+                        $carry[$metricDate]['reservations_keys'][$opportunityId] = true;
+                    }
+
+                    if ($this->isSaleAttributionRow($row)) {
+                        $carry[$metricDate]['sales_keys'][$opportunityId] = true;
+                    }
+
+                    if ($this->isPurchaseAttributionRow($row)) {
+                        $carry[$metricDate]['purchases_keys'][$opportunityId] = true;
+                    }
+                }
 
                 return $carry;
             }, []);
@@ -965,9 +1017,9 @@ class CampaignDashboardDatasetService
             $date = $cursor->toDateString();
             $rows[] = [
                 'date' => $date,
-                'reservations' => (int) ($rowsByDate[$date]['reservations'] ?? 0),
-                'sales' => (int) ($rowsByDate[$date]['sales'] ?? 0),
-                'purchases' => (int) ($rowsByDate[$date]['purchases'] ?? 0),
+                'reservations' => isset($rowsByDate[$date]['reservations_keys']) ? count($rowsByDate[$date]['reservations_keys']) : 0,
+                'sales' => isset($rowsByDate[$date]['sales_keys']) ? count($rowsByDate[$date]['sales_keys']) : 0,
+                'purchases' => isset($rowsByDate[$date]['purchases_keys']) ? count($rowsByDate[$date]['purchases_keys']) : 0,
             ];
             $cursor = $cursor->addDay();
         }
@@ -975,41 +1027,208 @@ class CampaignDashboardDatasetService
         return $rows;
     }
 
-    private function funnelChart(array $rows, string $context = 'venta'): array
+    private function funnelChart(array $totals, string $context = 'venta'): array
     {
-        $rows = array_values($rows);
         $base = [
-            ['label' => 'Impresiones', 'value' => array_sum(array_column($rows, 'impressions'))],
-            ['label' => 'Clicks', 'value' => array_sum(array_column($rows, 'clicks'))],
-            ['label' => 'Leads Salesforce', 'value' => array_sum(array_column($rows, 'leads_salesforce'))],
+            ['label' => 'Impresiones', 'value' => (int) ($totals['impressions'] ?? 0)],
+            ['label' => 'Clicks', 'value' => (int) ($totals['clicks'] ?? 0)],
+            ['label' => 'Leads Salesforce', 'value' => (int) ($totals['leads_salesforce'] ?? 0)],
         ];
 
         $steps = match ($context) {
             'tasacion' => [
-                ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
-                ['label' => 'Compras', 'value' => array_sum(array_column($rows, 'purchases'))],
+                ['label' => 'Oportunidades', 'value' => (int) ($totals['opportunities'] ?? 0)],
+                ['label' => 'Compras', 'value' => (int) ($totals['purchases'] ?? 0)],
             ],
             'exposicion' => [
-                ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
+                ['label' => 'Oportunidades', 'value' => (int) ($totals['opportunities'] ?? 0)],
             ],
             'branding' => [
-                ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
+                ['label' => 'Oportunidades', 'value' => (int) ($totals['opportunities'] ?? 0)],
             ],
             default => [
-                ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
-                ['label' => 'Reservas', 'value' => array_sum(array_column($rows, 'reservations'))],
-                ['label' => 'Ventas', 'value' => array_sum(array_column($rows, 'sales'))],
+                ['label' => 'Oportunidades', 'value' => (int) ($totals['opportunities'] ?? 0)],
+                ['label' => 'Reservas', 'value' => (int) ($totals['reservations'] ?? 0)],
+                ['label' => 'Ventas', 'value' => (int) ($totals['sales'] ?? 0)],
             ],
         };
 
         if (in_array($context, ['all', 'todas', '', null, 'otros'], true)) {
             $steps = [
-                ['label' => 'Oportunidades', 'value' => array_sum(array_column($rows, 'opportunities'))],
-                ['label' => 'Resultados', 'value' => array_sum(array_map(fn (array $row) => $this->resultCountForRow($row), $rows))],
+                ['label' => 'Oportunidades', 'value' => (int) ($totals['opportunities'] ?? 0)],
+                ['label' => 'Resultados', 'value' => (int) ($totals['result_count'] ?? 0)],
             ];
         }
 
         return array_merge($base, $steps);
+    }
+
+    private function distinctAttributionTotalsForRows(array $rows, array $filters, array $period): array
+    {
+        $visibleRowKeys = array_fill_keys(array_map(fn (array $row): string => $this->rowKey($row), $rows), true);
+
+        if ($visibleRowKeys === []) {
+            return [
+                'leads_salesforce' => 0,
+                'opportunities' => 0,
+                'reservations' => 0,
+                'live_reservations' => 0,
+                'fallen_reservations' => 0,
+                'sales' => 0,
+                'sale_amount' => null,
+                'appraisals_generated' => 0,
+                'purchases' => 0,
+                'appraisal_amount' => null,
+            ];
+        }
+
+        $query = DB::table('campaign_lead_attributions as cla')
+            ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
+            ->where('cla.lead_created_date', '>=', $period['start_at'])
+            ->where('cla.lead_created_date', '<', $period['end_at']);
+
+        $this->applyLeadAttributionFilters($query, $filters, 'cla');
+
+        if (filled($filters['campaign_source_type'] ?? null)) {
+            if ($filters['campaign_source_type'] === 'platform_campaign') {
+                $query->where('cla.platform', '<>', 'salesforce');
+            } else {
+                $query->where('cla.platform', 'salesforce');
+            }
+        }
+
+        if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
+            $query->where('cla.campaign_type', $filters['context']);
+        }
+
+        $leadIds = [];
+        $opportunities = [];
+
+        $query
+            ->select([
+                'cla.id',
+                'cla.platform',
+                'cla.campaign_id',
+                'cla.campaign_name',
+                'cla.source_campaign_name',
+                'cla.campaign_acquired',
+                'cla.campaign_type',
+                'cla.lead_id',
+                'cla.opportunity_id',
+                'cla.has_opportunity',
+                'cla.has_reservation',
+                'cla.has_sale',
+                'cla.has_purchase',
+                'cla.sold_amount',
+                'so.opo_for_importe_total',
+            ])
+            ->orderBy('cla.id')
+            ->chunkById(1000, function ($chunk) use (&$leadIds, &$opportunities, $visibleRowKeys): void {
+                foreach ($chunk as $row) {
+                    $identity = $this->rowKey($this->attributionIdentityRow($row));
+
+                    if (! isset($visibleRowKeys[$identity])) {
+                        continue;
+                    }
+
+                    if (filled($row->lead_id)) {
+                        $leadIds[(string) $row->lead_id] = true;
+                    }
+
+                    if (! filled($row->opportunity_id)) {
+                        continue;
+                    }
+
+                    $opportunityId = (string) $row->opportunity_id;
+                    $saleAmount = null;
+
+                    if ($this->isSaleAttributionRow($row)) {
+                        $fallbackAmount = (float) ($row->opo_for_importe_total ?? 0);
+                        $saleAmount = $row->sold_amount !== null
+                            ? (float) $row->sold_amount
+                            : ($fallbackAmount > 0 ? $fallbackAmount : null);
+                    }
+
+                    $purchaseAmount = $this->isPurchaseAttributionRow($row)
+                        ? abs((float) ($row->opo_for_importe_total ?? 0))
+                        : null;
+
+                    $opportunities[$opportunityId] ??= [
+                        'has_opportunity' => false,
+                        'has_reservation' => false,
+                        'has_live_reservation' => false,
+                        'has_fallen_reservation' => false,
+                        'has_sale' => false,
+                        'has_appraisal_generated' => false,
+                        'has_purchase' => false,
+                        'sale_amount' => null,
+                        'appraisal_amount' => null,
+                    ];
+
+                    $isSale = $this->isSaleAttributionRow($row);
+                    $isTasacion = ($row->campaign_type ?? null) === 'tasacion';
+
+                    $opportunities[$opportunityId]['has_opportunity'] = $opportunities[$opportunityId]['has_opportunity'] || (bool) $row->has_opportunity;
+                    $opportunities[$opportunityId]['has_reservation'] = $opportunities[$opportunityId]['has_reservation'] || (bool) $row->has_reservation;
+                    $opportunities[$opportunityId]['has_live_reservation'] = $opportunities[$opportunityId]['has_live_reservation']
+                        || ((bool) $row->has_reservation && ($isTasacion || ! $isSale));
+                    $opportunities[$opportunityId]['has_fallen_reservation'] = $opportunities[$opportunityId]['has_fallen_reservation']
+                        || ((bool) $row->has_reservation && ! $isTasacion && $isSale);
+                    $opportunities[$opportunityId]['has_sale'] = $opportunities[$opportunityId]['has_sale'] || $isSale;
+                    $opportunities[$opportunityId]['has_appraisal_generated'] = $opportunities[$opportunityId]['has_appraisal_generated']
+                        || ((bool) $row->has_opportunity && $isTasacion);
+                    $opportunities[$opportunityId]['has_purchase'] = $opportunities[$opportunityId]['has_purchase'] || $this->isPurchaseAttributionRow($row);
+
+                    if ($saleAmount !== null && $opportunities[$opportunityId]['sale_amount'] === null) {
+                        $opportunities[$opportunityId]['sale_amount'] = $saleAmount;
+                    }
+
+                    if ($purchaseAmount !== null && $opportunities[$opportunityId]['appraisal_amount'] === null) {
+                        $opportunities[$opportunityId]['appraisal_amount'] = $purchaseAmount;
+                    }
+                }
+            }, 'cla.id', 'id');
+
+        $saleAmounts = array_values(array_filter(array_map(
+            static fn (array $row): ?float => $row['has_sale'] && $row['sale_amount'] !== null ? (float) $row['sale_amount'] : null,
+            $opportunities
+        ), static fn (?float $value): bool => $value !== null));
+        $appraisalAmounts = array_values(array_filter(array_map(
+            static fn (array $row): ?float => $row['has_purchase'] && $row['appraisal_amount'] !== null ? (float) $row['appraisal_amount'] : null,
+            $opportunities
+        ), static fn (?float $value): bool => $value !== null));
+
+        return [
+            'leads_salesforce' => count($leadIds),
+            'opportunities' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_opportunity'])),
+            'reservations' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_reservation'])),
+            'live_reservations' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_live_reservation'])),
+            'fallen_reservations' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_fallen_reservation'])),
+            'sales' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_sale'])),
+            'sale_amount' => $saleAmounts !== [] ? round(array_sum($saleAmounts), 2) : null,
+            'appraisals_generated' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_appraisal_generated'])),
+            'purchases' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_purchase'])),
+            'appraisal_amount' => $appraisalAmounts !== [] ? round(array_sum($appraisalAmounts), 2) : null,
+        ];
+    }
+
+    private function attributionIdentityRow(object $row): array
+    {
+        $identity = $this->normalizeDashboardRow([
+            'platform' => $row->platform,
+            'campaign_id' => $row->campaign_id,
+            'campaign_name' => $row->campaign_name,
+            'campaign_acquired' => $row->campaign_acquired,
+            'source_campaign_name' => $row->source_campaign_name ?: $row->campaign_acquired,
+            'campaign_type' => $row->campaign_type,
+            'campaign_source_type' => $row->platform === 'salesforce'
+                ? 'salesforce_campaign_without_spend'
+                : 'platform_campaign',
+        ]);
+
+        $identity['campaign_source_type'] = $this->deriveSourceType($identity);
+
+        return $identity;
     }
 
     private function platformBars(array $rows): array
@@ -1067,6 +1286,10 @@ class CampaignDashboardDatasetService
 
         return collect($rows)
             ->map(function (array $row) use ($avgCostByType): ?array {
+                if ($this->campaignTypeResolver->isStoreVisitCampaign($row['campaign_name'] ?? null)) {
+                    return null;
+                }
+
                 $spend = (float) ($row['spend'] ?? 0);
                 $clicks = (int) ($row['clicks'] ?? 0);
                 $leads = (int) ($row['leads_salesforce'] ?? 0);
@@ -1085,11 +1308,11 @@ class CampaignDashboardDatasetService
                 }
 
                 if ($leads > 0 && $opportunities === 0) {
-                    return $this->reviewRow($row, 'Revisar calidad', 'hay leads Salesforce pero no oportunidades', 'Oportunidades', $opportunities, $costPerResult, $resultCount);
+                    return $this->reviewRow($row, 'Revisar calidad', 'hay leads Salesforce pero no oportunidades', 'Leads / oportunidades', sprintf('%d / %d', $leads, $opportunities), $costPerResult, $resultCount);
                 }
 
                 if ($opportunities > 0 && $resultCount === 0) {
-                    return $this->reviewRow($row, 'Revisar cierre', 'hay oportunidades pero no hay resultado final', 'Resultado', $resultCount, $costPerResult, $resultCount);
+                    return $this->reviewRow($row, 'Revisar cierre', 'hay oportunidades pero no hay resultado final', 'Oportunidades / resultado', sprintf('%d / %d', $opportunities, $resultCount), $costPerResult, $resultCount);
                 }
 
                 if ($avgCost !== null && $costPerResult !== null && $costPerResult > ($avgCost * 2)) {
@@ -1109,7 +1332,7 @@ class CampaignDashboardDatasetService
             ->all();
     }
 
-    private function reviewRow(array $row, string $reason, string $detail, string $metric, float|int|null $value, float|int|null $costPerResult = null, ?int $resultCount = null): array
+    private function reviewRow(array $row, string $reason, string $detail, string $metric, string|float|int|null $value, float|int|null $costPerResult = null, ?int $resultCount = null): array
     {
         return [
             'campaign' => $this->displayCampaign($row),
@@ -1720,13 +1943,31 @@ class CampaignDashboardDatasetService
             'tasacion' => (int) ($row['purchases'] ?? 0),
             'exposicion' => (int) ($row['opportunities'] ?? 0),
             'branding' => (int) ($row['leads_salesforce'] ?? 0),
-            default => max((int) ($row['sales'] ?? 0), (int) ($row['purchases'] ?? 0), (int) ($row['opportunities'] ?? 0), (int) ($row['leads_salesforce'] ?? 0)),
+            'otros' => max((int) ($row['sales'] ?? 0), (int) ($row['purchases'] ?? 0), (int) ($row['opportunities'] ?? 0), (int) ($row['leads_salesforce'] ?? 0)),
+            default => (int) ($row['sales'] ?? 0) + (int) ($row['purchases'] ?? 0),
         };
     }
 
     private function resultCountForRows(array $rows): int
     {
         return array_sum(array_map(fn (array $row) => $this->resultCountForRow($row), $rows));
+    }
+
+    private function resultCountForTotals(array $totals, ?string $context): int
+    {
+        return match ($this->normalizeContext($context)) {
+            'venta' => (int) ($totals['sales'] ?? 0),
+            'tasacion' => (int) ($totals['purchases'] ?? 0),
+            'exposicion' => (int) ($totals['opportunities'] ?? 0),
+            'branding' => (int) ($totals['leads_salesforce'] ?? 0),
+            'otros' => max(
+                (int) ($totals['sales'] ?? 0),
+                (int) ($totals['purchases'] ?? 0),
+                (int) ($totals['opportunities'] ?? 0),
+                (int) ($totals['leads_salesforce'] ?? 0),
+            ),
+            default => (int) ($totals['sales'] ?? 0) + (int) ($totals['purchases'] ?? 0),
+        };
     }
 
     private function costPerResultForRow(array $row): ?float
