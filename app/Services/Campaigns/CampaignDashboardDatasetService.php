@@ -135,7 +135,8 @@ class CampaignDashboardDatasetService
 
         usort($campaigns, fn (array $a, array $b) => ($b['spend'] <=> $a['spend']) ?: ($b['leads_salesforce'] <=> $a['leads_salesforce']));
 
-        $summary = $this->summaryFromRows($campaigns, $allCampaigns, $filters, $period, $includeDiagnostics, $includeFilters);
+        $attributionAnalytics = $this->attributionAnalytics($campaigns, $filters, $period);
+        $summary = $this->summaryFromRows($campaigns, $allCampaigns, $filters, $period, $attributionAnalytics, $includeDiagnostics, $includeFilters);
         $rankings = $this->rankingsFromRows($campaigns, $filters);
 
         return [
@@ -587,9 +588,9 @@ class CampaignDashboardDatasetService
         return array_values(array_filter($rows, fn (array $row): bool => in_array(($row['platform'] ?? null), ['google_ads', 'meta'], true)));
     }
 
-    private function summaryFromRows(array $rows, array $allRows, array $filters, array $period, bool $includeDiagnostics = true, bool $includeFilters = true): array
+    private function summaryFromRows(array $rows, array $allRows, array $filters, array $period, array $attributionAnalytics, bool $includeDiagnostics = true, bool $includeFilters = true): array
     {
-        $attributionTotals = $this->distinctAttributionTotalsForRows($rows, $filters, $period);
+        $attributionTotals = $attributionAnalytics['totals'];
         $totals = $this->withRatios([
             'platform' => null,
             'account_id' => null,
@@ -619,7 +620,7 @@ class CampaignDashboardDatasetService
         ]);
         $totals['result_count'] = $this->resultCountForTotals($totals, $filters['context'] ?? 'all');
         $totals['cost_per_result'] = $this->divide((float) $totals['spend'], (int) $totals['result_count']);
-        $charts = $this->charts($rows, $filters, $period, $totals);
+        $charts = $this->charts($rows, $filters, $period, $totals, $attributionAnalytics);
 
         return [
             'ok' => count($rows) > 0,
@@ -688,18 +689,489 @@ class CampaignDashboardDatasetService
         }));
     }
 
-    private function charts(array $rows, array $filters, array $period, array $totals): array
+    private function charts(array $rows, array $filters, array $period, array $totals, array $attributionAnalytics): array
     {
-        $monthlyEvolution = $this->monthlyEvolution($filters, $period);
-        $dailyEvolution = $this->dailyEvolution($filters, $period);
-
         return [
-            'monthly_evolution' => $monthlyEvolution,
-            'daily_evolution' => $dailyEvolution,
-            'daily_reservations_sales' => $this->dailyReservationsSales($filters, $period),
+            'monthly_evolution' => $attributionAnalytics['monthly_evolution'],
+            'daily_evolution' => $attributionAnalytics['daily_evolution'],
+            'daily_reservations_sales' => $attributionAnalytics['daily_reservations_sales'],
             'funnel' => $this->funnelChart($totals, $filters['context'] ?? 'venta'),
             'platforms' => $this->platformBars($rows),
         ];
+    }
+
+    private function attributionAnalytics(array $rows, array $filters, array $period): array
+    {
+        $visibleRowKeys = array_fill_keys(array_map(fn (array $row): string => $this->rowKey($row), $rows), true);
+        $monthlyEvolution = $this->emptyMonthlyEvolution($period);
+        $dailyLeadCounts = [];
+        $dailyLeadKeys = [];
+        $dailyReservationCounts = [];
+        $dailyReservationKeys = [];
+        $dailySalesCounts = [];
+        $dailySalesKeys = [];
+        $dailyPurchaseCounts = [];
+        $dailyPurchaseKeys = [];
+        $monthlyLeadKeys = [];
+        $monthlyOpportunityKeys = [];
+        $monthlyReservationKeys = [];
+        $monthlySaleKeys = [];
+        $monthlyAppraisalKeys = [];
+        $monthlyPurchaseKeys = [];
+        $leadIds = [];
+        $opportunities = [];
+
+        if ($visibleRowKeys !== []) {
+            $monthlyStart = CarbonImmutable::parse($period['end_local'])->subMonthsNoOverflow(23)->startOfMonth()->startOfDay();
+
+            $query = DB::table('campaign_lead_attributions as cla')
+                ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
+                ->where('cla.lead_created_date', '>=', $monthlyStart->utc())
+                ->where('cla.lead_created_date', '<', $period['end_at']);
+
+            $this->applyLeadAttributionFilters($query, $filters, 'cla');
+
+            if (filled($filters['campaign_source_type'] ?? null)) {
+                if ($filters['campaign_source_type'] === 'platform_campaign') {
+                    $query->where('cla.platform', '<>', 'salesforce');
+                } else {
+                    $query->where('cla.platform', 'salesforce');
+                }
+            }
+
+            if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
+                $query->where('cla.campaign_type', $filters['context']);
+            }
+
+            $query
+                ->select([
+                    'cla.id',
+                    'cla.lead_created_date',
+                    'cla.platform',
+                    'cla.campaign_id',
+                    'cla.campaign_name',
+                    'cla.source_campaign_name',
+                    'cla.campaign_acquired',
+                    'cla.campaign_type',
+                    'cla.lead_id',
+                    'cla.opportunity_id',
+                    'cla.has_opportunity',
+                    'cla.has_reservation',
+                    'cla.has_sale',
+                    'cla.has_purchase',
+                    'cla.sold_amount',
+                    'so.opo_for_importe_total',
+                ])
+                ->orderBy('cla.id')
+                ->chunkById(1000, function ($chunk) use (
+                    $period,
+                    $visibleRowKeys,
+                    &$monthlyEvolution,
+                    &$dailyLeadCounts,
+                    &$dailyLeadKeys,
+                    &$dailyReservationCounts,
+                    &$dailyReservationKeys,
+                    &$dailySalesCounts,
+                    &$dailySalesKeys,
+                    &$dailyPurchaseCounts,
+                    &$dailyPurchaseKeys,
+                    &$monthlyLeadKeys,
+                    &$monthlyOpportunityKeys,
+                    &$monthlyReservationKeys,
+                    &$monthlySaleKeys,
+                    &$monthlyAppraisalKeys,
+                    &$monthlyPurchaseKeys,
+                    &$leadIds,
+                    &$opportunities,
+                ): void {
+                    foreach ($chunk as $row) {
+                        $identity = $this->rowKey($this->attributionIdentityRow($row));
+
+                        if (! isset($visibleRowKeys[$identity])) {
+                            continue;
+                        }
+
+                        $leadCreatedAt = $this->reportDateTime($row->lead_created_date);
+
+                        if ($leadCreatedAt === null) {
+                            continue;
+                        }
+
+                        $monthKey = $leadCreatedAt->format('Y-m');
+
+                        if (isset($monthlyEvolution[$monthKey])) {
+                            $this->accumulateMonthlyAttributionRow(
+                                $monthlyEvolution[$monthKey],
+                                $row,
+                                $monthKey,
+                                $monthlyLeadKeys,
+                                $monthlyOpportunityKeys,
+                                $monthlyReservationKeys,
+                                $monthlySaleKeys,
+                                $monthlyAppraisalKeys,
+                                $monthlyPurchaseKeys,
+                            );
+                        }
+
+                        $metricDate = $leadCreatedAt->toDateString();
+
+                        if ($metricDate < $period['start'] || $metricDate > $period['end']) {
+                            continue;
+                        }
+
+                        $this->accumulateDailyAndTotalAttributionRow(
+                            $row,
+                            $metricDate,
+                            $leadIds,
+                            $opportunities,
+                            $dailyLeadCounts,
+                            $dailyLeadKeys,
+                            $dailyReservationCounts,
+                            $dailyReservationKeys,
+                            $dailySalesCounts,
+                            $dailySalesKeys,
+                            $dailyPurchaseCounts,
+                            $dailyPurchaseKeys,
+                        );
+                    }
+                }, 'cla.id', 'id');
+        }
+
+        return [
+            'totals' => $this->finalizeAttributionTotals($leadIds, $opportunities),
+            'daily_evolution' => $this->buildDailyLeadEvolution($filters, $period, $dailyLeadCounts),
+            'daily_reservations_sales' => $this->buildDailyReservationSales($period, $dailyReservationCounts, $dailySalesCounts, $dailyPurchaseCounts),
+            'monthly_evolution' => $this->buildMonthlyEvolution($monthlyEvolution, $filters, $period),
+        ];
+    }
+
+    private function emptyMonthlyEvolution(array $period): array
+    {
+        $start = CarbonImmutable::parse($period['end_local'])->subMonthsNoOverflow(23)->startOfMonth()->startOfDay();
+        $end = CarbonImmutable::parse($period['end_local'])->endOfDay();
+        $months = [];
+        $cursor = $start->startOfMonth();
+
+        while ($cursor->lessThanOrEqualTo($end)) {
+            $key = $cursor->format('Y-m');
+            $months[$key] = [
+                'date' => $cursor->toDateString(),
+                'label' => ucfirst($cursor->locale('es')->translatedFormat('F')),
+                'spend' => 0.0,
+                'impressions' => 0,
+                'clicks' => 0,
+                'leads_salesforce' => 0,
+                'opportunities' => 0,
+                'reservations' => 0,
+                'sales' => 0,
+                'appraisals_generated' => 0,
+                'purchases' => 0,
+            ];
+            $cursor = $cursor->addMonthNoOverflow();
+        }
+
+        return $months;
+    }
+
+    private function accumulateMonthlyAttributionRow(
+        array &$month,
+        object $row,
+        string $monthKey,
+        array &$leadKeys,
+        array &$opportunityKeys,
+        array &$reservationKeys,
+        array &$saleKeys,
+        array &$appraisalKeys,
+        array &$purchaseKeys,
+    ): void {
+        if (filled($row->lead_id)) {
+            $leadKey = $monthKey.'|'.$row->lead_id;
+
+            if (! isset($leadKeys[$leadKey])) {
+                $month['leads_salesforce']++;
+                $leadKeys[$leadKey] = true;
+            }
+        }
+
+        if (! filled($row->opportunity_id)) {
+            return;
+        }
+
+        $opportunityId = (string) $row->opportunity_id;
+
+        if ((bool) $row->has_opportunity) {
+            $opportunityKey = $monthKey.'|'.$opportunityId;
+
+            if (! isset($opportunityKeys[$opportunityKey])) {
+                $month['opportunities']++;
+                $opportunityKeys[$opportunityKey] = true;
+            }
+        }
+
+        if ((bool) $row->has_reservation) {
+            $reservationKey = $monthKey.'|'.$opportunityId;
+
+            if (! isset($reservationKeys[$reservationKey])) {
+                $month['reservations']++;
+                $reservationKeys[$reservationKey] = true;
+            }
+        }
+
+        if ($this->isSaleAttributionRow($row)) {
+            $saleKey = $monthKey.'|'.$opportunityId;
+
+            if (! isset($saleKeys[$saleKey])) {
+                $month['sales']++;
+                $saleKeys[$saleKey] = true;
+            }
+        }
+
+        if ((bool) $row->has_opportunity && $row->campaign_type === 'tasacion') {
+            $appraisalKey = $monthKey.'|'.$opportunityId;
+
+            if (! isset($appraisalKeys[$appraisalKey])) {
+                $month['appraisals_generated']++;
+                $appraisalKeys[$appraisalKey] = true;
+            }
+        }
+
+        if ($this->isPurchaseAttributionRow($row)) {
+            $purchaseKey = $monthKey.'|'.$opportunityId;
+
+            if (! isset($purchaseKeys[$purchaseKey])) {
+                $month['purchases']++;
+                $purchaseKeys[$purchaseKey] = true;
+            }
+        }
+    }
+
+    private function accumulateDailyAndTotalAttributionRow(
+        object $row,
+        string $metricDate,
+        array &$leadIds,
+        array &$opportunities,
+        array &$dailyLeadCounts,
+        array &$dailyLeadKeys,
+        array &$dailyReservationCounts,
+        array &$dailyReservationKeys,
+        array &$dailySalesCounts,
+        array &$dailySalesKeys,
+        array &$dailyPurchaseCounts,
+        array &$dailyPurchaseKeys,
+    ): void {
+        if (filled($row->lead_id)) {
+            $leadId = (string) $row->lead_id;
+            $leadIds[$leadId] = true;
+            $dailyLeadKey = $metricDate.'|'.$leadId;
+
+            if (! isset($dailyLeadKeys[$dailyLeadKey])) {
+                $dailyLeadCounts[$metricDate] = ($dailyLeadCounts[$metricDate] ?? 0) + 1;
+                $dailyLeadKeys[$dailyLeadKey] = true;
+            }
+        }
+
+        if (! filled($row->opportunity_id)) {
+            return;
+        }
+
+        $opportunityId = (string) $row->opportunity_id;
+        $isSale = $this->isSaleAttributionRow($row);
+        $isTasacion = ($row->campaign_type ?? null) === 'tasacion';
+        $saleAmount = null;
+
+        if ($isSale) {
+            $fallbackAmount = (float) ($row->opo_for_importe_total ?? 0);
+            $saleAmount = $row->sold_amount !== null
+                ? (float) $row->sold_amount
+                : ($fallbackAmount > 0 ? $fallbackAmount : null);
+        }
+
+        $purchaseAmount = $this->isPurchaseAttributionRow($row)
+            ? abs((float) ($row->opo_for_importe_total ?? 0))
+            : null;
+
+        $opportunities[$opportunityId] ??= [
+            'has_opportunity' => false,
+            'has_reservation' => false,
+            'has_live_reservation' => false,
+            'has_fallen_reservation' => false,
+            'has_sale' => false,
+            'has_appraisal_generated' => false,
+            'has_purchase' => false,
+            'sale_amount' => null,
+            'appraisal_amount' => null,
+        ];
+
+        $opportunities[$opportunityId]['has_opportunity'] = $opportunities[$opportunityId]['has_opportunity'] || (bool) $row->has_opportunity;
+        $opportunities[$opportunityId]['has_reservation'] = $opportunities[$opportunityId]['has_reservation'] || (bool) $row->has_reservation;
+        $opportunities[$opportunityId]['has_live_reservation'] = $opportunities[$opportunityId]['has_live_reservation']
+            || ((bool) $row->has_reservation && ($isTasacion || ! $isSale));
+        $opportunities[$opportunityId]['has_fallen_reservation'] = $opportunities[$opportunityId]['has_fallen_reservation']
+            || ((bool) $row->has_reservation && ! $isTasacion && $isSale);
+        $opportunities[$opportunityId]['has_sale'] = $opportunities[$opportunityId]['has_sale'] || $isSale;
+        $opportunities[$opportunityId]['has_appraisal_generated'] = $opportunities[$opportunityId]['has_appraisal_generated']
+            || ((bool) $row->has_opportunity && $isTasacion);
+        $opportunities[$opportunityId]['has_purchase'] = $opportunities[$opportunityId]['has_purchase'] || $this->isPurchaseAttributionRow($row);
+
+        if ($saleAmount !== null && $opportunities[$opportunityId]['sale_amount'] === null) {
+            $opportunities[$opportunityId]['sale_amount'] = $saleAmount;
+        }
+
+        if ($purchaseAmount !== null && $opportunities[$opportunityId]['appraisal_amount'] === null) {
+            $opportunities[$opportunityId]['appraisal_amount'] = $purchaseAmount;
+        }
+
+        if ((bool) $row->has_reservation) {
+            $reservationKey = $metricDate.'|'.$opportunityId;
+
+            if (! isset($dailyReservationKeys[$reservationKey])) {
+                $dailyReservationCounts[$metricDate] = ($dailyReservationCounts[$metricDate] ?? 0) + 1;
+                $dailyReservationKeys[$reservationKey] = true;
+            }
+        }
+
+        if ($isSale) {
+            $saleKey = $metricDate.'|'.$opportunityId;
+
+            if (! isset($dailySalesKeys[$saleKey])) {
+                $dailySalesCounts[$metricDate] = ($dailySalesCounts[$metricDate] ?? 0) + 1;
+                $dailySalesKeys[$saleKey] = true;
+            }
+        }
+
+        if ($this->isPurchaseAttributionRow($row)) {
+            $purchaseKey = $metricDate.'|'.$opportunityId;
+
+            if (! isset($dailyPurchaseKeys[$purchaseKey])) {
+                $dailyPurchaseCounts[$metricDate] = ($dailyPurchaseCounts[$metricDate] ?? 0) + 1;
+                $dailyPurchaseKeys[$purchaseKey] = true;
+            }
+        }
+    }
+
+    private function finalizeAttributionTotals(array $leadIds, array $opportunities): array
+    {
+        $saleAmounts = array_values(array_filter(array_map(
+            static fn (array $row): ?float => $row['has_sale'] && $row['sale_amount'] !== null ? (float) $row['sale_amount'] : null,
+            $opportunities
+        ), static fn (?float $value): bool => $value !== null));
+        $appraisalAmounts = array_values(array_filter(array_map(
+            static fn (array $row): ?float => $row['has_purchase'] && $row['appraisal_amount'] !== null ? (float) $row['appraisal_amount'] : null,
+            $opportunities
+        ), static fn (?float $value): bool => $value !== null));
+
+        return [
+            'leads_salesforce' => count($leadIds),
+            'opportunities' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_opportunity'])),
+            'reservations' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_reservation'])),
+            'live_reservations' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_live_reservation'])),
+            'fallen_reservations' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_fallen_reservation'])),
+            'sales' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_sale'])),
+            'sale_amount' => $saleAmounts !== [] ? round(array_sum($saleAmounts), 2) : null,
+            'appraisals_generated' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_appraisal_generated'])),
+            'purchases' => count(array_filter($opportunities, static fn (array $row): bool => $row['has_purchase'])),
+            'appraisal_amount' => $appraisalAmounts !== [] ? round(array_sum($appraisalAmounts), 2) : null,
+        ];
+    }
+
+    private function buildDailyLeadEvolution(array $filters, array $period, array $dailyLeadCounts): array
+    {
+        if (filled($filters['campaign_source_type'] ?? null) && $filters['campaign_source_type'] !== 'platform_campaign') {
+            $spendByDate = [];
+        } else {
+            $metricQuery = DB::table('campaign_platform_daily_metrics')
+                ->where('metric_date', '>=', $period['start'])
+                ->where('metric_date', '<=', $period['end']);
+            $this->applyMetricFilters($metricQuery, array_merge($filters, ['campaign_source_type' => 'platform_campaign']));
+
+            $spendByDate = $metricQuery
+                ->select('metric_date', DB::raw('SUM(COALESCE(spend, 0)) as spend'))
+                ->groupBy('metric_date')
+                ->pluck('spend', 'metric_date');
+        }
+
+        $rows = [];
+        $cursor = CarbonImmutable::parse($period['start'])->startOfDay();
+        $end = CarbonImmutable::parse($period['end'])->startOfDay();
+
+        while ($cursor->lessThanOrEqualTo($end)) {
+            $date = $cursor->toDateString();
+            $rows[] = [
+                'date' => $date,
+                'spend' => round((float) ($spendByDate[$date] ?? 0), 2),
+                'leads_salesforce' => (int) ($dailyLeadCounts[$date] ?? 0),
+            ];
+            $cursor = $cursor->addDay();
+        }
+
+        return $rows;
+    }
+
+    private function buildMonthlyEvolution(array $monthlyEvolution, array $filters, array $period): array
+    {
+        if (filled($filters['campaign_source_type'] ?? null) && $filters['campaign_source_type'] !== 'platform_campaign') {
+            return array_values($monthlyEvolution);
+        }
+
+        $start = CarbonImmutable::parse($period['end_local'])->subMonthsNoOverflow(23)->startOfMonth()->startOfDay();
+        $end = CarbonImmutable::parse($period['end_local'])->endOfDay();
+
+        $metricQuery = DB::table('campaign_platform_daily_metrics')
+            ->where('metric_date', '>=', $start->toDateString())
+            ->where('metric_date', '<=', $end->toDateString());
+        $this->applyMetricFilters($metricQuery, array_merge($filters, ['campaign_source_type' => 'platform_campaign']));
+
+        $metricQuery
+            ->select([
+                DB::raw('SUBSTR(metric_date, 1, 7) as metric_month'),
+                'platform',
+                'campaign_id',
+                'campaign_name',
+                DB::raw('SUM(COALESCE(spend, 0)) as spend'),
+                DB::raw('SUM(COALESCE(impressions, 0)) as impressions'),
+                DB::raw('SUM(COALESCE(clicks, 0)) as clicks'),
+            ])
+            ->groupBy(DB::raw('SUBSTR(metric_date, 1, 7)'), 'platform', 'campaign_id', 'campaign_name')
+            ->get()
+            ->each(function (object $row) use (&$monthlyEvolution, $filters): void {
+                $campaign = (array) $row;
+
+                if (! $this->includeCampaignForContext($campaign, $filters)) {
+                    return;
+                }
+
+                $month = (string) $row->metric_month;
+
+                if (! isset($monthlyEvolution[$month])) {
+                    return;
+                }
+
+                $monthlyEvolution[$month]['spend'] = round($monthlyEvolution[$month]['spend'] + (float) $row->spend, 2);
+                $monthlyEvolution[$month]['impressions'] += (int) $row->impressions;
+                $monthlyEvolution[$month]['clicks'] += (int) $row->clicks;
+            });
+
+        return array_values($monthlyEvolution);
+    }
+
+    private function buildDailyReservationSales(array $period, array $dailyReservationCounts, array $dailySalesCounts, array $dailyPurchaseCounts): array
+    {
+        $rows = [];
+        $cursor = CarbonImmutable::parse($period['start'])->startOfDay();
+        $end = CarbonImmutable::parse($period['end'])->startOfDay();
+
+        while ($cursor->lessThanOrEqualTo($end)) {
+            $date = $cursor->toDateString();
+            $rows[] = [
+                'date' => $date,
+                'reservations' => (int) ($dailyReservationCounts[$date] ?? 0),
+                'sales' => (int) ($dailySalesCounts[$date] ?? 0),
+                'purchases' => (int) ($dailyPurchaseCounts[$date] ?? 0),
+            ];
+            $cursor = $cursor->addDay();
+        }
+
+        return $rows;
     }
 
     private function monthlyEvolution(array $filters, array $period): array

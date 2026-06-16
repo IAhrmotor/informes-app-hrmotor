@@ -435,7 +435,7 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringNotContainsString('Lead Privado', $csv);
     }
 
-    public function test_tasacion_cruza_oportunidades_por_id_cuenta_contacto_y_nombre_y_cuenta_compras(): void
+    public function test_tasacion_solo_cruza_oportunidades_por_converted_opportunity_id_y_converted_account_id(): void
     {
         CampaignPlatformDailyMetric::query()->create($this->metricRow([
             'platform' => 'google_ads',
@@ -542,7 +542,7 @@ class CampaignDashboardTest extends TestCase
             CarbonImmutable::parse('2026-06-01')
         );
 
-        $this->assertSame(4, DB::table('campaign_lead_attributions')->where('has_purchase', true)->count());
+        $this->assertSame(2, DB::table('campaign_lead_attributions')->where('has_purchase', true)->count());
 
         $this->assertDatabaseHas('campaign_attributions', [
             'lead_id' => '00Q-tasacion-direct',
@@ -554,20 +554,18 @@ class CampaignDashboardTest extends TestCase
             'opportunity_id' => '006-tasacion-account',
             'opportunity_attribution_method' => 'converted_account_id',
         ]);
-        $this->assertDatabaseHas('campaign_attributions', [
+        $this->assertDatabaseMissing('campaign_attributions', [
             'lead_id' => '00Q-tasacion-contact',
             'opportunity_id' => '006-tasacion-contact',
-            'opportunity_attribution_method' => 'account_email_match',
         ]);
-        $this->assertDatabaseHas('campaign_attributions', [
+        $this->assertDatabaseMissing('campaign_attributions', [
             'lead_id' => '00Q-tasacion-name',
             'opportunity_id' => '006-tasacion-name',
-            'opportunity_attribution_method' => 'opportunity_name_email_match',
         ]);
 
         $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
             ->assertOk()
-            ->assertJsonPath('kpis.purchases', 4);
+            ->assertJsonPath('kpis.purchases', 2);
     }
 
     public function test_tasacion_cuenta_varias_oportunidades_de_la_misma_cuenta_sin_duplicar_leads(): void
@@ -1562,6 +1560,42 @@ class CampaignDashboardTest extends TestCase
         $this->assertSame(1, $may['reservations']);
         $this->assertSame(1, $may['sales']);
         $this->assertSame(1, $may['purchases']);
+    }
+
+    public function test_monthly_chart_deduplicates_leads_when_one_lead_has_multiple_opportunities(): void
+    {
+        DB::table('campaign_lead_attributions')->insert([
+            $this->attributionRow([
+                'lead_id' => '00Q-shared-lead',
+                'campaign_id' => 'tasacion-shared-lead',
+                'campaign_name' => 'Tasacion lead compartido',
+                'source_campaign_name' => 'Tasacion lead compartido',
+                'campaign_type' => 'tasacion',
+                'opportunity_id' => '006-shared-lead-1',
+                'has_opportunity' => true,
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-shared-lead',
+                'campaign_id' => 'tasacion-shared-lead',
+                'campaign_name' => 'Tasacion lead compartido',
+                'source_campaign_name' => 'Tasacion lead compartido',
+                'campaign_type' => 'tasacion',
+                'opportunity_id' => '006-shared-lead-2',
+                'has_opportunity' => true,
+            ]),
+        ]);
+
+        $summary = $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
+            ->assertOk()
+            ->json();
+
+        $may = collect($summary['charts']['monthly_evolution'])
+            ->firstWhere('date', '2026-05-01');
+
+        $this->assertSame(1, $summary['kpis']['leads_salesforce']);
+        $this->assertSame(2, $summary['kpis']['opportunities']);
+        $this->assertSame(1, $may['leads_salesforce']);
+        $this->assertSame(2, $may['opportunities']);
     }
 
     public function test_summary_kpis_and_funnel_deduplicate_shared_opportunities_across_campaigns(): void
