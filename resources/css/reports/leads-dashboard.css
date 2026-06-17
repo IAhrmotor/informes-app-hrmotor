@@ -1369,7 +1369,6 @@ th.num {
     display: grid;
     grid-template-columns: 1.4fr 1fr;
     gap: 16px;
-    margin-bottom: 18px;
 }
 
 .platform-comparison-grid {
@@ -1541,13 +1540,36 @@ th.num {
 
 .grafana-delta {
     flex: 0 0 auto;
-    color: #4ade80;
     font-size: 12px;
     font-weight: 850;
 }
 
+.grafana-delta-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    text-align: right;
+}
+
+.grafana-delta.is-positive {
+    color: #4ade80;
+}
+
 .grafana-delta.is-negative {
     color: #f87171;
+}
+
+.grafana-delta.is-neutral {
+    color: #64748b;
+}
+
+.grafana-delta-note {
+    color: #94a3b8;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.2;
+    max-width: 132px;
 }
 
 .grafana-chart {
@@ -2658,6 +2680,7 @@ th.num {
 .campaigns-report .campaign-table-card,
 .campaigns-report .campaign-drawer-panel {
     border-radius: 32px;
+    margin-bottom: 24px;
 }
 
 .campaigns-report .app-header {

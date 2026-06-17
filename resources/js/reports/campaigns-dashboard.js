@@ -1048,22 +1048,28 @@ function metricChartRows(rows) {
     return (rows || [])
         .slice(-6)
         .map((row) => {
-            const results = normalizeCampaignContext(currentContext) === 'tasacion'
-                ? Number(row.purchases || 0)
-                : Number(row.sales || 0) + Number(row.purchases || 0);
+            const results = numericChartValue(row.result_count) ?? monthlyResultCountForRow(row);
             const spend = Number(row.spend || 0);
+            const costPerResult = numericChartValue(row.cost_per_result);
 
             return {
                 ...row,
                 result_count: results,
-                cost_per_result: results > 0 ? spend / results : null,
+                cost_per_result: costPerResult ?? (results > 0 ? spend / results : null),
             };
         });
 }
 
 function metricChartDefinitions(context = currentContext) {
     const normalized = normalizeCampaignContext(context);
-    const resultLabel = normalized === 'tasacion' ? 'Compras' : 'Ventas / compras';
+    const resultLabel = ({
+        venta: 'Ventas',
+        tasacion: 'Compras',
+        exposicion: 'Oportunidades',
+        branding: 'Leads',
+        otros: 'Resultados',
+        all: 'Resultados',
+    })[normalized] || 'Resultados';
 
     return [
         { key: 'spend', label: 'Inversión', formatter: formatMoney, className: 'spend' },
@@ -1106,13 +1112,14 @@ function grafanaMetricChartHtml(rows, definition) {
     const delta = previousValue !== null && previousValue !== 0 && lastValue !== null
         ? (lastValue - previousValue) / previousValue
         : null;
+    const deltaClass = grafanaDeltaClass(definition, delta);
     const yAxisTicks = gridRatios.map((ratio) => {
         const y = plotBottom - (ratio * (plotBottom - plotTop));
         const value = min + (range * ratio);
 
         return {
             top: (y / height) * 100,
-            label: definition.formatter(value),
+            label: formatGrafanaAxisValue(value, definition),
             y,
         };
     });
@@ -1124,7 +1131,10 @@ function grafanaMetricChartHtml(rows, definition) {
                     <div class="grafana-panel-title">${escapeHtml(definition.label)}</div>
                     <div class="grafana-panel-value">${escapeHtml(definition.formatter(lastValue))}</div>
                 </div>
-                <span class="grafana-delta ${delta !== null && delta < 0 ? 'is-negative' : ''}">${delta === null ? 'Sin datos' : escapeHtml(formatPercentRatio(delta))}</span>
+                <div class="grafana-delta-block">
+                    <span class="grafana-delta ${deltaClass}">${delta === null ? 'Sin datos' : escapeHtml(formatPercentRatio(delta))}</span>
+                    <span class="grafana-delta-note">Comparación con mes anterior.</span>
+                </div>
             </div>
             <div class="grafana-chart">
                 <div class="grafana-chart-inner">
@@ -1168,7 +1178,7 @@ function grafanaHoverZoneHtml(row, coordinates, index, definition) {
         : (index === total - 1 ? 100 : (point.x + coordinates[index + 1].x) / 2);
     const width = Math.max(rightBoundary - leftBoundary, total === 1 ? 100 : 0);
     const anchor = width > 0 ? ((point.x - leftBoundary) / width) * 100 : 50;
-    const tooltip = `${formatMonthLabel(row)}\n${definition.label}: ${definition.formatter(numericChartValue(row[definition.key]))}`;
+    const tooltip = `${formatGrafanaTooltipMonthLabel(row)}\n${definition.label}: ${definition.formatter(numericChartValue(row[definition.key]))}`;
     const edgeClass = index === 0 ? 'is-first' : (index === total - 1 ? 'is-last' : '');
 
     return `
@@ -1191,7 +1201,66 @@ function formatMonthLabel(row) {
     const date = String(row.date || '');
     const match = date.match(/^(\d{4})-(\d{2})/);
 
-    return match ? `${match[2]}/${match[1]}` : date;
+    if (!match) {
+        return date;
+    }
+
+    return shortMonthName(Number(match[2]));
+}
+
+function formatGrafanaTooltipMonthLabel(row) {
+    const date = String(row.date || '');
+    const match = date.match(/^(\d{4})-(\d{2})/);
+
+    if (!match) {
+        return formatMonthLabel(row);
+    }
+
+    return `${shortMonthName(Number(match[2]))} ${match[1]}`;
+}
+
+function shortMonthName(month) {
+    return ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'][month - 1] || String(month || '');
+}
+
+function formatGrafanaAxisValue(value, definition) {
+    return formatCompactAxisValue(value, definition.key === 'spend' || definition.key === 'cost_per_result');
+}
+
+function formatCompactAxisValue(value, useCurrency = false) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+        return '0';
+    }
+
+    const abs = Math.abs(number);
+    let formatted;
+
+    if (abs >= 1000000) {
+        formatted = `${trimTrailingZero((number / 1000000).toFixed(abs >= 10000000 ? 0 : 1))}M`;
+    } else if (abs >= 1000) {
+        formatted = `${trimTrailingZero((number / 1000).toFixed(abs >= 10000 ? 0 : 1))}k`;
+    } else {
+        formatted = String(Math.round(number));
+    }
+
+    return useCurrency ? `${formatted} €` : formatted;
+}
+
+function trimTrailingZero(value) {
+    return String(value).replace(/\.0$/, '').replace('.', ',');
+}
+
+function grafanaDeltaClass(definition, delta) {
+    if (delta === null || Number(delta) === 0) {
+        return 'is-neutral';
+    }
+
+    if (definition.key === 'cost_per_result') {
+        return delta > 0 ? 'is-negative' : 'is-positive';
+    }
+
+    return delta > 0 ? 'is-positive' : 'is-negative';
 }
 
 function monthlyEvolutionHtml(rows) {
