@@ -1095,7 +1095,7 @@ function metricChartDefinitions(context = currentContext) {
         exposicion: 'Oportunidades',
         branding: 'Leads',
         otros: 'Resultados',
-        all: 'Resultados',
+        all: 'Ventas / Compras',
     })[normalized] || 'Resultados';
 
     return [
@@ -1520,7 +1520,7 @@ function platformComparisonCardHtml(row, maxSpend, maxLeads, maxOpportunities, m
         exposicion: 'Coste por oportunidad',
         branding: 'Coste por lead',
         otros: 'Coste por resultado',
-        all: 'Coste por resultado',
+        all: 'Coste por venta / compra',
     }[context] || 'Coste por resultado';
 
     return `
@@ -1557,8 +1557,9 @@ function platformComparisonSubtitleForContext(context) {
             return 'Google Ads y Meta Ads con foco en oportunidades';
         case 'branding':
             return 'Google Ads y Meta Ads con foco en leads';
-        case 'otros':
         case 'all':
+            return 'Google Ads y Meta Ads con ventas y compras agregadas';
+        case 'otros':
         default:
             return 'Google Ads y Meta Ads con resultados agregados';
     }
@@ -1574,8 +1575,9 @@ function platformResultLabelForContext(context) {
             return 'Oportunidades';
         case 'branding':
             return 'Leads Salesforce';
-        case 'otros':
         case 'all':
+            return 'Ventas / Compras';
+        case 'otros':
         default:
             return 'Resultados';
     }
@@ -1592,13 +1594,19 @@ function platformResultValueForContext(row, context) {
         case 'branding':
             return Number(row.leads_salesforce || 0);
         case 'otros':
+            return Number(row.result_count || 0);
         case 'all':
         default:
-            return Number(row.result_count || 0);
+            return Number(row.sales || 0) + Number(row.purchases || 0);
     }
 }
 
 function platformResultCostForContext(row, context) {
+    if (context === 'all') {
+        const results = Number(row.sales || 0) + Number(row.purchases || 0);
+        return results > 0 ? Number(row.spend || 0) / results : null;
+    }
+
     switch (context) {
         case 'venta':
             return row.cost_per_sale;
@@ -1609,7 +1617,6 @@ function platformResultCostForContext(row, context) {
         case 'branding':
             return row.cost_per_lead;
         case 'otros':
-        case 'all':
         default:
             return row.cost_per_result;
     }
@@ -1746,9 +1753,13 @@ function kpiCardsForContext(context, kpis) {
                 { label: 'Clicks', value: formatNumber(kpis.clicks), hint: `Leads SF ${formatNumber(kpis.leads_salesforce)}` },
                 { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
                 { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}` },
-                { label: 'Reservas', value: formatNumber(kpis.reservations), hint: `Ventas ${formatNumber(kpis.sales)} · Compras ${formatNumber(kpis.purchases)}` },
+                { label: 'Reservas', value: formatNumber(kpis.reservations), hint: `CPR ${formatMoney(kpis.cost_per_reservation)}` },
                 { label: 'Ventas / Compras', value: totalResults, hint: `Ventas ${formatNumber(kpis.sales)} · Compras ${formatNumber(kpis.purchases)}` },
-                { label: 'Coste por resultado', value: formatMoney(kpis.cost_per_result), hint: `Resultados ${totalResults}` },
+                {
+                    label: normalized === 'all' ? 'Coste por venta / compra' : 'Coste por resultado',
+                    value: formatMoney(kpis.cost_per_result),
+                    hint: normalized === 'all' ? `Ventas / Compras ${totalResults}` : `Resultados ${totalResults}`,
+                },
             ];
     }
 }

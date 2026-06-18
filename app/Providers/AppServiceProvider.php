@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use Illuminate\Support\Facades\URL;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\ServiceProvider;
 
@@ -21,6 +22,9 @@ class AppServiceProvider extends ServiceProvider
     public function boot(Filesystem $files): void
     {
         $this->ensureFileCacheDirectories($files);
+        if ($this->app->environment('production')) {
+            URL::forceScheme('https');
+        }
     }
 
     private function ensureFileCacheDirectories(Filesystem $files): void
