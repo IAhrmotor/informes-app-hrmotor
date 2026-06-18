@@ -11,6 +11,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CampaignDashboardDataController extends Controller
 {
+    private const JSON_RESPONSE_FLAGS = JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE;
+
     public function __construct(
         private readonly CampaignDashboardDatasetService $dataset,
     ) {
@@ -20,21 +22,21 @@ class CampaignDashboardDataController extends Controller
     {
         abort_unless(ReportUserAccess::canViewCampaigns($request), 403);
 
-        return response()->json($this->dataset->summary($request));
+        return $this->jsonResponse($this->dataset->summary($request));
     }
 
     public function campaigns(Request $request): JsonResponse
     {
         abort_unless(ReportUserAccess::canViewCampaigns($request), 403);
 
-        return response()->json($this->dataset->campaignRows($request));
+        return $this->jsonResponse($this->dataset->campaignRows($request));
     }
 
     public function rankings(Request $request): JsonResponse
     {
         abort_unless(ReportUserAccess::canViewCampaigns($request), 403);
 
-        return response()->json($this->dataset->rankings($request));
+        return $this->jsonResponse($this->dataset->rankings($request));
     }
 
     public function exportCampaignsCsv(Request $request): StreamedResponse
@@ -126,5 +128,10 @@ class CampaignDashboardDataController extends Controller
         }, 'campanas.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
+    }
+
+    private function jsonResponse(array $payload): JsonResponse
+    {
+        return response()->json($payload, 200, [], self::JSON_RESPONSE_FLAGS);
     }
 }

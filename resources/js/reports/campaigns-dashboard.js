@@ -621,7 +621,10 @@ async function reloadAllData() {
         const query = currentFilters();
         const params = new URLSearchParams(query);
         params.set('include_diagnostics', '0');
-        const summary = await fetchJson(`/informes/campanas/data/summary?${params.toString()}`);
+        const summary = await fetchJson(
+            `/informes/campanas/data/summary?${params.toString()}`,
+            'Error al cargar datos de campañas.',
+        );
         const campaignItems = Array.isArray(summary?.campaigns) ? summary.campaigns : [];
 
         renderSummary(summary || {});
@@ -638,7 +641,7 @@ async function reloadAllData() {
             exportLink.href = `/informes/campanas/export/campaigns.csv?${query}`;
         }
     } catch (error) {
-        showLoadError(error);
+        renderLoadFailure(error);
     } finally {
         setLoadingState(false);
     }
@@ -667,7 +670,10 @@ async function loadDiagnostics() {
     params.set('include_filters', '0');
 
     currentDiagnosticsKey = query;
-    diagnosticsLoadingPromise = fetchJson(`/informes/campanas/data/summary?${params.toString()}`)
+    diagnosticsLoadingPromise = fetchJson(
+        `/informes/campanas/data/summary?${params.toString()}`,
+        'Error al cargar diagnóstico de campañas.',
+    )
         .then((summary) => {
             currentDiagnostics = (summary && summary.diagnostics) || {};
             renderDiagnostics(currentDiagnostics);
@@ -692,13 +698,24 @@ async function loadDiagnostics() {
 }
 
 function renderSummary(data) {
-    const empty = document.getElementById('emptyMessage');
-    empty.classList.toggle('is-hidden', Boolean(data.ok));
-
     renderWarnings(data.warnings || []);
     currentContext = data.selected_context || currentContext;
     syncCampaignTypeSelect();
     syncContextTabs();
+
+    if (!data.ok) {
+        showStatusMessage('No hay campañas con estos filtros.', 'empty');
+        renderKpisState('No hay campañas con estos filtros.');
+        renderCharts({});
+        renderPlatformComparison([], 'No hay campañas con estos filtros.');
+        renderReviewCampaigns([], 'No hay campañas con estos filtros.');
+        renderDiagnostics({});
+        renderRankings({}, 'No hay campañas con estos filtros.');
+        renderCampaignTables([], 'No hay campañas con estos filtros.');
+        return;
+    }
+
+    hideStatusMessage();
     renderKpis(data.kpis || {}, currentContext);
     renderCharts(data.charts || {});
     renderPlatformComparison(data.platform_comparison || []);
@@ -735,6 +752,16 @@ function renderKpis(kpis, context = 'all') {
             </div>
         `);
     });
+}
+
+function renderKpisState(message) {
+    const root = document.getElementById('summaryKpis');
+
+    if (!root) {
+        return;
+    }
+
+    root.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
 }
 
 function dailyEvolutionHtml(rows) {
@@ -1436,11 +1463,17 @@ function funnelSubtitleForContext(context) {
     }
 }
 
-function renderPlatformComparison(rows) {
+function renderPlatformComparison(rows, emptyMessage = '') {
     const panel = document.getElementById('platformComparisonPanel');
     const root = document.getElementById('platformComparison');
 
     if (!panel || !root) {
+        return;
+    }
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+        panel.classList.remove('is-hidden');
+        root.innerHTML = `<div class="empty-state">${escapeHtml(emptyMessage || 'No hay campañas con estos filtros.')}</div>`;
         return;
     }
 
@@ -1582,7 +1615,7 @@ function platformResultCostForContext(row, context) {
     }
 }
 
-function renderReviewCampaigns(rows) {
+function renderReviewCampaigns(rows, emptyMessage = 'Sin campañas a revisar') {
     const root = document.getElementById('reviewCampaigns');
 
     if (!root) {
@@ -1602,7 +1635,7 @@ function renderReviewCampaigns(rows) {
                 </div>
             </article>
         `).join('')
-        : '<div class="empty-state">Sin campañas a revisar</div>';
+        : `<div class="empty-state">${escapeHtml(emptyMessage)}</div>`;
 }
 
 function loadCampaignContext() {
@@ -2404,18 +2437,58 @@ function setLoadingState(isLoading) {
     document.getElementById('loadingMessage')?.classList.toggle('is-hidden', !isLoading);
 
     if (isLoading) {
-        document.getElementById('emptyMessage')?.classList.add('is-hidden');
+        hideStatusMessage();
     }
 }
 
-function showLoadError(error) {
+function renderLoadFailure(error) {
+    campaignRows = [];
+    currentRankings = {};
+    currentDiagnostics = {};
+    currentDiagnosticsKey = '';
+    currentCharts = {};
+
+    renderWarnings([]);
+    renderKpisState('No se han podido cargar los datos de campañas.');
+    renderCharts({});
+    renderPlatformComparison([], 'No se han podido cargar los datos de campañas.');
+    renderReviewCampaigns([], 'No se han podido cargar los datos de campañas.');
+    renderDiagnostics({});
+    renderRankings({}, 'No se han podido cargar los datos de campañas.');
+    renderCampaignTables([], 'No se han podido cargar los datos de campañas.');
+    showStatusMessage(loadErrorMessage(error), 'error');
+}
+
+function showStatusMessage(message, type = 'empty') {
     const empty = document.getElementById('emptyMessage');
     if (!empty) {
         return;
     }
 
+    empty.classList.remove('is-error', 'is-empty');
+    empty.classList.add(type === 'error' ? 'is-error' : 'is-empty');
     empty.classList.remove('is-hidden');
-    empty.textContent = error?.message || 'No se han podido cargar los datos de campañas.';
+    empty.textContent = message;
+}
+
+function hideStatusMessage() {
+    const empty = document.getElementById('emptyMessage');
+    if (!empty) {
+        return;
+    }
+
+    empty.classList.add('is-hidden');
+    empty.classList.remove('is-error', 'is-empty');
+}
+
+function loadErrorMessage(error) {
+    const message = String(error?.message || '').trim();
+
+    if (!message || message.startsWith('Error cargando /informes/campanas/')) {
+        return 'Error al cargar datos de campañas.';
+    }
+
+    return message;
 }
 
 function lastCompleteDay() {
@@ -2426,13 +2499,43 @@ function lastCompleteDay() {
     return date;
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, fallbackMessage = `Error cargando ${url}`) {
     const response = await fetch(url, { headers: { Accept: 'application/json' } });
+    const contentType = response.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
+    const payload = isJson
+        ? await response.json().catch(() => null)
+        : await response.text().catch(() => '');
+
     if (!response.ok) {
-        throw new Error(`Error cargando ${url}`);
+        throw new Error(extractApiErrorMessage(payload, fallbackMessage));
     }
 
-    return response.json();
+    if (isJson) {
+        return payload;
+    }
+
+    return payload ? JSON.parse(payload) : null;
+}
+
+function extractApiErrorMessage(payload, fallbackMessage) {
+    if (payload && typeof payload === 'object' && typeof payload.message === 'string') {
+        const message = payload.message.trim();
+
+        if (message && message !== 'Server Error') {
+            return message;
+        }
+    }
+
+    if (typeof payload === 'string') {
+        const message = payload.trim();
+
+        if (message && message.length <= 180 && !message.startsWith('<')) {
+            return message;
+        }
+    }
+
+    return fallbackMessage;
 }
 
 function setParam(params, key, value) {
@@ -2662,7 +2765,7 @@ function renderRankingsPopover() {
     `).join('');
 }
 
-function renderRankings(rankings) {
+function renderRankings(rankings, emptyMessage = '') {
     const root = document.getElementById('rankingsGrid');
     if (!root) {
         return;
@@ -2671,6 +2774,11 @@ function renderRankings(rankings) {
     currentRankings = rankings || {};
     const context = normalizeCampaignContext(currentContext);
     const visible = rankingDefinitions.filter((ranking) => visibleRankings.includes(ranking.key) && rankingAllowedInContext(ranking.key, context));
+
+    if (emptyMessage) {
+        root.innerHTML = `<div class="empty-state">${escapeHtml(emptyMessage)}</div>`;
+        return;
+    }
 
     root.innerHTML = visible.length
         ? visible.map((ranking) => {
@@ -2747,7 +2855,7 @@ function renderDiagnostics(diagnostics) {
     `).join('');
 }
 
-function renderCampaignTables(rows) {
+function renderCampaignTables(rows, emptyMessage = null) {
     const root = document.getElementById('campaignTables');
     if (!root) {
         return;
@@ -2764,13 +2872,13 @@ function renderCampaignTables(rows) {
     };
     const [title, subtitle] = titleMap[context] || titleMap.all;
 
-    root.innerHTML = renderCampaignTable(context, title, subtitle, rows || []);
+    root.innerHTML = renderCampaignTable(context, title, subtitle, rows || [], emptyMessage);
     renderColumnsPopover();
     applyColumnVisibility();
     syncCampaignTableScrollWidth();
 }
 
-function renderCampaignTable(tableType, title, subtitle, rows) {
+function renderCampaignTable(tableType, title, subtitle, rows, emptyMessage = null) {
     const columns = activeColumns(tableType);
     const sortedRows = sortedCampaignRows(rows, tableType);
     const emptyColspan = Math.max(columns.length, 1);
@@ -2793,7 +2901,7 @@ function renderCampaignTable(tableType, title, subtitle, rows) {
                 }).join('')}
             </tr>
         `).join('')
-        : `<tr><td colspan="${emptyColspan}">No hay campañas para los filtros seleccionados.</td></tr>`;
+        : `<tr><td colspan="${emptyColspan}">${escapeHtml(emptyMessage || 'No hay campañas para los filtros seleccionados.')}</td></tr>`;
 
     return `
         <article class="card panel campaign-table-card">

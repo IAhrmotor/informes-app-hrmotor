@@ -2651,6 +2651,16 @@ th.num {
     box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
 }
 
+.campaigns-report .notice.is-empty {
+    border-color: rgba(148, 163, 184, .24);
+    color: #475569;
+}
+
+.campaigns-report .notice.is-error {
+    border-color: rgba(229, 26, 46, .18);
+    color: #b91c2d;
+}
+
 .campaigns-report .campaign-context-grid {
     gap: 12px;
     margin-bottom: 22px;
