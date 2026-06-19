@@ -1352,6 +1352,8 @@ th.num {
     color: var(--brand-primary);
     font-size: 16px;
     font-weight: 900;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
 }
 
 .diagnostic-note {
@@ -1373,7 +1375,7 @@ th.num {
 
 .platform-comparison-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
     gap: 14px;
 }
 
@@ -1387,7 +1389,7 @@ th.num {
     display: flex;
     justify-content: space-between;
     gap: 10px;
-    align-items: baseline;
+    align-items: flex-start;
     margin-bottom: 14px;
 }
 
@@ -1402,6 +1404,8 @@ th.num {
     font-size: 12px;
     font-weight: 750;
     text-align: right;
+    max-width: 220px;
+    line-height: 1.45;
 }
 
 .platform-comparison-metrics {
@@ -1445,7 +1449,7 @@ th.num {
     display: flex;
     justify-content: space-between;
     gap: 14px;
-    align-items: center;
+    align-items: flex-start;
     padding: 14px 16px;
     border: 1px solid var(--line);
     border-radius: 14px;
@@ -2470,6 +2474,7 @@ th.num {
     height: 100%;
     border-radius: inherit;
     background: linear-gradient(90deg, #17213c, #ed1b2f);
+    min-width: 0;
 }
 
 .platform-chart-group {
@@ -2957,7 +2962,7 @@ th.num {
 }
 
 .campaigns-report .platform-comparison-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
 }
 
 .campaigns-report .platform-comparison-card {
@@ -2982,6 +2987,29 @@ th.num {
 .campaigns-report .review-card {
     padding: 16px 18px;
     border-radius: 24px;
+}
+
+.campaigns-report .campaign-diagnostics-drawer .campaign-drawer-panel {
+    width: min(640px, calc(100vw - 24px));
+    padding: 30px;
+    border-radius: 32px 0 0 32px;
+}
+
+.campaigns-report .campaign-diagnostics-drawer .panel-title {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.campaigns-report .campaign-diagnostics-drawer .campaign-diagnostics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.campaigns-report .campaign-diagnostics-drawer .diagnostic-item {
+    min-height: 112px;
+    padding: 16px;
 }
 
 .campaigns-report #campaignTables {
@@ -3052,6 +3080,36 @@ th.num {
     box-shadow: 0 16px 36px rgba(15, 23, 42, .10);
 }
 
+@media (max-width: 760px) {
+    .campaigns-report .platform-comparison-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .campaigns-report .platform-comparison-card {
+        padding: 18px;
+    }
+
+    .campaigns-report .platform-comparison-head {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .campaigns-report .platform-comparison-head span {
+        max-width: none;
+        text-align: left;
+    }
+
+    .campaigns-report .platform-metric-item {
+        align-items: flex-start;
+    }
+
+    .campaigns-report .platform-metric-item strong {
+        max-width: 44%;
+        overflow-wrap: anywhere;
+    }
+}
+
 @media (max-width: 650px) {
     .campaigns-report .wrap {
         padding: 16px;
@@ -3064,6 +3122,21 @@ th.num {
 
     .campaigns-report .campaign-topbar-actions {
         justify-content: stretch;
+    }
+
+    .campaigns-report .campaign-diagnostics-drawer .campaign-drawer-panel {
+        width: calc(100vw - 12px);
+        padding: 22px 18px;
+        border-radius: 24px 0 0 24px;
+    }
+
+    .campaigns-report .campaign-diagnostics-drawer .panel-title {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .campaigns-report .campaign-diagnostics-drawer .campaign-diagnostics {
+        grid-template-columns: 1fr;
     }
 }
 

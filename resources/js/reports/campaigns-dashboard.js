@@ -31,7 +31,7 @@ let dailyChartType = 'lines';
 let currentCharts = {};
 let currentRankings = {};
 let currentContext = 'all';
-let campaignDetailsVisible = false;
+let campaignDetailsVisible = true;
 let campaignNameSelections = [];
 let monthlySelectedMonths = [];
 let monthlyVisibleMetrics = [];
@@ -40,6 +40,11 @@ let currentDiagnostics = {};
 let currentDiagnosticsKey = '';
 let diagnosticsLoadingPromise = null;
 let metricChartsVisible = loadMetricChartsVisible();
+let summaryLoadingController = null;
+let diagnosticsLoadingController = null;
+let latestReloadRequestId = 0;
+let lastRenderedFilterOptionsKey = '';
+let lastRenderedCampaignNamesKey = '';
 
 const dailySeriesDefinitions = [
     { key: 'spend', label: 'Inversión', formatter: formatMoney, className: 'spend' },
@@ -615,6 +620,10 @@ function bindMonthlyChartControls() {
 }
 
 async function reloadAllData() {
+    latestReloadRequestId += 1;
+    const requestId = latestReloadRequestId;
+    summaryLoadingController?.abort();
+    summaryLoadingController = new AbortController();
     setLoadingState(true);
 
     try {
@@ -624,7 +633,13 @@ async function reloadAllData() {
         const summary = await fetchJson(
             `/informes/campanas/data/summary?${params.toString()}`,
             'Error al cargar datos de campañas.',
+            { signal: summaryLoadingController.signal },
         );
+
+        if (requestId !== latestReloadRequestId) {
+            return;
+        }
+
         const campaignItems = Array.isArray(summary?.campaigns) ? summary.campaigns : [];
 
         renderSummary(summary || {});
@@ -641,9 +656,14 @@ async function reloadAllData() {
             exportLink.href = `/informes/campanas/export/campaigns.csv?${query}`;
         }
     } catch (error) {
+        if (isAbortError(error) || requestId !== latestReloadRequestId) {
+            return;
+        }
         renderLoadFailure(error);
     } finally {
-        setLoadingState(false);
+        if (requestId === latestReloadRequestId) {
+            setLoadingState(false);
+        }
     }
 }
 
@@ -670,9 +690,12 @@ async function loadDiagnostics() {
     params.set('include_filters', '0');
 
     currentDiagnosticsKey = query;
+    diagnosticsLoadingController?.abort();
+    diagnosticsLoadingController = new AbortController();
     diagnosticsLoadingPromise = fetchJson(
         `/informes/campanas/data/summary?${params.toString()}`,
         'Error al cargar diagnóstico de campañas.',
+        { signal: diagnosticsLoadingController.signal },
     )
         .then((summary) => {
             currentDiagnostics = (summary && summary.diagnostics) || {};
@@ -681,6 +704,10 @@ async function loadDiagnostics() {
             return currentDiagnostics;
         })
         .catch((error) => {
+            if (isAbortError(error)) {
+                return currentDiagnostics;
+            }
+
             currentDiagnostics = {};
             currentDiagnosticsKey = '';
 
@@ -692,6 +719,7 @@ async function loadDiagnostics() {
         })
         .finally(() => {
             diagnosticsLoadingPromise = null;
+            diagnosticsLoadingController = null;
         });
 
     return diagnosticsLoadingPromise;
@@ -1765,10 +1793,21 @@ function kpiCardsForContext(context, kpis) {
 }
 
 function renderFilterOptions(filters, rows = []) {
-    populateCampaignTypeSelect(filters.campaign_types || []);
-    populatePlatformSelect(filters.platforms || []);
-    populateSelect('campaignStatus', filters.campaign_statuses || [], 'Todas');
-    populateSelect('classification', filters.classifications || [], 'Todas');
+    const filtersKey = JSON.stringify({
+        campaign_types: filters.campaign_types || [],
+        platforms: filters.platforms || [],
+        campaign_statuses: filters.campaign_statuses || [],
+        classifications: filters.classifications || [],
+    });
+
+    if (filtersKey !== lastRenderedFilterOptionsKey) {
+        populateCampaignTypeSelect(filters.campaign_types || []);
+        populatePlatformSelect(filters.platforms || []);
+        populateSelect('campaignStatus', filters.campaign_statuses || [], 'Todas');
+        populateSelect('classification', filters.classifications || [], 'Todas');
+        lastRenderedFilterOptionsKey = filtersKey;
+    }
+
     renderCampaignNameChecklist(rows);
     syncCampaignTypeSelect();
 }
@@ -1844,6 +1883,14 @@ function renderCampaignNameChecklist(rows) {
         .filter((row) => row.campaign_name)
         .map((row) => [row.campaign_name, row]))
         .values()];
+    const checklistKey = JSON.stringify({
+        options: options.map((row) => [row.campaign_name, row.platform || '']),
+        selected: [...campaignNameSelections].sort(),
+    });
+
+    if (checklistKey === lastRenderedCampaignNamesKey) {
+        return;
+    }
 
     root.innerHTML = options.length
         ? options.map((row) => {
@@ -1863,11 +1910,13 @@ function renderCampaignNameChecklist(rows) {
         : '<div class="empty-state">No hay campañas disponibles</div>';
 
     persistCampaignNameSelections();
+    lastRenderedCampaignNamesKey = checklistKey;
 
     root.querySelectorAll('input[type="checkbox"]').forEach((input) => {
         input.addEventListener('change', () => {
             campaignNameSelections = [...root.querySelectorAll('input[type="checkbox"]:checked')].map((item) => item.value);
             persistCampaignNameSelections();
+            lastRenderedCampaignNamesKey = '';
             reloadAllData();
         });
     });
@@ -2510,8 +2559,11 @@ function lastCompleteDay() {
     return date;
 }
 
-async function fetchJson(url, fallbackMessage = `Error cargando ${url}`) {
-    const response = await fetch(url, { headers: { Accept: 'application/json' } });
+async function fetchJson(url, fallbackMessage = `Error cargando ${url}`, options = {}) {
+    const response = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: options.signal,
+    });
     const contentType = response.headers.get('content-type') || '';
     const isJson = contentType.includes('application/json');
     const payload = isJson
@@ -2547,6 +2599,10 @@ function extractApiErrorMessage(payload, fallbackMessage) {
     }
 
     return fallbackMessage;
+}
+
+function isAbortError(error) {
+    return error?.name === 'AbortError';
 }
 
 function setParam(params, key, value) {
@@ -2731,17 +2787,19 @@ function sortedCampaignRows(rows, tableType) {
 }
 
 function metricBarHtml(label, value, max, formatter, tooltip = null, useLogScale = false) {
-    const numericValue = Number(value || 0);
+    const numericValue = Number(value);
+    const hasNumericValue = Number.isFinite(numericValue) && numericValue > 0;
     const denominator = max > 0 ? max : 1;
-    const width = useLogScale && numericValue > 0
+    const width = useLogScale && hasNumericValue
         ? Math.max(4, (Math.log10(numericValue + 1) / Math.log10(denominator + 1)) * 100)
-        : (numericValue / denominator) * 100;
+        : (hasNumericValue ? (numericValue / denominator) * 100 : 0);
+    const displayValue = formatter(hasNumericValue || numericValue === 0 ? numericValue : null);
 
     return `
         <div class="campaign-metric-bar" ${tooltip ? `title="${escapeHtml(tooltip)}" data-tooltip="${escapeHtml(tooltip)}"` : ''}>
             <div>
                 <span>${escapeHtml(label)}</span>
-                <strong>${escapeHtml(formatter(numericValue))}</strong>
+                <strong>${escapeHtml(displayValue)}</strong>
             </div>
             <i><b style="width:${Math.min(100, Math.max(0, width))}%"></b></i>
         </div>
@@ -2857,6 +2915,11 @@ function renderDiagnostics(diagnostics) {
         ['Filas Meta', formatNumber(diagnostics.meta_metric_rows)],
         ['Filas Google Ads', formatNumber(diagnostics.google_metric_rows)],
     ];
+
+    if (entries.every(([, value]) => value === 'Sin datos')) {
+        root.innerHTML = '<div class="empty-state">Sin diagnóstico disponible</div>';
+        return;
+    }
 
     root.innerHTML = entries.map(([label, value]) => `
         <div class="diagnostic-item">
