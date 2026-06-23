@@ -69,6 +69,24 @@ class SalesforceLeadDashboardDatasetService
         return $this->payload($request, 'summary')['summary'];
     }
 
+    public function kpiAudit(Request $request): array
+    {
+        $filters = $this->filters($request, 'summary');
+        $periods = $this->periods($filters);
+        $metric = $this->resolveAuditMetric($request->string('metric')->toString());
+
+        return Cache::remember(
+            'lead-dashboard-audit-v1:'.md5(json_encode([
+                'filters' => $filters,
+                'period' => $this->periodPayload($periods['current']),
+                'metric' => $metric,
+                'version' => $this->dataVersion(),
+            ])),
+            now()->addMinutes(self::CACHE_TTL_MINUTES),
+            fn () => $this->buildAuditPayload($filters, $periods['current'], $metric)
+        );
+    }
+
     public function commercialRows(Request $request): array
     {
         $payload = $this->payload($request, 'commercials');
@@ -162,6 +180,78 @@ class SalesforceLeadDashboardDatasetService
         ];
     }
 
+    private function buildAuditPayload(array $filters, array $period, string $metric): array
+    {
+        $items = [];
+
+        $this->eachPeriodLead($period, function (array $lead) use (&$items, $filters, $metric): void {
+            if (! $this->passesFilters($lead, $filters)) {
+                return;
+            }
+
+            if (! $this->qualifiesAuditMetric($lead, $metric)) {
+                return;
+            }
+
+            $items[] = [
+                'metric' => $metric,
+                'metric_label' => $this->auditMetricLabel($metric),
+                'lead_id' => $lead['salesforce_id'] ?? null,
+                'lead_name' => $lead['lead_name'] ?? null,
+                'created_date' => $this->auditDate($lead['created_date'] ?? null),
+                'status' => $lead['status'] ?? null,
+                'lead_type' => $lead['lead_type'] ?? null,
+                'portal' => $lead['portal'] ?? null,
+                'portal_group' => $lead['grupo_portal'] ?? null,
+                'channel' => $lead['canal'] ?? null,
+                'lead_delegation' => $lead['lead_delegation'] ?? null,
+                'lead_zone' => $lead['lead_zone'] ?? null,
+                'commercial_delegation' => $lead['commercial_delegation'] ?? null,
+                'commercial_zone' => $lead['commercial_zone'] ?? null,
+                'gestor_id' => $lead['gestor_id'] ?? null,
+                'gestor_nombre' => $lead['gestor_nombre'] ?? null,
+                'owner_id' => $lead['owner_id'] ?? null,
+                'owner_name' => $lead['owner_name'] ?? null,
+                'persona_que_trabajo_id' => $lead['persona_que_trabajo_id'] ?? null,
+                'persona_que_trabajo_name' => $lead['persona_que_trabajo_name'] ?? null,
+                'propietario_descarte_id' => $lead['propietario_descarte_id'] ?? null,
+                'propietario_descarte_name' => $lead['propietario_descarte_name'] ?? null,
+                'phone' => $lead['phone'] ?? null,
+                'mobile_phone' => $lead['mobile_phone'] ?? null,
+                'email' => $lead['email'] ?? null,
+                'campaign_acquired' => $lead['campaign_acquired'] ?? null,
+                'acquired_id' => $lead['acquired_id'] ?? null,
+                'content_acquired' => $lead['content_acquired'] ?? null,
+                'fuente_origen' => $lead['fuente_origen'] ?? null,
+                'medio_origen' => $lead['medio_origen'] ?? null,
+                'fuente_nuevo' => $lead['fuente_nuevo'] ?? null,
+                'medio_nuevo' => $lead['medio_nuevo'] ?? null,
+                'vehicle_interest' => $lead['vehicle_interest'] ?? null,
+                'converted_account_id' => $lead['converted_account_id'] ?? null,
+                'converted_opportunity_id' => $lead['converted_opportunity_id'] ?? null,
+                'is_convertido' => (bool) ($lead['is_convertido'] ?? false),
+                'is_descartado' => (bool) ($lead['is_descartado'] ?? false),
+                'is_potencial' => (bool) ($lead['is_potencial'] ?? false),
+                'is_potencial_sin_trabajar' => (bool) ($lead['is_potencial_sin_trabajar'] ?? false),
+                'is_lead_sin_asignar' => (bool) ($lead['is_lead_sin_asignar'] ?? false),
+                'is_gestionado' => (bool) ($lead['is_gestionado'] ?? false),
+                'is_llamada' => (bool) ($lead['is_llamada'] ?? false),
+                'is_formulario' => (bool) ($lead['is_formulario'] ?? false),
+            ];
+        });
+
+        usort($items, fn (array $a, array $b) => [$a['created_date'] ?? '', $a['lead_id'] ?? ''] <=> [$b['created_date'] ?? '', $b['lead_id'] ?? '']);
+
+        return [
+            'ok' => true,
+            'metric' => $metric,
+            'metric_label' => $this->auditMetricLabel($metric),
+            'periodo_actual' => $this->periodPayload($period),
+            'total' => count($items),
+            'items' => $items,
+        ];
+    }
+
     public function decorateLead(mixed $lead, mixed $summary = null, ?CarbonInterface $referenceDate = null): array
     {
         $referenceDate = $referenceDate ? CarbonImmutable::parse($referenceDate) : CarbonImmutable::now();
@@ -192,8 +282,29 @@ class SalesforceLeadDashboardDatasetService
         return [
             'id' => data_get($lead, 'id'),
             'salesforce_id' => data_get($lead, 'salesforce_id'),
+            'lead_name' => data_get($lead, 'name'),
+            'created_date' => data_get($lead, 'created_date'),
             'status' => $status,
             'lead_type' => data_get($lead, 'record_type_name'),
+            'owner_id' => data_get($lead, 'owner_id'),
+            'owner_name' => data_get($lead, 'owner_name'),
+            'persona_que_trabajo_id' => data_get($lead, 'persona_que_trabajo_id'),
+            'persona_que_trabajo_name' => data_get($lead, 'persona_que_trabajo_name'),
+            'propietario_descarte_id' => data_get($lead, 'propietario_descarte_id'),
+            'propietario_descarte_name' => data_get($lead, 'propietario_descarte_name'),
+            'phone' => data_get($lead, 'phone'),
+            'mobile_phone' => data_get($lead, 'mobile_phone'),
+            'email' => data_get($lead, 'email'),
+            'campaign_acquired' => data_get($lead, 'campaign_acquired'),
+            'acquired_id' => data_get($lead, 'acquired_id'),
+            'content_acquired' => data_get($lead, 'content_acquired'),
+            'fuente_origen' => data_get($lead, 'fuente_origen'),
+            'medio_origen' => data_get($lead, 'medio_origen'),
+            'fuente_nuevo' => data_get($lead, 'fuente_nuevo'),
+            'medio_nuevo' => data_get($lead, 'medio_nuevo'),
+            'vehicle_interest' => data_get($lead, 'vehicle_interest'),
+            'converted_account_id' => data_get($lead, 'converted_account_id'),
+            'converted_opportunity_id' => data_get($lead, 'converted_opportunity_id'),
             'is_convertido' => $isConverted,
             'is_descartado' => $isDiscarded,
             'is_potencial' => $isPotential,
@@ -379,6 +490,53 @@ class SalesforceLeadDashboardDatasetService
         }
 
         return $recordTypeName === $filter;
+    }
+
+    private function resolveAuditMetric(?string $metric): string
+    {
+        $metric = trim((string) $metric);
+
+        return in_array($metric, [
+            'leads_totales',
+            'convertidos',
+            'descartados',
+            'potenciales',
+            'potenciales_sin_trabajar',
+            'leads_unassigned',
+            'gestionados',
+            'llamadas',
+            'formularios',
+        ], true) ? $metric : 'leads_totales';
+    }
+
+    private function auditMetricLabel(string $metric): string
+    {
+        return match ($metric) {
+            'convertidos' => 'Convertidos',
+            'descartados' => 'Descartados',
+            'potenciales' => 'Potenciales',
+            'potenciales_sin_trabajar' => 'Potenciales sin trabajar',
+            'leads_unassigned' => 'Leads sin asignar',
+            'gestionados' => 'Gestionados',
+            'llamadas' => 'Llamadas',
+            'formularios' => 'Formularios',
+            default => 'Leads totales',
+        };
+    }
+
+    private function qualifiesAuditMetric(array $lead, string $metric): bool
+    {
+        return match ($metric) {
+            'convertidos' => (bool) ($lead['is_convertido'] ?? false),
+            'descartados' => (bool) ($lead['is_descartado'] ?? false),
+            'potenciales' => (bool) ($lead['is_potencial'] ?? false),
+            'potenciales_sin_trabajar' => (bool) ($lead['is_potencial_sin_trabajar'] ?? false),
+            'leads_unassigned' => (bool) ($lead['is_lead_sin_asignar'] ?? false),
+            'gestionados' => (bool) ($lead['is_gestionado'] ?? false),
+            'llamadas' => (bool) ($lead['is_llamada'] ?? false),
+            'formularios' => (bool) ($lead['is_formulario'] ?? false),
+            default => true,
+        };
     }
 
     private function isTechnicalOwner(mixed $ownerId, mixed $ownerName): bool
@@ -984,6 +1142,19 @@ class SalesforceLeadDashboardDatasetService
             return CarbonImmutable::parse($value);
         } catch (\Throwable) {
             return $fallback;
+        }
+    }
+
+    private function auditDate(mixed $value): ?string
+    {
+        if (blank($value)) {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse($value)->toDateString();
+        } catch (\Throwable) {
+            return null;
         }
     }
 

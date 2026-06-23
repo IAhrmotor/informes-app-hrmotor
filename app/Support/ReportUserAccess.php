@@ -57,6 +57,11 @@ class ReportUserAccess
         ], true);
     }
 
+    public static function canViewCommercialCommissions(Request $request): bool
+    {
+        return self::isAdmin($request);
+    }
+
     public static function canExport(Request $request): bool
     {
         return self::isAdmin($request);

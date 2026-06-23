@@ -45,6 +45,7 @@ let diagnosticsLoadingController = null;
 let latestReloadRequestId = 0;
 let lastRenderedFilterOptionsKey = '';
 let lastRenderedCampaignNamesKey = '';
+const ventaSubcontexts = ['venta', 'exposicion', 'branding', 'otros'];
 
 const dailySeriesDefinitions = [
     { key: 'spend', label: 'Inversión', formatter: formatMoney, className: 'spend' },
@@ -175,6 +176,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindMetricChartsToggle();
     bindCampaignTableActions();
     bindTableScroll();
+    syncCampaignTypeSelect();
+    syncContextTabs();
     applyColumnVisibility();
     await reloadAllData();
 });
@@ -182,11 +185,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 function bindTabs() {
     document.querySelectorAll('.main-tab[data-context]').forEach((button) => {
         button.addEventListener('click', async () => {
-            if (!button.dataset.context || button.dataset.context === currentContext) {
+            const targetContext = button.dataset.context === 'venta'
+                ? currentVentaSubcontext()
+                : button.dataset.context;
+
+            if (!targetContext || targetContext === currentContext) {
                 return;
             }
 
-            currentContext = button.dataset.context;
+            currentContext = targetContext;
             persistCampaignContext();
             syncCampaignTypeSelect();
             visibleRankings = loadVisibleRankings(currentContext);
@@ -249,6 +256,10 @@ function bindResetFilters() {
 
         document.getElementById('periodPreset').value = 'last_30_days';
         document.getElementById('campaignStatus').value = 'active';
+        const saleSubcategory = document.getElementById('saleSubcategory');
+        if (saleSubcategory) {
+            saleSubcategory.value = 'venta';
+        }
         currentContext = 'all';
         persistCampaignContext();
         syncCampaignTypeSelect();
@@ -298,7 +309,24 @@ function bindFilters() {
     });
 
     document.getElementById('campaignType')?.addEventListener('change', async (event) => {
-        currentContext = event.target.value || 'all';
+        currentContext = event.target.value === 'venta'
+            ? currentVentaSubcontext()
+            : (event.target.value || 'all');
+        persistCampaignContext();
+        visibleRankings = loadVisibleRankings(currentContext);
+        monthlyVisibleMetrics = defaultMonthlyMetricKeys(currentContext);
+        persistMonthlyMetrics();
+        renderRankingsPopover();
+        syncContextTabs();
+        await reloadAllData();
+    });
+
+    document.getElementById('saleSubcategory')?.addEventListener('change', async (event) => {
+        if (document.getElementById('campaignType')?.value !== 'venta') {
+            return;
+        }
+
+        currentContext = normalizeCampaignContext(event.target.value || 'venta');
         persistCampaignContext();
         visibleRankings = loadVisibleRankings(currentContext);
         monthlyVisibleMetrics = defaultMonthlyMetricKeys(currentContext);
@@ -359,14 +387,19 @@ function bindCampaignNameActions() {
         campaignNameSelections = [...new Set(campaignRows.map((row) => row.campaign_name).filter(Boolean))];
         persistCampaignNameSelections();
         renderCampaignNameChecklist(campaignRows);
-        reloadAllData();
     });
 
     document.getElementById('campaignNamesClear')?.addEventListener('click', () => {
         campaignNameSelections = [];
         persistCampaignNameSelections();
         renderCampaignNameChecklist(campaignRows);
-        reloadAllData();
+    });
+
+    document.getElementById('advancedFiltersApply')?.addEventListener('click', async () => {
+        const drawer = document.getElementById('advancedFiltersDrawer');
+        drawer?.classList.remove('is-open');
+        drawer?.setAttribute('aria-hidden', 'true');
+        await reloadAllData();
     });
 }
 
@@ -772,10 +805,11 @@ function renderKpis(kpis, context = 'all') {
     kpiCardsForContext(context, kpis).forEach((card) => {
         root.insertAdjacentHTML('beforeend', `
             <div class="card kpi campaign-kpi">
-                <div>
+                <div class="kpi-copy">
                     <div class="kpi-label">${escapeHtml(card.label)}</div>
                     <div class="kpi-value">${escapeHtml(card.value)}</div>
                     <div class="kpi-hint">${escapeHtml(card.hint || '')}</div>
+                    ${campaignKpiAuditLinkHtml(card.metric, card.label)}
                 </div>
             </div>
         `);
@@ -981,6 +1015,15 @@ function normalizeCampaignContext(value) {
     return ['all', 'venta', 'tasacion', 'exposicion', 'branding', 'otros'].includes(key) ? key : 'all';
 }
 
+function isVentaGroupedContext(value = currentContext) {
+    return ventaSubcontexts.includes(normalizeCampaignContext(value));
+}
+
+function currentVentaSubcontext() {
+    const selected = normalizeCampaignContext(document.getElementById('saleSubcategory')?.value || currentContext);
+    return ventaSubcontexts.includes(selected) ? selected : 'venta';
+}
+
 function persistCampaignContext() {
     localStorage.setItem(campaignContextStorageKey, currentContext);
 }
@@ -991,13 +1034,34 @@ function syncCampaignTypeSelect() {
         return;
     }
 
-    select.value = normalizeCampaignContext(currentContext);
+    select.value = isVentaGroupedContext(currentContext) ? 'venta' : normalizeCampaignContext(currentContext);
+    syncSaleSubcategorySelect();
+}
+
+function syncSaleSubcategorySelect() {
+    const group = document.getElementById('saleSubcategoryGroup');
+    const select = document.getElementById('saleSubcategory');
+    const shouldShow = document.getElementById('campaignType')?.value === 'venta' || isVentaGroupedContext(currentContext);
+
+    if (group) {
+        group.style.display = shouldShow ? '' : 'none';
+    }
+
+    if (select) {
+        select.value = isVentaGroupedContext(currentContext) ? normalizeCampaignContext(currentContext) : 'venta';
+    }
 }
 
 function syncContextTabs() {
     document.querySelectorAll('.main-tab[data-context]').forEach((button) => {
+        if (button.dataset.context === 'venta') {
+            button.classList.toggle('active', isVentaGroupedContext(currentContext));
+            return;
+        }
+
         button.classList.toggle('active', normalizeCampaignContext(button.dataset.context) === normalizeCampaignContext(currentContext));
     });
+    syncSaleSubcategorySelect();
 }
 
 function loadVisibleRankings(context = currentContext) {
@@ -1731,34 +1795,34 @@ function kpiCardsForContext(context, kpis) {
         case 'venta':
             return [
                 { label: 'Inversión', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
-                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
-                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}` },
-                { label: 'Reservas', value: formatNumber(kpis.reservations), hint: `CPR ${formatMoney(kpis.cost_per_reservation)}` },
-                { label: 'Ventas', value: formatNumber(kpis.sales), hint: `CPV ${formatMoney(kpis.cost_per_sale)}` },
-                { label: 'Importe vendido', value: formatMoney(kpis.sale_amount), hint: `ROAS ${formatMultiplier(kpis.roas)} · ROI ${formatPercentRatio(kpis.estimated_roi)}` },
-                { label: 'Coste por venta', value: formatMoney(kpis.cost_per_sale), hint: `Resultados ${formatNumber(kpis.sales)}` },
+                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}`, metric: 'leads_salesforce' },
+                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}`, metric: 'opportunities' },
+                { label: 'Reservas', value: formatNumber(kpis.reservations), hint: `CPR ${formatMoney(kpis.cost_per_reservation)}`, metric: 'reservations' },
+                { label: 'Ventas', value: formatNumber(kpis.sales), hint: `CPV ${formatMoney(kpis.cost_per_sale)}`, metric: 'sales' },
+                { label: 'Importe vendido', value: formatMoney(kpis.sale_amount), hint: `ROAS ${formatMultiplier(kpis.roas)} · ROI ${formatPercentRatio(kpis.estimated_roi)}`, metric: 'sales' },
+                { label: 'Coste por venta', value: formatMoney(kpis.cost_per_sale), hint: `Resultados ${formatNumber(kpis.sales)}`, metric: 'sales' },
                 { label: 'ROAS / ROI', value: formatMultiplier(kpis.roas), hint: `ROI ${formatPercentRatio(kpis.estimated_roi)}` },
             ];
         case 'tasacion':
             return [
                 { label: 'Inversión', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
-                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
-                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}` },
-                { label: 'Compras', value: formatNumber(kpis.purchases), hint: `CP compra ${formatMoney(kpis.cost_per_purchase)}` },
-                { label: 'Coste por lead', value: formatMoney(kpis.cost_per_lead), hint: `Leads ${formatNumber(kpis.leads_salesforce)}` },
-                { label: 'Coste por oportunidad', value: formatMoney(kpis.cost_per_opportunity), hint: `Oportunidades ${formatNumber(kpis.opportunities)}` },
-                { label: 'Coste por compra', value: formatMoney(kpis.cost_per_purchase), hint: `Compras ${formatNumber(kpis.purchases)}` },
-                { label: 'Conversion lead -> compra', value: formatPercentRatio(kpis.lead_to_purchase), hint: `Oportunidad -> compra ${formatPercentRatio(kpis.opportunity_to_purchase)}` },
+                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}`, metric: 'leads_salesforce' },
+                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}`, metric: 'opportunities' },
+                { label: 'Compras', value: formatNumber(kpis.purchases), hint: `CP compra ${formatMoney(kpis.cost_per_purchase)}`, metric: 'purchases' },
+                { label: 'Coste por lead', value: formatMoney(kpis.cost_per_lead), hint: `Leads ${formatNumber(kpis.leads_salesforce)}`, metric: 'leads_salesforce' },
+                { label: 'Coste por oportunidad', value: formatMoney(kpis.cost_per_opportunity), hint: `Oportunidades ${formatNumber(kpis.opportunities)}`, metric: 'opportunities' },
+                { label: 'Coste por compra', value: formatMoney(kpis.cost_per_purchase), hint: `Compras ${formatNumber(kpis.purchases)}`, metric: 'purchases' },
+                { label: 'Conversion lead -> compra', value: formatPercentRatio(kpis.lead_to_purchase), hint: `Oportunidad -> compra ${formatPercentRatio(kpis.opportunity_to_purchase)}`, metric: 'purchases' },
             ];
         case 'exposicion':
             return [
                 { label: 'Inversión', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
                 { label: 'Impresiones', value: formatNumber(kpis.impressions), hint: `CTR ${formatPercentRatio(kpis.ctr)}` },
                 { label: 'Clicks', value: formatNumber(kpis.clicks), hint: `Leads SF ${formatNumber(kpis.leads_salesforce)}` },
-                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
-                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}` },
-                { label: 'Coste por lead', value: formatMoney(kpis.cost_per_lead), hint: `Leads ${formatNumber(kpis.leads_salesforce)}` },
-                { label: 'Coste por oportunidad', value: formatMoney(kpis.cost_per_opportunity), hint: `Oportunidades ${formatNumber(kpis.opportunities)}` },
+                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}`, metric: 'leads_salesforce' },
+                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}`, metric: 'opportunities' },
+                { label: 'Coste por lead', value: formatMoney(kpis.cost_per_lead), hint: `Leads ${formatNumber(kpis.leads_salesforce)}`, metric: 'leads_salesforce' },
+                { label: 'Coste por oportunidad', value: formatMoney(kpis.cost_per_opportunity), hint: `Oportunidades ${formatNumber(kpis.opportunities)}`, metric: 'opportunities' },
                 { label: 'CTR / CPC', value: formatPercentRatio(kpis.ctr), hint: `CPC ${formatMoney(kpis.cpc)}` },
             ];
         case 'branding':
@@ -1768,9 +1832,9 @@ function kpiCardsForContext(context, kpis) {
                 { label: 'Clicks', value: formatNumber(kpis.clicks), hint: `Leads SF ${formatNumber(kpis.leads_salesforce)}` },
                 { label: 'CTR', value: formatPercentRatio(kpis.ctr), hint: `CPC ${formatMoney(kpis.cpc)}` },
                 { label: 'CPC', value: formatMoney(kpis.cpc), hint: `Clicks ${formatNumber(kpis.clicks)}` },
-                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
-                { label: 'Coste por lead', value: formatMoney(kpis.cost_per_lead), hint: `Leads ${formatNumber(kpis.leads_salesforce)}` },
-                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `Total ${totalResults}` },
+                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}`, metric: 'leads_salesforce' },
+                { label: 'Coste por lead', value: formatMoney(kpis.cost_per_lead), hint: `Leads ${formatNumber(kpis.leads_salesforce)}`, metric: 'leads_salesforce' },
+                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `Total ${totalResults}`, metric: 'opportunities' },
             ];
         case 'otros':
         case 'all':
@@ -1779,14 +1843,15 @@ function kpiCardsForContext(context, kpis) {
                 { label: 'Inversión', value: formatMoney(kpis.spend), hint: `CPC ${formatMoney(kpis.cpc)}` },
                 { label: 'Impresiones', value: formatNumber(kpis.impressions), hint: `CTR ${formatPercentRatio(kpis.ctr)}` },
                 { label: 'Clicks', value: formatNumber(kpis.clicks), hint: `Leads SF ${formatNumber(kpis.leads_salesforce)}` },
-                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}` },
-                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}` },
-                { label: 'Reservas', value: formatNumber(kpis.reservations), hint: `CPR ${formatMoney(kpis.cost_per_reservation)}` },
-                { label: 'Ventas / Compras', value: totalResults, hint: `Ventas ${formatNumber(kpis.sales)} · Compras ${formatNumber(kpis.purchases)}` },
+                { label: 'Leads Salesforce', value: formatNumber(kpis.leads_salesforce), hint: `CPL ${formatMoney(kpis.cost_per_lead)}`, metric: 'leads_salesforce' },
+                { label: 'Oportunidades', value: formatNumber(kpis.opportunities), hint: `CPO ${formatMoney(kpis.cost_per_opportunity)}`, metric: 'opportunities' },
+                { label: 'Reservas', value: formatNumber(kpis.reservations), hint: `CPR ${formatMoney(kpis.cost_per_reservation)}`, metric: 'reservations' },
+                { label: 'Ventas / Compras', value: totalResults, hint: `Ventas ${formatNumber(kpis.sales)} · Compras ${formatNumber(kpis.purchases)}`, metric: 'result_count' },
                 {
                     label: normalized === 'all' ? 'Coste por venta / compra' : 'Coste por resultado',
                     value: formatMoney(kpis.cost_per_result),
                     hint: normalized === 'all' ? `Ventas / Compras ${totalResults}` : `Resultados ${totalResults}`,
+                    metric: 'result_count',
                 },
             ];
     }
@@ -1818,8 +1883,13 @@ function populateCampaignTypeSelect(options) {
         return;
     }
 
-    const current = normalizeCampaignContext(select.value || currentContext);
-    select.innerHTML = (options || []).map((option) => {
+    const current = isVentaGroupedContext(currentContext) ? 'venta' : normalizeCampaignContext(select.value || currentContext);
+    const allowed = ['all', 'venta', 'tasacion'];
+
+    select.innerHTML = (options || []).filter((option) => {
+        const value = typeof option === 'object' ? option.value : option;
+        return allowed.includes(normalizeCampaignContext(value));
+    }).map((option) => {
         const value = typeof option === 'object' ? option.value : option;
         const label = typeof option === 'object' ? option.label : option;
 
@@ -1827,6 +1897,7 @@ function populateCampaignTypeSelect(options) {
     }).join('');
 
     select.value = [...select.options].some((option) => option.value === current) ? current : 'all';
+    syncSaleSubcategorySelect();
 }
 
 function populatePlatformSelect(options) {
@@ -1917,7 +1988,6 @@ function renderCampaignNameChecklist(rows) {
             campaignNameSelections = [...root.querySelectorAll('input[type="checkbox"]:checked')].map((item) => item.value);
             persistCampaignNameSelections();
             lastRenderedCampaignNamesKey = '';
-            reloadAllData();
         });
     });
 }
@@ -2021,6 +2091,21 @@ function currentFilters() {
 
 function currentCampaignFilters() {
     return currentFilters();
+}
+
+function buildCampaignKpiAuditUrl(metric) {
+    const params = new URLSearchParams(currentFilters());
+    params.set('metric', metric);
+
+    return `/informes/campanas/export/kpi-audit.csv?${params.toString()}`;
+}
+
+function campaignKpiAuditLinkHtml(metric, label) {
+    if (!window.reportUserCanExport || !metric) {
+        return '';
+    }
+
+    return `<div class="kpi-actions"><a class="kpi-audit-link" href="${escapeHtml(buildCampaignKpiAuditUrl(metric))}" title="Auditar ${escapeHtml(label)}">Auditar KPI</a></div>`;
 }
 
 function persistMonthlySelection() {

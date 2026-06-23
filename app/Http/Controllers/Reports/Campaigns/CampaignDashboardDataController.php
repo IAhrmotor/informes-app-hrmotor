@@ -39,6 +39,13 @@ class CampaignDashboardDataController extends Controller
         return $this->jsonResponse($this->dataset->rankings($request));
     }
 
+    public function kpiAudit(Request $request): JsonResponse
+    {
+        abort_unless(ReportUserAccess::canExport($request), 403);
+
+        return $this->jsonResponse($this->dataset->kpiAudit($request));
+    }
+
     public function exportCampaignsCsv(Request $request): StreamedResponse
     {
         abort_unless(ReportUserAccess::canExport($request), 403);
@@ -130,8 +137,120 @@ class CampaignDashboardDataController extends Controller
         ]);
     }
 
+    public function exportKpiAuditCsv(Request $request): StreamedResponse
+    {
+        abort_unless(ReportUserAccess::canExport($request), 403);
+
+        $payload = $this->dataset->kpiAudit($request);
+        $rows = $payload['items'] ?? [];
+        $metric = $payload['metric'] ?? 'result_count';
+        $headers = [
+            'Metrica',
+            'Fecha metrica',
+            'Tipo entidad',
+            'Entity ID',
+            'Lead IDs',
+            'Lead names',
+            'Lead created dates',
+            'Lead statuses',
+            'Lead portals',
+            'Lead fuente origen',
+            'Lead medio origen',
+            'Lead owner names',
+            'Opportunity IDs',
+            'Opportunity names',
+            'Opportunity created dates',
+            'Opportunity close dates',
+            'CV signed dates',
+            'Opportunity record types',
+            'Opportunity stages',
+            'Opportunity owner names',
+            'Account IDs',
+            'Account names',
+            'Opportunity portals',
+            'Opportunity sources',
+            'Platforms',
+            'Campaign IDs',
+            'Campaign names',
+            'Source campaign names',
+            'Source acquired',
+            'Medium acquired',
+            'Campaign acquired',
+            'Acquired IDs',
+            'Content acquired',
+            'Commercial user IDs',
+            'Commercial user names',
+            'Lead delegations',
+            'Lead zones',
+            'Vehicle interests',
+            'Sale amount',
+            'Purchase amount',
+        ];
+
+        return response()->streamDownload(function () use ($rows, $headers): void {
+            $output = fopen('php://output', 'w');
+            fputcsv($output, $headers);
+
+            foreach ($rows as $row) {
+                fputcsv($output, [
+                    $row['metric_label'] ?? null,
+                    $row['metric_date'] ?? null,
+                    $row['entity_type'] ?? null,
+                    $row['entity_id'] ?? null,
+                    $this->implodeAuditValues($row['lead_ids'] ?? []),
+                    $this->implodeAuditValues($row['lead_names'] ?? []),
+                    $this->implodeAuditValues($row['lead_created_dates'] ?? []),
+                    $this->implodeAuditValues($row['lead_statuses'] ?? []),
+                    $this->implodeAuditValues($row['lead_portals'] ?? []),
+                    $this->implodeAuditValues($row['lead_source_origins'] ?? []),
+                    $this->implodeAuditValues($row['lead_medium_origins'] ?? []),
+                    $this->implodeAuditValues($row['lead_owner_names'] ?? []),
+                    $this->implodeAuditValues($row['opportunity_ids'] ?? []),
+                    $this->implodeAuditValues($row['opportunity_names'] ?? []),
+                    $this->implodeAuditValues($row['opportunity_created_dates'] ?? []),
+                    $this->implodeAuditValues($row['opportunity_close_dates'] ?? []),
+                    $this->implodeAuditValues($row['cv_signed_dates'] ?? []),
+                    $this->implodeAuditValues($row['opportunity_record_types'] ?? []),
+                    $this->implodeAuditValues($row['opportunity_stages'] ?? []),
+                    $this->implodeAuditValues($row['opportunity_owner_names'] ?? []),
+                    $this->implodeAuditValues($row['account_ids'] ?? []),
+                    $this->implodeAuditValues($row['account_names'] ?? []),
+                    $this->implodeAuditValues($row['opportunity_portals'] ?? []),
+                    $this->implodeAuditValues($row['opportunity_sources'] ?? []),
+                    $this->implodeAuditValues($row['platforms'] ?? []),
+                    $this->implodeAuditValues($row['campaign_ids'] ?? []),
+                    $this->implodeAuditValues($row['campaign_names'] ?? []),
+                    $this->implodeAuditValues($row['source_campaign_names'] ?? []),
+                    $this->implodeAuditValues($row['source_acquired_values'] ?? []),
+                    $this->implodeAuditValues($row['medium_acquired_values'] ?? []),
+                    $this->implodeAuditValues($row['campaign_acquired_values'] ?? []),
+                    $this->implodeAuditValues($row['acquired_ids'] ?? []),
+                    $this->implodeAuditValues($row['content_acquired_values'] ?? []),
+                    $this->implodeAuditValues($row['commercial_user_ids'] ?? []),
+                    $this->implodeAuditValues($row['commercial_user_names'] ?? []),
+                    $this->implodeAuditValues($row['lead_delegations'] ?? []),
+                    $this->implodeAuditValues($row['lead_zones'] ?? []),
+                    $this->implodeAuditValues($row['vehicle_interests'] ?? []),
+                    $row['sale_amount'] ?? null,
+                    $row['purchase_amount'] ?? null,
+                ]);
+            }
+
+            fclose($output);
+        }, "campanas-auditoria-{$metric}.csv", [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
     private function jsonResponse(array $payload): JsonResponse
     {
         return response()->json($payload, 200, [], self::JSON_RESPONSE_FLAGS);
+    }
+
+    private function implodeAuditValues(array $values): ?string
+    {
+        $values = array_values(array_filter($values, fn ($value) => $value !== null && $value !== ''));
+
+        return $values !== [] ? implode(' | ', array_map('strval', $values)) : null;
     }
 }

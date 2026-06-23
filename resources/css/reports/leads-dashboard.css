@@ -383,6 +383,10 @@ h2 {
     background: linear-gradient(180deg, #fff 0%, #fbfcfe 100%);
 }
 
+.kpi-copy {
+    width: 100%;
+}
+
 .ico {
     height: 46px;
     width: 46px;
@@ -413,6 +417,31 @@ h2 {
     font-size: 12px;
     color: rgba(31, 41, 68, .58);
     margin-top: 4px;
+}
+
+.kpi-actions {
+    margin-top: 10px;
+}
+
+.kpi-audit-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 6px 12px;
+    border: 1px solid rgba(31, 41, 68, .12);
+    border-radius: 999px;
+    color: var(--brand-primary);
+    background: rgba(255, 255, 255, .92);
+    font-size: 11px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: background .16s ease, border-color .16s ease, transform .16s ease;
+}
+
+.kpi-audit-link:hover {
+    border-color: rgba(31, 41, 68, .24);
+    background: rgba(31, 41, 68, .04);
+    transform: translateY(-1px);
 }
 
 .call-kpi {

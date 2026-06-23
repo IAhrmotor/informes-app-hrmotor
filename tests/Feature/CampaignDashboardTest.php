@@ -74,14 +74,19 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('id="campaignCharts"', $html);
         $this->assertStringContainsString('id="platformComparison"', $html);
         $this->assertStringContainsString('id="campaignType"', $html);
+        $this->assertStringContainsString('id="saleSubcategory"', $html);
         $this->assertStringContainsString('data-context="venta"', $html);
         $this->assertStringContainsString('data-context="tasacion"', $html);
+        $this->assertStringNotContainsString('data-context="exposicion"', $html);
+        $this->assertStringNotContainsString('data-context="branding"', $html);
+        $this->assertStringNotContainsString('data-context="otros"', $html);
         $this->assertStringContainsString('option value="active" selected', $html);
         $this->assertStringContainsString('id="rankingsToggle"', $html);
         $this->assertStringContainsString('id="rankingsPopover"', $html);
         $this->assertStringContainsString('id="campaignNameChecklist"', $html);
         $this->assertStringContainsString('id="campaignNamesSelectAll"', $html);
         $this->assertStringContainsString('id="campaignNamesClear"', $html);
+        $this->assertStringContainsString('id="advancedFiltersApply"', $html);
         $this->assertStringContainsString('campaigns.dailyChart.visibleSeries', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('campaigns.dailyChart.chartType', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('data-series', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
@@ -165,6 +170,14 @@ class CampaignDashboardTest extends TestCase
             ->get('/informes/campanas/export/campaigns.csv?'.$this->query())
             ->assertOk();
 
+        $this->withSession($adminSession)
+            ->getJson('/informes/campanas/data/kpi-audit?'.$this->query().'&metric=leads_salesforce')
+            ->assertOk();
+
+        $this->withSession($adminSession)
+            ->get('/informes/campanas/export/kpi-audit.csv?'.$this->query().'&metric=leads_salesforce')
+            ->assertOk();
+
         $this->withSession($viewerSession)
             ->get('/informes/campanas')
             ->assertRedirect('/informes/leads');
@@ -175,6 +188,14 @@ class CampaignDashboardTest extends TestCase
 
         $this->withSession($viewerSession)
             ->get('/informes/campanas/export/campaigns.csv?'.$this->query())
+            ->assertForbidden();
+
+        $this->withSession($viewerSession)
+            ->getJson('/informes/campanas/data/kpi-audit?'.$this->query().'&metric=leads_salesforce')
+            ->assertForbidden();
+
+        $this->withSession($viewerSession)
+            ->get('/informes/campanas/export/kpi-audit.csv?'.$this->query().'&metric=leads_salesforce')
             ->assertForbidden();
 
         $this->withSession($directorSession)
@@ -192,6 +213,10 @@ class CampaignDashboardTest extends TestCase
 
         $this->withSession($directorSession)
             ->get('/informes/campanas/export/campaigns.csv?'.$this->query())
+            ->assertForbidden();
+
+        $this->withSession($directorSession)
+            ->getJson('/informes/campanas/data/kpi-audit?'.$this->query().'&metric=leads_salesforce')
             ->assertForbidden();
     }
 
@@ -1631,6 +1656,127 @@ class CampaignDashboardTest extends TestCase
         $this->assertSame(1, $summary['kpis']['opportunities']);
         $this->assertSame(1, $summary['kpis']['purchases']);
         $this->assertSame(1, $summary['charts']['funnel'][3]['value']);
+    }
+
+    public function test_kpi_audit_endpoint_and_csv_explain_purchase_kpi_with_related_leads_and_campaigns(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        DB::table('campaign_lead_attributions')->insert([
+            $this->attributionRow([
+                'lead_id' => '00Q-audit-purchase-1',
+                'campaign_id' => 'tasacion-audit-1',
+                'campaign_name' => 'Tasacion audit 1',
+                'source_campaign_name' => 'Tasacion audit 1',
+                'campaign_type' => 'tasacion',
+                'opportunity_id' => '006-audit-purchase',
+                'has_opportunity' => true,
+                'has_purchase' => true,
+                'source_acquired' => 'Google',
+                'medium_acquired' => 'CPC',
+                'campaign_acquired' => 'Tasacion audit 1',
+                'commercial_user_id' => '005-audit',
+                'commercial_user_name' => 'Comercial Tasacion',
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-audit-purchase-2',
+                'campaign_id' => 'tasacion-audit-2',
+                'campaign_name' => 'Tasacion audit 2',
+                'source_campaign_name' => 'Tasacion audit 2',
+                'campaign_type' => 'tasacion',
+                'opportunity_id' => '006-audit-purchase',
+                'has_opportunity' => true,
+                'has_purchase' => true,
+                'source_acquired' => 'Meta',
+                'medium_acquired' => 'Paid Social',
+                'campaign_acquired' => 'Tasacion audit 2',
+                'commercial_user_id' => '005-audit',
+                'commercial_user_name' => 'Comercial Tasacion',
+            ]),
+        ]);
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-audit-purchase-1',
+            'name' => 'Lead compra 1',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Convertido',
+            'record_type_name' => 'Tasación',
+            'owner_id' => '005-audit',
+            'owner_name' => 'Comercial Tasacion',
+            'fuente_origen' => 'Google',
+            'medio_origen' => 'CPC',
+            'portal_text' => 'Web',
+            'campaign_acquired' => 'Tasacion audit 1',
+        ]);
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-audit-purchase-2',
+            'name' => 'Lead compra 2',
+            'created_date' => '2026-05-11 10:00:00',
+            'status' => 'Convertido',
+            'record_type_name' => 'Tasación',
+            'owner_id' => '005-audit',
+            'owner_name' => 'Comercial Tasacion',
+            'fuente_origen' => 'Meta',
+            'medio_origen' => 'Paid Social',
+            'portal_text' => 'Meta',
+            'campaign_acquired' => 'Tasacion audit 2',
+        ]);
+
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-audit-purchase',
+            'name' => 'Oportunidad compra auditada',
+            'created_date' => '2026-05-12 10:00:00',
+            'cv_signed_date' => '2026-05-15',
+            'record_type_name' => 'Tasacion',
+            'stage_name' => 'Contrato',
+            'owner_id' => '005-owner-audit',
+            'owner_name' => 'Owner compra auditada',
+            'account_id' => '001-audit',
+            'account_name' => 'Cuenta auditada',
+            'portal_resolved' => 'Web',
+            'opportunity_source_normalized' => 'Google',
+            'opo_for_importe_total' => 14500,
+        ]);
+
+        $adminSession = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => 'admin@hrmotor.com',
+        ];
+
+        $summary = $this->withSession($adminSession)
+            ->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(1, $summary['kpis']['purchases']);
+
+        $audit = $this->withSession($adminSession)
+            ->getJson('/informes/campanas/data/kpi-audit?'.$this->query().'&context=tasacion&metric=purchases')
+            ->assertOk()
+            ->json();
+
+        $auditItem = $audit['items'][0];
+
+        $this->assertSame('purchases', $audit['metric']);
+        $this->assertSame(1, $audit['total']);
+        $this->assertSame('006-audit-purchase', $auditItem['entity_id']);
+        $this->assertSame(['00Q-audit-purchase-1', '00Q-audit-purchase-2'], $auditItem['lead_ids']);
+        $this->assertSame(['Tasacion audit 1', 'Tasacion audit 2'], $auditItem['campaign_names']);
+        $this->assertSame(['Google', 'Meta'], $auditItem['lead_source_origins']);
+        $this->assertSame('Comercial Tasacion', $auditItem['managed_by']);
+        $this->assertEquals(14500.0, $auditItem['purchase_amount']);
+
+        $csv = $this->withSession($adminSession)
+            ->get('/informes/campanas/export/kpi-audit.csv?'.$this->query().'&context=tasacion&metric=purchases')
+            ->assertOk()
+            ->streamedContent();
+
+        $this->assertStringContainsString('Compras', $csv);
+        $this->assertStringContainsString('006-audit-purchase', $csv);
+        $this->assertStringContainsString('00Q-audit-purchase-1 | 00Q-audit-purchase-2', $csv);
+        $this->assertStringContainsString('Tasacion audit 1 | Tasacion audit 2', $csv);
     }
 
     public function test_review_campaigns_shows_leads_and_zero_opportunities_in_quality_case(): void

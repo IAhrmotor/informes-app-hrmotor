@@ -15,6 +15,9 @@
 </head>
 <body>
 <div class="wrap">
+    <script>
+        window.reportUserCanExport = @json($reportUserCanExport ?? false);
+    </script>
     @include('reports.partials.report-header', ['currentReport' => 'leads', 'subtitle' => 'Leads'])
 
     <section class="filters card">

@@ -8,6 +8,7 @@ use App\Http\Controllers\Reports\Calls\CallDashboardController;
 use App\Http\Controllers\Reports\Calls\CallDashboardDataController;
 use App\Http\Controllers\Reports\Campaigns\CampaignDashboardController;
 use App\Http\Controllers\Reports\Campaigns\CampaignDashboardDataController;
+use App\Http\Controllers\Reports\CommercialCommissions\CommercialCommissionDashboardController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
 use Illuminate\Support\Facades\Route;
@@ -42,6 +43,8 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/data/commercials', [LeadDashboardDataController::class, 'comerciales'])->name('data.commercials');
             Route::get('/data/comparativa', [LeadDashboardDataController::class, 'comparativa'])->name('data.comparativa');
             Route::get('/data/calidad-dato', [LeadDashboardDataController::class, 'calidadDato'])->name('data.calidad-dato');
+            Route::get('/data/kpi-audit', [LeadDashboardDataController::class, 'kpiAudit'])->name('data.kpi-audit');
+            Route::get('/export/kpi-audit.csv', [LeadDashboardDataController::class, 'exportKpiAuditCsv'])->name('export.kpi-audit');
 
             Route::get('/data/monthly-commercial/summary', [MonthlyCommercialReportDataController::class, 'summary'])->name('data.monthly-commercial.summary');
             Route::get('/data/monthly-commercial/evolution', [MonthlyCommercialReportDataController::class, 'evolution'])->name('data.monthly-commercial.evolution');
@@ -60,6 +63,8 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/data/summary', [ReservationsSalesDashboardDataController::class, 'summary'])->name('data.summary');
             Route::get('/data/commercials', [ReservationsSalesDashboardDataController::class, 'commercials'])->name('data.commercials');
             Route::get('/data/portals', [ReservationsSalesDashboardDataController::class, 'portals'])->name('data.portals');
+            Route::get('/data/kpi-audit', [ReservationsSalesDashboardDataController::class, 'kpiAudit'])->name('data.kpi-audit');
+            Route::get('/export/kpi-audit.csv', [ReservationsSalesDashboardDataController::class, 'exportKpiAuditCsv'])->name('export.kpi-audit');
         });
 
     Route::prefix('informes/llamadas')
@@ -79,6 +84,14 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/data/summary', [CampaignDashboardDataController::class, 'summary'])->name('data.summary');
             Route::get('/data/campaigns', [CampaignDashboardDataController::class, 'campaigns'])->name('data.campaigns');
             Route::get('/data/rankings', [CampaignDashboardDataController::class, 'rankings'])->name('data.rankings');
+            Route::get('/data/kpi-audit', [CampaignDashboardDataController::class, 'kpiAudit'])->name('data.kpi-audit');
             Route::get('/export/campaigns.csv', [CampaignDashboardDataController::class, 'exportCampaignsCsv'])->name('export.campaigns');
+            Route::get('/export/kpi-audit.csv', [CampaignDashboardDataController::class, 'exportKpiAuditCsv'])->name('export.kpi-audit');
+        });
+
+    Route::prefix('informes/comisiones-comerciales')
+        ->name('reports.commercial-commissions.')
+        ->group(function () {
+            Route::get('/', [CommercialCommissionDashboardController::class, 'index'])->name('index');
         });
 });

@@ -44,6 +44,12 @@
                 <option value="all" selected>Todos</option>
                 <option value="venta">Venta</option>
                 <option value="tasacion">Tasación</option>
+            </select>
+        </div>
+        <div class="filter-group" id="saleSubcategoryGroup">
+            <label for="saleSubcategory">Subcategoría venta</label>
+            <select id="saleSubcategory">
+                <option value="venta" selected>Ventas</option>
                 <option value="exposicion">Exposición</option>
                 <option value="branding">Branding</option>
                 <option value="otros">Otros</option>
@@ -115,6 +121,9 @@
                     <select id="classification"><option value="">Todas</option></select>
                 </div>
             </div>
+            <div class="filter-actions campaign-filter-actions">
+                <button type="button" class="main-tab active" id="advancedFiltersApply">Aplicar filtros</button>
+            </div>
         </section>
     </aside>
 
@@ -151,9 +160,6 @@
                     <button type="button" class="main-tab active" data-context="all">Todos</button>
                     <button type="button" class="main-tab" data-context="venta">Venta</button>
                     <button type="button" class="main-tab" data-context="tasacion">Tasación</button>
-                    <button type="button" class="main-tab" data-context="exposicion">Exposición</button>
-                    <button type="button" class="main-tab" data-context="branding">Branding</button>
-                    <button type="button" class="main-tab" data-context="otros">Otros</button>
                 </nav>
                 @if (\App\Support\ReportUserAccess::canSeeSyncDiagnostics(request()))
                 <div class="campaign-topbar-actions">

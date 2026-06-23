@@ -5,11 +5,20 @@
         ['key' => 'reservations-sales', 'label' => 'Reservas / Ventas', 'subtitle' => 'Reservas, ventas y contratos', 'route' => 'reports.reservations-sales.index'],
         ['key' => 'calls', 'label' => 'Llamadas', 'subtitle' => 'Actividad telefonica y atencion', 'route' => 'reports.calls.index'],
         ['key' => 'campaigns', 'label' => 'Campañas', 'subtitle' => 'Rentabilidad digital', 'route' => 'reports.campaigns.index'],
+        ['key' => 'commercial-commissions', 'label' => 'Comisiones Comerciales', 'subtitle' => 'Calculo mensual por comercial', 'route' => 'reports.commercial-commissions.index'],
     ];
 
     $visibleTabs = array_values(array_filter($tabs, function (array $tab): bool {
+        if (! \Illuminate\Support\Facades\Route::has($tab['route'])) {
+            return false;
+        }
+
         if ($tab['key'] === 'campaigns') {
             return \App\Support\ReportUserAccess::canViewCampaigns(request());
+        }
+
+        if ($tab['key'] === 'commercial-commissions') {
+            return \App\Support\ReportUserAccess::canViewCommercialCommissions(request());
         }
 
         return true;

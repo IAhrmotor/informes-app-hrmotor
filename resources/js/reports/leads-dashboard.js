@@ -152,26 +152,27 @@ function renderSummary(data) {
 function renderKpis(kpis) {
     const root = document.getElementById('summaryKpis');
     const cards = [
-        ['Leads totales', formatNumber(kpis.leads_totales), 'Muestra del periodo'],
-        ['Convertidos', formatNumber(kpis.convertidos), `${formatPercent(kpis.conversion_pct)} sobre total`],
-        ['Descartados', formatNumber(kpis.descartados), `${formatPercent(kpis.descarte_pct)} sobre total`],
-        ['Potenciales', formatNumber(kpis.potenciales), 'Bolsa viva'],
-        ['Leads sin asignar', formatNumber(kpis.leads_unassigned), 'Bolsa viva tecnica'],
-        ['Potenciales sin trabajar', formatNumber(kpis.potenciales_sin_trabajar), 'Solo Status Potencial'],
-        ['Gestionados', formatNumber(kpis.gestionados), `${formatPercent(kpis.gestionados_pct)} sobre total`],
-        ['Llamadas', formatNumber(kpis.llamadas), `${formatPercent(kpis.llamadas_pct)} del total`],
-        ['Formularios', formatNumber(kpis.formularios), `${formatPercent(kpis.formularios_pct)} del total`],
+        { label: 'Leads totales', value: formatNumber(kpis.leads_totales), hint: 'Muestra del periodo', metric: 'leads_totales' },
+        { label: 'Convertidos', value: formatNumber(kpis.convertidos), hint: `${formatPercent(kpis.conversion_pct)} sobre total`, metric: 'convertidos' },
+        { label: 'Descartados', value: formatNumber(kpis.descartados), hint: `${formatPercent(kpis.descarte_pct)} sobre total`, metric: 'descartados' },
+        { label: 'Potenciales', value: formatNumber(kpis.potenciales), hint: 'Bolsa viva', metric: 'potenciales' },
+        { label: 'Leads sin asignar', value: formatNumber(kpis.leads_unassigned), hint: 'Bolsa viva tecnica', metric: 'leads_unassigned' },
+        { label: 'Potenciales sin trabajar', value: formatNumber(kpis.potenciales_sin_trabajar), hint: 'Solo Status Potencial', metric: 'potenciales_sin_trabajar' },
+        { label: 'Gestionados', value: formatNumber(kpis.gestionados), hint: `${formatPercent(kpis.gestionados_pct)} sobre total`, metric: 'gestionados' },
+        { label: 'Llamadas', value: formatNumber(kpis.llamadas), hint: `${formatPercent(kpis.llamadas_pct)} del total`, metric: 'llamadas' },
+        { label: 'Formularios', value: formatNumber(kpis.formularios), hint: `${formatPercent(kpis.formularios_pct)} del total`, metric: 'formularios' },
     ];
 
     root.innerHTML = '';
 
-    cards.forEach(([label, value, hint]) => {
+    cards.forEach((card) => {
         root.insertAdjacentHTML('beforeend', `
             <div class="card kpi">
-                <div>
-                    <div class="kpi-label">${escapeHtml(label)}</div>
-                    <div class="kpi-value">${escapeHtml(value)}</div>
-                    <div class="kpi-hint">${escapeHtml(hint)}</div>
+                <div class="kpi-copy">
+                    <div class="kpi-label">${escapeHtml(card.label)}</div>
+                    <div class="kpi-value">${escapeHtml(card.value)}</div>
+                    <div class="kpi-hint">${escapeHtml(card.hint)}</div>
+                    ${kpiAuditLinkHtml(card.metric, card.label)}
                 </div>
             </div>
         `);
@@ -468,6 +469,21 @@ function currentFilters() {
     }
 
     return params.toString();
+}
+
+function buildKpiAuditUrl(metric) {
+    const params = new URLSearchParams(currentFilters());
+    params.set('metric', metric);
+
+    return `/informes/leads/export/kpi-audit.csv?${params.toString()}`;
+}
+
+function kpiAuditLinkHtml(metric, label) {
+    if (!window.reportUserCanExport || !metric) {
+        return '';
+    }
+
+    return `<div class="kpi-actions"><a class="kpi-audit-link" href="${escapeHtml(buildKpiAuditUrl(metric))}" title="Auditar ${escapeHtml(label)}">Auditar KPI</a></div>`;
 }
 
 function setLoadingState(isLoading) {

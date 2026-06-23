@@ -110,22 +110,23 @@ function renderSummary(data) {
 function renderKpis(kpis) {
     const root = document.getElementById('summaryKpis');
     const cards = [
-        ['Oportunidades totales', formatNumber(kpis.oportunidades_totales), 'Muestra del periodo'],
-        ['Reservas vivas', formatNumber(kpis.reservas_vivas), `${formatPercent(kpis.reservas_vivas_pct)} sobre total`],
-        ['Reservas vivas actuales Salesforce', formatNumber(kpis.reservas_vivas_actuales_salesforce), 'Sin filtro de fecha'],
-        ['Oportunidades caídas', formatNumber(kpis.oportunidades_caidas), `${formatPercent(kpis.oportunidades_caidas_pct)} sobre total`],
-        ['Contratos CV firmados', formatNumber(kpis.cv_firmados), `${formatPercent(kpis.cv_firmados_pct)} sobre total`],
+        { label: 'Oportunidades totales', value: formatNumber(kpis.oportunidades_totales), hint: 'Muestra del periodo', metric: 'oportunidades_totales' },
+        { label: 'Reservas vivas', value: formatNumber(kpis.reservas_vivas), hint: `${formatPercent(kpis.reservas_vivas_pct)} sobre total`, metric: 'reservas_vivas' },
+        { label: 'Reservas vivas actuales Salesforce', value: formatNumber(kpis.reservas_vivas_actuales_salesforce), hint: 'Sin filtro de fecha', metric: 'reservas_vivas_actuales_salesforce' },
+        { label: 'Oportunidades caidas', value: formatNumber(kpis.oportunidades_caidas), hint: `${formatPercent(kpis.oportunidades_caidas_pct)} sobre total`, metric: 'oportunidades_caidas' },
+        { label: 'Contratos CV firmados', value: formatNumber(kpis.cv_firmados), hint: `${formatPercent(kpis.cv_firmados_pct)} sobre total`, metric: 'cv_firmados' },
     ];
 
     root.innerHTML = '';
 
-    cards.forEach(([label, value, hint]) => {
+    cards.forEach((card) => {
         root.insertAdjacentHTML('beforeend', `
             <div class="card kpi">
-                <div>
-                    <div class="kpi-label">${escapeHtml(label)}</div>
-                    <div class="kpi-value">${escapeHtml(value)}</div>
-                    <div class="kpi-hint">${escapeHtml(hint)}</div>
+                <div class="kpi-copy">
+                    <div class="kpi-label">${escapeHtml(card.label)}</div>
+                    <div class="kpi-value">${escapeHtml(card.value)}</div>
+                    <div class="kpi-hint">${escapeHtml(card.hint)}</div>
+                    ${kpiAuditLinkHtml(card.metric, card.label)}
                 </div>
             </div>
         `);
@@ -373,6 +374,21 @@ function currentFilters() {
     }
 
     return params.toString();
+}
+
+function buildKpiAuditUrl(metric) {
+    const params = new URLSearchParams(currentFilters());
+    params.set('metric', metric);
+
+    return `/informes/reservas-ventas/export/kpi-audit.csv?${params.toString()}`;
+}
+
+function kpiAuditLinkHtml(metric, label) {
+    if (!window.reportUserCanExport || !metric) {
+        return '';
+    }
+
+    return `<div class="kpi-actions"><a class="kpi-audit-link" href="${escapeHtml(buildKpiAuditUrl(metric))}" title="Auditar ${escapeHtml(label)}">Auditar KPI</a></div>`;
 }
 
 function setLoadingState(isLoading) {

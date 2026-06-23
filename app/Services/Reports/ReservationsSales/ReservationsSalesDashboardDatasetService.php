@@ -27,6 +27,24 @@ class ReservationsSalesDashboardDatasetService
         return $this->payload($request)['summary'];
     }
 
+    public function kpiAudit(Request $request): array
+    {
+        $filters = $this->filters($request);
+        $periods = $this->periods($filters);
+        $metric = $this->resolveAuditMetric($request->string('metric')->toString());
+
+        return Cache::remember(
+            'reservas-ventas-dashboard-audit-v1:'.md5(json_encode([
+                'filters' => $filters,
+                'period' => $this->periodPayload($periods['current']),
+                'metric' => $metric,
+                'version' => $this->dataVersion(),
+            ])),
+            now()->addMinutes(self::CACHE_TTL_MINUTES),
+            fn () => $this->buildAuditPayload($filters, $periods['current'], $metric)
+        );
+    }
+
     public function commercialRows(Request $request): array
     {
         $payload = $this->payload($request);
@@ -51,7 +69,7 @@ class ReservationsSalesDashboardDatasetService
         $periods = $this->periods($filters);
 
         return Cache::remember(
-            'reservas-ventas-dashboard-v3:'.md5(json_encode([
+            'reservas-ventas-dashboard-v4:'.md5(json_encode([
                 'filters' => $filters,
                 'periods' => $this->periodPayloads($periods),
                 'version' => $this->dataVersion(),
@@ -96,6 +114,30 @@ class ReservationsSalesDashboardDatasetService
         ];
     }
 
+    private function buildAuditPayload(array $filters, array $period, string $metric): array
+    {
+        $items = [];
+
+        $this->auditQuery($filters, $period, $metric)
+            ->orderBy('id')
+            ->chunkById(1000, function (Collection $rows) use (&$items, $filters, $metric): void {
+                foreach ($rows as $opportunity) {
+                    $items[] = $this->decorateAuditOpportunity($opportunity, $metric, $filters['date_criterion']);
+                }
+            });
+
+        usort($items, fn (array $a, array $b) => [$a['metric_date'] ?? '', $a['opportunity_id'] ?? ''] <=> [$b['metric_date'] ?? '', $b['opportunity_id'] ?? '']);
+
+        return [
+            'ok' => true,
+            'metric' => $metric,
+            'metric_label' => $this->auditMetricLabel($metric),
+            'periodo_actual' => $this->periodPayload($period),
+            'total' => count($items),
+            'items' => $items,
+        ];
+    }
+
     private function aggregate(array $filters, array $period): array
     {
         $bucket = $this->emptyBucket();
@@ -137,29 +179,46 @@ class ReservationsSalesDashboardDatasetService
         $query->where($field, '>=', $period['start'])
             ->where($field, '<', $period['end']);
 
-        if (in_array($filters['opportunity_type'], ['Tasacion', 'Tasación'], true)) {
-            $query->where('record_type_name', 'Tasacion');
-        } elseif ($filters['opportunity_type'] === 'Venta') {
-            $query->whereIn('record_type_name', ['Venta', 'Cambio']);
-        }
+        $this->applyOpportunityTypeFilter($query, $filters['opportunity_type']);
 
         return $query;
     }
 
+    private function auditQuery(array $filters, array $period, string $metric)
+    {
+        if ($metric === 'reservas_vivas_actuales_salesforce') {
+            return $this->globalLiveReservationsQuery($filters);
+        }
+
+        return match ($metric) {
+            'reservas_vivas' => $this->baseQuery($filters, $period)
+                ->where('reservation', true)
+                ->where('cv_signed', false)
+                ->whereRaw("LOWER(COALESCE(stage_name, '')) <> 'cerrada perdida'"),
+            'oportunidades_caidas' => $this->baseQuery($filters, $period)
+                ->whereRaw("LOWER(COALESCE(stage_name, '')) = 'cerrada perdida'"),
+            'cv_firmados' => $this->baseQuery($filters, $period)
+                ->where('cv_signed', true)
+                ->whereRaw("LOWER(COALESCE(stage_name, '')) <> 'cerrada perdida'"),
+            default => $this->baseQuery($filters, $period),
+        };
+    }
+
     private function globalLiveReservations(array $filters): int
+    {
+        return $this->globalLiveReservationsQuery($filters)->count();
+    }
+
+    private function globalLiveReservationsQuery(array $filters)
     {
         $query = SalesforceOpportunity::query()
             ->where('reservation', true)
             ->where('cv_signed', false)
             ->whereRaw("LOWER(COALESCE(stage_name, '')) <> 'cerrada perdida'");
 
-        if (str_starts_with($filters['opportunity_type'], 'Tasaci') || $filters['opportunity_type'] === 'Tasacion') {
-            $query->where('record_type_name', 'Tasacion');
-        } elseif ($filters['opportunity_type'] === 'Venta') {
-            $query->whereIn('record_type_name', ['Venta', 'Cambio']);
-        }
+        $this->applyOpportunityTypeFilter($query, $filters['opportunity_type']);
 
-        return $query->count();
+        return $query;
     }
 
     private function decorate(SalesforceOpportunity $opportunity): array
@@ -180,6 +239,43 @@ class ReservationsSalesDashboardDatasetService
             'is_reserva_viva' => $reservation && ! $cvSigned && ! $isClosedLost,
             'is_caida' => $isClosedLost,
             'is_cv_firmado' => $cvSigned && ! $isClosedLost,
+        ];
+    }
+
+    private function decorateAuditOpportunity(SalesforceOpportunity $opportunity, string $metric, string $dateCriterion): array
+    {
+        $row = $this->decorate($opportunity);
+
+        return [
+            'metric' => $metric,
+            'metric_label' => $this->auditMetricLabel($metric),
+            'metric_date' => $this->auditMetricDate($opportunity, $metric, $dateCriterion),
+            'opportunity_id' => $opportunity->salesforce_id,
+            'opportunity_name' => $opportunity->name,
+            'created_date' => $this->auditDate($opportunity->created_date),
+            'close_date' => $this->auditDate($opportunity->close_date),
+            'reservation_date' => $this->auditDate($opportunity->reservation_date),
+            'cv_signed_date' => $this->auditDate($opportunity->cv_signed_date),
+            'record_type_name' => $opportunity->record_type_name,
+            'stage_name' => $opportunity->stage_name,
+            'owner_id' => $opportunity->owner_id,
+            'owner_name' => $opportunity->owner_name,
+            'commercial_delegation' => $row['commercial_delegation'],
+            'zone' => $row['zone'],
+            'account_id' => $opportunity->account_id,
+            'account_name' => $opportunity->account_name,
+            'account_phone' => $opportunity->account_phone,
+            'account_person_email' => $opportunity->account_person_email,
+            'account_company_email' => $opportunity->account_company_email,
+            'portal_original' => $opportunity->portal_original,
+            'portal_resolved' => $opportunity->portal_resolved,
+            'portal_resolution_source' => $opportunity->portal_resolution_source,
+            'portal_resolution_lead_id' => $opportunity->portal_resolution_lead_id,
+            'opportunity_source_raw' => $opportunity->opportunity_source_raw,
+            'opportunity_source_normalized' => $opportunity->opportunity_source_normalized,
+            'is_reserva_viva' => $row['is_reserva_viva'],
+            'is_caida' => $row['is_caida'],
+            'is_cv_firmado' => $row['is_cv_firmado'],
         ];
     }
 
@@ -373,6 +469,58 @@ class ReservationsSalesDashboardDatasetService
         };
     }
 
+    private function resolveAuditMetric(?string $metric): string
+    {
+        $metric = trim((string) $metric);
+
+        return in_array($metric, [
+            'oportunidades_totales',
+            'reservas_vivas',
+            'reservas_vivas_actuales_salesforce',
+            'oportunidades_caidas',
+            'cv_firmados',
+        ], true) ? $metric : 'oportunidades_totales';
+    }
+
+    private function auditMetricLabel(string $metric): string
+    {
+        return match ($metric) {
+            'reservas_vivas' => 'Reservas vivas',
+            'reservas_vivas_actuales_salesforce' => 'Reservas vivas actuales Salesforce',
+            'oportunidades_caidas' => 'Oportunidades caidas',
+            'cv_firmados' => 'Contratos CV firmados',
+            default => 'Oportunidades totales',
+        };
+    }
+
+    private function applyOpportunityTypeFilter($query, string $opportunityType): void
+    {
+        if (in_array($opportunityType, ['Tasacion', 'Tasación'], true)) {
+            $query->where('record_type_name', 'Tasacion');
+
+            return;
+        }
+
+        if ($opportunityType === 'Venta') {
+            $query->whereIn('record_type_name', ['Venta', 'Cambio']);
+        }
+    }
+
+    private function auditMetricDate(SalesforceOpportunity $opportunity, string $metric, string $dateCriterion): ?string
+    {
+        $criterionField = $this->dateField($dateCriterion);
+
+        return match ($metric) {
+            'reservas_vivas', 'reservas_vivas_actuales_salesforce' => $this->auditDate($opportunity->reservation_date)
+                ?: $this->auditDate($opportunity->{$criterionField}),
+            'oportunidades_caidas' => $this->auditDate($opportunity->close_date)
+                ?: $this->auditDate($opportunity->{$criterionField}),
+            'cv_firmados' => $this->auditDate($opportunity->cv_signed_date)
+                ?: $this->auditDate($opportunity->{$criterionField}),
+            default => $this->auditDate($opportunity->{$criterionField}),
+        };
+    }
+
     private function normalizeCommercialDelegation(?string $raw): array
     {
         $normalized = $this->delegationNormalizer->normalize($raw);
@@ -407,6 +555,19 @@ class ReservationsSalesDashboardDatasetService
             return CarbonImmutable::parse($value);
         } catch (\Throwable) {
             return $fallback;
+        }
+    }
+
+    private function auditDate(mixed $value): ?string
+    {
+        if (blank($value)) {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse($value)->toDateString();
+        } catch (\Throwable) {
+            return null;
         }
     }
 

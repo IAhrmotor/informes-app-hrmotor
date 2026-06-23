@@ -69,6 +69,54 @@ class OpportunityDashboardEndpointTest extends TestCase
             ->assertJsonPath('items.0.portal', 'Web');
     }
 
+    public function test_kpi_audit_devuelve_oportunidades_del_kpi_seleccionado(): void
+    {
+        $this->createOpportunity('006-1', [
+            'created_date' => '2026-05-10 10:00:00',
+            'reservation' => true,
+            'reservation_date' => '2026-05-11',
+            'cv_signed' => false,
+            'stage_name' => 'Reserva',
+            'record_type_name' => 'Venta',
+            'account_id' => '001-1',
+            'account_name' => 'Cuenta 1',
+            'portal_original' => 'Web',
+            'portal_resolved' => 'Web',
+            'opportunity_source_raw' => 'COCHES.NET',
+            'opportunity_source_normalized' => 'Coches.net',
+        ]);
+        $this->createOpportunity('006-2', [
+            'created_date' => '2026-05-12 10:00:00',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-14',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+        ]);
+
+        $query = http_build_query([
+            'period' => 'custom',
+            'date_criterion' => 'created_date',
+            'current_start' => '2026-05-01',
+            'current_end' => '2026-05-31',
+            'comparison_start' => '2026-04-01',
+            'comparison_end' => '2026-04-30',
+            'metric' => 'reservas_vivas',
+        ]);
+
+        $payload = $this->getJson('/informes/reservas-ventas/data/kpi-audit?'.$query)
+            ->assertOk()
+            ->json();
+
+        $this->assertSame('reservas_vivas', $payload['metric']);
+        $this->assertSame(1, $payload['total']);
+        $this->assertSame('006-1', $payload['items'][0]['opportunity_id']);
+        $this->assertSame('001-1', $payload['items'][0]['account_id']);
+
+        $this->get('/informes/reservas-ventas/export/kpi-audit.csv?'.$query)
+            ->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8');
+    }
+
     private function createOpportunity(string $id, array $attributes): void
     {
         SalesforceOpportunity::query()->create(array_merge([

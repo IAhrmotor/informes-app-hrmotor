@@ -113,6 +113,40 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertEquals(50.0, $conversion['diferencia_pct_puntos']);
     }
 
+    public function test_kpi_audit_exporta_leads_filtrados_por_metrica(): void
+    {
+        $this->commercial('005-worker', 'Comercial Worker', 'Compra/Venta', true, 'HR MOTOR TORREJON');
+
+        $this->lead('00Q1', 'Convertido', [
+            'created_date' => '2026-05-10 10:00:00',
+            'persona_que_trabajo_id' => '005-worker',
+            'persona_que_trabajo_name' => 'Comercial Worker',
+            'medio_nuevo' => 'Formulario',
+            'portal_text' => 'Web',
+            'campaign_acquired' => 'Campaña Test',
+            'converted_account_id' => '001-1',
+            'converted_opportunity_id' => '006-1',
+        ]);
+        $this->lead('00Q2', 'Potencial', [
+            'created_date' => '2026-05-11 10:00:00',
+            'medio_nuevo' => 'Llamada',
+            'fuente_nuevo' => 'Google Maps',
+        ]);
+
+        $payload = $this->getJson('/informes/leads/data/kpi-audit?metric=convertidos')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame('convertidos', $payload['metric']);
+        $this->assertSame(1, $payload['total']);
+        $this->assertSame('00Q1', $payload['items'][0]['lead_id']);
+        $this->assertSame('Campaña Test', $payload['items'][0]['campaign_acquired']);
+
+        $this->get('/informes/leads/export/kpi-audit.csv?metric=convertidos')
+            ->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8');
+    }
+
     public function test_filtros_y_tabla_delegaciones_no_exponen_brutos_ni_emails(): void
     {
         $this->lead('00Q10', 'Potencial', ['delegacion_encargada_text' => 'leadsmadrid@hrmotor.com']);

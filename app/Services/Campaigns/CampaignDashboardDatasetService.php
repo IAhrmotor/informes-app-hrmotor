@@ -66,6 +66,29 @@ class CampaignDashboardDatasetService
         return $this->payload($request, false, false)['campaigns'];
     }
 
+    public function kpiAudit(Request $request): array
+    {
+        $filters = $this->filters($request);
+        $period = $this->period($filters);
+        $metric = $this->resolveAuditMetric($request->string('metric')->toString(), $filters['context']);
+
+        return Cache::remember(
+            'campaign-dashboard-kpi-audit-v1:'.md5(json_encode([
+                'filters' => $filters,
+                'period' => $period,
+                'metric' => $metric,
+                'version' => $this->dataVersion(),
+            ])),
+            now()->addMinutes(self::CACHE_TTL_MINUTES),
+            fn () => $this->buildKpiAuditPayload($filters, $period, $metric)
+        );
+    }
+
+    public function exportKpiAuditRows(Request $request): array
+    {
+        return $this->kpiAudit($request)['items'] ?? [];
+    }
+
     public function payload(Request $request, bool $includeDiagnostics = true, bool $includeFilters = true): array
     {
         $filters = $this->filters($request);
@@ -82,6 +105,26 @@ class CampaignDashboardDatasetService
             now()->addMinutes(self::CACHE_TTL_MINUTES),
             fn () => $this->buildPayload($filters, $period, $includeDiagnostics, $includeFilters)
         );
+    }
+
+    private function buildKpiAuditPayload(array $filters, array $period, string $metric): array
+    {
+        $visibleRows = $this->visibleCampaignRows($filters, $period);
+        $items = $this->kpiAuditRows($visibleRows, $filters, $period, $metric);
+
+        return [
+            'ok' => true,
+            'metric' => $metric,
+            'metric_label' => $this->auditMetricLabel($metric),
+            'selected_context' => $filters['context'],
+            'selected_context_label' => $this->contextLabel($filters['context']),
+            'periodo_actual' => [
+                'inicio' => $period['start'],
+                'fin' => $period['end'],
+            ],
+            'total' => count($items),
+            'items' => $items,
+        ];
     }
 
     public function filters(Request $request): array
@@ -144,6 +187,144 @@ class CampaignDashboardDatasetService
             'campaigns' => array_values($campaigns),
             'rankings' => $rankings,
         ];
+    }
+
+    private function visibleCampaignRows(array $filters, array $period): array
+    {
+        $metricRows = $this->metricRows($filters, $period);
+        $attributionRows = $this->attributionRows($filters, $period);
+        $allCampaigns = $this->mergeRows($metricRows, $attributionRows, $filters);
+        $benchmarks = $this->benchmarks($this->platformRows($allCampaigns));
+
+        $allCampaigns = array_map(function (array $row) use ($benchmarks): array {
+            $row['classification'] = $this->classifier->classify($row, $benchmarks);
+
+            return $row;
+        }, $allCampaigns);
+
+        return $this->mainCampaignRows($allCampaigns, $filters);
+    }
+
+    private function kpiAuditRows(array $visibleRows, array $filters, array $period, string $metric): array
+    {
+        $visibleRowKeys = array_fill_keys(array_map(fn (array $row): string => $this->rowKey($row), $visibleRows), true);
+
+        if ($visibleRowKeys === []) {
+            return [];
+        }
+
+        $query = DB::table('campaign_lead_attributions as cla')
+            ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
+            ->leftJoin('salesforce_leads as sl', 'sl.salesforce_id', '=', 'cla.lead_id')
+            ->where('cla.lead_created_date', '>=', $period['start_at'])
+            ->where('cla.lead_created_date', '<', $period['end_at']);
+
+        $this->applyLeadAttributionFilters($query, $filters, 'cla');
+
+        if (filled($filters['campaign_source_type'] ?? null)) {
+            if ($filters['campaign_source_type'] === 'platform_campaign') {
+                $query->where('cla.platform', '<>', 'salesforce');
+            } else {
+                $query->where('cla.platform', 'salesforce');
+            }
+        }
+
+        if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
+            $query->where('cla.campaign_type', $filters['context']);
+        }
+
+        $items = [];
+
+        $query
+            ->select([
+                'cla.id',
+                'cla.lead_id',
+                'cla.lead_created_date',
+                'cla.platform',
+                'cla.campaign_id',
+                'cla.campaign_name',
+                'cla.source_campaign_name',
+                'cla.campaign_type',
+                'cla.opportunity_id',
+                'cla.has_opportunity',
+                'cla.has_reservation',
+                'cla.has_sale',
+                'cla.has_purchase',
+                'cla.sold_amount',
+                'cla.source_acquired',
+                'cla.medium_acquired',
+                'cla.campaign_acquired',
+                'cla.acquired_id',
+                'cla.content_acquired',
+                'cla.lead_status',
+                'cla.lead_delegation',
+                'cla.lead_zone',
+                'cla.commercial_user_id',
+                'cla.commercial_user_name',
+                'cla.vehicle_interest',
+                'sl.name as lead_name',
+                'sl.created_date as salesforce_lead_created_date',
+                'sl.status as salesforce_lead_status',
+                'sl.portal_text as lead_portal_text',
+                'sl.fuente_origen as lead_fuente_origen',
+                'sl.medio_origen as lead_medio_origen',
+                'sl.owner_name as lead_owner_name',
+                'sl.converted_account_id',
+                'sl.converted_opportunity_id',
+                'so.name as opportunity_name',
+                'so.created_date as opportunity_created_date',
+                'so.close_date as opportunity_close_date',
+                'so.cv_signed_date',
+                'so.record_type_name',
+                'so.stage_name',
+                'so.owner_id as opportunity_owner_id',
+                'so.owner_name as opportunity_owner_name',
+                'so.account_id',
+                'so.account_name',
+                'so.portal_original as opportunity_portal_original',
+                'so.portal_resolved as opportunity_portal_resolved',
+                'so.opportunity_source_raw',
+                'so.opportunity_source_normalized',
+                'so.opo_for_importe_total',
+            ])
+            ->orderBy('cla.id')
+            ->chunkById(1000, function ($chunk) use (&$items, $visibleRowKeys, $metric): void {
+                foreach ($chunk as $row) {
+                    $identity = $this->rowKey($this->attributionIdentityRow($row));
+
+                    if (! isset($visibleRowKeys[$identity])) {
+                        continue;
+                    }
+
+                    if (! $this->qualifiesAuditMetric($row, $metric)) {
+                        continue;
+                    }
+
+                    $entityKey = $this->auditEntityKey($row, $metric);
+
+                    if ($entityKey === null) {
+                        continue;
+                    }
+
+                    $items[$entityKey] ??= $this->emptyAuditRow($metric, $entityKey, (int) $row->id);
+
+                    $this->accumulateAuditRow($items[$entityKey], $row);
+                }
+            }, 'cla.id', 'id');
+
+        $rows = array_values(array_map(fn (array $item): array => $this->finalizeAuditRow($item), $items));
+
+        usort($rows, function (array $left, array $right): int {
+            return [
+                $left['metric_date'] ?? '9999-12-31',
+                $left['entity_id'] ?? '',
+            ] <=> [
+                $right['metric_date'] ?? '9999-12-31',
+                $right['entity_id'] ?? '',
+            ];
+        });
+
+        return $rows;
     }
 
     private function metricRows(array $filters, array $period): array
@@ -518,6 +699,264 @@ class CampaignDashboardDatasetService
     private function isPurchaseAttributionRow(object $row): bool
     {
         return (bool) ($row->has_purchase ?? false) && ($row->campaign_type ?? null) === 'tasacion';
+    }
+
+    private function resolveAuditMetric(?string $metric, ?string $context): string
+    {
+        $metric = $this->normalizer->key($metric);
+
+        if (in_array($metric, [
+            'leads_salesforce',
+            'opportunities',
+            'reservations',
+            'live_reservations',
+            'fallen_reservations',
+            'sales',
+            'appraisals_generated',
+            'purchases',
+            'result_count',
+        ], true)) {
+            return $metric;
+        }
+
+        return match ($this->normalizeContext($context)) {
+            'venta' => 'sales',
+            'tasacion' => 'purchases',
+            'exposicion' => 'opportunities',
+            'branding' => 'leads_salesforce',
+            default => 'result_count',
+        };
+    }
+
+    private function auditMetricLabel(string $metric): string
+    {
+        return match ($metric) {
+            'leads_salesforce' => 'Leads Salesforce',
+            'opportunities' => 'Oportunidades',
+            'reservations' => 'Reservas',
+            'live_reservations' => 'Reservas vivas',
+            'fallen_reservations' => 'Reservas caídas',
+            'sales' => 'Ventas',
+            'appraisals_generated' => 'Tasaciones generadas',
+            'purchases' => 'Compras',
+            default => 'Resultados',
+        };
+    }
+
+    private function qualifiesAuditMetric(object $row, string $metric): bool
+    {
+        return match ($metric) {
+            'leads_salesforce' => filled($row->lead_id),
+            'opportunities' => filled($row->opportunity_id) && (bool) $row->has_opportunity,
+            'reservations' => filled($row->opportunity_id) && (bool) $row->has_reservation,
+            'live_reservations' => filled($row->opportunity_id)
+                && (bool) $row->has_reservation
+                && (($row->campaign_type ?? null) === 'tasacion' || ! $this->isSaleAttributionRow($row)),
+            'fallen_reservations' => filled($row->opportunity_id)
+                && (bool) $row->has_reservation
+                && ($row->campaign_type ?? null) !== 'tasacion'
+                && $this->isSaleAttributionRow($row),
+            'sales' => filled($row->opportunity_id) && $this->isSaleAttributionRow($row),
+            'appraisals_generated' => filled($row->opportunity_id)
+                && (bool) $row->has_opportunity
+                && ($row->campaign_type ?? null) === 'tasacion',
+            'purchases' => filled($row->opportunity_id) && $this->isPurchaseAttributionRow($row),
+            'result_count' => filled($row->opportunity_id)
+                && ($this->isSaleAttributionRow($row) || $this->isPurchaseAttributionRow($row)),
+            default => false,
+        };
+    }
+
+    private function auditEntityKey(object $row, string $metric): ?string
+    {
+        if ($metric === 'leads_salesforce') {
+            return filled($row->lead_id) ? (string) $row->lead_id : null;
+        }
+
+        return filled($row->opportunity_id) ? (string) $row->opportunity_id : null;
+    }
+
+    private function emptyAuditRow(string $metric, string $entityId, int $firstAttributionId): array
+    {
+        return [
+            'metric' => $metric,
+            'metric_label' => $this->auditMetricLabel($metric),
+            'entity_type' => $metric === 'leads_salesforce' ? 'lead' : 'opportunity',
+            'entity_id' => $entityId,
+            'first_attribution_id' => $firstAttributionId,
+            'lead_ids' => [],
+            'lead_names' => [],
+            'lead_created_dates' => [],
+            'lead_statuses' => [],
+            'lead_portals' => [],
+            'lead_source_origins' => [],
+            'lead_medium_origins' => [],
+            'lead_owner_names' => [],
+            'opportunity_ids' => [],
+            'opportunity_names' => [],
+            'opportunity_created_dates' => [],
+            'opportunity_close_dates' => [],
+            'cv_signed_dates' => [],
+            'opportunity_record_types' => [],
+            'opportunity_stages' => [],
+            'opportunity_owner_ids' => [],
+            'opportunity_owner_names' => [],
+            'account_ids' => [],
+            'account_names' => [],
+            'opportunity_portals' => [],
+            'opportunity_sources' => [],
+            'platforms' => [],
+            'campaign_ids' => [],
+            'campaign_names' => [],
+            'source_campaign_names' => [],
+            'source_acquired_values' => [],
+            'medium_acquired_values' => [],
+            'campaign_acquired_values' => [],
+            'acquired_ids' => [],
+            'content_acquired_values' => [],
+            'commercial_user_ids' => [],
+            'commercial_user_names' => [],
+            'lead_delegations' => [],
+            'lead_zones' => [],
+            'vehicle_interests' => [],
+            'sale_amounts' => [],
+            'purchase_amounts' => [],
+            'metric_dates' => [],
+        ];
+    }
+
+    private function accumulateAuditRow(array &$item, object $row): void
+    {
+        $this->pushAuditValue($item['lead_ids'], $row->lead_id);
+        $this->pushAuditValue($item['lead_names'], $row->lead_name);
+        $this->pushAuditValue($item['lead_created_dates'], $this->auditDate($row->salesforce_lead_created_date ?: $row->lead_created_date));
+        $this->pushAuditValue($item['lead_statuses'], $row->salesforce_lead_status ?: $row->lead_status);
+        $this->pushAuditValue($item['lead_portals'], $row->lead_portal_text);
+        $this->pushAuditValue($item['lead_source_origins'], $row->lead_fuente_origen);
+        $this->pushAuditValue($item['lead_medium_origins'], $row->lead_medio_origen);
+        $this->pushAuditValue($item['lead_owner_names'], $row->lead_owner_name);
+
+        $this->pushAuditValue($item['opportunity_ids'], $row->opportunity_id);
+        $this->pushAuditValue($item['opportunity_names'], $row->opportunity_name);
+        $this->pushAuditValue($item['opportunity_created_dates'], $this->auditDate($row->opportunity_created_date));
+        $this->pushAuditValue($item['opportunity_close_dates'], $this->auditDate($row->opportunity_close_date));
+        $this->pushAuditValue($item['cv_signed_dates'], $this->auditDate($row->cv_signed_date));
+        $this->pushAuditValue($item['opportunity_record_types'], $row->record_type_name);
+        $this->pushAuditValue($item['opportunity_stages'], $row->stage_name);
+        $this->pushAuditValue($item['opportunity_owner_ids'], $row->opportunity_owner_id);
+        $this->pushAuditValue($item['opportunity_owner_names'], $row->opportunity_owner_name);
+        $this->pushAuditValue($item['account_ids'], $row->account_id);
+        $this->pushAuditValue($item['account_names'], $row->account_name);
+        $this->pushAuditValue($item['opportunity_portals'], $row->opportunity_portal_resolved ?: $row->opportunity_portal_original);
+        $this->pushAuditValue($item['opportunity_sources'], $row->opportunity_source_normalized ?: $row->opportunity_source_raw);
+
+        $this->pushAuditValue($item['platforms'], $row->platform);
+        $this->pushAuditValue($item['campaign_ids'], $row->campaign_id);
+        $this->pushAuditValue($item['campaign_names'], $row->campaign_name);
+        $this->pushAuditValue($item['source_campaign_names'], $row->source_campaign_name);
+        $this->pushAuditValue($item['source_acquired_values'], $row->source_acquired);
+        $this->pushAuditValue($item['medium_acquired_values'], $row->medium_acquired);
+        $this->pushAuditValue($item['campaign_acquired_values'], $row->campaign_acquired);
+        $this->pushAuditValue($item['acquired_ids'], $row->acquired_id);
+        $this->pushAuditValue($item['content_acquired_values'], $row->content_acquired);
+        $this->pushAuditValue($item['commercial_user_ids'], $row->commercial_user_id);
+        $this->pushAuditValue($item['commercial_user_names'], $row->commercial_user_name);
+        $this->pushAuditValue($item['lead_delegations'], $row->lead_delegation);
+        $this->pushAuditValue($item['lead_zones'], $row->lead_zone);
+        $this->pushAuditValue($item['vehicle_interests'], $row->vehicle_interest);
+
+        if ($this->isSaleAttributionRow($row)) {
+            $saleAmount = $row->sold_amount !== null
+                ? (float) $row->sold_amount
+                : ((float) ($row->opo_for_importe_total ?? 0) > 0 ? (float) $row->opo_for_importe_total : null);
+
+            if ($saleAmount !== null) {
+                $this->pushAuditValue($item['sale_amounts'], round($saleAmount, 2));
+            }
+        }
+
+        if ($this->isPurchaseAttributionRow($row)) {
+            $purchaseAmount = abs((float) ($row->opo_for_importe_total ?? 0));
+
+            if ($purchaseAmount > 0) {
+                $this->pushAuditValue($item['purchase_amounts'], round($purchaseAmount, 2));
+            }
+        }
+
+        $metricDate = $this->auditMetricDateForRow($row);
+
+        if ($metricDate !== null) {
+            $this->pushAuditValue($item['metric_dates'], $metricDate);
+        }
+    }
+
+    private function finalizeAuditRow(array $item): array
+    {
+        sort($item['lead_ids']);
+        sort($item['campaign_ids']);
+        sort($item['campaign_names']);
+        sort($item['source_campaign_names']);
+        sort($item['metric_dates']);
+
+        return array_merge($item, [
+            'metric_date' => $item['metric_dates'][0] ?? ($item['lead_created_dates'][0] ?? null),
+            'lead_id' => $this->singleAuditValue($item['lead_ids']),
+            'lead_name' => $this->singleAuditValue($item['lead_names']),
+            'opportunity_id' => $this->singleAuditValue($item['opportunity_ids']),
+            'opportunity_name' => $this->singleAuditValue($item['opportunity_names']),
+            'campaign_id' => $this->singleAuditValue($item['campaign_ids']),
+            'campaign_name' => $this->singleAuditValue($item['campaign_names']),
+            'source_campaign_name' => $this->singleAuditValue($item['source_campaign_names']),
+            'source_acquired' => $this->singleAuditValue($item['source_acquired_values']),
+            'medium_acquired' => $this->singleAuditValue($item['medium_acquired_values']),
+            'campaign_acquired' => $this->singleAuditValue($item['campaign_acquired_values']),
+            'portal' => $this->singleAuditValue($item['lead_portals']) ?? $this->singleAuditValue($item['opportunity_portals']),
+            'managed_by' => $this->singleAuditValue($item['commercial_user_names']) ?? $this->singleAuditValue($item['opportunity_owner_names']),
+            'sale_amount' => $item['sale_amounts'] !== [] ? round(array_sum($item['sale_amounts']), 2) : null,
+            'purchase_amount' => $item['purchase_amounts'] !== [] ? round(array_sum($item['purchase_amounts']), 2) : null,
+        ]);
+    }
+
+    private function pushAuditValue(array &$values, mixed $value): void
+    {
+        if ($value === null) {
+            return;
+        }
+
+        $normalized = is_string($value) ? trim($value) : $value;
+
+        if ($normalized === '') {
+            return;
+        }
+
+        if (! in_array($normalized, $values, true)) {
+            $values[] = $normalized;
+        }
+    }
+
+    private function singleAuditValue(array $values): mixed
+    {
+        return count($values) === 1 ? $values[0] : null;
+    }
+
+    private function auditDate(mixed $value): ?string
+    {
+        if (blank($value)) {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse($value)->toDateString();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function auditMetricDateForRow(object $row): ?string
+    {
+        return $this->auditDate($row->cv_signed_date)
+            ?? $this->auditDate($row->opportunity_created_date)
+            ?? $this->auditDate($row->salesforce_lead_created_date ?: $row->lead_created_date);
     }
 
     private function closedLostSql(): string

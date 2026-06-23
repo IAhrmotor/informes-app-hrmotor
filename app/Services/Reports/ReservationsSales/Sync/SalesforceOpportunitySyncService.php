@@ -2,12 +2,14 @@
 
 namespace App\Services\Reports\ReservationsSales\Sync;
 
+use App\Models\LeadRaw;
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use RuntimeException;
 
@@ -124,6 +126,7 @@ SELECT
     RecordType.Name,
     OwnerId,
     Owner.Name,
+    Owner.IsActive,
     Owner.USR_SEL_Delegacion__c,
     AccountId,
     Account.Name,
@@ -134,7 +137,19 @@ SELECT
     OPO_CAS_Reserva__c,
     OPO_FEC_Fecha_de_reserva__c,
     OPO_CAS_Contrato_CV_firmado__c,
-    Fecha_firma_contrato__c
+    Fecha_firma_contrato__c,
+    Entrega_Compartida__c,
+    Entrega_Compartida__r.Name,
+    Garant_a_Total__c,
+    Beneficio_financiacion_comercial__c,
+    Importe_financiado__c,
+    OPO_DIV_Descuento__c,
+    informe_rentabilidad__c,
+    Rentabilidad_financiera__c,
+    OPP_BUS_Vehiculo_de_interes__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_TEX_Matricula__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_FEC_Fecha_entrada__c,
+    OPP_BUS_Vehiculo_de_interes__r.Dias_en_stock__c
 FROM Opportunity
 WHERE
     IsDeleted = false
@@ -187,12 +202,25 @@ SOQL;
                 'record_type_name' => data_get($record, 'RecordType.Name'),
                 'owner_id' => data_get($record, 'OwnerId'),
                 'owner_name' => data_get($record, 'Owner.Name'),
+                'owner_is_active' => (bool) data_get($record, 'Owner.IsActive', true),
                 'owner_delegation' => data_get($record, 'Owner.USR_SEL_Delegacion__c'),
                 'account_id' => data_get($record, 'AccountId'),
                 'account_name' => data_get($record, 'Account.Name'),
                 'account_phone' => data_get($record, 'Account.Phone'),
                 'account_person_email' => data_get($record, 'Account.PersonEmail'),
                 'account_company_email' => data_get($record, 'Account.AC_C_EMA_email__c'),
+                'shared_delivery_id' => data_get($record, 'Entrega_Compartida__c'),
+                'shared_delivery_name' => data_get($record, 'Entrega_Compartida__r.Name'),
+                'garantia_total' => $this->salesforceValue($record, 'Garant_a_Total__c'),
+                'beneficio_financiacion_comercial' => $this->salesforceValue($record, 'Beneficio_financiacion_comercial__c'),
+                'importe_financiado' => $this->salesforceValue($record, 'Importe_financiado__c'),
+                'opo_div_descuento' => $this->salesforceValue($record, 'OPO_DIV_Descuento__c'),
+                'informe_rentabilidad' => $this->salesforceValue($record, 'informe_rentabilidad__c'),
+                'rentabilidad_financiera' => $this->salesforceValue($record, 'Rentabilidad_financiera__c'),
+                'vehicle_interest_id' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__c'),
+                'vehicle_plate' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.PRO_TEX_Matricula__c'),
+                'vehicle_entry_date' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.PRO_FEC_Fecha_entrada__c'),
+                'vehicle_days_in_stock' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.Dias_en_stock__c'),
                 'portal_original' => data_get($record, 'Portal__c'),
                 'opportunity_source_raw' => data_get($record, 'Fuente_de_Origen__c'),
                 'opportunity_source_normalized' => $source['portal'],
@@ -286,7 +314,7 @@ SOQL;
 
         $where = implode(' OR ', $clauses);
 
-        return $this->client->query(<<<SOQL
+        $records = $this->client->query(<<<SOQL
 SELECT
     Id,
     Name,
@@ -303,6 +331,79 @@ WHERE
     AND ({$where})
 ORDER BY CreatedDate DESC
 SOQL);
+
+        if ($records !== []) {
+            return $records;
+        }
+
+        return $this->queryLeadRawFallback($emails, $phones);
+    }
+
+    private function queryLeadRawFallback(array $emails, array $phones): array
+    {
+        if (! Schema::hasTable('leads_raw')) {
+            return [];
+        }
+
+        $emailMap = collect($emails)
+            ->filter()
+            ->mapWithKeys(fn (string $value) => [Str::lower(trim($value)) => true])
+            ->all();
+        $phoneMap = collect($phones)
+            ->filter()
+            ->map(fn (string $value) => $this->normalizePhone($value))
+            ->filter()
+            ->mapWithKeys(fn (string $value) => [$value => true])
+            ->all();
+
+        $query = LeadRaw::query()
+            ->select(['salesforce_id', 'lead_created_at', 'fuente_nuevo', 'lea_sel_fuente_origen', 'portal', 'portal_value', 'remitente_lead', 'raw_payload']);
+
+        if ($emailMap !== []) {
+            $query->whereIn('remitente_lead', array_keys($emailMap));
+        } elseif ($phoneMap !== []) {
+            $query->whereNotNull('raw_payload');
+        } else {
+            return [];
+        }
+
+        return $query->get()
+            ->filter(function (LeadRaw $lead) use ($emailMap, $phoneMap): bool {
+                $payload = is_array($lead->raw_payload) ? $lead->raw_payload : [];
+                $emailCandidates = [
+                    Str::lower(trim((string) ($lead->remitente_lead ?? ''))),
+                    Str::lower(trim((string) data_get($payload, 'Email', ''))),
+                    Str::lower(trim((string) data_get($payload, 'PersonEmail', ''))),
+                ];
+                $phoneCandidates = [
+                    $this->normalizePhone(data_get($payload, 'Phone')),
+                    $this->normalizePhone(data_get($payload, 'MobilePhone')),
+                    $this->normalizePhone(data_get($payload, 'Account.Phone')),
+                ];
+
+                $emailMatch = collect($emailCandidates)->filter()->contains(fn (string $value) => isset($emailMap[$value]));
+                $phoneMatch = collect($phoneCandidates)->filter()->contains(fn (string $value) => isset($phoneMap[$value]));
+
+                return $emailMatch || $phoneMatch;
+            })
+            ->map(function (LeadRaw $lead): array {
+                $payload = is_array($lead->raw_payload) ? $lead->raw_payload : [];
+
+                return [
+                    'Id' => $lead->salesforce_id ?: 'lead-raw-'.$lead->id,
+                    'Name' => data_get($payload, 'Name'),
+                    'CreatedDate' => optional($lead->lead_created_at)->toIso8601String(),
+                    'Phone' => data_get($payload, 'Phone'),
+                    'MobilePhone' => data_get($payload, 'MobilePhone'),
+                    'Email' => data_get($payload, 'Email') ?: $lead->remitente_lead,
+                    'Portal_Text__c' => data_get($payload, 'Portal_Text__c') ?: $lead->portal,
+                    'LEA_SEL_Fuente_Origen__c' => data_get($payload, 'LEA_SEL_Fuente_Origen__c') ?: $lead->lea_sel_fuente_origen,
+                    'Fuente_Nuevo__c' => data_get($payload, 'Fuente_Nuevo__c') ?: $lead->fuente_nuevo,
+                ];
+            })
+            ->sortByDesc('CreatedDate')
+            ->values()
+            ->all();
     }
 
     private function resolvePortal(array $opportunity, Collection $leads): array
