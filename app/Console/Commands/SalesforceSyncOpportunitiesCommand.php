@@ -17,6 +17,7 @@ class SalesforceSyncOpportunitiesCommand extends Command
         {--months= : Meses hacia atras que se sincronizan; tiene prioridad sobre --days}
         {--from= : Fecha inicial explicita en formato Y-m-d}
         {--to= : Fecha final exclusiva explicita en formato Y-m-d}
+        {--all-history : Sincroniza el historico completo de opportunities desde 2020-01-01}
         {--fresh : Borra solo la tabla de oportunidades Salesforce antes de sincronizar}
         {--debug-soql : Imprime la query SOQL ejecutada}';
 
@@ -95,6 +96,10 @@ class SalesforceSyncOpportunitiesCommand extends Command
 
     private function periodStart(CarbonImmutable $end): CarbonImmutable
     {
+        if ((bool) $this->option('all-history')) {
+            return CarbonImmutable::create(2020, 1, 1, 0, 0, 0, 'UTC');
+        }
+
         $from = $this->option('from');
 
         if (filled($from)) {

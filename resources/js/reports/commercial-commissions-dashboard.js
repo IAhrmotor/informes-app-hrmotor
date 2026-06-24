@@ -1,7 +1,10 @@
+const tableSortState = new Map();
+
 document.addEventListener('DOMContentLoaded', () => {
     bindCommissionTabs();
     bindCommissionCommercialPicker();
     bindCommissionDetailTabs();
+    bindSortableTables();
 });
 
 function bindCommissionTabs() {
@@ -115,5 +118,104 @@ function bindCommissionDetailTabs() {
         });
 
         activate(triggers[0].dataset.commercialDetailTabTrigger);
+    });
+}
+
+function bindSortableTables() {
+    document.querySelectorAll('table[data-sortable-table]').forEach((table) => {
+        makeTableSortable(table);
+    });
+}
+
+function makeTableSortable(table) {
+    const tbody = table.querySelector('tbody[data-sort-body]');
+    const headers = [...table.querySelectorAll('thead th[data-sortable="true"]')];
+
+    if (!tbody || !headers.length) {
+        return;
+    }
+
+    headers.forEach((header) => {
+        const columnIndex = header.cellIndex;
+
+        header.addEventListener('click', () => {
+            const stateKey = tbody.dataset.sortBody;
+            const current = tableSortState.get(stateKey);
+            const direction = current?.columnIndex === columnIndex && current.direction === 'asc' ? 'desc' : 'asc';
+            const state = { columnIndex, direction };
+
+            tableSortState.set(stateKey, state);
+            sortRowsByColumn(tbody, columnIndex, direction);
+            updateSortIndicators(table, state);
+        });
+    });
+}
+
+function sortRowsByColumn(tbody, columnIndex, direction) {
+    const rows = [...tbody.querySelectorAll('tr')];
+    const sortableRows = rows.filter((row) => row.children.length > 1);
+    const fillerRows = rows.filter((row) => row.children.length <= 1);
+    const multiplier = direction === 'asc' ? 1 : -1;
+
+    sortableRows.sort((a, b) => {
+        const aCell = a.children[columnIndex];
+        const bCell = b.children[columnIndex];
+        const aValue = parseSortableValue(aCell?.dataset.sortValue || aCell?.textContent);
+        const bValue = parseSortableValue(bCell?.dataset.sortValue || bCell?.textContent);
+
+        if (aValue.empty && bValue.empty) {
+            return 0;
+        }
+
+        if (aValue.empty) {
+            return 1;
+        }
+
+        if (bValue.empty) {
+            return -1;
+        }
+
+        if (aValue.type === 'number' && bValue.type === 'number') {
+            return (aValue.value - bValue.value) * multiplier;
+        }
+
+        return aValue.value.localeCompare(bValue.value, 'es', { sensitivity: 'base' }) * multiplier;
+    });
+
+    [...sortableRows, ...fillerRows].forEach((row) => tbody.appendChild(row));
+}
+
+function parseSortableValue(value) {
+    const raw = String(value || '').trim();
+
+    if (raw === '' || raw === '-') {
+        return { empty: true, type: 'text', value: '' };
+    }
+
+    const primary = raw.split('(')[0].trim();
+    const normalized = primary
+        .replaceAll('€', '')
+        .replaceAll('%', '')
+        .replace(/\s+/g, '')
+        .replace(/^\+/, '');
+    const numericCandidate = normalized.includes(',')
+        ? normalized.replaceAll('.', '').replace(',', '.')
+        : (/^-?\d{1,3}(\.\d{3})+(\.\d+)?$/.test(normalized) ? normalized.replaceAll('.', '') : normalized);
+    const number = Number(numericCandidate);
+
+    if (!Number.isNaN(number) && /^-?\d+(\.\d+)?$/.test(numericCandidate)) {
+        return { empty: false, type: 'number', value: number };
+    }
+
+    return { empty: false, type: 'text', value: raw.toLocaleLowerCase('es') };
+}
+
+function updateSortIndicators(table, state) {
+    table.querySelectorAll('thead th[data-sortable="true"]').forEach((header) => {
+        header.querySelector('.sort-indicator')?.remove();
+
+        if (header.cellIndex === state.columnIndex) {
+            header.insertAdjacentHTML('beforeend', ` <span class="sort-indicator">${state.direction === 'asc' ? '▲' : '▼'}</span>`);
+        }
     });
 }

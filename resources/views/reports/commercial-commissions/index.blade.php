@@ -115,6 +115,18 @@
                         <span>Filtro Gestion de venta</span>
                         <strong>{{ $dashboard['diagnostics']['sale_management_filter_applied'] ? 'Aplicado' : 'No aplicado' }}</strong>
                     </div>
+                    <div class="diagnostic-item">
+                        <span>Vehiculos vendibles enlazados</span>
+                        <strong>{{ number_format($dashboard['diagnostics']['sold_vehicle_links_count'] ?? 0, 0, ',', '.') }}</strong>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span>Compras historicas candidatas</span>
+                        <strong>{{ number_format($dashboard['diagnostics']['historical_purchase_candidates_count'] ?? 0, 0, ',', '.') }}</strong>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span>Compras liquidadas</span>
+                        <strong>{{ number_format($dashboard['diagnostics']['matched_purchase_commissions_count'] ?? 0, 0, ',', '.') }}</strong>
+                    </div>
                 </div>
             </section>
 
@@ -223,31 +235,31 @@
                         </section>
 
                         <div class="table-shell" style="height: 700px;">
-                            <table>
+                            <table data-sortable-table="commission-summary">
                                 <thead>
                                 <tr>
-                                    <th>Comercial</th>
-                                    <th class="num">Entregas</th>
-                                    <th class="num">Operaciones</th>
-                                    <th class="num">Ventas</th>
-                                    <th class="num">Compras</th>
-                                    <th class="num">Compartidas</th>
-                                    <th class="num">Descuento 5%</th>
-                                    <th class="num">Stock +150</th>
-                                    <th class="num">Bonus +15</th>
-                                    <th class="num">Prima total</th>
-                                    <th class="num">Tramo</th>
-                                    <th class="num">Prima ajustada</th>
-                                    <th class="num">Resenas</th>
-                                    <th class="num">% resenas</th>
-                                    <th class="num">% financiacion</th>
-                                    <th class="num">Penalizaciones</th>
-                                    <th class="num">Prod. financiacion</th>
-                                    <th class="num">Prod. garantias</th>
-                                    <th class="num">Comision final</th>
+                                    <th data-sortable="true">Comercial</th>
+                                    <th class="num" data-sortable="true">Entregas</th>
+                                    <th class="num" data-sortable="true">Operaciones</th>
+                                    <th class="num" data-sortable="true">Ventas</th>
+                                    <th class="num" data-sortable="true">Compras</th>
+                                    <th class="num" data-sortable="true">Compartidas</th>
+                                    <th class="num" data-sortable="true">Descuento 5%</th>
+                                    <th class="num" data-sortable="true">Stock +150</th>
+                                    <th class="num" data-sortable="true">Bonus +15</th>
+                                    <th class="num" data-sortable="true">Prima total</th>
+                                    <th class="num" data-sortable="true">Tramo</th>
+                                    <th class="num" data-sortable="true">Prima ajustada</th>
+                                    <th class="num" data-sortable="true">Resenas</th>
+                                    <th class="num" data-sortable="true">% resenas</th>
+                                    <th class="num" data-sortable="true">% financiacion</th>
+                                    <th class="num" data-sortable="true">Penalizaciones</th>
+                                    <th class="num" data-sortable="true">Prod. financiacion</th>
+                                    <th class="num" data-sortable="true">Prod. garantias</th>
+                                    <th class="num" data-sortable="true">Comision final</th>
                                 </tr>
                                 </thead>
-                                <tbody>
+                                <tbody data-sort-body="commission-summary">
                                 @foreach ($summaryRows as $row)
                                     <tr>
                                         <td>{{ $row['commercial_name'] }}</td>
@@ -314,6 +326,13 @@
                                 </div>
 
                                 @foreach ($summaryRows as $row)
+                                    @php
+                                        $deliveriesDetails = $row['details']['deliveries'] ?? [];
+                                        $purchasesDetails = $row['details']['purchases'] ?? [];
+                                        $sharedDetails = $row['details']['shared'] ?? [];
+                                        $stockDetails = $row['details']['stock_150'] ?? [];
+                                        $reviewsDetails = $row['details']['reviews'] ?? [];
+                                    @endphp
                                     <article
                                         class="commission-commercial-panel{{ $row['commercial_id'] === $defaultCommercialId ? ' is-active' : ' is-hidden' }}"
                                         data-commercial-panel
@@ -355,20 +374,20 @@
 
                                         <section class="commission-detail-grid">
                                             <div class="table-shell" data-commercial-detail-tab-panel="deliveries">
-                                                <table>
+                                                <table data-sortable-table="deliveries-{{ $row['commercial_id'] }}">
                                                     <thead>
-                                                    <tr><th colspan="6">Entregas</th></tr>
+                                                    <tr><th colspan="6">Entregas · {{ number_format(count($deliveriesDetails), 0, ',', '.') }}</th></tr>
                                                     <tr>
-                                                        <th>ID</th>
-                                                        <th>Oportunidad</th>
-                                                        <th>Tipo</th>
-                                                        <th>Fecha</th>
-                                                        <th>Matricula</th>
-                                                        <th class="num">Importe</th>
+                                                        <th data-sortable="true">ID</th>
+                                                        <th data-sortable="true">Oportunidad</th>
+                                                        <th data-sortable="true">Tipo</th>
+                                                        <th data-sortable="true">Fecha</th>
+                                                        <th data-sortable="true">Matricula</th>
+                                                        <th class="num" data-sortable="true">Importe</th>
                                                     </tr>
                                                     </thead>
-                                                    <tbody>
-                                                    @forelse ($row['details']['deliveries'] as $detail)
+                                                    <tbody data-sort-body="deliveries-{{ $row['commercial_id'] }}">
+                                                    @forelse ($deliveriesDetails as $detail)
                                                         <tr>
                                                             <td>{{ $detail['opportunity_id'] }}</td>
                                                             <td>{{ $detail['opportunity_name'] }}</td>
@@ -385,21 +404,21 @@
                                             </div>
 
                                             <div class="table-shell is-hidden" data-commercial-detail-tab-panel="purchases">
-                                                <table>
+                                                <table data-sortable-table="purchases-{{ $row['commercial_id'] }}">
                                                     <thead>
-                                                    <tr><th colspan="7">Compras cobradas este mes</th></tr>
+                                                    <tr><th colspan="7">Compras cobradas este mes · {{ number_format(count($purchasesDetails), 0, ',', '.') }}</th></tr>
                                                     <tr>
-                                                        <th>Matricula</th>
-                                                        <th>Compra</th>
-                                                        <th>Tipo compra</th>
-                                                        <th>Fecha compra</th>
-                                                        <th>Venta posterior</th>
-                                                        <th class="num">Rentabilidad</th>
-                                                        <th class="num">Comision</th>
+                                                        <th data-sortable="true">Matricula</th>
+                                                        <th data-sortable="true">Compra</th>
+                                                        <th data-sortable="true">Tipo compra</th>
+                                                        <th data-sortable="true">Fecha compra</th>
+                                                        <th data-sortable="true">Venta posterior</th>
+                                                        <th class="num" data-sortable="true">Rentabilidad</th>
+                                                        <th class="num" data-sortable="true">Comision</th>
                                                     </tr>
                                                     </thead>
-                                                    <tbody>
-                                                    @forelse ($row['details']['purchases'] as $detail)
+                                                    <tbody data-sort-body="purchases-{{ $row['commercial_id'] }}">
+                                                    @forelse ($purchasesDetails as $detail)
                                                         <tr>
                                                             <td>{{ $detail['vehicle_plate'] }}</td>
                                                             <td>{{ $detail['purchase_opportunity_name'] }}</td>
@@ -417,19 +436,19 @@
                                             </div>
 
                                             <div class="table-shell is-hidden" data-commercial-detail-tab-panel="shared">
-                                                <table>
+                                                <table data-sortable-table="shared-{{ $row['commercial_id'] }}">
                                                     <thead>
-                                                    <tr><th colspan="5">Compartidas</th></tr>
+                                                    <tr><th colspan="5">Compartidas · {{ number_format(count($sharedDetails), 0, ',', '.') }}</th></tr>
                                                     <tr>
-                                                        <th>ID</th>
-                                                        <th>Oportunidad</th>
-                                                        <th>Propietario</th>
-                                                        <th>Fecha</th>
-                                                        <th class="num">Importe</th>
+                                                        <th data-sortable="true">ID</th>
+                                                        <th data-sortable="true">Oportunidad</th>
+                                                        <th data-sortable="true">Propietario</th>
+                                                        <th data-sortable="true">Fecha</th>
+                                                        <th class="num" data-sortable="true">Importe</th>
                                                     </tr>
                                                     </thead>
-                                                    <tbody>
-                                                    @forelse ($row['details']['shared'] as $detail)
+                                                    <tbody data-sort-body="shared-{{ $row['commercial_id'] }}">
+                                                    @forelse ($sharedDetails as $detail)
                                                         <tr>
                                                             <td>{{ $detail['opportunity_id'] }}</td>
                                                             <td>{{ $detail['opportunity_name'] }}</td>
@@ -445,20 +464,20 @@
                                             </div>
 
                                             <div class="table-shell is-hidden" data-commercial-detail-tab-panel="stock">
-                                                <table>
+                                                <table data-sortable-table="stock-{{ $row['commercial_id'] }}">
                                                     <thead>
-                                                    <tr><th colspan="6">Stock +150</th></tr>
+                                                    <tr><th colspan="6">Stock +150 · {{ number_format(count($stockDetails), 0, ',', '.') }}</th></tr>
                                                     <tr>
-                                                        <th>ID</th>
-                                                        <th>Oportunidad</th>
-                                                        <th>Matricula</th>
-                                                        <th>Fecha entrada</th>
-                                                        <th class="num">Dias</th>
-                                                        <th class="num">Importe</th>
+                                                        <th data-sortable="true">ID</th>
+                                                        <th data-sortable="true">Oportunidad</th>
+                                                        <th data-sortable="true">Matricula</th>
+                                                        <th data-sortable="true">Fecha entrada</th>
+                                                        <th class="num" data-sortable="true">Dias</th>
+                                                        <th class="num" data-sortable="true">Importe</th>
                                                     </tr>
                                                     </thead>
-                                                    <tbody>
-                                                    @forelse ($row['details']['stock_150'] as $detail)
+                                                    <tbody data-sort-body="stock-{{ $row['commercial_id'] }}">
+                                                    @forelse ($stockDetails as $detail)
                                                         <tr>
                                                             <td>{{ $detail['opportunity_id'] }}</td>
                                                             <td>{{ $detail['opportunity_name'] }}</td>
@@ -475,19 +494,19 @@
                                             </div>
 
                                             <div class="table-shell commission-reviews-table is-hidden" data-commercial-detail-tab-panel="reviews">
-                                                <table>
+                                                <table data-sortable-table="reviews-{{ $row['commercial_id'] }}">
                                                     <thead>
-                                                    <tr><th colspan="5">Resenas del mes</th></tr>
+                                                    <tr><th colspan="5">Resenas del mes · {{ number_format(count($reviewsDetails), 0, ',', '.') }}</th></tr>
                                                     <tr>
-                                                        <th>ID resena</th>
-                                                        <th>Fecha</th>
-                                                        <th>Oportunidad</th>
-                                                        <th>Propietario oportunidad</th>
-                                                        <th>Propietario resena</th>
+                                                        <th data-sortable="true">ID resena</th>
+                                                        <th data-sortable="true">Fecha</th>
+                                                        <th data-sortable="true">Oportunidad</th>
+                                                        <th data-sortable="true">Propietario oportunidad</th>
+                                                        <th data-sortable="true">Propietario resena</th>
                                                     </tr>
                                                     </thead>
-                                                    <tbody>
-                                                    @forelse ($row['details']['reviews'] as $detail)
+                                                    <tbody data-sort-body="reviews-{{ $row['commercial_id'] }}">
+                                                    @forelse ($reviewsDetails as $detail)
                                                         <tr>
                                                             <td>{{ $detail['review_id'] }}</td>
                                                             <td>{{ $detail['created_date'] }}</td>

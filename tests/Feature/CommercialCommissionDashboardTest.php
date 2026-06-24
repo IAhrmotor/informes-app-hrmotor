@@ -345,4 +345,104 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertSame('Tasacion de entrada', $tasador['details']['purchases'][0]['purchase_opportunity_name']);
         $this->assertSame('Venta posterior', $tasador['details']['purchases'][0]['sale_opportunity_name']);
     }
+
+    public function test_dashboard_detecta_compras_con_tasacion_acentuada_y_match_por_vehicle_interest(): void
+    {
+        config()->set('commercial_commissions.purchase_rentability_field', 'informe_rentabilidad');
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'PURCHASE-ACCENT-1',
+            'name' => 'Tasacion acentuada',
+            'owner_id' => '005-T2',
+            'owner_name' => 'Tasador Dos',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Tasación',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-15',
+            'gestion_de_venta' => false,
+            'vehicle_interest_id' => 'VEH-100',
+            'vehicle_plate' => null,
+            'informe_rentabilidad' => 1000,
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'SALE-ACCENT-1',
+            'name' => 'Venta con vehiculo enlazado',
+            'owner_id' => '005-S2',
+            'owner_name' => 'Comercial Dos',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-10',
+            'opo_for_importe_total' => 15000,
+            'importe_financiado' => 7000,
+            'gestion_de_venta' => false,
+            'vehicle_interest_id' => 'VEH-100',
+            'vehicle_plate' => '9999BBB',
+        ]);
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+
+        $tasador = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-T2');
+        $vendedor = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-S2');
+
+        $this->assertNotNull($tasador);
+        $this->assertNotNull($vendedor);
+        $this->assertEquals(18.0, $tasador['purchases_amount']);
+        $this->assertCount(1, $tasador['details']['purchases']);
+        $this->assertSame('Tasacion acentuada', $tasador['details']['purchases'][0]['purchase_opportunity_name']);
+        $this->assertSame('Venta con vehiculo enlazado', $tasador['details']['purchases'][0]['sale_opportunity_name']);
+        $this->assertEquals(0.0, $vendedor['purchases_amount']);
+    }
+
+    public function test_dashboard_no_pierde_compra_historica_si_el_owner_original_ya_no_esta_activo(): void
+    {
+        config()->set('commercial_commissions.purchase_rentability_field', 'informe_rentabilidad');
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'PURCHASE-INACTIVE-1',
+            'name' => 'Compra historica inactiva',
+            'owner_id' => '005-I1',
+            'owner_name' => 'Comercial Inactivo',
+            'owner_is_active' => false,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Cambio',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-04-10',
+            'gestion_de_venta' => false,
+            'vehicle_plate' => '7777CCC',
+            'informe_rentabilidad' => 1000,
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'SALE-INACTIVE-1',
+            'name' => 'Venta de compra historica',
+            'owner_id' => '005-V1',
+            'owner_name' => 'Comercial Activo',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-12',
+            'opo_for_importe_total' => 16000,
+            'importe_financiado' => 8000,
+            'gestion_de_venta' => false,
+            'vehicle_plate' => '7777CCC',
+        ]);
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+
+        $comprador = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-I1');
+        $vendedor = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-V1');
+
+        $this->assertNotNull($comprador);
+        $this->assertNotNull($vendedor);
+        $this->assertEquals(18.0, $comprador['purchases_amount']);
+        $this->assertCount(1, $comprador['details']['purchases']);
+        $this->assertEquals(0.0, $vendedor['purchases_amount']);
+    }
 }

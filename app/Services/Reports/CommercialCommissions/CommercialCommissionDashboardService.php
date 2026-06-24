@@ -23,8 +23,8 @@ class CommercialCommissionDashboardService
         $periodStart = $selectedMonth->startOfMonth();
         $periodEnd = $periodStart->addMonth();
         $blockingIssues = $this->blockingIssues();
-        $warnings = $this->warnings();
         $diagnostics = $this->diagnostics($selectedMonth, $periodStart, $periodEnd, $blockingIssues);
+        $warnings = $this->warnings($diagnostics);
         $summaryRows = $blockingIssues === []
             ? $this->buildSummaryRows($periodStart, $periodEnd)
             : [];
@@ -49,7 +49,6 @@ class CommercialCommissionDashboardService
             ->get()
             ->groupBy(fn (SalesforceReview $review) => (string) $review->opportunity_owner_id);
         $purchaseDetails = $this->resolvePurchaseCommissionDetails($deliveries);
-        // La compra siempre comisiona al propietario de la compra original, no al vendedor posterior.
         $purchaseDetailsByOwner = collect($purchaseDetails)->groupBy('purchase_owner_id');
         $sharedDeliveriesByCoowner = $deliveries
             ->filter(fn (SalesforceOpportunity $row) => filled($row->shared_delivery_id))
@@ -83,7 +82,6 @@ class CommercialCommissionDashboardService
 
         $rows = $userIds->map(function (string $userId) use (
             $operationsByOwner,
-            $deliveries,
             $reviewsByOwner,
             $purchaseDetailsByOwner,
             $sharedDeliveriesByCoowner,
@@ -95,7 +93,9 @@ class CommercialCommissionDashboardService
             $ownerReviews = $reviewsByOwner->get($userId, collect())->values();
             $ownerPurchaseDetails = collect($purchaseDetailsByOwner->get($userId, collect()))->values();
             $ownerSharedDeliveries = $sharedDeliveriesByCoowner->get($userId, collect())->values();
-            $ownerStockDeliveries = $ownerDeliveries->filter(fn (SalesforceOpportunity $row) => (int) ($row->vehicle_days_in_stock ?? 0) >= 150)->values();
+            $ownerStockDeliveries = $ownerDeliveries
+                ->filter(fn (SalesforceOpportunity $row) => (int) ($row->vehicle_days_in_stock ?? 0) >= 150)
+                ->values();
 
             $deliveriesCount = $ownerDeliveries->count();
             $operationsCount = $ownerOperations->count();
@@ -103,7 +103,9 @@ class CommercialCommissionDashboardService
             $purchasesAmount = round((float) $ownerPurchaseDetails->sum('commission_amount'), 2);
             $sharedCount = $ownerSharedDeliveries->count();
             $sharedAmount = round($sharedCount * 30, 2);
-            $discountTotal = round((float) $ownerOperations->sum(fn (SalesforceOpportunity $row) => max(0, (float) ($row->opo_div_descuento ?? 0))), 2);
+            $discountTotal = round((float) $ownerOperations->sum(
+                fn (SalesforceOpportunity $row) => max(0, (float) ($row->opo_div_descuento ?? 0))
+            ), 2);
             $discountPenaltyAmount = round($discountTotal * 0.05, 2);
             $stock150Count = $ownerStockDeliveries->count();
             $stock150Amount = round($stock150Count * 10, 2);
@@ -122,7 +124,9 @@ class CommercialCommissionDashboardService
             [$deliveryBracketLabel, $deliveryBracketPercent] = $this->deliveryBracket($deliveriesCount);
             $primaAdjusted = round($primaTotal * $deliveryBracketPercent, 2);
 
-            $guaranteeTotal = round((float) $ownerOperations->sum(fn (SalesforceOpportunity $row) => max(0, (float) ($row->garantia_total ?? 0))), 2);
+            $guaranteeTotal = round((float) $ownerOperations->sum(
+                fn (SalesforceOpportunity $row) => max(0, (float) ($row->garantia_total ?? 0))
+            ), 2);
             $guaranteePenalty = $guaranteeTotal < 3500 && $primaAdjusted > 0
                 ? round($primaAdjusted * 0.10, 2)
                 : 0.0;
@@ -133,9 +137,10 @@ class CommercialCommissionDashboardService
                 : 0.0;
             $reviewsPenalty = $this->reviewsPenalty($primaAdjusted, $reviewsPercentage);
 
-            $financingBaseOperations = $ownerOperations;
-            $financedAmount = round((float) $financingBaseOperations->sum(fn (SalesforceOpportunity $row) => max(0, (float) ($row->importe_financiado ?? 0))), 2);
-            $totalVehicleAmount = round((float) $financingBaseOperations->sum(function (SalesforceOpportunity $row): float {
+            $financedAmount = round((float) $ownerOperations->sum(
+                fn (SalesforceOpportunity $row) => max(0, (float) ($row->importe_financiado ?? 0))
+            ), 2);
+            $totalVehicleAmount = round((float) $ownerOperations->sum(function (SalesforceOpportunity $row): float {
                 $amount = (float) ($row->opo_for_importe_total ?? 0);
 
                 if ($amount <= 0) {
@@ -154,7 +159,9 @@ class CommercialCommissionDashboardService
             $totalPenalties = round($guaranteePenalty + $reviewsPenalty + $financingPenalty, 2);
             $primaAfterPenalties = round(max($primaAdjusted - $totalPenalties, 0), 2);
 
-            $financingBenefitTotal = round((float) $ownerOperations->sum(fn (SalesforceOpportunity $row) => max(0, (float) ($row->beneficio_financiacion_comercial ?? 0))), 2);
+            $financingBenefitTotal = round((float) $ownerOperations->sum(
+                fn (SalesforceOpportunity $row) => max(0, (float) ($row->beneficio_financiacion_comercial ?? 0))
+            ), 2);
             $financingProductPercent = $this->financingProductPercent($financingBenefitTotal);
             $financingProductAmount = round($financingBenefitTotal * $financingProductPercent, 2);
 
@@ -246,45 +253,41 @@ class CommercialCommissionDashboardService
 
     private function resolvePurchaseCommissionDetails(Collection $monthlyDeliveries): array
     {
-        $plates = $monthlyDeliveries
-            ->pluck('vehicle_plate')
-            ->filter()
-            ->unique()
-            ->values();
+        $plates = $monthlyDeliveries->pluck('vehicle_plate')->filter()->unique()->values();
+        $vehicleInterestIds = $monthlyDeliveries->pluck('vehicle_interest_id')->filter()->unique()->values();
 
-        if ($plates->isEmpty()) {
+        if ($plates->isEmpty() && $vehicleInterestIds->isEmpty()) {
             return [];
         }
 
         $rentabilityField = $this->purchaseRentabilityField();
-
-        $purchaseCandidates = SalesforceOpportunity::query()
-            ->where('cv_signed', true)
-            ->where('owner_is_active', true)
-            ->whereNotNull('vehicle_plate')
-            ->whereIn('vehicle_plate', $plates->all())
-            ->whereRaw('LOWER(COALESCE(stage_name, \'\')) <> ?', ['cerrada perdida'])
-            ->where(function (Builder $query): void {
-                $query
-                    ->whereRaw('LOWER(COALESCE(record_type_name, \'\')) = ?', ['tasacion'])
-                    ->orWhereRaw('LOWER(COALESCE(record_type_name, \'\')) = ?', ['tasación'])
-                    ->orWhereRaw('LOWER(COALESCE(record_type_name, \'\')) = ?', ['cambio']);
-            })
-            ->get()
-            ->groupBy('vehicle_plate');
+        $purchaseCandidates = $this->purchaseCandidates($plates, $vehicleInterestIds);
+        $purchaseCandidatesByPlate = $purchaseCandidates
+            ->filter(fn (SalesforceOpportunity $row) => filled($row->vehicle_plate))
+            ->groupBy(fn (SalesforceOpportunity $row) => (string) $row->vehicle_plate);
+        $purchaseCandidatesByVehicle = $purchaseCandidates
+            ->filter(fn (SalesforceOpportunity $row) => filled($row->vehicle_interest_id))
+            ->groupBy(fn (SalesforceOpportunity $row) => (string) $row->vehicle_interest_id);
 
         $details = [];
 
         foreach ($monthlyDeliveries as $sale) {
             $saleDate = $sale->cv_signed_date ? CarbonImmutable::parse($sale->cv_signed_date) : null;
             $plate = (string) $sale->vehicle_plate;
+            $vehicleInterestId = (string) $sale->vehicle_interest_id;
 
-            if ($saleDate === null || $plate === '') {
+            if ($saleDate === null || ($plate === '' && $vehicleInterestId === '')) {
                 continue;
             }
 
+            $candidatePool = collect()
+                ->merge($vehicleInterestId !== '' ? $purchaseCandidatesByVehicle->get($vehicleInterestId, collect()) : collect())
+                ->merge($plate !== '' ? $purchaseCandidatesByPlate->get($plate, collect()) : collect())
+                ->unique(fn (SalesforceOpportunity $candidate) => (string) $candidate->salesforce_id)
+                ->values();
+
             /** @var SalesforceOpportunity|null $purchase */
-            $purchase = collect($purchaseCandidates->get($plate, collect()))
+            $purchase = $candidatePool
                 ->filter(function (SalesforceOpportunity $candidate) use ($sale, $saleDate): bool {
                     if ((string) $candidate->salesforce_id === (string) $sale->salesforce_id) {
                         return false;
@@ -309,7 +312,7 @@ class CommercialCommissionDashboardService
             $details[] = [
                 'purchase_owner_id' => $purchase->owner_id,
                 'purchase_owner_name' => $purchase->owner_name,
-                'vehicle_plate' => $plate,
+                'vehicle_plate' => $plate !== '' ? $plate : (string) $purchase->vehicle_plate,
                 'purchase_opportunity_id' => $purchase->salesforce_id,
                 'purchase_opportunity_name' => $purchase->name,
                 'purchase_record_type_name' => $purchase->record_type_name,
@@ -332,15 +335,9 @@ class CommercialCommissionDashboardService
             ->where('owner_is_active', true)
             ->whereDate('cv_signed_date', '>=', $periodStart->toDateString())
             ->whereDate('cv_signed_date', '<', $periodEnd->toDateString())
-            ->whereRaw('LOWER(COALESCE(stage_name, \'\')) <> ?', ['cerrada perdida'])
-            ->where(function (Builder $query): void {
-                $query
-                    ->whereRaw('LOWER(COALESCE(record_type_name, \'\')) = ?', ['venta'])
-                    ->orWhereRaw('LOWER(COALESCE(record_type_name, \'\')) = ?', ['cambio'])
-                    ->orWhereRaw('LOWER(COALESCE(record_type_name, \'\')) = ?', ['tasacion'])
-                    ->orWhereRaw('LOWER(COALESCE(record_type_name, \'\')) = ?', ['tasación']);
-            });
+            ->whereRaw('LOWER(COALESCE(stage_name, \'\')) <> ?', ['cerrada perdida']);
 
+        $this->applyRecordTypeFilter($query, ['venta', 'cambio', 'tasacion']);
         $this->applySaleManagementFilter($query);
 
         return $query;
@@ -358,7 +355,7 @@ class CommercialCommissionDashboardService
         $issues = [];
 
         if (! Schema::hasTable('salesforce_opportunities')) {
-            $issues[] = 'La tabla local salesforce_opportunities no existe todavía.';
+            $issues[] = 'La tabla local salesforce_opportunities no existe todavia.';
         } else {
             foreach ([
                 'cv_signed',
@@ -370,6 +367,7 @@ class CommercialCommissionDashboardService
                 'owner_name',
                 'shared_delivery_id',
                 'shared_delivery_name',
+                'vehicle_interest_id',
                 'vehicle_days_in_stock',
                 'vehicle_plate',
                 'vehicle_entry_date',
@@ -388,29 +386,38 @@ class CommercialCommissionDashboardService
         }
 
         if (! Schema::hasTable('salesforce_reviews')) {
-            $issues[] = 'La tabla local salesforce_reviews no existe todavía. Ejecuta las migraciones pendientes.';
+            $issues[] = 'La tabla local salesforce_reviews no existe todavia. Ejecuta las migraciones pendientes.';
         }
 
         $purchaseRentabilityField = $this->purchaseRentabilityField();
 
         if (! in_array($purchaseRentabilityField, self::SUPPORTED_PURCHASE_RENTABILITY_FIELDS, true)) {
-            $issues[] = 'La configuración de rentabilidad de compra no apunta a un campo soportado.';
+            $issues[] = 'La configuracion de rentabilidad de compra no apunta a un campo soportado.';
         }
 
         $saleManagementField = $this->saleManagementField();
+
         if ($saleManagementField !== '' && Schema::hasTable('salesforce_opportunities') && ! Schema::hasColumn('salesforce_opportunities', $saleManagementField)) {
-            $issues[] = 'El filtro configurado para Gestión de venta no existe aún en la tabla local salesforce_opportunities.';
+            $issues[] = 'El filtro configurado para Gestion de venta no existe aun en la tabla local salesforce_opportunities.';
         }
 
         return $issues;
     }
 
-    private function warnings(): array
+    private function warnings(array $diagnostics): array
     {
         $warnings = [];
 
         if ($this->saleManagementField() === '') {
-            $warnings[] = 'No se está aplicando todavía el filtro de Gestión de venta porque falta confirmar su API name exacto.';
+            $warnings[] = 'No se esta aplicando todavia el filtro de Gestion de venta porque falta confirmar su API name exacto.';
+        }
+
+        if (
+            ($diagnostics['sales_count'] ?? 0) > 0
+            && ($diagnostics['sold_vehicle_links_count'] ?? 0) > 0
+            && ($diagnostics['historical_purchase_candidates_count'] ?? 0) === 0
+        ) {
+            $warnings[] = 'No hay compras historicas locales para los vehiculos vendidos del mes. Si esperas compras liquidadas, sincroniza el historico de opportunities para comisiones.';
         }
 
         return $warnings;
@@ -432,6 +439,9 @@ class CommercialCommissionDashboardService
             'reviews_count' => 0,
             'commercials_count' => 0,
             'sale_management_filter_applied' => $this->hasSaleManagementFilter(),
+            'sold_vehicle_links_count' => 0,
+            'historical_purchase_candidates_count' => 0,
+            'matched_purchase_commissions_count' => 0,
             'candidate_rentability_fields' => [
                 ['field' => 'informe_rentabilidad', 'non_null_rows' => 0, 'positive_rows' => 0, 'sum' => 0.0],
                 ['field' => 'rentabilidad_financiera', 'non_null_rows' => 0, 'positive_rows' => 0, 'sum' => 0.0],
@@ -443,8 +453,16 @@ class CommercialCommissionDashboardService
         }
 
         $baseQuery = $this->monthlyOpportunities($periodStart, $periodEnd);
-        $salesQuery = (clone $baseQuery)->whereRaw('LOWER(COALESCE(record_type_name, \'\')) IN (?, ?)', ['venta', 'cambio']);
-        $purchasesQuery = (clone $baseQuery)->whereRaw('LOWER(COALESCE(record_type_name, \'\')) IN (?, ?, ?)', ['tasacion', 'tasación', 'cambio']);
+        $salesQuery = $this->queryWithRecordTypes(clone $baseQuery, ['venta', 'cambio']);
+        $purchasesQuery = $this->queryWithRecordTypes(clone $baseQuery, ['tasacion', 'cambio']);
+        $monthlyDeliveries = (clone $salesQuery)->get();
+        $soldVehicleLinksCount = $monthlyDeliveries
+            ->filter(fn (SalesforceOpportunity $row) => filled($row->vehicle_interest_id) || filled($row->vehicle_plate))
+            ->count();
+        $historicalCandidates = $this->purchaseCandidates(
+            $monthlyDeliveries->pluck('vehicle_plate')->filter()->unique()->values(),
+            $monthlyDeliveries->pluck('vehicle_interest_id')->filter()->unique()->values(),
+        );
 
         return [
             ...$base,
@@ -456,9 +474,12 @@ class CommercialCommissionDashboardService
             'stock_150_count' => (clone $salesQuery)->where('vehicle_days_in_stock', '>=', 150)->count(),
             'reviews_count' => $this->monthlyReviews($periodStart, $periodEnd)->count(),
             'commercials_count' => (clone $baseQuery)->distinct('owner_id')->count('owner_id'),
+            'sold_vehicle_links_count' => $soldVehicleLinksCount,
+            'historical_purchase_candidates_count' => $historicalCandidates->count(),
+            'matched_purchase_commissions_count' => count($this->resolvePurchaseCommissionDetails($monthlyDeliveries)),
             'candidate_rentability_fields' => [
-                $this->rentabilityFieldDiagnostics((clone $baseQuery), 'informe_rentabilidad', 2),
-                $this->rentabilityFieldDiagnostics((clone $baseQuery), 'rentabilidad_financiera', 6),
+                $this->rentabilityFieldDiagnostics(clone $baseQuery, 'informe_rentabilidad', 2),
+                $this->rentabilityFieldDiagnostics(clone $baseQuery, 'rentabilidad_financiera', 6),
             ],
         ];
     }
@@ -492,6 +513,31 @@ class CommercialCommissionDashboardService
     private function isDelivery(SalesforceOpportunity $row): bool
     {
         return in_array($this->normalizeRecordType($row->record_type_name), ['venta', 'cambio'], true);
+    }
+
+    private function purchaseCandidates(Collection $plates, Collection $vehicleInterestIds): Collection
+    {
+        if ($plates->isEmpty() && $vehicleInterestIds->isEmpty()) {
+            return collect();
+        }
+
+        $query = SalesforceOpportunity::query()
+            ->where('cv_signed', true)
+            ->whereRaw('LOWER(COALESCE(stage_name, \'\')) <> ?', ['cerrada perdida'])
+            ->where(function (Builder $builder) use ($plates, $vehicleInterestIds): void {
+                if ($vehicleInterestIds->isNotEmpty()) {
+                    $builder->whereIn('vehicle_interest_id', $vehicleInterestIds->all());
+                }
+
+                if ($plates->isNotEmpty()) {
+                    $method = $vehicleInterestIds->isNotEmpty() ? 'orWhereIn' : 'whereIn';
+                    $builder->{$method}('vehicle_plate', $plates->all());
+                }
+            });
+
+        $this->applyRecordTypeFilter($query, ['tasacion', 'cambio']);
+
+        return $query->get();
     }
 
     private function normalizeRecordType(?string $value): string
@@ -608,6 +654,29 @@ class CommercialCommissionDashboardService
         $field = $this->saleManagementField();
 
         return $field !== '' && Schema::hasTable('salesforce_opportunities') && Schema::hasColumn('salesforce_opportunities', $field);
+    }
+
+    private function applyRecordTypeFilter(Builder $query, array $values): void
+    {
+        $query->where(function (Builder $builder) use ($values): void {
+            foreach (array_values($values) as $index => $value) {
+                $method = $index === 0 ? 'whereRaw' : 'orWhereRaw';
+
+                if ($value === 'tasacion') {
+                    $builder->{$method}("LOWER(COALESCE(record_type_name, '')) LIKE ?", ['tas%']);
+                    continue;
+                }
+
+                $builder->{$method}("LOWER(COALESCE(record_type_name, '')) = ?", [$value]);
+            }
+        });
+    }
+
+    private function queryWithRecordTypes(Builder $query, array $values): Builder
+    {
+        $this->applyRecordTypeFilter($query, $values);
+
+        return $query;
     }
 
     private function resolveMonth(?string $month): CarbonImmutable
