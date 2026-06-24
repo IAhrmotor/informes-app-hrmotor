@@ -69,6 +69,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'OPO_FEC_Fecha_de_reserva__c' => '2026-05-02',
                         'OPO_CAS_Contrato_CV_firmado__c' => false,
                         'Fecha_firma_contrato__c' => null,
+                        'Gestion_de_venta__c' => false,
                     ],
                     [
                         'Id' => '006-opportunity-2',
@@ -91,6 +92,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'OPO_FEC_Fecha_de_reserva__c' => '2026-05-04',
                         'OPO_CAS_Contrato_CV_firmado__c' => true,
                         'Fecha_firma_contrato__c' => '2026-05-05',
+                        'Gestion_de_venta__c' => true,
                     ],
                     [
                         'Id' => '006-opportunity-3',
@@ -111,6 +113,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'Portal__c' => 'Exposición',
                         'OPO_CAS_Reserva__c' => true,
                         'OPO_CAS_Contrato_CV_firmado__c' => true,
+                        'Gestion_de_venta__c' => false,
                     ],
                 ];
             }
@@ -129,6 +132,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertStringContainsString('OPO_FOR_Importe_total__c', $result['soql']);
         $this->assertStringContainsString('OPO_FEC_Fecha_de_reserva__c', $result['soql']);
         $this->assertStringContainsString('Fecha_firma_contrato__c', $result['soql']);
+        $this->assertStringContainsString('Gestion_de_venta__c', $result['soql']);
 
         $this->assertDatabaseHas('salesforce_opportunities', [
             'salesforce_id' => '006-opportunity-1',
@@ -140,6 +144,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             'portal_resolution_source' => 'opportunity',
             'reservation' => true,
             'cv_signed' => false,
+            'gestion_de_venta' => false,
         ]);
         $this->assertDatabaseHas('salesforce_opportunities', [
             'salesforce_id' => '006-opportunity-2',
@@ -149,6 +154,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             'portal_resolution_source' => 'lead',
             'portal_resolution_lead_id' => '00Q-lead-1',
             'cv_signed' => true,
+            'gestion_de_venta' => true,
         ]);
         $this->assertDatabaseHas('salesforce_opportunities', [
             'salesforce_id' => '006-opportunity-3',

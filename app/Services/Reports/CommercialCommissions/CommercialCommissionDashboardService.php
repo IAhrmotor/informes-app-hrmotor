@@ -49,6 +49,7 @@ class CommercialCommissionDashboardService
             ->get()
             ->groupBy(fn (SalesforceReview $review) => (string) $review->opportunity_owner_id);
         $purchaseDetails = $this->resolvePurchaseCommissionDetails($deliveries);
+        // La compra siempre comisiona al propietario de la compra original, no al vendedor posterior.
         $purchaseDetailsByOwner = collect($purchaseDetails)->groupBy('purchase_owner_id');
         $sharedDeliveriesByCoowner = $deliveries
             ->filter(fn (SalesforceOpportunity $row) => filled($row->shared_delivery_id))
@@ -130,11 +131,9 @@ class CommercialCommissionDashboardService
             $reviewsPercentage = $operationsCount > 0
                 ? round(($reviewsCount / $operationsCount) * 100, 2)
                 : 0.0;
-            $reviewsPenalty = $reviewsPercentage < 30
-                ? round($primaAdjusted * 0.50, 2)
-                : ($reviewsPercentage < 50 ? round($primaAdjusted * 0.10, 2) : 0.0);
+            $reviewsPenalty = $this->reviewsPenalty($primaAdjusted, $reviewsPercentage);
 
-            $financingBaseOperations = $ownerDeliveries;
+            $financingBaseOperations = $ownerOperations;
             $financedAmount = round((float) $financingBaseOperations->sum(fn (SalesforceOpportunity $row) => max(0, (float) ($row->importe_financiado ?? 0))), 2);
             $totalVehicleAmount = round((float) $financingBaseOperations->sum(function (SalesforceOpportunity $row): float {
                 $amount = (float) ($row->opo_for_importe_total ?? 0);
@@ -148,7 +147,7 @@ class CommercialCommissionDashboardService
             $financingPercentage = $totalVehicleAmount > 0
                 ? round(($financedAmount / $totalVehicleAmount) * 100, 2)
                 : 0.0;
-            $financingPenalty = $totalVehicleAmount > 0 && $financingPercentage < 40
+            $financingPenalty = $primaAdjusted > 0 && $totalVehicleAmount > 0 && $financingPercentage < 40
                 ? round($primaAdjusted * 0.10, 2)
                 : 0.0;
 
@@ -377,6 +376,7 @@ class CommercialCommissionDashboardService
                 'garantia_total',
                 'beneficio_financiacion_comercial',
                 'importe_financiado',
+                'gestion_de_venta',
                 'opo_div_descuento',
                 'informe_rentabilidad',
                 'rentabilidad_financiera',
@@ -397,7 +397,7 @@ class CommercialCommissionDashboardService
             $issues[] = 'La configuración de rentabilidad de compra no apunta a un campo soportado.';
         }
 
-        $saleManagementField = trim((string) config('commercial_commissions.sale_management_field', ''));
+        $saleManagementField = $this->saleManagementField();
         if ($saleManagementField !== '' && Schema::hasTable('salesforce_opportunities') && ! Schema::hasColumn('salesforce_opportunities', $saleManagementField)) {
             $issues[] = 'El filtro configurado para Gestión de venta no existe aún en la tabla local salesforce_opportunities.';
         }
@@ -409,7 +409,7 @@ class CommercialCommissionDashboardService
     {
         $warnings = [];
 
-        if (trim((string) config('commercial_commissions.sale_management_field', '')) === '') {
+        if ($this->saleManagementField() === '') {
             $warnings[] = 'No se está aplicando todavía el filtro de Gestión de venta porque falta confirmar su API name exacto.';
         }
 
@@ -431,7 +431,7 @@ class CommercialCommissionDashboardService
             'stock_150_count' => 0,
             'reviews_count' => 0,
             'commercials_count' => 0,
-            'sale_management_filter_applied' => trim((string) config('commercial_commissions.sale_management_field', '')) !== '',
+            'sale_management_filter_applied' => $this->hasSaleManagementFilter(),
             'candidate_rentability_fields' => [
                 ['field' => 'informe_rentabilidad', 'non_null_rows' => 0, 'positive_rows' => 0, 'sum' => 0.0],
                 ['field' => 'rentabilidad_financiera', 'non_null_rows' => 0, 'positive_rows' => 0, 'sum' => 0.0],
@@ -475,7 +475,7 @@ class CommercialCommissionDashboardService
 
     private function applySaleManagementFilter(Builder $query): void
     {
-        $field = trim((string) config('commercial_commissions.sale_management_field', ''));
+        $field = $this->saleManagementField();
 
         if ($field === '' || ! Schema::hasColumn('salesforce_opportunities', $field)) {
             return;
@@ -485,8 +485,7 @@ class CommercialCommissionDashboardService
             $builder
                 ->whereNull($field)
                 ->orWhere($field, false)
-                ->orWhere($field, 0)
-                ->orWhereRaw('LOWER(COALESCE('.$field.', \'\')) IN (?, ?, ?)', ['false', '0', 'no']);
+                ->orWhere($field, 0);
         });
     }
 
@@ -575,11 +574,40 @@ class CommercialCommissionDashboardService
         return $amount > 0 ? 0.03 : 0.0;
     }
 
+    private function reviewsPenalty(float $primaAdjusted, float $reviewsPercentage): float
+    {
+        if ($primaAdjusted <= 0) {
+            return 0.0;
+        }
+
+        if ($reviewsPercentage < 30) {
+            return round($primaAdjusted * 0.50, 2);
+        }
+
+        if ($reviewsPercentage < 50) {
+            return round($primaAdjusted * 0.10, 2);
+        }
+
+        return 0.0;
+    }
+
     private function purchaseRentabilityField(): string
     {
         $field = trim((string) config('commercial_commissions.purchase_rentability_field', ''));
 
         return $field !== '' ? $field : 'informe_rentabilidad';
+    }
+
+    private function saleManagementField(): string
+    {
+        return trim((string) config('commercial_commissions.sale_management_field', ''));
+    }
+
+    private function hasSaleManagementFilter(): bool
+    {
+        $field = $this->saleManagementField();
+
+        return $field !== '' && Schema::hasTable('salesforce_opportunities') && Schema::hasColumn('salesforce_opportunities', $field);
     }
 
     private function resolveMonth(?string $month): CarbonImmutable

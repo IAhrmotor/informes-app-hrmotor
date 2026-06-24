@@ -15,17 +15,18 @@ class SalesforceSyncCommercialReviewsCommand extends Command
         {--months= : Meses hacia atras que se sincronizan; tiene prioridad sobre --days}
         {--from= : Fecha inicial explicita en formato Y-m-d}
         {--to= : Fecha final exclusiva explicita en formato Y-m-d}
-        {--fresh : Borra solo la tabla de reseñas Salesforce antes de sincronizar}
+        {--all : Sincroniza el historico completo de resenas desde 2020-01-01}
+        {--fresh : Borra solo la tabla de resenas Salesforce antes de sincronizar}
         {--debug-soql : Imprime la query SOQL ejecutada}';
 
-    protected $description = 'Sincroniza reseñas de Salesforce para el informe de Comisiones Comerciales.';
+    protected $description = 'Sincroniza resenas de Salesforce para el informe de Comisiones Comerciales.';
 
     public function handle(SalesforceReviewSyncService $sync): int
     {
         $periodEnd = $this->periodEnd();
         $periodStart = $this->periodStart($periodEnd);
 
-        if ($periodEnd->lessThanOrEqualTo($periodStart)) {
+        if (! $this->option('all') && $periodEnd->lessThanOrEqualTo($periodStart)) {
             $this->error('El rango indicado no es valido: --to debe ser posterior a --from.');
 
             return self::FAILURE;
@@ -37,31 +38,36 @@ class SalesforceSyncCommercialReviewsCommand extends Command
         }
 
         try {
-            $this->info('Sincronizando reseñas Salesforce.');
+            $this->info('Sincronizando resenas Salesforce.');
             $this->line('Periodo inicio: '.$periodStart->utc()->format('Y-m-d\TH:i:s\Z'));
             $this->line('Periodo fin exclusivo: '.$periodEnd->utc()->format('Y-m-d\TH:i:s\Z'));
 
             if ($this->option('debug-soql')) {
                 $this->newLine();
-                $this->line('SOQL Reseñas:');
-                $this->line($sync->soql($periodStart, $periodEnd));
+                $this->line('SOQL Resenas:');
+                $this->line($sync->soql(
+                    $this->option('all') ? CarbonImmutable::parse('2020-01-01')->startOfDay() : $periodStart,
+                    $periodEnd
+                ));
                 $this->newLine();
             }
 
-            $result = $sync->sync($periodStart, $periodEnd);
+            $result = $this->option('all')
+                ? $sync->syncAllHistory($periodEnd)
+                : $sync->sync($periodStart, $periodEnd);
 
-            $this->line('Reseñas consultadas: '.$result['queried']);
-            $this->line('Reseñas guardadas: '.$result['saved']);
+            $this->line('Resenas consultadas: '.$result['queried']);
+            $this->line('Resenas guardadas: '.$result['saved']);
 
             if ($result['queried'] === 0) {
-                $this->warn('Salesforce devolvio 0 reseñas para el periodo indicado.');
+                $this->warn('Salesforce devolvio 0 resenas para el periodo indicado.');
             }
 
-            $this->info('Sincronizacion de reseñas completada.');
+            $this->info('Sincronizacion de resenas completada.');
 
             return self::SUCCESS;
         } catch (Throwable $exception) {
-            $this->error('Error sincronizando reseñas.');
+            $this->error('Error sincronizando resenas.');
             $this->line($exception->getMessage());
 
             return self::FAILURE;

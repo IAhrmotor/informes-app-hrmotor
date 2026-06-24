@@ -3109,6 +3109,157 @@ th.num {
     box-shadow: 0 16px 36px rgba(15, 23, 42, .10);
 }
 
+.commercial-commissions-report .commission-filter-form {
+    display: grid;
+    grid-template-columns: minmax(0, 220px) auto;
+    gap: 14px;
+    align-items: end;
+}
+
+.commercial-commissions-report .commission-filter-actions {
+    justify-content: flex-start;
+}
+
+.commercial-commissions-report .commission-warning {
+    background: #fff7ed;
+    border-color: rgba(245, 158, 11, .24);
+    color: #9a3412;
+}
+
+.commercial-commissions-report .commission-diagnostics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.commercial-commissions-report .table-shell {
+    overflow: auto;
+    border: 1px solid rgba(31, 41, 68, .10);
+    border-radius: 24px;
+    background: #fff;
+}
+
+.commercial-commissions-report .table-shell table {
+    min-width: 100%;
+}
+
+.commercial-commissions-report .table-shell thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #fff;
+}
+
+.commercial-commissions-report .commission-inner-tabs {
+    margin-bottom: 18px;
+}
+
+.commercial-commissions-report .commission-context-grid,
+.commercial-commissions-report .commission-overview-grid,
+.commercial-commissions-report .commission-commercial-metrics {
+    margin-bottom: 18px;
+}
+
+.commercial-commissions-report .commission-overview-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+
+.commercial-commissions-report .commission-detail-shell {
+    display: grid;
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.commercial-commissions-report .commission-commercial-picker {
+    padding: 18px;
+    position: sticky;
+    top: 18px;
+}
+
+.commercial-commissions-report .commission-commercial-list {
+    display: grid;
+    gap: 10px;
+    max-height: 720px;
+    overflow: auto;
+    margin-top: 14px;
+    padding-right: 4px;
+}
+
+.commercial-commissions-report .commission-commercial-option {
+    width: 100%;
+    border: 1px solid rgba(31, 41, 68, .10);
+    border-radius: 22px;
+    padding: 14px 15px;
+    background: linear-gradient(180deg, #fff 0%, #fbfcfe 100%);
+    color: #1f2944;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color .16s ease, background .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+
+.commercial-commissions-report .commission-commercial-option:hover {
+    border-color: rgba(31, 41, 68, .20);
+    background: rgba(31, 41, 68, .03);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, .06);
+}
+
+.commercial-commissions-report .commission-commercial-option.is-active {
+    border-color: #1f2944;
+    background: rgba(31, 41, 68, .08);
+    box-shadow: 0 10px 22px rgba(31, 41, 68, .10);
+}
+
+.commercial-commissions-report .commission-commercial-option strong,
+.commercial-commissions-report .commission-commercial-option span,
+.commercial-commissions-report .commission-commercial-option small {
+    display: block;
+}
+
+.commercial-commissions-report .commission-commercial-option strong {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: -.01em;
+}
+
+.commercial-commissions-report .commission-commercial-option span,
+.commercial-commissions-report .commission-commercial-option small {
+    margin-top: 4px;
+    color: rgba(31, 41, 68, .62);
+}
+
+.commercial-commissions-report .commission-detail-stage {
+    min-width: 0;
+}
+
+.commercial-commissions-report .commission-commercial-panel {
+    display: grid;
+    gap: 18px;
+}
+
+.commercial-commissions-report .commission-commercial-hero {
+    margin-bottom: 0;
+}
+
+.commercial-commissions-report .commission-detail-tabs {
+    margin-bottom: 0;
+}
+
+.commercial-commissions-report .commission-detail-grid {
+    display: block;
+}
+
+.commercial-commissions-report .commission-detail-grid table {
+    min-width: 620px;
+}
+
+.commercial-commissions-report .commission-detail-grid .table-shell {
+    min-width: 0;
+}
+
+.commercial-commissions-report .commission-reviews-table {
+    grid-column: auto;
+}
+
 @media (max-width: 760px) {
     .campaigns-report .platform-comparison-grid {
         grid-template-columns: 1fr;
@@ -3136,6 +3287,19 @@ th.num {
     .campaigns-report .platform-metric-item strong {
         max-width: 44%;
         overflow-wrap: anywhere;
+    }
+
+    .commercial-commissions-report .commission-filter-form,
+    .commercial-commissions-report .commission-detail-shell {
+        grid-template-columns: 1fr;
+    }
+
+    .commercial-commissions-report .commission-commercial-picker {
+        position: static;
+    }
+
+    .commercial-commissions-report .commission-commercial-list {
+        max-height: none;
     }
 }
 

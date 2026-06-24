@@ -10,6 +10,7 @@ use Carbon\CarbonInterface;
 class SalesforceReviewSyncService
 {
     private const SYNC_CHUNK_DAYS = 31;
+    private const HISTORY_START = '2020-01-01';
 
     public function __construct(
         private readonly SalesforceClient $client,
@@ -67,6 +68,16 @@ class SalesforceReviewSyncService
             'queried' => count($seen),
             'saved' => $saved,
         ];
+    }
+
+    public function syncAllHistory(?CarbonInterface $periodEnd = null): array
+    {
+        $start = CarbonImmutable::parse(self::HISTORY_START)->startOfDay();
+        $end = $periodEnd
+            ? CarbonImmutable::parse($periodEnd)
+            : CarbonImmutable::now()->addDay()->startOfDay();
+
+        return $this->sync($start, $end);
     }
 
     public function soql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string

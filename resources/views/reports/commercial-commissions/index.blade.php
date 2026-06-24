@@ -10,106 +10,111 @@
 
     @vite([
         'resources/css/reports/leads-dashboard.css',
+        'resources/js/reports/commercial-commissions-dashboard.js',
     ])
     <script>
         window.reportUserRole = @json($reportUserRole ?? 'viewer');
     </script>
 </head>
+@php
+    $summaryRows = collect($dashboard['summary_rows'] ?? []);
+    $defaultCommercialId = $summaryRows->first()['commercial_id'] ?? null;
+    $totalFinalCommission = (float) $summaryRows->sum('final_commission');
+    $totalPrimaAdjusted = (float) $summaryRows->sum('prima_adjusted');
+    $totalPenalties = (float) $summaryRows->sum('total_penalties');
+    $totalDeliveries = (int) $summaryRows->sum('deliveries_count');
+@endphp
 <body class="campaigns-report commercial-commissions-report">
 <div class="wrap">
     @include('reports.partials.report-header', ['currentReport' => 'commercial-commissions', 'subtitle' => 'Comisiones mensuales'])
 
     <main>
         <section class="tab-panel active">
-            <section class="filters card">
-                <form method="GET" style="display:grid;grid-template-columns:minmax(0,220px) auto;gap:14px;align-items:end;">
+            <section class="filters card commission-filters">
+                <form method="GET" class="commission-filter-form">
                     <div class="filter-group">
                         <label for="month">Mes cerrado</label>
                         <input type="month" id="month" name="month" value="{{ $dashboard['month'] }}">
                     </div>
-                    <div class="filter-actions" style="justify-content:flex-start;">
-                        <button type="submit" class="main-tab active">Cargar informe</button>
+                    <div class="filter-actions commission-filter-actions">
+                        <button type="submit" class="main-tab">Cargar informe</button>
                     </div>
                 </form>
             </section>
 
             @if (! $dashboard['ready'])
                 <div class="notice">
-                    El informe no está listo para cálculo final. Hay bloqueos de configuración o lógica que impiden sacar comisiones definitivas.
+                    El informe no esta listo para calculo final. Hay bloqueos de configuracion o logica que impiden sacar comisiones definitivas.
                 </div>
             @endif
 
             @foreach ($dashboard['issues'] as $issue)
-                <div class="notice" style="margin-top:12px;">{{ $issue }}</div>
+                <div class="notice">{{ $issue }}</div>
             @endforeach
 
             @foreach ($dashboard['warnings'] ?? [] as $warning)
-                <div class="notice" style="margin-top:12px;background:#fff7ed;border-color:rgba(245,158,11,.28);color:#9a3412;">{{ $warning }}</div>
+                <div class="notice commission-warning">{{ $warning }}</div>
             @endforeach
 
             <section class="kpis dashboard-kpis">
-                <article class="card kpi">
-                    <span>Mes analizado</span>
-                    <strong>{{ $dashboard['month_label'] }}</strong>
-                    <small>Periodo cerrado seleccionado para contraste.</small>
+                <article class="card campaign-kpi">
+                    <div class="kpi-label">Mes analizado</div>
+                    <div class="kpi-value">{{ $dashboard['month_label'] }}</div>
+                    <div class="kpi-hint">Periodo cerrado seleccionado para contraste.</div>
                 </article>
-                <article class="card kpi">
-                    <span>Oportunidades</span>
-                    <strong>{{ number_format($dashboard['diagnostics']['opportunities_total'], 0, ',', '.') }}</strong>
-                    <small>CV firmados de Venta, Cambio y Tasación en el mes.</small>
+                <article class="card campaign-kpi">
+                    <div class="kpi-label">Oportunidades</div>
+                    <div class="kpi-value">{{ number_format($dashboard['diagnostics']['opportunities_total'], 0, ',', '.') }}</div>
+                    <div class="kpi-hint">CV firmados de Venta, Cambio y Tasacion en el mes.</div>
                 </article>
-                <article class="card kpi">
-                    <span>Reseñas</span>
-                    <strong>{{ number_format($dashboard['diagnostics']['reviews_count'], 0, ',', '.') }}</strong>
-                    <small>Objeto `Resena__c` creado dentro del mes.</small>
+                <article class="card campaign-kpi">
+                    <div class="kpi-label">Resenas</div>
+                    <div class="kpi-value">{{ number_format($dashboard['diagnostics']['reviews_count'], 0, ',', '.') }}</div>
+                    <div class="kpi-hint">Objeto `Resena__c` creado dentro del mes.</div>
                 </article>
-                <article class="card kpi">
-                    <span>Estado</span>
-                    <strong>{{ $dashboard['ready'] ? 'Listo para validar' : 'Pendiente de cierre' }}</strong>
-                    <small>Solo administradores pueden verlo por ahora.</small>
+                <article class="card campaign-kpi">
+                    <div class="kpi-label">Estado</div>
+                    <div class="kpi-value">{{ $dashboard['ready'] ? 'Listo para validar' : 'Pendiente de cierre' }}</div>
+                    <div class="kpi-hint">Solo administradores pueden verlo por ahora.</div>
                 </article>
             </section>
 
             <section class="card panel">
                 <div class="panel-title">
                     <div>
-                        <h2>Diagnóstico de datos base</h2>
+                        <h2>Diagnostico de datos base</h2>
                         <div class="small">Volumen real sincronizado para el mes seleccionado.</div>
                     </div>
                 </div>
-                <div class="table-shell">
-                    <table>
-                        <tbody>
-                        <tr>
-                            <th>Ventas / Cambios</th>
-                            <td>{{ number_format($dashboard['diagnostics']['sales_count'], 0, ',', '.') }}</td>
-                        </tr>
-                        <tr>
-                            <th>Compras base</th>
-                            <td>{{ number_format($dashboard['diagnostics']['purchases_count'], 0, ',', '.') }}</td>
-                        </tr>
-                        <tr>
-                            <th>Operaciones</th>
-                            <td>{{ number_format($dashboard['diagnostics']['operations_count'], 0, ',', '.') }}</td>
-                        </tr>
-                        <tr>
-                            <th>Compartidas</th>
-                            <td>{{ number_format($dashboard['diagnostics']['shared_sales_count'], 0, ',', '.') }}</td>
-                        </tr>
-                        <tr>
-                            <th>Stock +150</th>
-                            <td>{{ number_format($dashboard['diagnostics']['stock_150_count'], 0, ',', '.') }}</td>
-                        </tr>
-                        <tr>
-                            <th>Comerciales detectados</th>
-                            <td>{{ number_format($dashboard['diagnostics']['commercials_count'], 0, ',', '.') }}</td>
-                        </tr>
-                        <tr>
-                            <th>Filtro Gestión de venta</th>
-                            <td>{{ $dashboard['diagnostics']['sale_management_filter_applied'] ? 'Aplicado' : 'No aplicado' }}</td>
-                        </tr>
-                        </tbody>
-                    </table>
+                <div class="campaign-diagnostics commission-diagnostics-grid">
+                    <div class="diagnostic-item">
+                        <span>Ventas / Cambios</span>
+                        <strong>{{ number_format($dashboard['diagnostics']['sales_count'], 0, ',', '.') }}</strong>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span>Compras base</span>
+                        <strong>{{ number_format($dashboard['diagnostics']['purchases_count'], 0, ',', '.') }}</strong>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span>Operaciones</span>
+                        <strong>{{ number_format($dashboard['diagnostics']['operations_count'], 0, ',', '.') }}</strong>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span>Compartidas</span>
+                        <strong>{{ number_format($dashboard['diagnostics']['shared_sales_count'], 0, ',', '.') }}</strong>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span>Stock +150</span>
+                        <strong>{{ number_format($dashboard['diagnostics']['stock_150_count'], 0, ',', '.') }}</strong>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span>Comerciales detectados</span>
+                        <strong>{{ number_format($dashboard['diagnostics']['commercials_count'], 0, ',', '.') }}</strong>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span>Filtro Gestion de venta</span>
+                        <strong>{{ $dashboard['diagnostics']['sale_management_filter_applied'] ? 'Aplicado' : 'No aplicado' }}</strong>
+                    </div>
                 </div>
             </section>
 
@@ -117,7 +122,7 @@
                 <div class="panel-title">
                     <div>
                         <h2>Campos candidatos de rentabilidad</h2>
-                        <div class="small">Se sincronizan ambos para poder contrastarlos antes de fijar el cálculo final de compras.</div>
+                        <div class="small">Se sincronizan ambos para contrastarlos antes de fijar el calculo final de compras.</div>
                     </div>
                 </div>
                 <div class="table-shell">
@@ -133,7 +138,7 @@
                         <tbody>
                         @foreach ($dashboard['diagnostics']['candidate_rentability_fields'] as $candidate)
                             <tr>
-                                <th>{{ $candidate['field'] }}</th>
+                                <td>{{ $candidate['field'] }}</td>
                                 <td class="num">{{ number_format($candidate['non_null_rows'], 0, ',', '.') }}</td>
                                 <td class="num">{{ number_format($candidate['positive_rows'], 0, ',', '.') }}</td>
                                 <td class="num">{{ number_format($candidate['sum'], 2, ',', '.') }}</td>
@@ -144,206 +149,364 @@
                 </div>
             </section>
 
-            @if ($dashboard['summary_rows'] !== [])
+            @if ($summaryRows->isNotEmpty())
                 <section class="card panel">
                     <div class="panel-title">
                         <div>
-                            <h2>Resumen por comercial</h2>
-                            <div class="small">Agrupado por propietario Salesforce. La financiación se calcula sobre Venta + Cambio y las compras se pagan cuando el vehículo comprado se vende.</div>
+                            <h2>Resumen de comisiones</h2>
+                            <div class="small">La financiacion se calcula sobre Venta + Cambio + Tasacion y las compras solo se liquidan al propietario de la compra cuando ese vehiculo se vende.</div>
                         </div>
                     </div>
-                    <div class="table-shell">
-                        <table>
-                            <thead>
-                            <tr>
-                                <th>Comercial</th>
-                                <th class="num">Entregas</th>
-                                <th class="num">Operaciones</th>
-                                <th class="num">Ventas</th>
-                                <th class="num">Compras</th>
-                                <th class="num">Compartidas</th>
-                                <th class="num">Descuento 5%</th>
-                                <th class="num">Stock +150</th>
-                                <th class="num">Bonus +15</th>
-                                <th class="num">Prima total</th>
-                                <th class="num">Tramo</th>
-                                <th class="num">Prima ajustada</th>
-                                <th class="num">Reseñas</th>
-                                <th class="num">% reseñas</th>
-                                <th class="num">% financiación</th>
-                                <th class="num">Penalizaciones</th>
-                                <th class="num">Prod. financiación</th>
-                                <th class="num">Prod. garantías</th>
-                                <th class="num">Comisión final</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            @foreach ($dashboard['summary_rows'] as $row)
+
+                    <nav class="tabs-main commission-inner-tabs" aria-label="Vista de comisiones">
+                        <button type="button" class="main-tab active" data-commission-tab-trigger="summary">Resumen</button>
+                        <button type="button" class="main-tab" data-commission-tab-trigger="detail">Detalle auditable</button>
+                    </nav>
+
+                    <div data-commission-tab-panel="summary">
+                        <section class="campaign-context-grid commission-context-grid">
+                            <article class="card campaign-context-card">
+                                <span>Comerciales</span>
+                                <strong>{{ number_format($summaryRows->count(), 0, ',', '.') }}</strong>
+                            </article>
+                            <article class="card campaign-context-card">
+                                <span>Comision final</span>
+                                <strong>{{ number_format($totalFinalCommission, 2, ',', '.') }} €</strong>
+                            </article>
+                            <article class="card campaign-context-card">
+                                <span>Prima ajustada</span>
+                                <strong>{{ number_format($totalPrimaAdjusted, 2, ',', '.') }} €</strong>
+                            </article>
+                            <article class="card campaign-context-card">
+                                <span>Penalizaciones</span>
+                                <strong>{{ number_format($totalPenalties, 2, ',', '.') }} €</strong>
+                            </article>
+                        </section>
+
+                        <section class="platform-comparison-grid commission-overview-grid">
+                            <article class="card platform-comparison-card">
+                                <div class="platform-comparison-head">
+                                    <strong>Volumen comercial</strong>
+                                    <span>Conteos agregados del mes seleccionado.</span>
+                                </div>
+                                <div class="platform-comparison-metrics">
+                                    <div class="platform-metric-item"><span>Entregas</span><strong>{{ number_format($totalDeliveries, 0, ',', '.') }}</strong></div>
+                                    <div class="platform-metric-item"><span>Operaciones</span><strong>{{ number_format($summaryRows->sum('operations_count'), 0, ',', '.') }}</strong></div>
+                                    <div class="platform-metric-item"><span>Compras liquidadas</span><strong>{{ number_format($summaryRows->sum('purchases_amount'), 2, ',', '.') }} €</strong></div>
+                                    <div class="platform-metric-item"><span>Compartidas</span><strong>{{ number_format($summaryRows->sum('shared_amount'), 2, ',', '.') }} €</strong></div>
+                                </div>
+                            </article>
+                            <article class="card platform-comparison-card">
+                                <div class="platform-comparison-head">
+                                    <strong>Base variable</strong>
+                                    <span>Conceptos antes de ajustar por tramos y penalizaciones.</span>
+                                </div>
+                                <div class="platform-comparison-metrics">
+                                    <div class="platform-metric-item"><span>Ventas</span><strong>{{ number_format($summaryRows->sum('sales_amount'), 2, ',', '.') }} €</strong></div>
+                                    <div class="platform-metric-item"><span>Stock +150</span><strong>{{ number_format($summaryRows->sum('stock_150_amount'), 2, ',', '.') }} €</strong></div>
+                                    <div class="platform-metric-item"><span>Bonus +15</span><strong>{{ number_format($summaryRows->sum('bonus_15_amount'), 2, ',', '.') }} €</strong></div>
+                                    <div class="platform-metric-item"><span>Prima total</span><strong>{{ number_format($summaryRows->sum('prima_total'), 2, ',', '.') }} €</strong></div>
+                                </div>
+                            </article>
+                            <article class="card platform-comparison-card">
+                                <div class="platform-comparison-head">
+                                    <strong>Productos y ajustes</strong>
+                                    <span>Impacto final despues de penalizaciones.</span>
+                                </div>
+                                <div class="platform-comparison-metrics">
+                                    <div class="platform-metric-item"><span>Penalizaciones</span><strong>{{ number_format($totalPenalties, 2, ',', '.') }} €</strong></div>
+                                    <div class="platform-metric-item"><span>Prima neta</span><strong>{{ number_format($summaryRows->sum('prima_after_penalties'), 2, ',', '.') }} €</strong></div>
+                                    <div class="platform-metric-item"><span>Prod. financiacion</span><strong>{{ number_format($summaryRows->sum('financing_product_amount'), 2, ',', '.') }} €</strong></div>
+                                    <div class="platform-metric-item"><span>Prod. garantias</span><strong>{{ number_format($summaryRows->sum('guarantee_product_amount'), 2, ',', '.') }} €</strong></div>
+                                </div>
+                            </article>
+                        </section>
+
+                        <div class="table-shell" style="height: 700px;">
+                            <table>
+                                <thead>
                                 <tr>
-                                    <th>{{ $row['commercial_name'] }}</th>
-                                    <td class="num">{{ number_format($row['deliveries_count'], 0, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['operations_count'], 0, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['sales_amount'], 2, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['purchases_amount'], 2, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['shared_amount'], 2, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['discount_penalty_amount'], 2, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['stock_150_amount'], 2, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['bonus_15_amount'], 2, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['prima_total'], 2, ',', '.') }}</td>
-                                    <td class="num">{{ $row['delivery_bracket_label'] }} · {{ number_format($row['delivery_bracket_percent'], 0, ',', '.') }}%</td>
-                                    <td class="num">{{ number_format($row['prima_adjusted'], 2, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['reviews_count'], 0, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['reviews_percentage'], 2, ',', '.') }}%</td>
-                                    <td class="num">{{ number_format($row['financing_percentage'], 2, ',', '.') }}%</td>
-                                    <td class="num">{{ number_format($row['total_penalties'], 2, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['financing_product_amount'], 2, ',', '.') }}</td>
-                                    <td class="num">{{ number_format($row['guarantee_product_amount'], 2, ',', '.') }}</td>
-                                    <td class="num"><strong>{{ number_format($row['final_commission'], 2, ',', '.') }}</strong></td>
+                                    <th>Comercial</th>
+                                    <th class="num">Entregas</th>
+                                    <th class="num">Operaciones</th>
+                                    <th class="num">Ventas</th>
+                                    <th class="num">Compras</th>
+                                    <th class="num">Compartidas</th>
+                                    <th class="num">Descuento 5%</th>
+                                    <th class="num">Stock +150</th>
+                                    <th class="num">Bonus +15</th>
+                                    <th class="num">Prima total</th>
+                                    <th class="num">Tramo</th>
+                                    <th class="num">Prima ajustada</th>
+                                    <th class="num">Resenas</th>
+                                    <th class="num">% resenas</th>
+                                    <th class="num">% financiacion</th>
+                                    <th class="num">Penalizaciones</th>
+                                    <th class="num">Prod. financiacion</th>
+                                    <th class="num">Prod. garantias</th>
+                                    <th class="num">Comision final</th>
                                 </tr>
-                            @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <section class="card panel">
-                    <div class="panel-title">
-                        <div>
-                            <h2>Detalle auditable</h2>
-                            <div class="small">Detalle por comercial para revisar de dónde sale cada concepto.</div>
+                                </thead>
+                                <tbody>
+                                @foreach ($summaryRows as $row)
+                                    <tr>
+                                        <td>{{ $row['commercial_name'] }}</td>
+                                        <td class="num">{{ number_format($row['deliveries_count'], 0, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['operations_count'], 0, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['sales_amount'], 2, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['purchases_amount'], 2, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['shared_amount'], 2, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['discount_penalty_amount'], 2, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['stock_150_amount'], 2, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['bonus_15_amount'], 2, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['prima_total'], 2, ',', '.') }}</td>
+                                        <td class="num">{{ $row['delivery_bracket_label'] }} · {{ number_format($row['delivery_bracket_percent'], 0, ',', '.') }}%</td>
+                                        <td class="num">{{ number_format($row['prima_adjusted'], 2, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['reviews_count'], 0, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['reviews_percentage'], 2, ',', '.') }}%</td>
+                                        <td class="num">{{ number_format($row['financing_percentage'], 2, ',', '.') }}%</td>
+                                        <td class="num">{{ number_format($row['total_penalties'], 2, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['financing_product_amount'], 2, ',', '.') }}</td>
+                                        <td class="num">{{ number_format($row['guarantee_product_amount'], 2, ',', '.') }}</td>
+                                        <td class="num"><strong>{{ number_format($row['final_commission'], 2, ',', '.') }}</strong></td>
+                                    </tr>
+                                @endforeach
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
-                    @foreach ($dashboard['summary_rows'] as $row)
-                        <article class="card panel" style="margin-bottom:18px;padding:20px;">
-                            <div class="panel-title compact">
-                                <div>
-                                    <h3 style="margin:0;">{{ $row['commercial_name'] }}</h3>
-                                    <div class="small">ID {{ $row['commercial_id'] }} · Comisión final {{ number_format($row['final_commission'], 2, ',', '.') }} €</div>
+                    <div class="is-hidden" data-commission-tab-panel="detail">
+                        <div class="commission-detail-shell">
+                            <aside class="card commission-commercial-picker">
+                                <div class="filter-group">
+                                    <label for="commissionCommercialSearch">Buscar comercial</label>
+                                    <input
+                                        type="search"
+                                        id="commissionCommercialSearch"
+                                        placeholder="Nombre o ID de Salesforce"
+                                        autocomplete="off"
+                                    >
                                 </div>
-                            </div>
-
-                            <div class="grid" style="grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;">
-                                <div class="table-shell">
-                                    <table>
-                                        <thead>
-                                        <tr><th colspan="5">Entregas</th></tr>
-                                        <tr>
-                                            <th>ID</th>
-                                            <th>Oportunidad</th>
-                                            <th>Tipo</th>
-                                            <th>Fecha</th>
-                                            <th class="num">Importe</th>
-                                        </tr>
-                                        </thead>
-                                        <tbody>
-                                        @forelse ($row['details']['deliveries'] as $detail)
-                                            <tr>
-                                                <td>{{ $detail['opportunity_id'] }}</td>
-                                                <td>{{ $detail['opportunity_name'] }}</td>
-                                                <td>{{ $detail['record_type_name'] }}</td>
-                                                <td>{{ $detail['cv_signed_date'] }}</td>
-                                                <td class="num">{{ number_format($detail['amount'], 2, ',', '.') }}</td>
-                                            </tr>
-                                        @empty
-                                            <tr><td colspan="5">Sin entregas.</td></tr>
-                                        @endforelse
-                                        </tbody>
-                                    </table>
+                                <div class="commission-commercial-list" id="commissionCommercialList">
+                                    @foreach ($summaryRows as $row)
+                                        <button
+                                            type="button"
+                                            class="commission-commercial-option{{ $row['commercial_id'] === $defaultCommercialId ? ' is-active' : '' }}"
+                                            data-commercial-option
+                                            data-commercial-id="{{ $row['commercial_id'] }}"
+                                            data-commercial-search="{{ \Illuminate\Support\Str::lower($row['commercial_name'].' '.$row['commercial_id']) }}"
+                                        >
+                                            <strong>{{ $row['commercial_name'] }}</strong>
+                                            <span>{{ $row['commercial_id'] }}</span>
+                                            <small>
+                                                Entregas {{ number_format($row['deliveries_count'], 0, ',', '.') }}
+                                                · Comision {{ number_format($row['final_commission'], 2, ',', '.') }} €
+                                            </small>
+                                        </button>
+                                    @endforeach
                                 </div>
+                            </aside>
 
-                                <div class="table-shell">
-                                    <table>
-                                        <thead>
-                                        <tr><th colspan="7">Compras cobradas este mes</th></tr>
-                                        <tr>
-                                            <th>Matrícula</th>
-                                            <th>Compra</th>
-                                            <th>Tipo compra</th>
-                                            <th>Fecha compra</th>
-                                            <th>Venta posterior</th>
-                                            <th class="num">Rentabilidad</th>
-                                            <th class="num">Comisión</th>
-                                        </tr>
-                                        </thead>
-                                        <tbody>
-                                        @forelse ($row['details']['purchases'] as $detail)
-                                            <tr>
-                                                <td>{{ $detail['vehicle_plate'] }}</td>
-                                                <td>{{ $detail['purchase_opportunity_name'] }}</td>
-                                                <td>{{ $detail['purchase_record_type_name'] }}</td>
-                                                <td>{{ $detail['purchase_date'] }}</td>
-                                                <td>{{ $detail['sale_opportunity_name'] }}</td>
-                                                <td class="num">{{ number_format($detail['rentability_amount'], 2, ',', '.') }}</td>
-                                                <td class="num">{{ number_format($detail['commission_amount'], 2, ',', '.') }}</td>
-                                            </tr>
-                                        @empty
-                                            <tr><td colspan="7">Sin compras liquidadas en el mes.</td></tr>
-                                        @endforelse
-                                        </tbody>
-                                    </table>
+                            <section class="commission-detail-stage">
+                                <div class="empty-state is-hidden" id="commissionCommercialEmpty">
+                                    No hay comerciales que coincidan con la busqueda.
                                 </div>
 
-                                <div class="table-shell">
-                                    <table>
-                                        <thead>
-                                        <tr><th colspan="5">Compartidas</th></tr>
-                                        <tr>
-                                            <th>ID</th>
-                                            <th>Oportunidad</th>
-                                            <th>Propietario</th>
-                                            <th>Fecha</th>
-                                            <th class="num">Importe</th>
-                                        </tr>
-                                        </thead>
-                                        <tbody>
-                                        @forelse ($row['details']['shared'] as $detail)
-                                            <tr>
-                                                <td>{{ $detail['opportunity_id'] }}</td>
-                                                <td>{{ $detail['opportunity_name'] }}</td>
-                                                <td>{{ $detail['owner_name'] }}</td>
-                                                <td>{{ $detail['cv_signed_date'] }}</td>
-                                                <td class="num">{{ number_format($detail['amount'], 2, ',', '.') }}</td>
-                                            </tr>
-                                        @empty
-                                            <tr><td colspan="5">Sin compartidas.</td></tr>
-                                        @endforelse
-                                        </tbody>
-                                    </table>
-                                </div>
+                                @foreach ($summaryRows as $row)
+                                    <article
+                                        class="commission-commercial-panel{{ $row['commercial_id'] === $defaultCommercialId ? ' is-active' : ' is-hidden' }}"
+                                        data-commercial-panel
+                                        data-commercial-id="{{ $row['commercial_id'] }}"
+                                    >
+                                        <section class="card panel commission-commercial-hero">
+                                            <div class="panel-title compact">
+                                                <div>
+                                                    <h2>{{ $row['commercial_name'] }}</h2>
+                                                    <div class="small">ID {{ $row['commercial_id'] }} · Comision final {{ number_format($row['final_commission'], 2, ',', '.') }} €</div>
+                                                </div>
+                                            </div>
+                                            <div class="campaign-context-grid commission-commercial-metrics">
+                                                <article class="card campaign-context-card">
+                                                    <span>Entregas</span>
+                                                    <strong>{{ number_format($row['deliveries_count'], 0, ',', '.') }}</strong>
+                                                </article>
+                                                <article class="card campaign-context-card">
+                                                    <span>Prima ajustada</span>
+                                                    <strong>{{ number_format($row['prima_adjusted'], 2, ',', '.') }} €</strong>
+                                                </article>
+                                                <article class="card campaign-context-card">
+                                                    <span>Penalizaciones</span>
+                                                    <strong>{{ number_format($row['total_penalties'], 2, ',', '.') }} €</strong>
+                                                </article>
+                                                <article class="card campaign-context-card">
+                                                    <span>Prod. financiacion</span>
+                                                    <strong>{{ number_format($row['financing_product_amount'], 2, ',', '.') }} €</strong>
+                                                </article>
+                                            </div>
+                                            <nav class="tabs-main commission-detail-tabs" aria-label="Detalle del comercial">
+                                                <button type="button" class="main-tab active" data-commercial-detail-tab-trigger="deliveries">Entregas</button>
+                                                <button type="button" class="main-tab" data-commercial-detail-tab-trigger="purchases">Compras cobradas</button>
+                                                <button type="button" class="main-tab" data-commercial-detail-tab-trigger="shared">Compartidas</button>
+                                                <button type="button" class="main-tab" data-commercial-detail-tab-trigger="stock">Stock +150</button>
+                                                <button type="button" class="main-tab" data-commercial-detail-tab-trigger="reviews">Resenas</button>
+                                            </nav>
+                                        </section>
 
-                                <div class="table-shell">
-                                    <table>
-                                        <thead>
-                                        <tr><th colspan="6">Stock +150</th></tr>
-                                        <tr>
-                                            <th>ID</th>
-                                            <th>Oportunidad</th>
-                                            <th>Matrícula</th>
-                                            <th>Fecha entrada</th>
-                                            <th class="num">Días</th>
-                                            <th class="num">Importe</th>
-                                        </tr>
-                                        </thead>
-                                        <tbody>
-                                        @forelse ($row['details']['stock_150'] as $detail)
-                                            <tr>
-                                                <td>{{ $detail['opportunity_id'] }}</td>
-                                                <td>{{ $detail['opportunity_name'] }}</td>
-                                                <td>{{ $detail['vehicle_plate'] }}</td>
-                                                <td>{{ $detail['vehicle_entry_date'] }}</td>
-                                                <td class="num">{{ number_format($detail['vehicle_days_in_stock'], 0, ',', '.') }}</td>
-                                                <td class="num">{{ number_format($detail['amount'], 2, ',', '.') }}</td>
-                                            </tr>
-                                        @empty
-                                            <tr><td colspan="6">Sin vehículos +150.</td></tr>
-                                        @endforelse
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </article>
-                    @endforeach
+                                        <section class="commission-detail-grid">
+                                            <div class="table-shell" data-commercial-detail-tab-panel="deliveries">
+                                                <table>
+                                                    <thead>
+                                                    <tr><th colspan="6">Entregas</th></tr>
+                                                    <tr>
+                                                        <th>ID</th>
+                                                        <th>Oportunidad</th>
+                                                        <th>Tipo</th>
+                                                        <th>Fecha</th>
+                                                        <th>Matricula</th>
+                                                        <th class="num">Importe</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                    @forelse ($row['details']['deliveries'] as $detail)
+                                                        <tr>
+                                                            <td>{{ $detail['opportunity_id'] }}</td>
+                                                            <td>{{ $detail['opportunity_name'] }}</td>
+                                                            <td>{{ $detail['record_type_name'] }}</td>
+                                                            <td>{{ $detail['cv_signed_date'] }}</td>
+                                                            <td>{{ $detail['vehicle_plate'] ?: '-' }}</td>
+                                                            <td class="num">{{ number_format($detail['amount'], 2, ',', '.') }}</td>
+                                                        </tr>
+                                                    @empty
+                                                        <tr><td colspan="6">Sin entregas.</td></tr>
+                                                    @endforelse
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            <div class="table-shell is-hidden" data-commercial-detail-tab-panel="purchases">
+                                                <table>
+                                                    <thead>
+                                                    <tr><th colspan="7">Compras cobradas este mes</th></tr>
+                                                    <tr>
+                                                        <th>Matricula</th>
+                                                        <th>Compra</th>
+                                                        <th>Tipo compra</th>
+                                                        <th>Fecha compra</th>
+                                                        <th>Venta posterior</th>
+                                                        <th class="num">Rentabilidad</th>
+                                                        <th class="num">Comision</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                    @forelse ($row['details']['purchases'] as $detail)
+                                                        <tr>
+                                                            <td>{{ $detail['vehicle_plate'] }}</td>
+                                                            <td>{{ $detail['purchase_opportunity_name'] }}</td>
+                                                            <td>{{ $detail['purchase_record_type_name'] }}</td>
+                                                            <td>{{ $detail['purchase_date'] }}</td>
+                                                            <td>{{ $detail['sale_opportunity_name'] }}</td>
+                                                            <td class="num">{{ number_format($detail['rentability_amount'], 2, ',', '.') }}</td>
+                                                            <td class="num">{{ number_format($detail['commission_amount'], 2, ',', '.') }}</td>
+                                                        </tr>
+                                                    @empty
+                                                        <tr><td colspan="7">Sin compras liquidadas en el mes.</td></tr>
+                                                    @endforelse
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            <div class="table-shell is-hidden" data-commercial-detail-tab-panel="shared">
+                                                <table>
+                                                    <thead>
+                                                    <tr><th colspan="5">Compartidas</th></tr>
+                                                    <tr>
+                                                        <th>ID</th>
+                                                        <th>Oportunidad</th>
+                                                        <th>Propietario</th>
+                                                        <th>Fecha</th>
+                                                        <th class="num">Importe</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                    @forelse ($row['details']['shared'] as $detail)
+                                                        <tr>
+                                                            <td>{{ $detail['opportunity_id'] }}</td>
+                                                            <td>{{ $detail['opportunity_name'] }}</td>
+                                                            <td>{{ $detail['owner_name'] }}</td>
+                                                            <td>{{ $detail['cv_signed_date'] }}</td>
+                                                            <td class="num">{{ number_format($detail['amount'], 2, ',', '.') }}</td>
+                                                        </tr>
+                                                    @empty
+                                                        <tr><td colspan="5">Sin compartidas.</td></tr>
+                                                    @endforelse
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            <div class="table-shell is-hidden" data-commercial-detail-tab-panel="stock">
+                                                <table>
+                                                    <thead>
+                                                    <tr><th colspan="6">Stock +150</th></tr>
+                                                    <tr>
+                                                        <th>ID</th>
+                                                        <th>Oportunidad</th>
+                                                        <th>Matricula</th>
+                                                        <th>Fecha entrada</th>
+                                                        <th class="num">Dias</th>
+                                                        <th class="num">Importe</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                    @forelse ($row['details']['stock_150'] as $detail)
+                                                        <tr>
+                                                            <td>{{ $detail['opportunity_id'] }}</td>
+                                                            <td>{{ $detail['opportunity_name'] }}</td>
+                                                            <td>{{ $detail['vehicle_plate'] }}</td>
+                                                            <td>{{ $detail['vehicle_entry_date'] }}</td>
+                                                            <td class="num">{{ number_format($detail['vehicle_days_in_stock'], 0, ',', '.') }}</td>
+                                                            <td class="num">{{ number_format($detail['amount'], 2, ',', '.') }}</td>
+                                                        </tr>
+                                                    @empty
+                                                        <tr><td colspan="6">Sin vehiculos +150.</td></tr>
+                                                    @endforelse
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            <div class="table-shell commission-reviews-table is-hidden" data-commercial-detail-tab-panel="reviews">
+                                                <table>
+                                                    <thead>
+                                                    <tr><th colspan="5">Resenas del mes</th></tr>
+                                                    <tr>
+                                                        <th>ID resena</th>
+                                                        <th>Fecha</th>
+                                                        <th>Oportunidad</th>
+                                                        <th>Propietario oportunidad</th>
+                                                        <th>Propietario resena</th>
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                    @forelse ($row['details']['reviews'] as $detail)
+                                                        <tr>
+                                                            <td>{{ $detail['review_id'] }}</td>
+                                                            <td>{{ $detail['created_date'] }}</td>
+                                                            <td>{{ $detail['opportunity_name'] ?: $detail['opportunity_id'] }}</td>
+                                                            <td>{{ $detail['opportunity_owner_name'] }}</td>
+                                                            <td>{{ $detail['review_owner_name'] }}</td>
+                                                        </tr>
+                                                    @empty
+                                                        <tr><td colspan="5">Sin resenas en el mes.</td></tr>
+                                                    @endforelse
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </section>
+                                    </article>
+                                @endforeach
+                            </section>
+                        </div>
+                    </div>
                 </section>
             @endif
         </section>

@@ -14,6 +14,7 @@ export default defineConfig({
                 'resources/js/reports/reservations-sales-dashboard.js',
                 'resources/js/reports/calls-dashboard.js',
                 'resources/js/reports/campaigns-dashboard.js',
+                'resources/js/reports/commercial-commissions-dashboard.js',
             ],
             refresh: true,
             fonts: [

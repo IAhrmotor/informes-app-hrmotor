@@ -52,7 +52,7 @@
     "src": "_instrument-sans-600-normal-DMks36a2.woff"
   },
   "resources/css/app.css": {
-    "file": "assets/app-BeUeJ8O4.css",
+    "file": "assets/app-CsT7dpZM.css",
     "name": "app",
     "names": [
       "app.css"
@@ -61,7 +61,7 @@
     "isEntry": true
   },
   "resources/css/reports/leads-dashboard.css": {
-    "file": "assets/leads-dashboard-CK2tUk31.css",
+    "file": "assets/leads-dashboard-BsWU1tOs.css",
     "name": "leads-dashboard",
     "names": [
       "leads-dashboard.css"
@@ -85,6 +85,12 @@
     "file": "assets/campaigns-dashboard-DD6SSYIP.js",
     "name": "campaigns-dashboard",
     "src": "resources/js/reports/campaigns-dashboard.js",
+    "isEntry": true
+  },
+  "resources/js/reports/commercial-commissions-dashboard.js": {
+    "file": "assets/commercial-commissions-dashboard-DYtesVMd.js",
+    "name": "commercial-commissions-dashboard",
+    "src": "resources/js/reports/commercial-commissions-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/leads-dashboard.js": {

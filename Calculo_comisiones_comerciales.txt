@@ -1,0 +1,119 @@
+CALCULO DE COMISIONES COMERCIALES
+Version: 2026-06-24
+
+1. Universo que entra en el informe
+
+Solo se usan oportunidades de Salesforce que cumplan:
+
+- CV firmado = true
+- Owner activo = true
+- StageName distinto de "Cerrada perdida"
+- RecordType = Venta, Cambio o Tasacion
+- Fecha_firma_contrato__c dentro del mes seleccionado
+- Gestion_de_venta__c = false o null
+
+2. Conceptos que suman
+
+A. Ventas / Cambios
+- Cada entrega de tipo Venta o Cambio suma 60 EUR.
+
+B. Compras
+- Se busca una compra previa de Tasacion o Cambio con la misma matricula.
+- Esa compra solo se liquida cuando existe una venta posterior de esa matricula en el mes.
+- La comision de compra es:
+  rentabilidad_compra x 1.8%
+- Campo actual usado para rentabilidad:
+  informe_rentabilidad
+
+C. Compartidas
+- Si la oportunidad tiene copropietario en Entrega_Compartida__c, ese copropietario cobra 30 EUR.
+
+D. Stock +150
+- Si la venta tiene Dias_en_stock__c >= 150, suma 10 EUR.
+
+E. Bonus +15
+- A partir de la entrega numero 16, cada entrega extra suma 30 EUR.
+
+3. Conceptos que restan
+
+A. Descuento comercial
+- Se suma OPO_DIV_Descuento__c del comercial en el mes.
+- Se descuenta el 5% de ese total.
+
+B. Penalizacion por garantias
+- Si el total de Garant_a_Total__c del mes es menor de 3500 EUR,
+  se descuenta el 10% de la prima ajustada.
+
+C. Penalizacion por resenas
+- Se calcula:
+  porcentaje_resenas = resenas_del_mes / operaciones_del_mes
+- La logica correcta es excluyente:
+  - si porcentaje_resenas < 30, penalizacion = prima_ajustada x 50%
+  - si porcentaje_resenas >= 30 y porcentaje_resenas < 50, penalizacion = prima_ajustada x 10%
+  - si porcentaje_resenas >= 50, penalizacion = 0
+
+D. Penalizacion por financiacion
+- Se calcula sobre Venta + Cambio + Tasacion.
+- Formula:
+  porcentaje_financiacion = importe_financiado / importe_total_vehiculo
+- Si el porcentaje es menor de 40%, se descuenta el 10% de la prima ajustada.
+
+4. Tramo de entregas
+
+La prima total no se cobra completa siempre. Antes se ajusta por tramo:
+
+- 0 a 6 entregas => 0%
+- 7 a 11 entregas => 80%
+- 12 o mas entregas => 100%
+
+5. Productos adicionales
+
+A. Producto financiacion
+- Se suma Beneficio_financiacion_comercial__c del mes.
+- Sobre ese total se aplica un porcentaje por tramo:
+  - > 50000 => 9%
+  - 30001 a 50000 => 8%
+  - 25001 a 30000 => 7%
+  - 17001 a 25000 => 6%
+  - 12001 a 17000 => 5%
+  - 8001 a 12000 => 4%
+  - 5001 a 8000 => 3%
+  - 1 a 5000 => 2%
+
+B. Producto garantias
+- Se suma Garant_a_Total__c del mes.
+- Sobre ese total se aplica un porcentaje por tramo:
+  - > 20400 => 11%
+  - 14401 a 20400 => 9%
+  - 9601 a 14400 => 7%
+  - 5401 a 9600 => 6%
+  - 3501 a 5400 => 4%
+  - 1 a 3500 => 3%
+
+6. Formula resumida
+
+Prima total =
+  ventas
+  + compras
+  + compartidas
+  - descuento 5%
+  + stock +150
+  + bonus +15
+
+Prima ajustada =
+  prima total x tramo de entregas
+
+Prima neta =
+  max(prima ajustada - penalizaciones, 0)
+
+Comision final =
+  max(prima ajustada - penalizaciones, 0)
+  + producto financiacion
+  + producto garantias
+
+7. Donde se audita
+
+En la propia vista de Comisiones Comerciales:
+
+- tab Resumen: totales y tabla por comercial
+- tab Detalle auditable: buscar comercial y ver el detalle que alimenta el calculo
