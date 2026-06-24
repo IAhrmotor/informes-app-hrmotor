@@ -13,9 +13,27 @@ use Illuminate\Support\Str;
 
 class CommercialCommissionDashboardService
 {
+    private const COMMERCIAL_PROFILES = [
+        'Compra/Venta',
+        'Comerciales Partner Community',
+    ];
+
     private const SUPPORTED_PURCHASE_RENTABILITY_FIELDS = [
         'informe_rentabilidad',
         'rentabilidad_financiera',
+    ];
+
+    private const TECHNICAL_OWNER_IDS = [
+        '0052X00000AP4U5QAL',
+        '0057R00000AKkz0QAD',
+        '0057R00000CQGZaQAP',
+    ];
+
+    private const TECHNICAL_OWNER_NAMES = [
+        'admin adesso',
+        'api user',
+        'carlos torres',
+        'platform integration user',
     ];
 
     public function build(?string $month): array
@@ -54,6 +72,7 @@ class CommercialCommissionDashboardService
         $sharedDeliveriesByCoowner = $deliveries
             ->filter(fn (SalesforceOpportunity $row) => filled($row->shared_delivery_id))
             ->groupBy(fn (SalesforceOpportunity $row) => (string) $row->shared_delivery_id);
+        $salesforceUsersById = $this->salesforceUsersById();
 
         $userNames = [];
 
@@ -73,23 +92,18 @@ class CommercialCommissionDashboardService
             }
         }
 
-        SalesforceUser::query()
-            ->where('is_active', true)
-            ->get(['salesforce_id', 'name'])
-            ->each(function (SalesforceUser $user) use (&$userNames): void {
-                if (! filled($user->salesforce_id)) {
-                    return;
-                }
-
-                $userNames[(string) $user->salesforce_id] = $user->name ?: $user->salesforce_id;
-            });
-
         $userIds = collect(array_keys($userNames))
             ->merge($operationsByOwner->keys())
             ->merge($purchaseDetailsByOwner->keys())
-            ->merge($sharedDeliveriesByCoowner->keys())
             ->filter()
             ->unique()
+            ->filter(function (string $userId) use ($userNames, $salesforceUsersById): bool {
+                return $this->isEligibleCommercialUser(
+                    $userId,
+                    $userNames[$userId] ?? null,
+                    $salesforceUsersById->get($userId)
+                );
+            })
             ->values();
 
         $rows = $userIds->map(function (string $userId) use (
@@ -499,6 +513,34 @@ class CommercialCommissionDashboardService
                 ->unique()
                 ->values(),
         );
+        $matchedPurchaseDetails = $this->resolvePurchaseCommissionDetails($monthlyDeliveries);
+        $salesforceUsersById = $this->salesforceUsersById();
+        $ownerNames = [];
+
+        foreach ($monthlyDeliveries as $row) {
+            if (filled($row->owner_id)) {
+                $ownerNames[(string) $row->owner_id] = $row->owner_name ?: $row->owner_id;
+            }
+        }
+
+        foreach ($matchedPurchaseDetails as $detail) {
+            if (filled($detail['purchase_owner_id'] ?? null)) {
+                $ownerNames[(string) $detail['purchase_owner_id']] = $detail['purchase_owner_name'] ?: $detail['purchase_owner_id'];
+            }
+        }
+
+        $eligibleCommercialIds = collect()
+            ->merge($monthlyDeliveries->pluck('owner_id'))
+            ->merge(collect($matchedPurchaseDetails)->pluck('purchase_owner_id'))
+            ->filter()
+            ->unique()
+            ->filter(function (string $userId) use ($ownerNames, $salesforceUsersById): bool {
+                return $this->isEligibleCommercialUser(
+                    $userId,
+                    $ownerNames[$userId] ?? null,
+                    $salesforceUsersById->get($userId)
+                );
+            });
 
         return [
             ...$base,
@@ -509,11 +551,11 @@ class CommercialCommissionDashboardService
             'shared_sales_count' => (clone $salesQuery)->whereNotNull('shared_delivery_id')->count(),
             'stock_150_count' => (clone $salesQuery)->where('vehicle_days_in_stock', '>=', 150)->count(),
             'reviews_count' => $this->monthlyReviews($periodStart, $periodEnd)->count(),
-            'commercials_count' => (clone $baseQuery)->distinct('owner_id')->count('owner_id'),
+            'commercials_count' => $eligibleCommercialIds->count(),
             'synced_users_count' => SalesforceUser::query()->where('is_active', true)->count(),
             'sold_vehicle_links_count' => $soldVehicleLinksCount,
             'historical_purchase_candidates_count' => $historicalCandidates->count(),
-            'matched_purchase_commissions_count' => count($this->resolvePurchaseCommissionDetails($monthlyDeliveries)),
+            'matched_purchase_commissions_count' => count($matchedPurchaseDetails),
             'candidate_rentability_fields' => [
                 $this->rentabilityFieldDiagnostics(clone $baseQuery, 'informe_rentabilidad', 2),
                 $this->rentabilityFieldDiagnostics(clone $baseQuery, 'rentabilidad_financiera', 6),
@@ -723,6 +765,48 @@ class CommercialCommissionDashboardService
         $this->applyRecordTypeFilter($query, $values);
 
         return $query;
+    }
+
+    private function salesforceUsersById(): Collection
+    {
+        return SalesforceUser::query()
+            ->get(['salesforce_id', 'name', 'profile_name', 'is_active'])
+            ->filter(fn (SalesforceUser $user) => filled($user->salesforce_id))
+            ->keyBy(fn (SalesforceUser $user) => (string) $user->salesforce_id);
+    }
+
+    private function isEligibleCommercialUser(string $userId, ?string $userName, ?SalesforceUser $salesforceUser): bool
+    {
+        if (in_array((string) $userId, self::TECHNICAL_OWNER_IDS, true)) {
+            return false;
+        }
+
+        $normalizedName = $this->normalizeUserName($userName);
+
+        if ($normalizedName !== '' && in_array($normalizedName, self::TECHNICAL_OWNER_NAMES, true)) {
+            return false;
+        }
+
+        if ($salesforceUser === null) {
+            return true;
+        }
+
+        if (in_array($this->normalizeUserName($salesforceUser->name), self::TECHNICAL_OWNER_NAMES, true)) {
+            return false;
+        }
+
+        return in_array((string) $salesforceUser->profile_name, self::COMMERCIAL_PROFILES, true);
+    }
+
+    private function normalizeUserName(?string $value): string
+    {
+        return Str::of((string) $value)
+            ->lower()
+            ->ascii()
+            ->replaceMatches('/[^a-z0-9]+/', ' ')
+            ->replaceMatches('/\s+/', ' ')
+            ->trim()
+            ->toString();
     }
 
     private function normalizePlate(mixed $value): string

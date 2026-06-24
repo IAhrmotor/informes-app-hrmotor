@@ -12,14 +12,24 @@ Solo se usan oportunidades de Salesforce que cumplan:
 - Fecha_firma_contrato__c dentro del mes seleccionado
 - Gestion_de_venta__c = false o null
 
+En el resumen visible del informe solo se muestran:
+
+- comerciales o tasadores reales
+- con venta/cambio del mes o con compra liquidada en el mes
+
+No se listan usuarios tecnicos ni usuarios sincronizados sin actividad.
+
 2. Conceptos que suman
 
 A. Ventas / Cambios
 - Cada entrega de tipo Venta o Cambio suma 60 EUR.
 
 B. Compras
-- Se busca una compra previa de Tasacion o Cambio con la misma matricula.
+- Se busca una compra previa de Tasacion o Cambio.
+- El cruce intenta primero `vehicle_interest_id` y despues la matricula normalizada.
+- La matricula se normaliza para tolerar espacios y guiones.
 - Esa compra solo se liquida cuando existe una venta posterior de esa matricula en el mes.
+- La comision de compra se asigna al owner de la compra original, no al vendedor posterior.
 - La comision de compra es:
   rentabilidad_compra x 1.8%
 - Campo actual usado para rentabilidad:
@@ -117,3 +127,8 @@ En la propia vista de Comisiones Comerciales:
 
 - tab Resumen: totales y tabla por comercial
 - tab Detalle auditable: buscar comercial y ver el detalle que alimenta el calculo
+
+8. Acceso actual
+
+- pueden verlo `admin` y `carlos.torres@hrmotor.es`
+- el resto de usuarios no ven la tab ni pueden abrir la ruta

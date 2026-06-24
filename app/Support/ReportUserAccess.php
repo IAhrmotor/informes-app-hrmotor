@@ -7,6 +7,10 @@ use Illuminate\Http\Request;
 
 class ReportUserAccess
 {
+    private const COMMERCIAL_COMMISSIONS_ALLOWED_EMAILS = [
+        'carlos.torres@hrmotor.es',
+    ];
+
     public static function current(Request $request): ?array
     {
         if (! config('services.informes_auth.enabled', true)) {
@@ -59,7 +63,11 @@ class ReportUserAccess
 
     public static function canViewCommercialCommissions(Request $request): bool
     {
-        return self::isAdmin($request);
+        if (self::isAdmin($request)) {
+            return true;
+        }
+
+        return in_array(self::normalizeEmail((string) (self::current($request)['email'] ?? '')), self::COMMERCIAL_COMMISSIONS_ALLOWED_EMAILS, true);
     }
 
     public static function canExport(Request $request): bool
@@ -75,5 +83,10 @@ class ReportUserAccess
     private static function normalizeRole(string $role): string
     {
         return trim(mb_strtolower($role));
+    }
+
+    private static function normalizeEmail(string $email): string
+    {
+        return trim(mb_strtolower($email));
     }
 }

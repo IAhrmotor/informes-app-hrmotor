@@ -37,7 +37,28 @@ class CommercialCommissionDashboardTest extends TestCase
             ->assertSee('Campos candidatos de rentabilidad');
     }
 
-    public function test_director_y_area_manager_no_ven_la_tab_ni_pueden_entrar(): void
+    public function test_carlos_torres_puede_ver_tab_y_puede_entrar_a_comisiones_comerciales_sin_ser_admin(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_VIEWER,
+            'report_user_email' => 'carlos.torres@hrmotor.es',
+        ];
+
+        $this->withSession($session)
+            ->get('/informes/leads')
+            ->assertOk()
+            ->assertSee('/informes/comisiones-comerciales', false);
+
+        $this->withSession($session)
+            ->get('/informes/comisiones-comerciales')
+            ->assertOk()
+            ->assertSee('Comisiones Comerciales');
+    }
+
+    public function test_director_area_manager_y_viewer_no_autorizado_no_ven_la_tab_ni_pueden_entrar(): void
     {
         config()->set('services.informes_auth.enabled', true);
 
@@ -51,6 +72,11 @@ class CommercialCommissionDashboardTest extends TestCase
             'report_user_role' => ReportUser::ROLE_AREA_MANAGER,
             'report_user_email' => 'area@hrmotor.com',
         ];
+        $viewerSession = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_VIEWER,
+            'report_user_email' => 'viewer@hrmotor.com',
+        ];
 
         $this->withSession($directorSession)
             ->get('/informes/leads')
@@ -67,6 +93,15 @@ class CommercialCommissionDashboardTest extends TestCase
             ->assertDontSee('/informes/comisiones-comerciales', false);
 
         $this->withSession($areaManagerSession)
+            ->get('/informes/comisiones-comerciales')
+            ->assertRedirect('/informes/leads');
+
+        $this->withSession($viewerSession)
+            ->get('/informes/leads')
+            ->assertOk()
+            ->assertDontSee('/informes/comisiones-comerciales', false);
+
+        $this->withSession($viewerSession)
             ->get('/informes/comisiones-comerciales')
             ->assertRedirect('/informes/leads');
     }
@@ -75,6 +110,20 @@ class CommercialCommissionDashboardTest extends TestCase
     {
         config()->set('commercial_commissions.purchase_rentability_field', 'informe_rentabilidad');
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        SalesforceUser::create([
+            'salesforce_id' => '005-A',
+            'name' => 'Comercial A',
+            'profile_name' => 'Compra/Venta',
+            'is_active' => true,
+        ]);
+
+        SalesforceUser::create([
+            'salesforce_id' => '005-B',
+            'name' => 'Comercial B',
+            'profile_name' => 'Compra/Venta',
+            'is_active' => true,
+        ]);
 
         SalesforceUser::create([
             'salesforce_id' => '005-Z',
@@ -189,9 +238,7 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(30.0, $commercialB['shared_amount']);
         $this->assertEquals(0.0, $commercialB['prima_adjusted']);
         $this->assertEquals(0.0, $commercialB['final_commission']);
-        $this->assertNotNull($commercialZ);
-        $this->assertSame(0, $commercialZ['deliveries_count']);
-        $this->assertEquals(0.0, $commercialZ['final_commission']);
+        $this->assertNull($commercialZ);
     }
 
     public function test_dashboard_aplica_penalizacion_de_resenas_excluyente_y_financiacion_incluye_tasaciones(): void
