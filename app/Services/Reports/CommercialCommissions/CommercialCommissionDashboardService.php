@@ -4,6 +4,7 @@ namespace App\Services\Reports\CommercialCommissions;
 
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceReview;
+use App\Models\SalesforceUser;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -71,6 +72,17 @@ class CommercialCommissionDashboardService
                 $userNames[(string) $detail['purchase_owner_id']] = $detail['purchase_owner_name'] ?: $detail['purchase_owner_id'];
             }
         }
+
+        SalesforceUser::query()
+            ->where('is_active', true)
+            ->get(['salesforce_id', 'name'])
+            ->each(function (SalesforceUser $user) use (&$userNames): void {
+                if (! filled($user->salesforce_id)) {
+                    return;
+                }
+
+                $userNames[(string) $user->salesforce_id] = $user->name ?: $user->salesforce_id;
+            });
 
         $userIds = collect(array_keys($userNames))
             ->merge($operationsByOwner->keys())
@@ -255,16 +267,22 @@ class CommercialCommissionDashboardService
     {
         $plates = $monthlyDeliveries->pluck('vehicle_plate')->filter()->unique()->values();
         $vehicleInterestIds = $monthlyDeliveries->pluck('vehicle_interest_id')->filter()->unique()->values();
+        $normalizedPlates = $monthlyDeliveries
+            ->pluck('vehicle_plate')
+            ->map(fn ($plate) => $this->normalizePlate($plate))
+            ->filter()
+            ->unique()
+            ->values();
 
-        if ($plates->isEmpty() && $vehicleInterestIds->isEmpty()) {
+        if ($plates->isEmpty() && $vehicleInterestIds->isEmpty() && $normalizedPlates->isEmpty()) {
             return [];
         }
 
         $rentabilityField = $this->purchaseRentabilityField();
-        $purchaseCandidates = $this->purchaseCandidates($plates, $vehicleInterestIds);
+        $purchaseCandidates = $this->purchaseCandidates($plates, $vehicleInterestIds, $normalizedPlates);
         $purchaseCandidatesByPlate = $purchaseCandidates
             ->filter(fn (SalesforceOpportunity $row) => filled($row->vehicle_plate))
-            ->groupBy(fn (SalesforceOpportunity $row) => (string) $row->vehicle_plate);
+            ->groupBy(fn (SalesforceOpportunity $row) => $this->normalizePlate($row->vehicle_plate));
         $purchaseCandidatesByVehicle = $purchaseCandidates
             ->filter(fn (SalesforceOpportunity $row) => filled($row->vehicle_interest_id))
             ->groupBy(fn (SalesforceOpportunity $row) => (string) $row->vehicle_interest_id);
@@ -274,15 +292,16 @@ class CommercialCommissionDashboardService
         foreach ($monthlyDeliveries as $sale) {
             $saleDate = $sale->cv_signed_date ? CarbonImmutable::parse($sale->cv_signed_date) : null;
             $plate = (string) $sale->vehicle_plate;
+            $normalizedPlate = $this->normalizePlate($sale->vehicle_plate);
             $vehicleInterestId = (string) $sale->vehicle_interest_id;
 
-            if ($saleDate === null || ($plate === '' && $vehicleInterestId === '')) {
+            if ($saleDate === null || ($normalizedPlate === '' && $vehicleInterestId === '')) {
                 continue;
             }
 
             $candidatePool = collect()
                 ->merge($vehicleInterestId !== '' ? $purchaseCandidatesByVehicle->get($vehicleInterestId, collect()) : collect())
-                ->merge($plate !== '' ? $purchaseCandidatesByPlate->get($plate, collect()) : collect())
+                ->merge($normalizedPlate !== '' ? $purchaseCandidatesByPlate->get($normalizedPlate, collect()) : collect())
                 ->unique(fn (SalesforceOpportunity $candidate) => (string) $candidate->salesforce_id)
                 ->values();
 
@@ -389,6 +408,16 @@ class CommercialCommissionDashboardService
             $issues[] = 'La tabla local salesforce_reviews no existe todavia. Ejecuta las migraciones pendientes.';
         }
 
+        if (! Schema::hasTable('salesforce_users')) {
+            $issues[] = 'La tabla local salesforce_users no existe todavia. Ejecuta las migraciones pendientes.';
+        } else {
+            foreach (['salesforce_id', 'name', 'is_active'] as $column) {
+                if (! Schema::hasColumn('salesforce_users', $column)) {
+                    $issues[] = "Falta la columna local salesforce_users.{$column}. Ejecuta las migraciones pendientes.";
+                }
+            }
+        }
+
         $purchaseRentabilityField = $this->purchaseRentabilityField();
 
         if (! in_array($purchaseRentabilityField, self::SUPPORTED_PURCHASE_RENTABILITY_FIELDS, true)) {
@@ -438,6 +467,7 @@ class CommercialCommissionDashboardService
             'stock_150_count' => 0,
             'reviews_count' => 0,
             'commercials_count' => 0,
+            'synced_users_count' => 0,
             'sale_management_filter_applied' => $this->hasSaleManagementFilter(),
             'sold_vehicle_links_count' => 0,
             'historical_purchase_candidates_count' => 0,
@@ -462,6 +492,12 @@ class CommercialCommissionDashboardService
         $historicalCandidates = $this->purchaseCandidates(
             $monthlyDeliveries->pluck('vehicle_plate')->filter()->unique()->values(),
             $monthlyDeliveries->pluck('vehicle_interest_id')->filter()->unique()->values(),
+            $monthlyDeliveries
+                ->pluck('vehicle_plate')
+                ->map(fn ($plate) => $this->normalizePlate($plate))
+                ->filter()
+                ->unique()
+                ->values(),
         );
 
         return [
@@ -474,6 +510,7 @@ class CommercialCommissionDashboardService
             'stock_150_count' => (clone $salesQuery)->where('vehicle_days_in_stock', '>=', 150)->count(),
             'reviews_count' => $this->monthlyReviews($periodStart, $periodEnd)->count(),
             'commercials_count' => (clone $baseQuery)->distinct('owner_id')->count('owner_id'),
+            'synced_users_count' => SalesforceUser::query()->where('is_active', true)->count(),
             'sold_vehicle_links_count' => $soldVehicleLinksCount,
             'historical_purchase_candidates_count' => $historicalCandidates->count(),
             'matched_purchase_commissions_count' => count($this->resolvePurchaseCommissionDetails($monthlyDeliveries)),
@@ -515,23 +552,32 @@ class CommercialCommissionDashboardService
         return in_array($this->normalizeRecordType($row->record_type_name), ['venta', 'cambio'], true);
     }
 
-    private function purchaseCandidates(Collection $plates, Collection $vehicleInterestIds): Collection
+    private function purchaseCandidates(Collection $plates, Collection $vehicleInterestIds, Collection $normalizedPlates): Collection
     {
-        if ($plates->isEmpty() && $vehicleInterestIds->isEmpty()) {
+        if ($plates->isEmpty() && $vehicleInterestIds->isEmpty() && $normalizedPlates->isEmpty()) {
             return collect();
         }
 
         $query = SalesforceOpportunity::query()
             ->where('cv_signed', true)
             ->whereRaw('LOWER(COALESCE(stage_name, \'\')) <> ?', ['cerrada perdida'])
-            ->where(function (Builder $builder) use ($plates, $vehicleInterestIds): void {
+            ->where(function (Builder $builder) use ($plates, $vehicleInterestIds, $normalizedPlates): void {
+                $hasPreviousCondition = false;
+
                 if ($vehicleInterestIds->isNotEmpty()) {
                     $builder->whereIn('vehicle_interest_id', $vehicleInterestIds->all());
+                    $hasPreviousCondition = true;
                 }
 
                 if ($plates->isNotEmpty()) {
-                    $method = $vehicleInterestIds->isNotEmpty() ? 'orWhereIn' : 'whereIn';
+                    $method = $hasPreviousCondition ? 'orWhereIn' : 'whereIn';
                     $builder->{$method}('vehicle_plate', $plates->all());
+                    $hasPreviousCondition = true;
+                }
+
+                if ($normalizedPlates->isNotEmpty()) {
+                    $method = $hasPreviousCondition ? 'orWhereRaw' : 'whereRaw';
+                    $builder->{$method}($this->normalizedVehiclePlateSql().' IN ('.$this->sqlPlaceholders($normalizedPlates->count()).')', $normalizedPlates->all());
                 }
             });
 
@@ -677,6 +723,21 @@ class CommercialCommissionDashboardService
         $this->applyRecordTypeFilter($query, $values);
 
         return $query;
+    }
+
+    private function normalizePlate(mixed $value): string
+    {
+        return Str::upper(preg_replace('/[^A-Za-z0-9]+/', '', (string) $value) ?? '');
+    }
+
+    private function normalizedVehiclePlateSql(): string
+    {
+        return "REPLACE(REPLACE(UPPER(COALESCE(vehicle_plate, '')), ' ', ''), '-', '')";
+    }
+
+    private function sqlPlaceholders(int $count): string
+    {
+        return implode(', ', array_fill(0, $count, '?'));
     }
 
     private function resolveMonth(?string $month): CarbonImmutable

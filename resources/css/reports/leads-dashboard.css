@@ -3126,6 +3126,35 @@ th.num {
     color: #9a3412;
 }
 
+.commercial-commissions-report .kpi-tooltip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: help;
+    text-decoration: underline dotted rgba(31, 41, 68, .28);
+    text-underline-offset: 3px;
+}
+
+.commercial-commissions-report .kpi-tooltip:hover::after {
+    content: attr(data-kpi-tooltip);
+    position: absolute;
+    left: 0;
+    top: calc(100% + 10px);
+    z-index: 20;
+    width: min(320px, 70vw);
+    padding: 12px 14px;
+    border: 1px solid rgba(31, 41, 68, .10);
+    border-radius: 18px;
+    background: #ffffff;
+    color: #1f2944;
+    font-size: 12px;
+    line-height: 1.45;
+    letter-spacing: 0;
+    box-shadow: 0 16px 36px rgba(15, 23, 42, .10);
+    white-space: normal;
+}
+
 .commercial-commissions-report .commission-diagnostics-grid {
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }

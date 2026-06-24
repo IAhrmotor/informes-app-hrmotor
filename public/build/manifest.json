@@ -61,7 +61,7 @@
     "isEntry": true
   },
   "resources/css/reports/leads-dashboard.css": {
-    "file": "assets/leads-dashboard-BsWU1tOs.css",
+    "file": "assets/leads-dashboard-BbZ0-rx1.css",
     "name": "leads-dashboard",
     "names": [
       "leads-dashboard.css"
@@ -88,7 +88,7 @@
     "isEntry": true
   },
   "resources/js/reports/commercial-commissions-dashboard.js": {
-    "file": "assets/commercial-commissions-dashboard-C3lzYtKt.js",
+    "file": "assets/commercial-commissions-dashboard-DouJCy94.js",
     "name": "commercial-commissions-dashboard",
     "src": "resources/js/reports/commercial-commissions-dashboard.js",
     "isEntry": true

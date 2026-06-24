@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\ReportUser;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceReview;
+use App\Models\SalesforceUser;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -74,6 +75,13 @@ class CommercialCommissionDashboardTest extends TestCase
     {
         config()->set('commercial_commissions.purchase_rentability_field', 'informe_rentabilidad');
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        SalesforceUser::create([
+            'salesforce_id' => '005-Z',
+            'name' => 'Tasador Sin Actividad',
+            'profile_name' => 'Compra/Venta',
+            'is_active' => true,
+        ]);
 
         foreach (range(1, 7) as $index) {
             SalesforceOpportunity::create([
@@ -159,6 +167,7 @@ class CommercialCommissionDashboardTest extends TestCase
 
         $commercialA = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-A');
         $commercialB = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-B');
+        $commercialZ = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-Z');
 
         $this->assertSame(7, $commercialA['deliveries_count']);
         $this->assertSame(7, $commercialA['operations_count']);
@@ -180,6 +189,9 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(30.0, $commercialB['shared_amount']);
         $this->assertEquals(0.0, $commercialB['prima_adjusted']);
         $this->assertEquals(0.0, $commercialB['final_commission']);
+        $this->assertNotNull($commercialZ);
+        $this->assertSame(0, $commercialZ['deliveries_count']);
+        $this->assertEquals(0.0, $commercialZ['final_commission']);
     }
 
     public function test_dashboard_aplica_penalizacion_de_resenas_excluyente_y_financiacion_incluye_tasaciones(): void
@@ -443,6 +455,55 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertNotNull($vendedor);
         $this->assertEquals(18.0, $comprador['purchases_amount']);
         $this->assertCount(1, $comprador['details']['purchases']);
+        $this->assertEquals(0.0, $vendedor['purchases_amount']);
+    }
+
+    public function test_dashboard_normaliza_matriculas_con_espacios_para_liquidar_compras(): void
+    {
+        config()->set('commercial_commissions.purchase_rentability_field', 'informe_rentabilidad');
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'PURCHASE-PLATE-1',
+            'name' => 'Compra con espacio en matricula',
+            'owner_id' => '005-P1',
+            'owner_name' => 'Josue Fernandez',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Tasacion',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-10',
+            'gestion_de_venta' => false,
+            'vehicle_plate' => '9978 MBZ',
+            'informe_rentabilidad' => 1000,
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'SALE-PLATE-1',
+            'name' => 'Venta posterior sin espacio',
+            'owner_id' => '005-P2',
+            'owner_name' => 'Leonardo Gonzalez',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-10',
+            'opo_for_importe_total' => 15000,
+            'importe_financiado' => 7000,
+            'gestion_de_venta' => false,
+            'vehicle_plate' => '9978MBZ',
+        ]);
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+
+        $comprador = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-P1');
+        $vendedor = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-P2');
+
+        $this->assertNotNull($comprador);
+        $this->assertNotNull($vendedor);
+        $this->assertEquals(18.0, $comprador['purchases_amount']);
+        $this->assertCount(1, $comprador['details']['purchases']);
+        $this->assertSame('Josue Fernandez', $comprador['commercial_name']);
         $this->assertEquals(0.0, $vendedor['purchases_amount']);
     }
 }

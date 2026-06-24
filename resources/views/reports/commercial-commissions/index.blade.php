@@ -23,6 +23,28 @@
     $totalPrimaAdjusted = (float) $summaryRows->sum('prima_adjusted');
     $totalPenalties = (float) $summaryRows->sum('total_penalties');
     $totalDeliveries = (int) $summaryRows->sum('deliveries_count');
+    $kpiTooltips = [
+        'Mes analizado' => 'Mes cerrado usado por el informe. Pivota por cv_signed_date, que viene de Fecha_firma_contrato__c.',
+        'Oportunidades' => 'Conteo de salesforce_opportunities con cv_signed=true, stage_name distinto de Cerrada perdida, record_type Venta/Cambio/Tasacion y gestion_de_venta false o null.',
+        'Resenas' => 'Conteo de salesforce_reviews creadas dentro del mes. Fuente Salesforce: objeto Resena__c.',
+        'Estado' => 'Indica si existen bloqueos de datos o estructura que impiden calcular el informe.',
+        'Comerciales' => 'Numero de usuarios activos cargados desde salesforce_users y mostrados en el resumen, aunque tengan 0 actividad en el mes.',
+        'Comision final' => 'Formula: max(prima ajustada - penalizaciones, 0) + producto financiacion + producto garantias.',
+        'Prima ajustada' => 'Formula: prima total x tramo de entregas.',
+        'Penalizaciones' => 'Suma de penalizacion por garantias, penalizacion por resenas y penalizacion por financiacion.',
+        'Entregas' => 'Conteo de oportunidades de tipo Venta y Cambio del mes. Cada entrega suma 60 EUR.',
+        'Operaciones' => 'Conteo de oportunidades de tipo Venta, Cambio y Tasacion del mes.',
+        'Compras liquidadas' => 'Compras historicas enlazadas a una venta del mes. Formula por compra: rentabilidad_compra x 1.8%. Fuente principal: informe_rentabilidad.',
+        'Compartidas' => 'Suma de 30 EUR por cada oportunidad con Entrega_Compartida__c.',
+        'Ventas' => 'Importe calculado como entregas x 60 EUR.',
+        'Stock +150' => 'Suma de 10 EUR por cada entrega con Dias_en_stock__c >= 150.',
+        'Bonus +15' => 'Suma de 30 EUR por cada entrega a partir de la numero 16.',
+        'Prima total' => 'Formula: ventas + compras + compartidas - descuento 5% + stock +150 + bonus +15.',
+        'Prima neta' => 'Formula: max(prima ajustada - penalizaciones, 0).',
+        'Prod. financiacion' => 'Producto calculado por tramos sobre Beneficio_financiacion_comercial__c.',
+        'Prod. garantias' => 'Producto calculado por tramos sobre Garant_a_Total__c.',
+    ];
+    $tooltip = static fn (string $label): string => $kpiTooltips[$label] ?? '';
 @endphp
 <body class="campaigns-report commercial-commissions-report">
 <div class="wrap">
@@ -58,22 +80,22 @@
 
             <section class="kpis dashboard-kpis">
                 <article class="card campaign-kpi">
-                    <div class="kpi-label">Mes analizado</div>
+                    <div class="kpi-label"><span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Mes analizado') }}">Mes analizado</span></div>
                     <div class="kpi-value">{{ $dashboard['month_label'] }}</div>
                     <div class="kpi-hint">Periodo cerrado seleccionado para contraste.</div>
                 </article>
                 <article class="card campaign-kpi">
-                    <div class="kpi-label">Oportunidades</div>
+                    <div class="kpi-label"><span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Oportunidades') }}">Oportunidades</span></div>
                     <div class="kpi-value">{{ number_format($dashboard['diagnostics']['opportunities_total'], 0, ',', '.') }}</div>
                     <div class="kpi-hint">CV firmados de Venta, Cambio y Tasacion en el mes.</div>
                 </article>
                 <article class="card campaign-kpi">
-                    <div class="kpi-label">Resenas</div>
+                    <div class="kpi-label"><span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Resenas') }}">Resenas</span></div>
                     <div class="kpi-value">{{ number_format($dashboard['diagnostics']['reviews_count'], 0, ',', '.') }}</div>
                     <div class="kpi-hint">Objeto `Resena__c` creado dentro del mes.</div>
                 </article>
                 <article class="card campaign-kpi">
-                    <div class="kpi-label">Estado</div>
+                    <div class="kpi-label"><span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Estado') }}">Estado</span></div>
                     <div class="kpi-value">{{ $dashboard['ready'] ? 'Listo para validar' : 'Pendiente de cierre' }}</div>
                     <div class="kpi-hint">Solo administradores pueden verlo por ahora.</div>
                 </article>
@@ -110,6 +132,10 @@
                     <div class="diagnostic-item">
                         <span>Comerciales detectados</span>
                         <strong>{{ number_format($dashboard['diagnostics']['commercials_count'], 0, ',', '.') }}</strong>
+                    </div>
+                    <div class="diagnostic-item">
+                        <span>Usuarios sincronizados</span>
+                        <strong>{{ number_format($dashboard['diagnostics']['synced_users_count'] ?? 0, 0, ',', '.') }}</strong>
                     </div>
                     <div class="diagnostic-item">
                         <span>Filtro Gestion de venta</span>
@@ -178,19 +204,19 @@
                     <div data-commission-tab-panel="summary">
                         <section class="campaign-context-grid commission-context-grid">
                             <article class="card campaign-context-card">
-                                <span>Comerciales</span>
+                                <span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Comerciales') }}">Comerciales</span>
                                 <strong>{{ number_format($summaryRows->count(), 0, ',', '.') }}</strong>
                             </article>
                             <article class="card campaign-context-card">
-                                <span>Comision final</span>
+                                <span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Comision final') }}">Comision final</span>
                                 <strong>{{ number_format($totalFinalCommission, 2, ',', '.') }} €</strong>
                             </article>
                             <article class="card campaign-context-card">
-                                <span>Prima ajustada</span>
+                                <span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Prima ajustada') }}">Prima ajustada</span>
                                 <strong>{{ number_format($totalPrimaAdjusted, 2, ',', '.') }} €</strong>
                             </article>
                             <article class="card campaign-context-card">
-                                <span>Penalizaciones</span>
+                                <span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Penalizaciones') }}">Penalizaciones</span>
                                 <strong>{{ number_format($totalPenalties, 2, ',', '.') }} €</strong>
                             </article>
                         </section>
