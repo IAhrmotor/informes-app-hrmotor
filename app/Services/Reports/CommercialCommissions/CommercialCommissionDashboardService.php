@@ -114,12 +114,14 @@ class CommercialCommissionDashboardService
             $purchaseDetailsByOwner,
             $sharedDeliveriesByCoowner,
             $userNames,
+            $salesforceUsersById,
         ): array {
             /** @var Collection<int, SalesforceOpportunity> $ownerOperations */
             $ownerOperations = $operationsByOwner->get($userId, collect());
             $ownerDeliveries = $ownerOperations->filter(fn (SalesforceOpportunity $row) => $this->isDelivery($row))->values();
             $ownerSoloDeliveries = $ownerDeliveries->filter(fn (SalesforceOpportunity $row) => ! filled($row->shared_delivery_id))->values();
             $ownerPrimarySharedDeliveries = $ownerDeliveries->filter(fn (SalesforceOpportunity $row) => filled($row->shared_delivery_id))->values();
+            $salesforceUser = $salesforceUsersById->get($userId);
             $ownerReviews = $reviewsByOwner->get($userId, collect())->values();
             $ownerPurchaseDetails = collect($purchaseDetailsByOwner->get($userId, collect()))->values();
             $ownerSharedDeliveries = $sharedDeliveriesByCoowner->get($userId, collect())->values();
@@ -151,7 +153,10 @@ class CommercialCommissionDashboardService
                 2
             );
 
-            [$deliveryBracketLabel, $deliveryBracketPercent] = $this->deliveryBracket($deliveriesCount);
+            [$deliveryBracketLabel, $deliveryBracketPercent] = $this->deliveryBracket(
+                $deliveriesCount,
+                $salesforceUser?->profile_name
+            );
             $primaAdjusted = round($primaTotal * $deliveryBracketPercent, 2);
 
             $guaranteeTotal = round((float) $ownerOperations->sum(
@@ -666,8 +671,12 @@ class CommercialCommissionDashboardService
             ->toString();
     }
 
-    private function deliveryBracket(int $deliveries): array
+    private function deliveryBracket(int $deliveries, ?string $profileName = null): array
     {
+        if ($this->alwaysFullDeliveryBracketProfile($profileName)) {
+            return ['100%', 1.0];
+        }
+
         if ($deliveries <= 6) {
             return ['0-6', 0.0];
         }
@@ -677,6 +686,11 @@ class CommercialCommissionDashboardService
         }
 
         return ['12+', 1.0];
+    }
+
+    private function alwaysFullDeliveryBracketProfile(?string $profileName): bool
+    {
+        return (string) $profileName === 'Compra/Venta';
     }
 
     private function financingProductPercent(float $amount): float

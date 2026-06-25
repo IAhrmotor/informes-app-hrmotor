@@ -89,6 +89,8 @@ D. Penalizacion por financiacion
 
 La prima total no se cobra completa siempre. Antes se ajusta por tramo:
 
+- Para perfil Salesforce `Compra/Venta`, el tramo aplicado es siempre 100%.
+- Para perfil Salesforce `Comerciales Partner Community`, si aplica la tabla normal de tramos.
 - 0 a 6 entregas => 0%
 - 7 a 11 entregas => 80%
 - 12 o mas entregas => 100%

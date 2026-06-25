@@ -231,13 +231,13 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(35.0, $commercialA['discount_penalty_amount']);
         $this->assertEquals(10.0, $commercialA['stock_150_amount']);
         $this->assertEquals(417.2, $commercialA['prima_total']);
-        $this->assertEquals(80.0, $commercialA['delivery_bracket_percent']);
-        $this->assertEquals(333.76, $commercialA['prima_adjusted']);
+        $this->assertEquals(100.0, $commercialA['delivery_bracket_percent']);
+        $this->assertEquals(417.2, $commercialA['prima_adjusted']);
         $this->assertEquals(57.14, $commercialA['reviews_percentage']);
         $this->assertEquals(50.0, $commercialA['financing_percentage']);
         $this->assertEquals(210.0, $commercialA['financing_product_amount']);
         $this->assertEquals(420.0, $commercialA['guarantee_product_amount']);
-        $this->assertEquals(963.76, $commercialA['final_commission']);
+        $this->assertEquals(1047.2, $commercialA['final_commission']);
         $this->assertCount(1, $commercialA['details']['purchases']);
 
         $this->assertNull($commercialB);
@@ -312,17 +312,68 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertSame(7, $commercial['deliveries_count']);
         $this->assertSame(10, $commercial['operations_count']);
         $this->assertEquals(420.0, $commercial['prima_total']);
-        $this->assertEquals(336.0, $commercial['prima_adjusted']);
+        $this->assertEquals(420.0, $commercial['prima_adjusted']);
         $this->assertEquals(4, $commercial['reviews_count']);
         $this->assertEquals(40.0, $commercial['reviews_percentage']);
-        $this->assertEquals(33.6, $commercial['reviews_penalty']);
+        $this->assertEquals(42.0, $commercial['reviews_penalty']);
         $this->assertEquals(35000.0, $commercial['financed_amount']);
         $this->assertEquals(100000.0, $commercial['total_vehicle_amount']);
         $this->assertEquals(35.0, $commercial['financing_percentage']);
-        $this->assertEquals(33.6, $commercial['financing_penalty']);
-        $this->assertEquals(67.2, $commercial['total_penalties']);
-        $this->assertEquals(268.8, $commercial['prima_after_penalties']);
+        $this->assertEquals(42.0, $commercial['financing_penalty']);
+        $this->assertEquals(84.0, $commercial['total_penalties']);
+        $this->assertEquals(336.0, $commercial['prima_after_penalties']);
         $this->assertCount(4, $commercial['details']['reviews']);
+    }
+
+    public function test_dashboard_aplica_tramo_por_perfil_y_partner_community_mantiene_tramo_normal(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-JT', 'Jefe Tienda', true, 'Compra/Venta');
+        $this->createCommercialUser('005-PC', 'Partner Community', true, 'Comerciales Partner Community');
+
+        foreach (range(1, 7) as $index) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => 'JT-SALE-'.$index,
+                'name' => 'Venta JT '.$index,
+                'owner_id' => '005-JT',
+                'owner_name' => 'Jefe Tienda',
+                'owner_is_active' => true,
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-08-0'.$index,
+                'opo_for_importe_total' => 10000,
+                'gestion_de_venta' => false,
+            ]);
+
+            SalesforceOpportunity::create([
+                'salesforce_id' => 'PC-SALE-'.$index,
+                'name' => 'Venta PC '.$index,
+                'owner_id' => '005-PC',
+                'owner_name' => 'Partner Community',
+                'owner_is_active' => true,
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-08-0'.$index,
+                'opo_for_importe_total' => 10000,
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-08');
+
+        $jefeTienda = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-JT');
+        $partnerCommunity = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-PC');
+
+        $this->assertNotNull($jefeTienda);
+        $this->assertNotNull($partnerCommunity);
+        $this->assertEquals(420.0, $jefeTienda['prima_total']);
+        $this->assertEquals(100.0, $jefeTienda['delivery_bracket_percent']);
+        $this->assertEquals(420.0, $jefeTienda['prima_adjusted']);
+        $this->assertEquals(420.0, $partnerCommunity['prima_total']);
+        $this->assertEquals(80.0, $partnerCommunity['delivery_bracket_percent']);
+        $this->assertEquals(336.0, $partnerCommunity['prima_adjusted']);
     }
 
     public function test_dashboard_no_deja_prima_neta_negativa_ni_penalizaciones_negativas(): void
