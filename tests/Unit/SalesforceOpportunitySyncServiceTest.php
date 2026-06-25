@@ -74,6 +74,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                             'PRO_DIV_Precio_de_venta__c' => 12000,
                             'PRO_DIV_Precio_de_compra__c' => 9000,
                             'Procedencia_de_compra__c' => 'Compra directa',
+                            'PRO_FEC_Fecha_compra__c' => '2026-05-03',
                             'Comprador_oportunidad__c' => '005-buyer-1',
                             'Comprador_oportunidad__r' => ['Name' => 'Comprador Uno'],
                         ],
@@ -142,6 +143,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertStringContainsString('Gestion_de_venta__c', $result['soql']);
         $this->assertStringContainsString('PRO_DIV_Precio_de_venta__c', $result['soql']);
         $this->assertStringContainsString('Procedencia_de_compra__c', $result['soql']);
+        $this->assertStringContainsString('PRO_FEC_Fecha_compra__c', $result['soql']);
         $this->assertStringContainsString('Comprador_oportunidad__c', $result['soql']);
 
         $this->assertDatabaseHas('salesforce_opportunities', [
@@ -158,6 +160,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             'vehicle_sale_price' => 12000,
             'vehicle_purchase_price' => 9000,
             'vehicle_purchase_source' => 'Compra directa',
+            'vehicle_purchase_date' => '2026-05-03 00:00:00',
             'vehicle_buyer_id' => '005-buyer-1',
             'vehicle_buyer_name' => 'Comprador Uno',
         ]);

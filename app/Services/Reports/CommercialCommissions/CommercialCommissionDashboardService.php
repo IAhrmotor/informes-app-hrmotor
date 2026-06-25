@@ -13,6 +13,8 @@ use Illuminate\Support\Str;
 
 class CommercialCommissionDashboardService
 {
+    private const PURCHASE_DATE_CUTOFF = '2026-05-01';
+
     private const ALLOWED_PURCHASE_SOURCES = [
         'cambio',
         'compradirecta',
@@ -116,6 +118,8 @@ class CommercialCommissionDashboardService
             /** @var Collection<int, SalesforceOpportunity> $ownerOperations */
             $ownerOperations = $operationsByOwner->get($userId, collect());
             $ownerDeliveries = $ownerOperations->filter(fn (SalesforceOpportunity $row) => $this->isDelivery($row))->values();
+            $ownerSoloDeliveries = $ownerDeliveries->filter(fn (SalesforceOpportunity $row) => ! filled($row->shared_delivery_id))->values();
+            $ownerPrimarySharedDeliveries = $ownerDeliveries->filter(fn (SalesforceOpportunity $row) => filled($row->shared_delivery_id))->values();
             $ownerReviews = $reviewsByOwner->get($userId, collect())->values();
             $ownerPurchaseDetails = collect($purchaseDetailsByOwner->get($userId, collect()))->values();
             $ownerSharedDeliveries = $sharedDeliveriesByCoowner->get($userId, collect())->values();
@@ -125,7 +129,7 @@ class CommercialCommissionDashboardService
 
             $deliveriesCount = $ownerDeliveries->count();
             $operationsCount = $ownerOperations->count();
-            $salesAmount = round($deliveriesCount * 60, 2);
+            $salesAmount = round(($ownerSoloDeliveries->count() * 60) + ($ownerPrimarySharedDeliveries->count() * 30), 2);
             $purchasesAmount = round((float) $ownerPurchaseDetails->sum('commission_amount'), 2);
             $sharedCount = $ownerSharedDeliveries->count();
             $sharedAmount = round($sharedCount * 30, 2);
@@ -343,12 +347,17 @@ class CommercialCommissionDashboardService
             $purchaseOwnerId = (string) ($sale->vehicle_buyer_id ?: $purchase?->vehicle_buyer_id ?: $purchase?->owner_id ?: '');
             $purchaseOwnerName = (string) ($sale->vehicle_buyer_name ?: $purchase?->vehicle_buyer_name ?: $purchase?->owner_name ?: $purchaseOwnerId);
             $purchaseSource = (string) ($sale->vehicle_purchase_source ?: $purchase?->vehicle_purchase_source ?: '');
+            $purchaseDate = $this->resolvedPurchaseDate($sale, $purchase);
 
             if ($purchaseOwnerId === '' && $purchaseOwnerName === '') {
                 continue;
             }
 
             if (! $this->purchaseSourceAllowed($purchaseSource)) {
+                continue;
+            }
+
+            if (! $this->purchaseDateAllowed($purchaseDate)) {
                 continue;
             }
 
@@ -362,7 +371,7 @@ class CommercialCommissionDashboardService
                 'purchase_opportunity_id' => $purchase?->salesforce_id,
                 'purchase_opportunity_name' => $purchase?->name ?: 'Sin oportunidad historica local',
                 'purchase_record_type_name' => $purchase?->record_type_name ?: 'Product2',
-                'purchase_date' => optional($purchase?->cv_signed_date)->toDateString(),
+                'purchase_date' => optional($purchaseDate)->toDateString(),
                 'purchase_source' => $purchaseSource !== '' ? $purchaseSource : null,
                 'sale_opportunity_id' => $sale->salesforce_id,
                 'sale_opportunity_name' => $sale->name,
@@ -419,6 +428,7 @@ class CommercialCommissionDashboardService
                 'vehicle_sale_price',
                 'vehicle_purchase_price',
                 'vehicle_purchase_source',
+                'vehicle_purchase_date',
                 'vehicle_buyer_id',
                 'vehicle_buyer_name',
                 'vehicle_days_in_stock',
@@ -621,6 +631,7 @@ class CommercialCommissionDashboardService
         $query = SalesforceOpportunity::query()
             ->where('cv_signed', true)
             ->whereRaw('LOWER(COALESCE(stage_name, \'\')) <> ?', ['cerrada perdida'])
+            ->whereDate('vehicle_purchase_date', '>', self::PURCHASE_DATE_CUTOFF)
             ->where(function (Builder $builder) use ($plates, $vehicleInterestIds, $normalizedPlates): void {
                 $hasPreviousCondition = false;
 
@@ -834,6 +845,26 @@ class CommercialCommissionDashboardService
     private function purchaseSourceAllowed(?string $value): bool
     {
         return in_array($this->normalizePurchaseSource($value), self::ALLOWED_PURCHASE_SOURCES, true);
+    }
+
+    private function purchaseDateAllowed(?CarbonImmutable $value): bool
+    {
+        if ($value === null) {
+            return false;
+        }
+
+        return $value->greaterThan(CarbonImmutable::parse(self::PURCHASE_DATE_CUTOFF)->startOfDay());
+    }
+
+    private function resolvedPurchaseDate(SalesforceOpportunity $sale, ?SalesforceOpportunity $purchase = null): ?CarbonImmutable
+    {
+        $value = $sale->vehicle_purchase_date ?? $purchase?->vehicle_purchase_date;
+
+        if (! $value) {
+            return null;
+        }
+
+        return CarbonImmutable::parse($value)->startOfDay();
     }
 
     private function normalizePurchaseSource(?string $value): string

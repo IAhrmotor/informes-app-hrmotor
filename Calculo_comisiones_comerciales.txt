@@ -28,10 +28,12 @@ No se listan usuarios tecnicos ni usuarios sincronizados sin actividad.
 
 A. Ventas / Cambios
 - Cada entrega de tipo Venta o Cambio suma 60 EUR.
+- Si la entrega es compartida, el owner no cobra 60 EUR: cobra 30 EUR.
 
 B. Compras
 - Se busca una compra previa de Tasacion o Cambio.
 - Solo se liquida si `Procedencia_de_compra__c` del `Product2` asociado viene como `Cambio` o `Compra directa`.
+- Ademas, la fecha de compra del `Product2` (`PRO_FEC_Fecha_compra__c`) debe ser mayor al 1 de mayo de 2026.
 - El cruce intenta primero `vehicle_interest_id` y despues la matricula normalizada.
 - La matricula se normaliza para tolerar espacios y guiones.
 - La compra se liquida principalmente desde la venta del mes, usando el comprador del `Product2` asociado.
@@ -48,7 +50,7 @@ B. Compras
   rentabilidad_compra x 1.8%
 
 C. Compartidas
-- Si la oportunidad tiene copropietario en Entrega_Compartida__c, ese copropietario cobra 30 EUR.
+- Si la oportunidad tiene copropietario en Entrega_Compartida__c, la entrega compartida reparte 30 EUR para el owner y 30 EUR para el comercial compartido.
 
 D. Stock +150
 - Si la venta tiene al menos 150 dias entre:

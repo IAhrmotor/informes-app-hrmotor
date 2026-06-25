@@ -194,6 +194,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'vehicle_sale_price' => 11000,
             'vehicle_purchase_price' => 10000,
             'vehicle_purchase_source' => 'Compra directa',
+            'vehicle_purchase_date' => '2026-05-02',
             'vehicle_buyer_id' => '005-A',
             'vehicle_buyer_name' => 'Comercial A',
         ]);
@@ -225,18 +226,18 @@ class CommercialCommissionDashboardTest extends TestCase
 
         $this->assertSame(7, $commercialA['deliveries_count']);
         $this->assertSame(7, $commercialA['operations_count']);
-        $this->assertEquals(420.0, $commercialA['sales_amount']);
+        $this->assertEquals(390.0, $commercialA['sales_amount']);
         $this->assertEquals(52.2, $commercialA['purchases_amount']);
         $this->assertEquals(35.0, $commercialA['discount_penalty_amount']);
         $this->assertEquals(10.0, $commercialA['stock_150_amount']);
-        $this->assertEquals(447.2, $commercialA['prima_total']);
+        $this->assertEquals(417.2, $commercialA['prima_total']);
         $this->assertEquals(80.0, $commercialA['delivery_bracket_percent']);
-        $this->assertEquals(357.76, $commercialA['prima_adjusted']);
+        $this->assertEquals(333.76, $commercialA['prima_adjusted']);
         $this->assertEquals(57.14, $commercialA['reviews_percentage']);
         $this->assertEquals(50.0, $commercialA['financing_percentage']);
         $this->assertEquals(210.0, $commercialA['financing_product_amount']);
         $this->assertEquals(420.0, $commercialA['guarantee_product_amount']);
-        $this->assertEquals(987.76, $commercialA['final_commission']);
+        $this->assertEquals(963.76, $commercialA['final_commission']);
         $this->assertCount(1, $commercialA['details']['purchases']);
 
         $this->assertNull($commercialB);
@@ -381,6 +382,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'vehicle_sale_price' => 11000,
             'vehicle_purchase_price' => 10000,
             'vehicle_purchase_source' => 'Compra directa',
+            'vehicle_purchase_date' => '2026-05-15',
             'vehicle_buyer_id' => '005-T',
             'vehicle_buyer_name' => 'Tasador Uno',
         ]);
@@ -439,6 +441,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'vehicle_sale_price' => 11000,
             'vehicle_purchase_price' => 10000,
             'vehicle_purchase_source' => 'Compra directa',
+            'vehicle_purchase_date' => '2026-05-15',
             'vehicle_buyer_id' => '005-T2',
             'vehicle_buyer_name' => 'Tasador Dos',
         ]);
@@ -496,6 +499,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'vehicle_sale_price' => 11000,
             'vehicle_purchase_price' => 10000,
             'vehicle_purchase_source' => 'Cambio',
+            'vehicle_purchase_date' => '2026-05-10',
             'vehicle_buyer_id' => '005-I1',
             'vehicle_buyer_name' => 'Comercial Inactivo',
         ]);
@@ -550,6 +554,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'vehicle_sale_price' => 11000,
             'vehicle_purchase_price' => 10000,
             'vehicle_purchase_source' => 'Compra directa',
+            'vehicle_purchase_date' => '2026-05-10',
             'vehicle_buyer_id' => '005-P1',
             'vehicle_buyer_name' => 'Josue Fernandez',
         ]);
@@ -609,6 +614,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'vehicle_sale_price' => 15000,
             'vehicle_purchase_price' => 10000,
             'vehicle_purchase_source' => 'Compra directa',
+            'vehicle_purchase_date' => '2026-05-20',
             'opo_div_descuento' => 300,
             'beneficio_financiacion_comercial' => 700,
             'garantia_total' => 500,
@@ -627,6 +633,91 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertSame('Product2', $comprador['details']['purchases'][0]['purchase_record_type_name']);
         $this->assertSame('product2_sale_vehicle', $comprador['details']['purchases'][0]['source']);
         $this->assertEquals(0.0, $vendedor['purchases_amount']);
+    }
+
+    public function test_dashboard_excluye_compras_con_fecha_compra_product2_igual_o_anterior_al_primero_de_mayo_de_2026(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-OLD-BUY', 'Comprador Antiguo');
+        $this->createCommercialUser('005-OLD-SELL', 'Vendedor Antiguo');
+        $this->createCommercialUser('005-OLD-DIRECT', 'Comprador Directo Antiguo');
+        $this->createCommercialUser('005-OLD-DIRECT-SELL', 'Vendedor Directo Antiguo');
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'PURCHASE-OLD-1',
+            'name' => 'Compra historica antigua',
+            'owner_id' => '005-OLD-BUY',
+            'owner_name' => 'Comprador Antiguo',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Tasacion',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-04-20',
+            'gestion_de_venta' => false,
+            'vehicle_plate' => '5555OLD',
+            'vehicle_sale_price' => 11000,
+            'vehicle_purchase_price' => 10000,
+            'vehicle_purchase_source' => 'Compra directa',
+            'vehicle_purchase_date' => '2026-05-01',
+            'vehicle_buyer_id' => '005-OLD-BUY',
+            'vehicle_buyer_name' => 'Comprador Antiguo',
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'SALE-OLD-1',
+            'name' => 'Venta posterior antigua',
+            'owner_id' => '005-OLD-SELL',
+            'owner_name' => 'Vendedor Antiguo',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-10',
+            'opo_for_importe_total' => 14000,
+            'importe_financiado' => 5000,
+            'gestion_de_venta' => false,
+            'vehicle_plate' => '5555OLD',
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'SALE-DIRECT-OLD-1',
+            'name' => 'Venta Product2 antigua',
+            'owner_id' => '005-OLD-DIRECT-SELL',
+            'owner_name' => 'Vendedor Directo Antiguo',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-12',
+            'opo_for_importe_total' => 18000,
+            'importe_financiado' => 5000,
+            'gestion_de_venta' => false,
+            'vehicle_interest_id' => '01t-DIRECT-OLD-1',
+            'vehicle_plate' => '8888OLD',
+            'vehicle_buyer_id' => '005-OLD-DIRECT',
+            'vehicle_buyer_name' => 'Comprador Directo Antiguo',
+            'vehicle_sale_price' => 15000,
+            'vehicle_purchase_price' => 10000,
+            'vehicle_purchase_source' => 'Compra directa',
+            'vehicle_purchase_date' => '2026-04-30',
+            'opo_div_descuento' => 300,
+            'beneficio_financiacion_comercial' => 700,
+            'garantia_total' => 500,
+        ]);
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+
+        $historicalBuyer = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-OLD-BUY');
+        $directBuyer = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-OLD-DIRECT');
+        $historicalSeller = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-OLD-SELL');
+        $directSeller = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-OLD-DIRECT-SELL');
+
+        $this->assertNull($historicalBuyer);
+        $this->assertNull($directBuyer);
+        $this->assertNotNull($historicalSeller);
+        $this->assertNotNull($directSeller);
+        $this->assertEquals(0.0, $historicalSeller['purchases_amount']);
+        $this->assertEquals(0.0, $directSeller['purchases_amount']);
     }
 
     public function test_dashboard_excluye_compras_con_procedencia_fuera_de_cambio_y_compra_directa(): void
@@ -655,6 +746,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'vehicle_sale_price' => 15000,
             'vehicle_purchase_price' => 10000,
             'vehicle_purchase_source' => 'Subasta',
+            'vehicle_purchase_date' => '2026-05-20',
             'opo_div_descuento' => 300,
             'beneficio_financiacion_comercial' => 700,
             'garantia_total' => 500,
