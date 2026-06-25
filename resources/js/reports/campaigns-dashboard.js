@@ -45,7 +45,8 @@ let diagnosticsLoadingController = null;
 let latestReloadRequestId = 0;
 let lastRenderedFilterOptionsKey = '';
 let lastRenderedCampaignNamesKey = '';
-const ventaSubcontexts = ['venta', 'exposicion', 'branding', 'otros'];
+const ventaSubcontexts = ['ventas', 'exposicion', 'branding', 'otros'];
+const ventaContexts = ['venta', ...ventaSubcontexts];
 
 const dailySeriesDefinitions = [
     { key: 'spend', label: 'Inversión', formatter: formatMoney, className: 'spend' },
@@ -1012,16 +1013,26 @@ function platformBarsHtml(rows) {
 
 function normalizeCampaignContext(value) {
     const key = String(value || '').toLowerCase();
-    return ['all', 'venta', 'tasacion', 'exposicion', 'branding', 'otros'].includes(key) ? key : 'all';
+    return ['all', 'venta', 'ventas', 'tasacion', 'exposicion', 'branding', 'otros'].includes(key) ? key : 'all';
+}
+
+function presentationCampaignContext(value = currentContext) {
+    const normalized = normalizeCampaignContext(value);
+
+    return normalized === 'ventas' ? 'venta' : normalized;
+}
+
+function isVentaContext(value = currentContext) {
+    return ventaContexts.includes(normalizeCampaignContext(value));
 }
 
 function isVentaGroupedContext(value = currentContext) {
-    return ventaSubcontexts.includes(normalizeCampaignContext(value));
+    return isVentaContext(value);
 }
 
 function currentVentaSubcontext() {
     const selected = normalizeCampaignContext(document.getElementById('saleSubcategory')?.value || currentContext);
-    return ventaSubcontexts.includes(selected) ? selected : 'venta';
+    return isVentaContext(selected) ? selected : 'venta';
 }
 
 function persistCampaignContext() {
@@ -1034,28 +1045,28 @@ function syncCampaignTypeSelect() {
         return;
     }
 
-    select.value = isVentaGroupedContext(currentContext) ? 'venta' : normalizeCampaignContext(currentContext);
+    select.value = isVentaContext(currentContext) ? 'venta' : normalizeCampaignContext(currentContext);
     syncSaleSubcategorySelect();
 }
 
 function syncSaleSubcategorySelect() {
     const group = document.getElementById('saleSubcategoryGroup');
     const select = document.getElementById('saleSubcategory');
-    const shouldShow = document.getElementById('campaignType')?.value === 'venta' || isVentaGroupedContext(currentContext);
+    const shouldShow = document.getElementById('campaignType')?.value === 'venta' || isVentaContext(currentContext);
 
     if (group) {
         group.style.display = shouldShow ? '' : 'none';
     }
 
     if (select) {
-        select.value = isVentaGroupedContext(currentContext) ? normalizeCampaignContext(currentContext) : 'venta';
+        select.value = isVentaContext(currentContext) ? normalizeCampaignContext(currentContext) : 'venta';
     }
 }
 
 function syncContextTabs() {
     document.querySelectorAll('.main-tab[data-context]').forEach((button) => {
         if (button.dataset.context === 'venta') {
-            button.classList.toggle('active', isVentaGroupedContext(currentContext));
+            button.classList.toggle('active', isVentaContext(currentContext));
             return;
         }
 
@@ -1081,7 +1092,7 @@ function loadVisibleRankings(context = currentContext) {
 }
 
 function defaultRankingKeys(context = currentContext) {
-    switch (normalizeCampaignContext(context)) {
+    switch (presentationCampaignContext(context)) {
         case 'venta':
             return ['best_cost_per_sale', 'review_campaigns', 'top_spend'];
         case 'tasacion':
@@ -1098,7 +1109,7 @@ function defaultRankingKeys(context = currentContext) {
 }
 
 function rankingAllowedInContext(key, context = currentContext) {
-    const normalized = normalizeCampaignContext(context);
+    const normalized = presentationCampaignContext(context);
 
     const hidden = {
         venta: ['top_purchases', 'best_cost_per_purchase', 'best_lead_to_purchase', 'top_impressions', 'best_cost_per_result'],
@@ -1180,7 +1191,7 @@ function metricChartRows(rows) {
 }
 
 function metricChartDefinitions(context = currentContext) {
-    const normalized = normalizeCampaignContext(context);
+    const normalized = presentationCampaignContext(context);
     const resultLabel = ({
         venta: 'Ventas',
         tasacion: 'Compras',
@@ -1456,7 +1467,7 @@ function visibleMonthlyRows(rows) {
 }
 
 function funnelHtml(rows) {
-    const context = normalizeCampaignContext(currentContext);
+    const context = presentationCampaignContext(currentContext);
     const steps = funnelStepsForContext(context, rows || []);
     const max = Math.max(...steps.map((row) => Number(row.value || 0)), 0);
     const content = steps.length
@@ -1602,7 +1613,7 @@ function emptyPlatformComparisonRow(platform) {
 }
 
 function platformComparisonCardHtml(row, maxSpend, maxLeads, maxOpportunities, maxResult) {
-    const context = normalizeCampaignContext(currentContext);
+    const context = presentationCampaignContext(currentContext);
     const resultLabel = platformResultLabelForContext(context);
     const resultValue = platformResultValueForContext(row, context);
     const resultCost = platformResultCostForContext(row, context);
@@ -1658,7 +1669,7 @@ function platformComparisonSubtitleForContext(context) {
 }
 
 function platformResultLabelForContext(context) {
-    switch (context) {
+    switch (presentationCampaignContext(context)) {
         case 'venta':
             return 'Ventas';
         case 'tasacion':
@@ -1676,7 +1687,7 @@ function platformResultLabelForContext(context) {
 }
 
 function platformResultValueForContext(row, context) {
-    switch (context) {
+    switch (presentationCampaignContext(context)) {
         case 'venta':
             return Number(row.sales || 0);
         case 'tasacion':
@@ -1694,12 +1705,12 @@ function platformResultValueForContext(row, context) {
 }
 
 function platformResultCostForContext(row, context) {
-    if (context === 'all') {
+    if (presentationCampaignContext(context) === 'all') {
         const results = Number(row.sales || 0) + Number(row.purchases || 0);
         return results > 0 ? Number(row.spend || 0) / results : null;
     }
 
-    switch (context) {
+    switch (presentationCampaignContext(context)) {
         case 'venta':
             return row.cost_per_sale;
         case 'tasacion':
@@ -1746,7 +1757,7 @@ function loadCampaignContext() {
 }
 
 function monthlyResultCountForRow(row) {
-    const context = normalizeCampaignContext(currentContext);
+    const context = presentationCampaignContext(currentContext);
 
     switch (context) {
         case 'venta':
@@ -1788,7 +1799,7 @@ function bindCampaignTableActions() {
 }
 
 function kpiCardsForContext(context, kpis) {
-    const normalized = normalizeCampaignContext(context);
+    const normalized = presentationCampaignContext(context);
     const totalResults = formatNumber(kpis.result_count);
 
     switch (normalized) {
@@ -1883,7 +1894,7 @@ function populateCampaignTypeSelect(options) {
         return;
     }
 
-    const current = isVentaGroupedContext(currentContext) ? 'venta' : normalizeCampaignContext(select.value || currentContext);
+    const current = isVentaContext(currentContext) ? 'venta' : normalizeCampaignContext(select.value || currentContext);
     const allowed = ['all', 'venta', 'tasacion'];
 
     select.innerHTML = (options || []).filter((option) => {
@@ -2042,7 +2053,7 @@ function loadMonthlyVisibleMetrics() {
 }
 
 function defaultMonthlyMetricKeys(context = currentContext) {
-    switch (normalizeCampaignContext(context)) {
+    switch (presentationCampaignContext(context)) {
         case 'venta':
             return ['spend', 'leads_salesforce', 'sales'];
         case 'tasacion':
@@ -2281,7 +2292,7 @@ function dailyTooltip(row) {
 }
 
 function conversionTooltip(row) {
-    const context = normalizeCampaignContext(currentContext);
+    const context = presentationCampaignContext(currentContext);
 
     if (context === 'tasacion') {
         return [
@@ -2304,7 +2315,7 @@ function platformTooltip(row) {
         `Inversión: ${formatMoney(row.spend)}`,
         `Leads Salesforce: ${formatNumber(row.leads_salesforce)}`,
         `Oportunidades: ${formatNumber(row.opportunities)}`,
-        `Resultados: ${formatNumber(platformResultValueForContext(row, normalizeCampaignContext(currentContext)))}`,
+        `Resultados: ${formatNumber(platformResultValueForContext(row, presentationCampaignContext(currentContext)))}`,
     ].join('\n');
 }
 
@@ -2428,7 +2439,7 @@ function columnAllowedInContext(key, context = currentContext) {
         all: ['appraisals_generated', 'cost_per_appraisal', 'appraisal_amount', 'cost_per_purchase'],
     };
 
-    return !(hiddenByContext[normalizeCampaignContext(context)] || []).includes(key);
+    return !(hiddenByContext[presentationCampaignContext(context)] || []).includes(key);
 }
 
 function syncCampaignTableScrollWidth() {
@@ -2926,7 +2937,7 @@ function renderRankings(rankings, emptyMessage = '') {
     }
 
     currentRankings = rankings || {};
-    const context = normalizeCampaignContext(currentContext);
+    const context = presentationCampaignContext(currentContext);
     const visible = rankingDefinitions.filter((ranking) => visibleRankings.includes(ranking.key) && rankingAllowedInContext(ranking.key, context));
 
     if (emptyMessage) {
@@ -3020,7 +3031,7 @@ function renderCampaignTables(rows, emptyMessage = null) {
         return;
     }
 
-    const context = normalizeCampaignContext(currentContext);
+    const context = presentationCampaignContext(currentContext);
     const titleMap = {
         venta: ['Detalle de campañas de venta', 'Vista detallada de campañas orientadas a venta'],
         tasacion: ['Detalle de campañas de tasación', 'Vista detallada de campañas orientadas a tasación'],

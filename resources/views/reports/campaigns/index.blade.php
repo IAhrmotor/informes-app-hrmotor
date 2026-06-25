@@ -49,7 +49,8 @@
         <div class="filter-group" id="saleSubcategoryGroup">
             <label for="saleSubcategory">Subcategoría venta</label>
             <select id="saleSubcategory">
-                <option value="venta" selected>Ventas</option>
+                <option value="venta" selected>Todos</option>
+                <option value="ventas">Ventas</option>
                 <option value="exposicion">Exposición</option>
                 <option value="branding">Branding</option>
                 <option value="otros">Otros</option>

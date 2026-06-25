@@ -312,6 +312,89 @@ class CampaignDashboardTest extends TestCase
         $this->assertSame(['TASADOR LANDING SEARCH 1'], array_column($tasacionRows, 'campaign_name'));
     }
 
+    public function test_venta_agrupa_todas_las_subcategorias_y_ventas_filtra_solo_venta(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'campaign_id' => 'venta-real',
+            'campaign_name' => 'Venta real',
+            'spend' => 100,
+        ]));
+
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'campaign_id' => 'expo-real',
+            'campaign_name' => 'Exposicion real',
+            'spend' => 50,
+        ]));
+
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'campaign_id' => 'branding-real',
+            'campaign_name' => 'Branding real',
+            'spend' => 20,
+        ]));
+
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'campaign_id' => 'otros-real',
+            'campaign_name' => 'Otros real',
+            'spend' => 10,
+        ]));
+
+        DB::table('campaign_lead_attributions')->insert([
+            $this->attributionRow([
+                'lead_id' => '00Q-venta-real',
+                'campaign_id' => 'venta-real',
+                'campaign_name' => 'Venta real',
+                'source_campaign_name' => 'Venta real',
+                'campaign_type' => 'venta',
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-expo-real',
+                'campaign_id' => 'expo-real',
+                'campaign_name' => 'Exposicion real',
+                'source_campaign_name' => 'Exposicion real',
+                'campaign_type' => 'exposicion',
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-branding-real',
+                'campaign_id' => 'branding-real',
+                'campaign_name' => 'Branding real',
+                'source_campaign_name' => 'Branding real',
+                'campaign_type' => 'branding',
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-otros-real',
+                'campaign_id' => 'otros-real',
+                'campaign_name' => 'Otros real',
+                'source_campaign_name' => 'Otros real',
+                'campaign_type' => 'otros',
+            ]),
+        ]);
+
+        $baseQuery = 'start_date=2026-05-01&end_date=2026-05-31&campaign_status=active';
+
+        $venta = $this->getJson('/informes/campanas/data/summary?'.$baseQuery.'&context=venta')
+            ->assertOk()
+            ->json('kpis');
+        $ventas = $this->getJson('/informes/campanas/data/summary?'.$baseQuery.'&context=ventas')
+            ->assertOk()
+            ->json('kpis');
+
+        $this->assertSame(180, (int) $venta['spend']);
+        $this->assertSame(100, (int) $ventas['spend']);
+
+        $ventaRows = $this->getJson('/informes/campanas/data/campaigns?'.$baseQuery.'&context=venta')
+            ->assertOk()
+            ->json('items');
+        $ventasRows = $this->getJson('/informes/campanas/data/campaigns?'.$baseQuery.'&context=ventas')
+            ->assertOk()
+            ->json('items');
+
+        $this->assertEqualsCanonicalizing(
+            ['Venta real', 'Exposicion real', 'Branding real', 'Otros real'],
+            array_column($ventaRows, 'campaign_name')
+        );
+        $this->assertSame(['Venta real'], array_column($ventasRows, 'campaign_name'));
+    }
+
     public function test_atribucion_y_kpis_agregan_campaigns_sin_datos_personales(): void
     {
         CampaignPlatformDailyMetric::query()->create($this->metricRow([

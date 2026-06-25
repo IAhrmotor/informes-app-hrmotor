@@ -612,12 +612,21 @@ class CampaignDashboardDatasetService
         }
 
         $context = $filters['context'] ?? 'all';
+        $rowType = $this->campaignType($row);
 
         if (in_array($context, ['all', 'todas', '', null], true)) {
             return true;
         }
 
-        return $this->campaignType($row) === $context;
+        if ($context === 'venta') {
+            return in_array($rowType, ['venta', 'exposicion', 'branding', 'otros'], true);
+        }
+
+        if ($context === 'ventas') {
+            return $rowType === 'venta';
+        }
+
+        return $rowType === $context;
     }
 
     private function campaignType(array $row): string
@@ -2807,7 +2816,7 @@ class CampaignDashboardDatasetService
     {
         $context = $this->normalizer->key($context);
 
-        return in_array($context, ['venta', 'tasacion', 'exposicion', 'branding', 'otros', 'all', 'todas'], true)
+        return in_array($context, ['venta', 'ventas', 'tasacion', 'exposicion', 'branding', 'otros', 'all', 'todas'], true)
             ? ($context === 'todas' ? 'all' : $context)
             : 'all';
     }
@@ -2816,6 +2825,7 @@ class CampaignDashboardDatasetService
     {
         return match ($this->normalizeContext($context)) {
             'venta' => 'Venta',
+            'ventas' => 'Ventas',
             'tasacion' => 'Tasacion',
             'exposicion' => 'Exposicion',
             'branding' => 'Branding',
@@ -2839,6 +2849,7 @@ class CampaignDashboardDatasetService
     {
         return match ($this->normalizeContext($context)) {
             'venta' => 'Ventas',
+            'ventas' => 'Ventas',
             'tasacion' => 'Compras',
             'exposicion' => 'Oportunidades',
             'branding' => 'Leads',
@@ -2868,6 +2879,7 @@ class CampaignDashboardDatasetService
     {
         return match ($this->normalizeContext($context)) {
             'venta' => (int) ($totals['sales'] ?? 0),
+            'ventas' => (int) ($totals['sales'] ?? 0),
             'tasacion' => (int) ($totals['purchases'] ?? 0),
             'exposicion' => (int) ($totals['opportunities'] ?? 0),
             'branding' => (int) ($totals['leads_salesforce'] ?? 0),
