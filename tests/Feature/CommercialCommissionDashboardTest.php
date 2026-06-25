@@ -247,6 +247,7 @@ class CommercialCommissionDashboardTest extends TestCase
     {
         config()->set('commercial_commissions.purchase_rentability_field', 'informe_rentabilidad');
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-C', 'Comercial C');
 
         foreach (range(1, 7) as $index) {
             SalesforceOpportunity::create([
@@ -327,6 +328,7 @@ class CommercialCommissionDashboardTest extends TestCase
     {
         config()->set('commercial_commissions.purchase_rentability_field', 'informe_rentabilidad');
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-N', 'Comercial N');
 
         foreach (range(1, 7) as $index) {
             SalesforceOpportunity::create([
@@ -361,6 +363,8 @@ class CommercialCommissionDashboardTest extends TestCase
     {
         config()->set('commercial_commissions.purchase_rentability_field', 'informe_rentabilidad');
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-T', 'Tasador Uno');
+        $this->createCommercialUser('005-S', 'Comercial Venta');
 
         SalesforceOpportunity::create([
             'salesforce_id' => 'PURCHASE-T1',
@@ -416,6 +420,8 @@ class CommercialCommissionDashboardTest extends TestCase
     {
         config()->set('commercial_commissions.purchase_rentability_field', 'informe_rentabilidad');
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-T2', 'Tasador Dos');
+        $this->createCommercialUser('005-S2', 'Comercial Dos');
 
         SalesforceOpportunity::create([
             'salesforce_id' => 'PURCHASE-ACCENT-1',
@@ -472,6 +478,8 @@ class CommercialCommissionDashboardTest extends TestCase
     {
         config()->set('commercial_commissions.purchase_rentability_field', 'informe_rentabilidad');
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-I1', 'Comercial Inactivo', false);
+        $this->createCommercialUser('005-V1', 'Comercial Activo');
 
         SalesforceOpportunity::create([
             'salesforce_id' => 'PURCHASE-INACTIVE-1',
@@ -524,6 +532,8 @@ class CommercialCommissionDashboardTest extends TestCase
     {
         config()->set('commercial_commissions.purchase_rentability_field', 'informe_rentabilidad');
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-P1', 'Josue Fernandez');
+        $this->createCommercialUser('005-P2', 'Leonardo Gonzalez');
 
         SalesforceOpportunity::create([
             'salesforce_id' => 'PURCHASE-PLATE-1',
@@ -576,6 +586,8 @@ class CommercialCommissionDashboardTest extends TestCase
     public function test_dashboard_liquida_compra_desde_product2_aunque_no_exista_oportunidad_historica_local(): void
     {
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-SD1', 'Vendedor Directo');
+        $this->createCommercialUser('005-BD1', 'Comprador Product2');
 
         SalesforceOpportunity::create([
             'salesforce_id' => 'SALE-DIRECT-1',
@@ -620,6 +632,8 @@ class CommercialCommissionDashboardTest extends TestCase
     public function test_dashboard_excluye_compras_con_procedencia_fuera_de_cambio_y_compra_directa(): void
     {
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-SD2', 'Vendedor Dos');
+        $this->createCommercialUser('005-BD2', 'Comprador Excluido');
 
         SalesforceOpportunity::create([
             'salesforce_id' => 'SALE-DIRECT-2',
@@ -650,5 +664,60 @@ class CommercialCommissionDashboardTest extends TestCase
         $comprador = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-BD2');
 
         $this->assertNull($comprador);
+    }
+
+    public function test_dashboard_excluye_usuarios_sin_perfiles_comerciales_permitidos(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        SalesforceUser::create([
+            'salesforce_id' => '005-OK',
+            'name' => 'Comercial Permitido',
+            'profile_name' => 'Comerciales Partner Community',
+            'is_active' => true,
+        ]);
+
+        SalesforceUser::create([
+            'salesforce_id' => '005-NO',
+            'name' => 'Usuario No Comercial',
+            'profile_name' => 'System Administrator',
+            'is_active' => true,
+        ]);
+
+        foreach ([
+            ['id' => 'SALE-OK-1', 'owner_id' => '005-OK', 'owner_name' => 'Comercial Permitido', 'plate' => 'AAA111'],
+            ['id' => 'SALE-NO-1', 'owner_id' => '005-NO', 'owner_name' => 'Usuario No Comercial', 'plate' => 'BBB222'],
+        ] as $row) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $row['id'],
+                'name' => $row['id'],
+                'owner_id' => $row['owner_id'],
+                'owner_name' => $row['owner_name'],
+                'owner_is_active' => true,
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-10',
+                'opo_for_importe_total' => 10000,
+                'importe_financiado' => 3000,
+                'gestion_de_venta' => false,
+                'vehicle_plate' => $row['plate'],
+            ]);
+        }
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+
+        $this->assertNotNull(collect($payload['summary_rows'])->firstWhere('commercial_id', '005-OK'));
+        $this->assertNull(collect($payload['summary_rows'])->firstWhere('commercial_id', '005-NO'));
+    }
+
+    private function createCommercialUser(string $id, string $name, bool $isActive = true, string $profile = 'Compra/Venta'): void
+    {
+        SalesforceUser::create([
+            'salesforce_id' => $id,
+            'name' => $name,
+            'profile_name' => $profile,
+            'is_active' => $isActive,
+        ]);
     }
 }

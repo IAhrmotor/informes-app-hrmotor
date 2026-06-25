@@ -28,12 +28,11 @@
         'Oportunidades' => 'Conteo de salesforce_opportunities con cv_signed=true, stage_name distinto de Cerrada perdida, record_type Venta/Cambio/Tasacion y gestion_de_venta false o null.',
         'Resenas' => 'Conteo de salesforce_reviews creadas dentro del mes. Fuente Salesforce: objeto Resena__c.',
         'Estado' => 'Indica si existen bloqueos de datos o estructura que impiden calcular el informe.',
-        'Comerciales' => 'Numero de comerciales o tasadores con actividad real en el resumen: venta/cambio del mes o compra liquidada por venta posterior del vehiculo.',
+        'Comerciales' => 'Numero de usuarios visibles en resumen. Solo perfiles Salesforce Compra/Venta y Comerciales Partner Community con actividad real del mes.',
         'Comision final' => 'Formula: max(prima ajustada - penalizaciones, 0) + producto financiacion + producto garantias.',
         'Prima ajustada' => 'Formula: prima total x tramo de entregas.',
         'Penalizaciones' => 'Suma de penalizacion por garantias, penalizacion por resenas y penalizacion por financiacion.',
         'Entregas' => 'Conteo de oportunidades de tipo Venta y Cambio del mes. Cada entrega suma 60 EUR.',
-        'Operaciones' => 'Conteo de oportunidades de tipo Venta, Cambio y Tasacion del mes.',
         'Compras liquidadas' => 'Compras historicas enlazadas a una venta del mes. Se atribuyen al Comprador_oportunidad__c del Product2 y la formula es: precio_venta - precio_compra - descuento + beneficio_financiacion + garantia. Sobre ese resultado se aplica el 1.8%.',
         'Compartidas' => 'Suma de 30 EUR por cada oportunidad con Entrega_Compartida__c.',
         'Ventas' => 'Importe calculado como entregas x 60 EUR.',
@@ -92,7 +91,7 @@
                 <article class="card campaign-kpi">
                     <div class="kpi-label"><span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Resenas') }}">Resenas</span></div>
                     <div class="kpi-value">{{ number_format($dashboard['diagnostics']['reviews_count'], 0, ',', '.') }}</div>
-                    <div class="kpi-hint">Objeto `Resena__c` creado dentro del mes.</div>
+                    <div class="kpi-hint">Objeto Resena__c creado dentro del mes.</div>
                 </article>
                 <article class="card campaign-kpi">
                     <div class="kpi-label"><span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Estado') }}">Estado</span></div>
@@ -184,15 +183,15 @@
                             </article>
                             <article class="card campaign-context-card">
                                 <span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Comision final') }}">Comision final</span>
-                                <strong>{{ number_format($totalFinalCommission, 2, ',', '.') }} €</strong>
+                                <strong>{{ number_format($totalFinalCommission, 2, ',', '.') }} EUR</strong>
                             </article>
                             <article class="card campaign-context-card">
                                 <span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Prima ajustada') }}">Prima ajustada</span>
-                                <strong>{{ number_format($totalPrimaAdjusted, 2, ',', '.') }} €</strong>
+                                <strong>{{ number_format($totalPrimaAdjusted, 2, ',', '.') }} EUR</strong>
                             </article>
                             <article class="card campaign-context-card">
                                 <span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Penalizaciones') }}">Penalizaciones</span>
-                                <strong>{{ number_format($totalPenalties, 2, ',', '.') }} €</strong>
+                                <strong class="commission-penalty-text">{{ number_format($totalPenalties, 2, ',', '.') }} EUR</strong>
                             </article>
                         </section>
 
@@ -204,9 +203,9 @@
                                 </div>
                                 <div class="platform-comparison-metrics">
                                     <div class="platform-metric-item"><span>Entregas</span><strong>{{ number_format($totalDeliveries, 0, ',', '.') }}</strong></div>
-                                    <div class="platform-metric-item"><span>Operaciones</span><strong>{{ number_format($summaryRows->sum('operations_count'), 0, ',', '.') }}</strong></div>
-                                    <div class="platform-metric-item"><span>Compras liquidadas</span><strong>{{ number_format($summaryRows->sum('purchases_amount'), 2, ',', '.') }} €</strong></div>
-                                    <div class="platform-metric-item"><span>Compartidas</span><strong>{{ number_format($summaryRows->sum('shared_amount'), 2, ',', '.') }} €</strong></div>
+                                    <div class="platform-metric-item"><span>Compras liquidadas</span><strong>{{ number_format($summaryRows->sum('purchases_amount'), 2, ',', '.') }} EUR</strong></div>
+                                    <div class="platform-metric-item"><span>Compartidas</span><strong>{{ number_format($summaryRows->sum('shared_amount'), 2, ',', '.') }} EUR</strong></div>
+                                    <div class="platform-metric-item"><span>Comerciales visibles</span><strong>{{ number_format($summaryRows->count(), 0, ',', '.') }}</strong></div>
                                 </div>
                             </article>
                             <article class="card platform-comparison-card">
@@ -215,10 +214,10 @@
                                     <span>Conceptos antes de ajustar por tramos y penalizaciones.</span>
                                 </div>
                                 <div class="platform-comparison-metrics">
-                                    <div class="platform-metric-item"><span>Ventas</span><strong>{{ number_format($summaryRows->sum('sales_amount'), 2, ',', '.') }} €</strong></div>
-                                    <div class="platform-metric-item"><span>Stock +150</span><strong>{{ number_format($summaryRows->sum('stock_150_amount'), 2, ',', '.') }} €</strong></div>
-                                    <div class="platform-metric-item"><span>Bonus +15</span><strong>{{ number_format($summaryRows->sum('bonus_15_amount'), 2, ',', '.') }} €</strong></div>
-                                    <div class="platform-metric-item"><span>Prima total</span><strong>{{ number_format($summaryRows->sum('prima_total'), 2, ',', '.') }} €</strong></div>
+                                    <div class="platform-metric-item"><span>Ventas</span><strong>{{ number_format($summaryRows->sum('sales_amount'), 2, ',', '.') }} EUR</strong></div>
+                                    <div class="platform-metric-item"><span>Stock +150</span><strong>{{ number_format($summaryRows->sum('stock_150_amount'), 2, ',', '.') }} EUR</strong></div>
+                                    <div class="platform-metric-item"><span>Bonus +15</span><strong>{{ number_format($summaryRows->sum('bonus_15_amount'), 2, ',', '.') }} EUR</strong></div>
+                                    <div class="platform-metric-item"><span>Prima total</span><strong>{{ number_format($summaryRows->sum('prima_total'), 2, ',', '.') }} EUR</strong></div>
                                 </div>
                             </article>
                             <article class="card platform-comparison-card">
@@ -227,65 +226,80 @@
                                     <span>Impacto final despues de penalizaciones.</span>
                                 </div>
                                 <div class="platform-comparison-metrics">
-                                    <div class="platform-metric-item"><span>Penalizaciones</span><strong>{{ number_format($totalPenalties, 2, ',', '.') }} €</strong></div>
-                                    <div class="platform-metric-item"><span>Prima neta</span><strong>{{ number_format($summaryRows->sum('prima_after_penalties'), 2, ',', '.') }} €</strong></div>
-                                    <div class="platform-metric-item"><span>Prod. financiacion</span><strong>{{ number_format($summaryRows->sum('financing_product_amount'), 2, ',', '.') }} €</strong></div>
-                                    <div class="platform-metric-item"><span>Prod. garantias</span><strong>{{ number_format($summaryRows->sum('guarantee_product_amount'), 2, ',', '.') }} €</strong></div>
+                                    <div class="platform-metric-item"><span>Penalizaciones</span><strong class="commission-penalty-text">{{ number_format($totalPenalties, 2, ',', '.') }} EUR</strong></div>
+                                    <div class="platform-metric-item"><span>Prima neta</span><strong>{{ number_format($summaryRows->sum('prima_after_penalties'), 2, ',', '.') }} EUR</strong></div>
+                                    <div class="platform-metric-item"><span>Prod. financiacion</span><strong>{{ number_format($summaryRows->sum('financing_product_amount'), 2, ',', '.') }} EUR</strong></div>
+                                    <div class="platform-metric-item"><span>Prod. garantias</span><strong>{{ number_format($summaryRows->sum('guarantee_product_amount'), 2, ',', '.') }} EUR</strong></div>
                                 </div>
                             </article>
                         </section>
 
-                        <div class="table-shell" style="height: 700px;">
-                            <table data-sortable-table="commission-summary">
-                                <thead>
-                                <tr>
-                                    <th data-sortable="true">Comercial</th>
-                                    <th class="num" data-sortable="true">Entregas</th>
-                                    <th class="num" data-sortable="true">Operaciones</th>
-                                    <th class="num" data-sortable="true">Ventas</th>
-                                    <th class="num" data-sortable="true">Compras</th>
-                                    <th class="num" data-sortable="true">Compartidas</th>
-                                    <th class="num" data-sortable="true">Descuento 5%</th>
-                                    <th class="num" data-sortable="true">Stock +150</th>
-                                    <th class="num" data-sortable="true">Bonus +15</th>
-                                    <th class="num" data-sortable="true">Prima total</th>
-                                    <th class="num" data-sortable="true">Tramo</th>
-                                    <th class="num" data-sortable="true">Prima ajustada</th>
-                                    <th class="num" data-sortable="true">Resenas</th>
-                                    <th class="num" data-sortable="true">% resenas</th>
-                                    <th class="num" data-sortable="true">% financiacion</th>
-                                    <th class="num" data-sortable="true">Penalizaciones</th>
-                                    <th class="num" data-sortable="true">Prod. financiacion</th>
-                                    <th class="num" data-sortable="true">Prod. garantias</th>
-                                    <th class="num" data-sortable="true">Comision final</th>
-                                </tr>
-                                </thead>
-                                <tbody data-sort-body="commission-summary">
-                                @foreach ($summaryRows as $row)
+                        <div class="commission-summary-toolbar">
+                            <div class="small">
+                                Resumen limitado a perfiles Salesforce <strong>Compra/Venta</strong> y <strong>Comerciales Partner Community</strong>.
+                            </div>
+                            <div class="columns-menu">
+                                <button type="button" class="filter-reset" id="commissionSummaryColumnsButton">Columnas</button>
+                                <div class="columns-popover card is-hidden" id="commissionSummaryColumnsPopover"></div>
+                            </div>
+                        </div>
+
+                        <div class="commission-summary-table-wrap">
+                            <div class="table-scrollbar-top" id="commissionSummaryTableScrollTop" aria-hidden="true">
+                                <div class="table-scrollbar-spacer" id="commissionSummaryTableScrollTopSpacer"></div>
+                            </div>
+                            <div class="table-shell" id="commissionSummaryTableShell" style="height: 700px;">
+                                <table id="commissionSummaryTable" data-sortable-table="commission-summary">
+                                    <thead>
                                     <tr>
-                                        <td>{{ $row['commercial_name'] }}</td>
-                                        <td class="num">{{ number_format($row['deliveries_count'], 0, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['operations_count'], 0, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['sales_amount'], 2, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['purchases_amount'], 2, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['shared_amount'], 2, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['discount_penalty_amount'], 2, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['stock_150_amount'], 2, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['bonus_15_amount'], 2, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['prima_total'], 2, ',', '.') }}</td>
-                                        <td class="num">{{ $row['delivery_bracket_label'] }} · {{ number_format($row['delivery_bracket_percent'], 0, ',', '.') }}%</td>
-                                        <td class="num">{{ number_format($row['prima_adjusted'], 2, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['reviews_count'], 0, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['reviews_percentage'], 2, ',', '.') }}%</td>
-                                        <td class="num">{{ number_format($row['financing_percentage'], 2, ',', '.') }}%</td>
-                                        <td class="num">{{ number_format($row['total_penalties'], 2, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['financing_product_amount'], 2, ',', '.') }}</td>
-                                        <td class="num">{{ number_format($row['guarantee_product_amount'], 2, ',', '.') }}</td>
-                                        <td class="num"><strong>{{ number_format($row['final_commission'], 2, ',', '.') }}</strong></td>
+                                        <th data-sortable="true" data-column="commercial_name">Comercial</th>
+                                        <th class="num" data-sortable="true" data-column="final_commission">Comision final</th>
+                                    <th class="num" data-sortable="true" data-column="deliveries_count">Entregas</th>
+                                    <th class="num" data-sortable="true" data-column="sales_amount">Ventas</th>
+                                    <th class="num" data-sortable="true" data-column="purchases_amount">Compras</th>
+                                    <th class="num" data-sortable="true" data-column="shared_amount">Compartidas</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="discount_penalty_amount">Descuento 5%</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="stock_150_amount">Stock +150</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="bonus_15_amount">Bonus +15</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="prima_total">Prima total</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="delivery_bracket">Tramo</th>
+                                    <th class="num" data-sortable="true" data-column="prima_adjusted">Prima ajustada</th>
+                                    <th class="num" data-sortable="true" data-column="reviews_penalty">Pen. resenas</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="reviews_percentage">% resenas</th>
+                                    <th class="num" data-sortable="true" data-column="financing_penalty">Pen. financiacion</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="financing_percentage">% financiacion</th>
+                                    <th class="num" data-sortable="true" data-column="total_penalties">Penalizaciones</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="financing_product_amount">Prod. financiacion</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="guarantee_product_amount">Prod. garantias</th>
                                     </tr>
-                                @endforeach
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody data-sort-body="commission-summary">
+                                    @foreach ($summaryRows as $row)
+                                        <tr>
+                                            <td data-column="commercial_name">{{ $row['commercial_name'] }}</td>
+                                            <td class="num" data-column="final_commission" data-sort-value="{{ $row['final_commission'] }}"><strong>{{ number_format($row['final_commission'], 2, ',', '.') }}</strong></td>
+                                        <td class="num" data-column="deliveries_count" data-sort-value="{{ $row['deliveries_count'] }}">{{ number_format($row['deliveries_count'], 0, ',', '.') }}</td>
+                                        <td class="num" data-column="sales_amount" data-sort-value="{{ $row['sales_amount'] }}">{{ number_format($row['sales_amount'], 2, ',', '.') }}</td>
+                                        <td class="num" data-column="purchases_amount" data-sort-value="{{ $row['purchases_amount'] }}">{{ number_format($row['purchases_amount'], 2, ',', '.') }}</td>
+                                        <td class="num" data-column="shared_amount" data-sort-value="{{ $row['shared_amount'] }}">{{ number_format($row['shared_amount'], 2, ',', '.') }}</td>
+                                            <td class="num is-hidden" data-column="discount_penalty_amount" data-sort-value="{{ $row['discount_penalty_amount'] }}">{{ number_format($row['discount_penalty_amount'], 2, ',', '.') }}</td>
+                                        <td class="num is-hidden" data-column="stock_150_amount" data-sort-value="{{ $row['stock_150_amount'] }}">{{ number_format($row['stock_150_amount'], 2, ',', '.') }}</td>
+                                        <td class="num is-hidden" data-column="bonus_15_amount" data-sort-value="{{ $row['bonus_15_amount'] }}">{{ number_format($row['bonus_15_amount'], 2, ',', '.') }}</td>
+                                        <td class="num is-hidden" data-column="prima_total" data-sort-value="{{ $row['prima_total'] }}">{{ number_format($row['prima_total'], 2, ',', '.') }}</td>
+                                        <td class="num is-hidden" data-column="delivery_bracket" data-sort-value="{{ $row['delivery_bracket_percent'] }}">{{ $row['delivery_bracket_label'] }} · {{ number_format($row['delivery_bracket_percent'], 0, ',', '.') }}%</td>
+                                        <td class="num" data-column="prima_adjusted" data-sort-value="{{ $row['prima_adjusted'] }}">{{ number_format($row['prima_adjusted'], 2, ',', '.') }}</td>
+                                        <td class="num commission-penalty-text" data-column="reviews_penalty" data-sort-value="{{ $row['reviews_penalty'] }}">{{ number_format($row['reviews_penalty'], 2, ',', '.') }}</td>
+                                        <td class="num is-hidden" data-column="reviews_percentage" data-sort-value="{{ $row['reviews_percentage'] }}">{{ number_format($row['reviews_percentage'], 2, ',', '.') }}%</td>
+                                        <td class="num commission-penalty-text" data-column="financing_penalty" data-sort-value="{{ $row['financing_penalty'] }}">{{ number_format($row['financing_penalty'], 2, ',', '.') }}</td>
+                                        <td class="num is-hidden" data-column="financing_percentage" data-sort-value="{{ $row['financing_percentage'] }}">{{ number_format($row['financing_percentage'], 2, ',', '.') }}%</td>
+                                        <td class="num commission-penalty-text" data-column="total_penalties" data-sort-value="{{ $row['total_penalties'] }}">{{ number_format($row['total_penalties'], 2, ',', '.') }}</td>
+                                        <td class="num is-hidden" data-column="financing_product_amount" data-sort-value="{{ $row['financing_product_amount'] }}">{{ number_format($row['financing_product_amount'], 2, ',', '.') }}</td>
+                                            <td class="num is-hidden" data-column="guarantee_product_amount" data-sort-value="{{ $row['guarantee_product_amount'] }}">{{ number_format($row['guarantee_product_amount'], 2, ',', '.') }}</td>
+                                        </tr>
+                                    @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
 
@@ -314,7 +328,7 @@
                                             <span>{{ $row['commercial_id'] }}</span>
                                             <small>
                                                 Entregas {{ number_format($row['deliveries_count'], 0, ',', '.') }}
-                                                · Comision {{ number_format($row['final_commission'], 2, ',', '.') }} €
+                                                · Comision {{ number_format($row['final_commission'], 2, ',', '.') }} EUR
                                             </small>
                                         </button>
                                     @endforeach
@@ -343,7 +357,7 @@
                                             <div class="panel-title compact">
                                                 <div>
                                                     <h2>{{ $row['commercial_name'] }}</h2>
-                                                    <div class="small">ID {{ $row['commercial_id'] }} · Comision final {{ number_format($row['final_commission'], 2, ',', '.') }} €</div>
+                                                    <div class="small">ID {{ $row['commercial_id'] }} · Comision final {{ number_format($row['final_commission'], 2, ',', '.') }} EUR</div>
                                                 </div>
                                             </div>
                                             <div class="campaign-context-grid commission-commercial-metrics">
@@ -353,15 +367,15 @@
                                                 </article>
                                                 <article class="card campaign-context-card">
                                                     <span>Prima ajustada</span>
-                                                    <strong>{{ number_format($row['prima_adjusted'], 2, ',', '.') }} €</strong>
+                                                    <strong>{{ number_format($row['prima_adjusted'], 2, ',', '.') }} EUR</strong>
                                                 </article>
                                                 <article class="card campaign-context-card">
                                                     <span>Penalizaciones</span>
-                                                    <strong>{{ number_format($row['total_penalties'], 2, ',', '.') }} €</strong>
+                                                    <strong class="commission-penalty-text">{{ number_format($row['total_penalties'], 2, ',', '.') }} EUR</strong>
                                                 </article>
                                                 <article class="card campaign-context-card">
                                                     <span>Prod. financiacion</span>
-                                                    <strong>{{ number_format($row['financing_product_amount'], 2, ',', '.') }} €</strong>
+                                                    <strong>{{ number_format($row['financing_product_amount'], 2, ',', '.') }} EUR</strong>
                                                 </article>
                                             </div>
                                             <nav class="tabs-main commission-detail-tabs" aria-label="Detalle del comercial">

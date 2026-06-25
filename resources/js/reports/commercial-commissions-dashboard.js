@@ -1,10 +1,39 @@
 const tableSortState = new Map();
+const commissionSummaryColumnsStorageKey = 'commissionSummaryColumns';
+let syncCommissionSummaryScrollbar = () => {};
+const commissionSummaryColumnDefinitions = [
+    { key: 'commercial_name', label: 'Comercial', alwaysVisible: true },
+    { key: 'final_commission', label: 'Comision final', alwaysVisible: true },
+    { key: 'deliveries_count', label: 'Entregas', alwaysVisible: true },
+    { key: 'sales_amount', label: 'Ventas', alwaysVisible: true },
+    { key: 'purchases_amount', label: 'Compras', alwaysVisible: true },
+    { key: 'shared_amount', label: 'Compartidas', alwaysVisible: true },
+    { key: 'discount_penalty_amount', label: 'Descuento 5%' },
+    { key: 'stock_150_amount', label: 'Stock +150' },
+    { key: 'bonus_15_amount', label: 'Bonus +15' },
+    { key: 'prima_total', label: 'Prima total' },
+    { key: 'delivery_bracket', label: 'Tramo' },
+    { key: 'prima_adjusted', label: 'Prima ajustada', alwaysVisible: true },
+    { key: 'reviews_penalty', label: 'Pen. resenas', alwaysVisible: true },
+    { key: 'reviews_percentage', label: '% resenas' },
+    { key: 'financing_penalty', label: 'Pen. financiacion', alwaysVisible: true },
+    { key: 'financing_percentage', label: '% financiacion' },
+    { key: 'total_penalties', label: 'Penalizaciones', alwaysVisible: true },
+    { key: 'financing_product_amount', label: 'Prod. financiacion' },
+    { key: 'guarantee_product_amount', label: 'Prod. garantias' },
+];
+let commissionSummaryVisibleColumns = loadVisibleColumns(
+    commissionSummaryColumnsStorageKey,
+    commissionSummaryColumnDefinitions
+);
 
 document.addEventListener('DOMContentLoaded', () => {
     bindCommissionTabs();
     bindCommissionCommercialPicker();
     bindCommissionDetailTabs();
     bindSortableTables();
+    initCommissionSummaryColumns();
+    initCommissionSummaryHorizontalScroll();
     bindKpiTooltips();
 });
 
@@ -195,6 +224,8 @@ function parseSortableValue(value) {
 
     const primary = raw.split('(')[0].trim();
     const normalized = primary
+        .replaceAll('EUR', '')
+        .replaceAll('eur', '')
         .replaceAll('€', '')
         .replaceAll('%', '')
         .replace(/\s+/g, '')
@@ -219,6 +250,161 @@ function updateSortIndicators(table, state) {
             header.insertAdjacentHTML('beforeend', ` <span class="sort-indicator">${state.direction === 'asc' ? '▲' : '▼'}</span>`);
         }
     });
+}
+
+function initCommissionSummaryColumns() {
+    const table = document.getElementById('commissionSummaryTable');
+    const button = document.getElementById('commissionSummaryColumnsButton');
+    const popover = document.getElementById('commissionSummaryColumnsPopover');
+
+    if (!table || !button || !popover) {
+        return;
+    }
+
+    renderCommissionSummaryColumnsPopover();
+    applyCommissionSummaryColumnVisibility();
+
+    button.addEventListener('click', () => {
+        popover.classList.toggle('is-hidden');
+    });
+
+    popover.addEventListener('change', (event) => {
+        const input = event.target.closest('[data-column-toggle]');
+
+        if (!input) {
+            return;
+        }
+
+        const visible = new Set(commissionSummaryVisibleColumns);
+        const key = input.dataset.columnToggle;
+
+        if (input.checked) {
+            visible.add(key);
+        } else {
+            visible.delete(key);
+        }
+
+        commissionSummaryVisibleColumns = commissionSummaryColumnDefinitions
+            .filter((column) => column.alwaysVisible || visible.has(column.key))
+            .map((column) => column.key);
+
+        localStorage.setItem(
+            commissionSummaryColumnsStorageKey,
+            JSON.stringify(commissionSummaryVisibleColumns)
+        );
+
+        applyCommissionSummaryColumnVisibility();
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.columns-menu')) {
+            popover.classList.add('is-hidden');
+        }
+    });
+}
+
+function initCommissionSummaryHorizontalScroll() {
+    const topScroll = document.getElementById('commissionSummaryTableScrollTop');
+    const spacer = document.getElementById('commissionSummaryTableScrollTopSpacer');
+    const shell = document.getElementById('commissionSummaryTableShell');
+    const table = document.getElementById('commissionSummaryTable');
+
+    if (!topScroll || !spacer || !shell || !table) {
+        return;
+    }
+
+    let syncingFromTop = false;
+    let syncingFromShell = false;
+
+    syncCommissionSummaryScrollbar = () => {
+        spacer.style.width = `${table.scrollWidth}px`;
+        topScroll.scrollLeft = shell.scrollLeft;
+    };
+
+    topScroll.addEventListener('scroll', () => {
+        if (syncingFromShell) {
+            return;
+        }
+
+        syncingFromTop = true;
+        shell.scrollLeft = topScroll.scrollLeft;
+        syncingFromTop = false;
+    });
+
+    shell.addEventListener('scroll', () => {
+        if (syncingFromTop) {
+            return;
+        }
+
+        syncingFromShell = true;
+        topScroll.scrollLeft = shell.scrollLeft;
+        syncingFromShell = false;
+    });
+
+    if (typeof ResizeObserver === 'function') {
+        const resizeObserver = new ResizeObserver(() => syncCommissionSummaryScrollbar());
+        resizeObserver.observe(table);
+        resizeObserver.observe(shell);
+    } else {
+        window.addEventListener('resize', syncCommissionSummaryScrollbar);
+    }
+
+    syncCommissionSummaryScrollbar();
+}
+
+function renderCommissionSummaryColumnsPopover() {
+    const popover = document.getElementById('commissionSummaryColumnsPopover');
+
+    if (!popover) {
+        return;
+    }
+
+    popover.innerHTML = commissionSummaryColumnDefinitions
+        .filter((column) => !column.alwaysVisible)
+        .map((column) => `
+            <label class="column-option switch-option">
+                <input type="checkbox" data-column-toggle="${escapeHtml(column.key)}" ${commissionSummaryVisibleColumns.includes(column.key) ? 'checked' : ''}>
+                <span>${escapeHtml(column.label)}</span>
+            </label>
+        `)
+        .join('');
+}
+
+function applyCommissionSummaryColumnVisibility() {
+    document.querySelectorAll('#commissionSummaryTable [data-column]').forEach((cell) => {
+        cell.classList.toggle('is-hidden', !commissionSummaryVisibleColumns.includes(cell.dataset.column));
+    });
+
+    syncCommissionSummaryScrollbar();
+}
+
+function loadVisibleColumns(storageKey, definitions) {
+    const defaults = definitions
+        .filter((column) => column.alwaysVisible)
+        .map((column) => column.key);
+
+    try {
+        const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+
+        if (!Array.isArray(stored)) {
+            return defaults;
+        }
+
+        return definitions
+            .filter((column) => column.alwaysVisible || stored.includes(column.key))
+            .map((column) => column.key);
+    } catch (error) {
+        return defaults;
+    }
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
 }
 
 function bindKpiTooltips() {

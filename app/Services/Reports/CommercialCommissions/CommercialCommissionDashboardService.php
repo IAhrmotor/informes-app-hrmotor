@@ -777,7 +777,7 @@ class CommercialCommissionDashboardService
         }
 
         if ($salesforceUser === null) {
-            return true;
+            return false;
         }
 
         if (in_array($this->normalizeUserName($salesforceUser->name), self::TECHNICAL_OWNER_NAMES, true)) {

@@ -17,6 +17,10 @@ En el resumen visible del informe solo se muestran:
 - comerciales o tasadores reales
 - con venta/cambio del mes o con compra liquidada en el mes
 - una compartida sola no genera fila propia si ese usuario no tiene venta/cambio o compra liquidada
+- el usuario debe existir en `salesforce_users`
+- el perfil Salesforce permitido debe ser:
+  - `Compra/Venta`
+  - `Comerciales Partner Community`
 
 No se listan usuarios tecnicos ni usuarios sincronizados sin actividad.
 
@@ -134,6 +138,10 @@ Comision final =
 En la propia vista de Comisiones Comerciales:
 
 - tab Resumen: totales y tabla por comercial
+- selector de columnas en el resumen
+- `Comision final` aparece al inicio
+- `Operaciones` ya no aparece en la tabla resumen
+- `Pen. resenas` y `Pen. financiacion` muestran importe monetario penalizado
 - tab Detalle auditable: buscar comercial y ver el detalle que alimenta el calculo
 
 8. Acceso actual

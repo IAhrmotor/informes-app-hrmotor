@@ -3159,6 +3159,18 @@ th.num {
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 
+.commercial-commissions-report .commission-penalty-text {
+    color: #c81426 !important;
+}
+
+.commercial-commissions-report .commission-summary-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
 .commercial-commissions-report .table-shell {
     overflow: auto;
     border: 1px solid rgba(31, 41, 68, .10);
@@ -3166,8 +3178,32 @@ th.num {
     background: #fff;
 }
 
+.commercial-commissions-report .commission-summary-table-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.commercial-commissions-report .table-scrollbar-top {
+    overflow-x: auto;
+    overflow-y: hidden;
+    min-height: 18px;
+    border: 1px solid rgba(31, 41, 68, .10);
+    border-radius: 999px;
+    background: rgba(245, 247, 251, .95);
+    scrollbar-width: thin;
+}
+
+.commercial-commissions-report .table-scrollbar-spacer {
+    height: 1px;
+}
+
 .commercial-commissions-report .table-shell table {
     min-width: 100%;
+}
+
+.commercial-commissions-report #commissionSummaryTable {
+    min-width: 1380px;
 }
 
 .commercial-commissions-report .table-shell thead th {
@@ -3321,6 +3357,11 @@ th.num {
     .commercial-commissions-report .commission-filter-form,
     .commercial-commissions-report .commission-detail-shell {
         grid-template-columns: 1fr;
+    }
+
+    .commercial-commissions-report .commission-summary-toolbar {
+        flex-direction: column;
+        align-items: stretch;
     }
 
     .commercial-commissions-report .commission-commercial-picker {
