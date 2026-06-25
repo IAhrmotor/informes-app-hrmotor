@@ -51,7 +51,10 @@ C. Compartidas
 - Si la oportunidad tiene copropietario en Entrega_Compartida__c, ese copropietario cobra 30 EUR.
 
 D. Stock +150
-- Si la venta tiene Dias_en_stock__c >= 150, suma 10 EUR.
+- Si la venta tiene al menos 150 dias entre:
+  `Opportunity.Fecha_firma_contrato__c`
+  - `Product2.PRO_FEC_Fecha_entrada__c`
+  suma 10 EUR.
 
 E. Bonus +15
 - A partir de la entrega numero 16, cada entrega extra suma 30 EUR.

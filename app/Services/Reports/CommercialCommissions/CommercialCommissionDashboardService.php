@@ -120,7 +120,7 @@ class CommercialCommissionDashboardService
             $ownerPurchaseDetails = collect($purchaseDetailsByOwner->get($userId, collect()))->values();
             $ownerSharedDeliveries = $sharedDeliveriesByCoowner->get($userId, collect())->values();
             $ownerStockDeliveries = $ownerDeliveries
-                ->filter(fn (SalesforceOpportunity $row) => (int) ($row->vehicle_days_in_stock ?? 0) >= 150)
+                ->filter(fn (SalesforceOpportunity $row) => $this->isStock150Delivery($row))
                 ->values();
 
             $deliveriesCount = $ownerDeliveries->count();
@@ -258,7 +258,7 @@ class CommercialCommissionDashboardService
                             'vehicle_plate' => $row->vehicle_plate,
                             'vehicle_entry_date' => optional($row->vehicle_entry_date)->toDateString(),
                             'cv_signed_date' => optional($row->cv_signed_date)->toDateString(),
-                            'vehicle_days_in_stock' => (int) ($row->vehicle_days_in_stock ?? 0),
+                            'vehicle_days_in_stock' => $this->stockDaysForOpportunity($row) ?? 0,
                             'amount' => 10.0,
                         ])->values()->all(),
                     'reviews' => $ownerReviews
@@ -558,7 +558,9 @@ class CommercialCommissionDashboardService
             'purchases_count' => (clone $purchasesQuery)->count(),
             'operations_count' => (clone $baseQuery)->count(),
             'shared_sales_count' => (clone $salesQuery)->whereNotNull('shared_delivery_id')->count(),
-            'stock_150_count' => (clone $salesQuery)->where('vehicle_days_in_stock', '>=', 150)->count(),
+            'stock_150_count' => $monthlyDeliveries
+                ->filter(fn (SalesforceOpportunity $row) => $this->isStock150Delivery($row))
+                ->count(),
             'reviews_count' => $this->monthlyReviews($periodStart, $periodEnd)->count(),
             'commercials_count' => $eligibleCommercialIds->count(),
             'synced_users_count' => SalesforceUser::query()->where('is_active', true)->count(),
@@ -583,6 +585,26 @@ class CommercialCommissionDashboardService
                 ->orWhere($field, false)
                 ->orWhere($field, 0);
         });
+    }
+
+    private function isStock150Delivery(SalesforceOpportunity $row): bool
+    {
+        $days = $this->stockDaysForOpportunity($row);
+
+        return $days !== null && $days >= 150;
+    }
+
+    private function stockDaysForOpportunity(SalesforceOpportunity $row): ?int
+    {
+        if (! $row->cv_signed_date || ! $row->vehicle_entry_date) {
+            return null;
+        }
+
+        $signedDate = CarbonImmutable::parse($row->cv_signed_date)->startOfDay();
+        $entryDate = CarbonImmutable::parse($row->vehicle_entry_date)->startOfDay();
+        $days = $entryDate->diffInDays($signedDate, false);
+
+        return $days < 0 ? null : $days;
     }
 
     private function isDelivery(SalesforceOpportunity $row): bool

@@ -151,8 +151,8 @@ class CommercialCommissionDashboardTest extends TestCase
                 'opo_div_descuento' => 100,
                 'gestion_de_venta' => false,
                 'vehicle_plate' => $index === 1 ? '1111AAA' : 'PLATE-'.$index,
-                'vehicle_days_in_stock' => $index === 1 ? 160 : 40,
-                'vehicle_entry_date' => '2025-10-01',
+                'vehicle_days_in_stock' => $index === 1 ? 10 : 160,
+                'vehicle_entry_date' => $index === 1 ? '2025-10-01' : '2026-03-01',
                 'shared_delivery_id' => $index === 1 ? '005-B' : null,
                 'shared_delivery_name' => $index === 1 ? 'Comercial B' : null,
             ]);
