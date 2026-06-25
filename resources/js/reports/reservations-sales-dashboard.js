@@ -1,11 +1,29 @@
 const fmt = new Intl.NumberFormat('es-ES');
 const tableSortState = new Map();
+const reservationsCommercialColumnsStorageKey = 'reservationsCommercialColumns';
+const reservationsCommercialColumnDefinitions = [
+    { key: 'comercial', label: 'Comercial', alwaysVisible: true },
+    { key: 'commercial_delegation', label: 'Delegacion comercial', alwaysVisible: true },
+    { key: 'zone', label: 'Zona', alwaysVisible: true },
+    { key: 'oportunidades_totales', label: 'Oportunidades totales', alwaysVisible: true },
+    { key: 'reservas_vivas', label: 'Reservas vivas', alwaysVisible: true },
+    { key: 'reservas_vivas_pct', label: '% reservas vivas' },
+    { key: 'oportunidades_caidas', label: 'Oportunidades caidas', alwaysVisible: true },
+    { key: 'oportunidades_caidas_pct', label: '% oportunidades caidas' },
+    { key: 'cv_firmados', label: 'Contratos CV firmados', alwaysVisible: true },
+    { key: 'cv_firmados_pct', label: '% contratos CV firmados' },
+];
+let reservationsCommercialVisibleColumns = loadVisibleColumns(
+    reservationsCommercialColumnsStorageKey,
+    reservationsCommercialColumnDefinitions
+);
 
 document.addEventListener('DOMContentLoaded', async () => {
     bindTabs();
     bindFilters();
     bindResetFilters();
     bindTableSorting();
+    initReservationsCommercialColumns();
     toggleCustomPeriods();
     await reloadAllData();
 });
@@ -27,6 +45,9 @@ function bindTabs() {
 function bindResetFilters() {
     document.getElementById('resetFilters')?.addEventListener('click', async () => {
         [
+            'commercialDelegation',
+            'zone',
+            'commercial',
             'currentStart',
             'currentEnd',
             'comparisonStart',
@@ -52,6 +73,9 @@ function bindFilters() {
         'period',
         'dateCriterion',
         'opportunityType',
+        'commercialDelegation',
+        'zone',
+        'commercial',
         'currentStart',
         'currentEnd',
         'comparisonStart',
@@ -74,6 +98,7 @@ async function reloadAllData() {
         const filters = currentFilters();
         const summary = await fetchJson(`/informes/reservas-ventas/data/summary?${filters}`);
         renderSummary(summary);
+        renderFilterOptions(summary.filters || {});
 
         const [commercials, portals] = await Promise.all([
             fetchJson(`/informes/reservas-ventas/data/commercials?${filters}`),
@@ -210,14 +235,19 @@ function renderCommercialDelegations(rows) {
 
 function renderCommercials(rows) {
     renderRows('commercialRows', rows, [
-        [(row) => row.comercial || '-'],
-        [(row) => row.commercial_delegation || '-'],
-        [(row) => row.zone || '-'],
-        [(row) => formatNumber(row.oportunidades_totales), true],
-        [(row) => formatCountPercent(row.reservas_vivas, row.reservas_vivas_pct), true, (row) => row.reservas_vivas, true],
-        [(row) => formatCountPercent(row.oportunidades_caidas, row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas, true],
-        [(row) => formatCountPercent(row.cv_firmados, row.cv_firmados_pct), true, (row) => row.cv_firmados, true],
+        [(row) => row.comercial || '-', false, null, false, 'comercial'],
+        [(row) => row.commercial_delegation || '-', false, null, false, 'commercial_delegation'],
+        [(row) => row.zone || '-', false, null, false, 'zone'],
+        [(row) => formatNumber(row.oportunidades_totales), true, (row) => row.oportunidades_totales, false, 'oportunidades_totales'],
+        [(row) => formatCountPercent(row.reservas_vivas, row.reservas_vivas_pct), true, (row) => row.reservas_vivas, true, 'reservas_vivas'],
+        [(row) => formatPercent(row.reservas_vivas_pct), true, (row) => row.reservas_vivas_pct, false, 'reservas_vivas_pct'],
+        [(row) => formatCountPercent(row.oportunidades_caidas, row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas, true, 'oportunidades_caidas'],
+        [(row) => formatPercent(row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas_pct, false, 'oportunidades_caidas_pct'],
+        [(row) => formatCountPercent(row.cv_firmados, row.cv_firmados_pct), true, (row) => row.cv_firmados, true, 'cv_firmados'],
+        [(row) => formatPercent(row.cv_firmados_pct), true, (row) => row.cv_firmados_pct, false, 'cv_firmados_pct'],
     ], 'No hay datos de comerciales para los filtros seleccionados.');
+
+    applyReservationsCommercialColumnVisibility();
 }
 
 function renderPortals(rows) {
@@ -240,19 +270,93 @@ function renderRows(rootId, rows, columns, emptyMessage) {
     }
 
     rows.forEach((row) => {
-        const cells = columns.map(([formatter, numeric, sortFormatter, html], index) => {
+        const cells = columns.map(([formatter, numeric, sortFormatter, html, columnKey], index) => {
             const value = formatter(row) ?? '-';
             const className = numeric ? ' class="num"' : '';
             const content = html ? value : (index === 0 ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value));
             const sortValue = sortFormatter ? ` data-sort-value="${escapeHtml(sortFormatter(row) ?? '')}"` : '';
+            const columnAttr = columnKey ? ` data-column="${escapeHtml(columnKey)}"` : '';
 
-            return `<td${className}${sortValue}>${content}</td>`;
+            return `<td${className}${sortValue}${columnAttr}>${content}</td>`;
         }).join('');
 
         root.insertAdjacentHTML('beforeend', `<tr>${cells}</tr>`);
     });
 
     applyStoredSort(root);
+}
+
+function initReservationsCommercialColumns() {
+    const button = document.getElementById('reservationsCommercialColumnsButton');
+    const popover = document.getElementById('reservationsCommercialColumnsPopover');
+
+    if (!button || !popover) {
+        return;
+    }
+
+    renderReservationsCommercialColumnsPopover();
+    applyReservationsCommercialColumnVisibility();
+
+    button.addEventListener('click', () => {
+        popover.classList.toggle('is-hidden');
+    });
+
+    popover.addEventListener('change', (event) => {
+        const input = event.target.closest('[data-column-toggle]');
+
+        if (!input) {
+            return;
+        }
+
+        const visible = new Set(reservationsCommercialVisibleColumns);
+        const key = input.dataset.columnToggle;
+
+        if (input.checked) {
+            visible.add(key);
+        } else {
+            visible.delete(key);
+        }
+
+        reservationsCommercialVisibleColumns = reservationsCommercialColumnDefinitions
+            .filter((column) => column.alwaysVisible || visible.has(column.key))
+            .map((column) => column.key);
+
+        localStorage.setItem(
+            reservationsCommercialColumnsStorageKey,
+            JSON.stringify(reservationsCommercialVisibleColumns)
+        );
+        applyReservationsCommercialColumnVisibility();
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.columns-menu')) {
+            popover.classList.add('is-hidden');
+        }
+    });
+}
+
+function renderReservationsCommercialColumnsPopover() {
+    const root = document.getElementById('reservationsCommercialColumnsPopover');
+
+    if (!root) {
+        return;
+    }
+
+    root.innerHTML = reservationsCommercialColumnDefinitions
+        .filter((column) => !column.alwaysVisible)
+        .map((column) => `
+            <label class="column-option switch-option">
+                <input type="checkbox" data-column-toggle="${escapeHtml(column.key)}" ${reservationsCommercialVisibleColumns.includes(column.key) ? 'checked' : ''}>
+                <span>${escapeHtml(column.label)}</span>
+            </label>
+        `)
+        .join('');
+}
+
+function applyReservationsCommercialColumnVisibility() {
+    document.querySelectorAll('#reservationsCommercialTable [data-column]').forEach((cell) => {
+        cell.classList.toggle('is-hidden', !reservationsCommercialVisibleColumns.includes(cell.dataset.column));
+    });
 }
 
 function bindTableSorting() {
@@ -365,6 +469,9 @@ function currentFilters() {
     setParam(params, 'period', document.getElementById('period')?.value);
     setParam(params, 'date_criterion', document.getElementById('dateCriterion')?.value);
     setParam(params, 'opportunity_type', document.getElementById('opportunityType')?.value);
+    setParam(params, 'commercial_delegation', document.getElementById('commercialDelegation')?.value);
+    setParam(params, 'zone', document.getElementById('zone')?.value);
+    setParam(params, 'commercial', document.getElementById('commercial')?.value);
 
     if (document.getElementById('period')?.value === 'custom') {
         setParam(params, 'current_start', document.getElementById('currentStart')?.value);
@@ -374,6 +481,34 @@ function currentFilters() {
     }
 
     return params.toString();
+}
+
+function renderFilterOptions(filters) {
+    fillSelect('commercial', filters.commercials || [], 'id', 'name');
+    fillSelect('commercialDelegation', (filters.commercial_delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name');
+    fillSelect('zone', (filters.zones || []).map((item) => ({ id: item, name: item })), 'id', 'name');
+}
+
+function fillSelect(id, items, valueKey, labelKey) {
+    const select = document.getElementById(id);
+
+    if (!select) {
+        return;
+    }
+
+    const current = select.value;
+    const first = select.querySelector('option')?.outerHTML || '<option value="">Todos</option>';
+
+    select.innerHTML = first;
+
+    items.forEach((item) => {
+        const option = document.createElement('option');
+        option.value = item[valueKey];
+        option.textContent = item[labelKey];
+        select.appendChild(option);
+    });
+
+    select.value = [...select.options].some((option) => option.value === current) ? current : '';
 }
 
 function buildKpiAuditUrl(metric) {
@@ -544,4 +679,24 @@ function escapeHtml(value) {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#039;');
+}
+
+function loadVisibleColumns(storageKey, definitions) {
+    const defaultColumns = definitions.filter((column) => column.alwaysVisible).map((column) => column.key);
+
+    try {
+        const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+
+        if (!Array.isArray(stored) || !stored.length) {
+            return defaultColumns;
+        }
+
+        const valid = stored.filter((key) => definitions.some((column) => column.key === key));
+
+        return definitions
+            .filter((column) => column.alwaysVisible || valid.includes(column.key))
+            .map((column) => column.key);
+    } catch (error) {
+        return defaultColumns;
+    }
 }

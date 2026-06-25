@@ -28,13 +28,13 @@
         'Oportunidades' => 'Conteo de salesforce_opportunities con cv_signed=true, stage_name distinto de Cerrada perdida, record_type Venta/Cambio/Tasacion y gestion_de_venta false o null.',
         'Resenas' => 'Conteo de salesforce_reviews creadas dentro del mes. Fuente Salesforce: objeto Resena__c.',
         'Estado' => 'Indica si existen bloqueos de datos o estructura que impiden calcular el informe.',
-        'Comerciales' => 'Numero de usuarios activos cargados desde salesforce_users y mostrados en el resumen, aunque tengan 0 actividad en el mes.',
+        'Comerciales' => 'Numero de comerciales o tasadores con actividad real en el resumen: venta/cambio del mes o compra liquidada por venta posterior del vehiculo.',
         'Comision final' => 'Formula: max(prima ajustada - penalizaciones, 0) + producto financiacion + producto garantias.',
         'Prima ajustada' => 'Formula: prima total x tramo de entregas.',
         'Penalizaciones' => 'Suma de penalizacion por garantias, penalizacion por resenas y penalizacion por financiacion.',
         'Entregas' => 'Conteo de oportunidades de tipo Venta y Cambio del mes. Cada entrega suma 60 EUR.',
         'Operaciones' => 'Conteo de oportunidades de tipo Venta, Cambio y Tasacion del mes.',
-        'Compras liquidadas' => 'Compras historicas enlazadas a una venta del mes. Formula por compra: rentabilidad_compra x 1.8%. Fuente principal: informe_rentabilidad.',
+        'Compras liquidadas' => 'Compras historicas enlazadas a una venta del mes. Se atribuyen al Comprador_oportunidad__c del Product2 y la formula es: precio_venta - precio_compra - descuento + beneficio_financiacion + garantia. Sobre ese resultado se aplica el 1.8%.',
         'Compartidas' => 'Suma de 30 EUR por cada oportunidad con Entrega_Compartida__c.',
         'Ventas' => 'Importe calculado como entregas x 60 EUR.',
         'Stock +150' => 'Suma de 10 EUR por cada entrega con Dias_en_stock__c >= 150.',
@@ -97,95 +97,70 @@
                 <article class="card campaign-kpi">
                     <div class="kpi-label"><span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Estado') }}">Estado</span></div>
                     <div class="kpi-value">{{ $dashboard['ready'] ? 'Listo para validar' : 'Pendiente de cierre' }}</div>
-                    <div class="kpi-hint">Solo administradores pueden verlo por ahora.</div>
+                    <div class="kpi-hint">El diagnostico base ampliado solo se muestra a administradores.</div>
                 </article>
             </section>
 
-            <section class="card panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Diagnostico de datos base</h2>
-                        <div class="small">Volumen real sincronizado para el mes seleccionado.</div>
+            @if ($canSeeSyncDiagnostics ?? false)
+                <section class="card panel">
+                    <div class="panel-title">
+                        <div>
+                            <h2>Diagnostico de datos base</h2>
+                            <div class="small">Volumen real sincronizado para el mes seleccionado.</div>
+                        </div>
                     </div>
-                </div>
-                <div class="campaign-diagnostics commission-diagnostics-grid">
-                    <div class="diagnostic-item">
-                        <span>Ventas / Cambios</span>
-                        <strong>{{ number_format($dashboard['diagnostics']['sales_count'], 0, ',', '.') }}</strong>
+                    <div class="campaign-diagnostics commission-diagnostics-grid">
+                        <div class="diagnostic-item">
+                            <span>Ventas / Cambios</span>
+                            <strong>{{ number_format($dashboard['diagnostics']['sales_count'], 0, ',', '.') }}</strong>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span>Compras base</span>
+                            <strong>{{ number_format($dashboard['diagnostics']['purchases_count'], 0, ',', '.') }}</strong>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span>Operaciones</span>
+                            <strong>{{ number_format($dashboard['diagnostics']['operations_count'], 0, ',', '.') }}</strong>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span>Compartidas</span>
+                            <strong>{{ number_format($dashboard['diagnostics']['shared_sales_count'], 0, ',', '.') }}</strong>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span>Stock +150</span>
+                            <strong>{{ number_format($dashboard['diagnostics']['stock_150_count'], 0, ',', '.') }}</strong>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span>Comerciales detectados</span>
+                            <strong>{{ number_format($dashboard['diagnostics']['commercials_count'], 0, ',', '.') }}</strong>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span>Usuarios sincronizados</span>
+                            <strong>{{ number_format($dashboard['diagnostics']['synced_users_count'] ?? 0, 0, ',', '.') }}</strong>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span>Filtro Gestion de venta</span>
+                            <strong>{{ $dashboard['diagnostics']['sale_management_filter_applied'] ? 'Aplicado' : 'No aplicado' }}</strong>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span>Vehiculos vendibles enlazados</span>
+                            <strong>{{ number_format($dashboard['diagnostics']['sold_vehicle_links_count'] ?? 0, 0, ',', '.') }}</strong>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span>Ventas con comprador Product2</span>
+                            <strong>{{ number_format($dashboard['diagnostics']['sales_with_product_buyer_count'] ?? 0, 0, ',', '.') }}</strong>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span>Compras historicas candidatas</span>
+                            <strong>{{ number_format($dashboard['diagnostics']['historical_purchase_candidates_count'] ?? 0, 0, ',', '.') }}</strong>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span>Compras liquidadas</span>
+                            <strong>{{ number_format($dashboard['diagnostics']['matched_purchase_commissions_count'] ?? 0, 0, ',', '.') }}</strong>
+                        </div>
                     </div>
-                    <div class="diagnostic-item">
-                        <span>Compras base</span>
-                        <strong>{{ number_format($dashboard['diagnostics']['purchases_count'], 0, ',', '.') }}</strong>
-                    </div>
-                    <div class="diagnostic-item">
-                        <span>Operaciones</span>
-                        <strong>{{ number_format($dashboard['diagnostics']['operations_count'], 0, ',', '.') }}</strong>
-                    </div>
-                    <div class="diagnostic-item">
-                        <span>Compartidas</span>
-                        <strong>{{ number_format($dashboard['diagnostics']['shared_sales_count'], 0, ',', '.') }}</strong>
-                    </div>
-                    <div class="diagnostic-item">
-                        <span>Stock +150</span>
-                        <strong>{{ number_format($dashboard['diagnostics']['stock_150_count'], 0, ',', '.') }}</strong>
-                    </div>
-                    <div class="diagnostic-item">
-                        <span>Comerciales detectados</span>
-                        <strong>{{ number_format($dashboard['diagnostics']['commercials_count'], 0, ',', '.') }}</strong>
-                    </div>
-                    <div class="diagnostic-item">
-                        <span>Usuarios sincronizados</span>
-                        <strong>{{ number_format($dashboard['diagnostics']['synced_users_count'] ?? 0, 0, ',', '.') }}</strong>
-                    </div>
-                    <div class="diagnostic-item">
-                        <span>Filtro Gestion de venta</span>
-                        <strong>{{ $dashboard['diagnostics']['sale_management_filter_applied'] ? 'Aplicado' : 'No aplicado' }}</strong>
-                    </div>
-                    <div class="diagnostic-item">
-                        <span>Vehiculos vendibles enlazados</span>
-                        <strong>{{ number_format($dashboard['diagnostics']['sold_vehicle_links_count'] ?? 0, 0, ',', '.') }}</strong>
-                    </div>
-                    <div class="diagnostic-item">
-                        <span>Compras historicas candidatas</span>
-                        <strong>{{ number_format($dashboard['diagnostics']['historical_purchase_candidates_count'] ?? 0, 0, ',', '.') }}</strong>
-                    </div>
-                    <div class="diagnostic-item">
-                        <span>Compras liquidadas</span>
-                        <strong>{{ number_format($dashboard['diagnostics']['matched_purchase_commissions_count'] ?? 0, 0, ',', '.') }}</strong>
-                    </div>
-                </div>
-            </section>
-
-            <section class="card panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Campos candidatos de rentabilidad</h2>
-                        <div class="small">Se sincronizan ambos para contrastarlos antes de fijar el calculo final de compras.</div>
-                    </div>
-                </div>
-                <div class="table-shell">
-                    <table>
-                        <thead>
-                        <tr>
-                            <th>Campo local</th>
-                            <th class="num">Filas con dato</th>
-                            <th class="num">Filas positivas</th>
-                            <th class="num">Suma</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        @foreach ($dashboard['diagnostics']['candidate_rentability_fields'] as $candidate)
-                            <tr>
-                                <td>{{ $candidate['field'] }}</td>
-                                <td class="num">{{ number_format($candidate['non_null_rows'], 0, ',', '.') }}</td>
-                                <td class="num">{{ number_format($candidate['positive_rows'], 0, ',', '.') }}</td>
-                                <td class="num">{{ number_format($candidate['sum'], 2, ',', '.') }}</td>
-                            </tr>
-                        @endforeach
-                        </tbody>
-                    </table>
-                </div>
-            </section>
+                </section>
+            @endif
 
             @if ($summaryRows->isNotEmpty())
                 <section class="card panel">

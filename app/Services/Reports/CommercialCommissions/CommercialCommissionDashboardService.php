@@ -13,14 +13,14 @@ use Illuminate\Support\Str;
 
 class CommercialCommissionDashboardService
 {
+    private const ALLOWED_PURCHASE_SOURCES = [
+        'cambio',
+        'compradirecta',
+    ];
+
     private const COMMERCIAL_PROFILES = [
         'Compra/Venta',
         'Comerciales Partner Community',
-    ];
-
-    private const SUPPORTED_PURCHASE_RENTABILITY_FIELDS = [
-        'informe_rentabilidad',
-        'rentabilidad_financiera',
     ];
 
     private const TECHNICAL_OWNER_IDS = [
@@ -92,7 +92,7 @@ class CommercialCommissionDashboardService
             }
         }
 
-        $userIds = collect(array_keys($userNames))
+        $userIds = collect()
             ->merge($operationsByOwner->keys())
             ->merge($purchaseDetailsByOwner->keys())
             ->filter()
@@ -279,6 +279,10 @@ class CommercialCommissionDashboardService
 
     private function resolvePurchaseCommissionDetails(Collection $monthlyDeliveries): array
     {
+        if ($monthlyDeliveries->isEmpty()) {
+            return [];
+        }
+
         $plates = $monthlyDeliveries->pluck('vehicle_plate')->filter()->unique()->values();
         $vehicleInterestIds = $monthlyDeliveries->pluck('vehicle_interest_id')->filter()->unique()->values();
         $normalizedPlates = $monthlyDeliveries
@@ -288,12 +292,9 @@ class CommercialCommissionDashboardService
             ->unique()
             ->values();
 
-        if ($plates->isEmpty() && $vehicleInterestIds->isEmpty() && $normalizedPlates->isEmpty()) {
-            return [];
-        }
-
-        $rentabilityField = $this->purchaseRentabilityField();
-        $purchaseCandidates = $this->purchaseCandidates($plates, $vehicleInterestIds, $normalizedPlates);
+        $purchaseCandidates = ($plates->isNotEmpty() || $vehicleInterestIds->isNotEmpty() || $normalizedPlates->isNotEmpty())
+            ? $this->purchaseCandidates($plates, $vehicleInterestIds, $normalizedPlates)
+            : collect();
         $purchaseCandidatesByPlate = $purchaseCandidates
             ->filter(fn (SalesforceOpportunity $row) => filled($row->vehicle_plate))
             ->groupBy(fn (SalesforceOpportunity $row) => $this->normalizePlate($row->vehicle_plate));
@@ -309,7 +310,7 @@ class CommercialCommissionDashboardService
             $normalizedPlate = $this->normalizePlate($sale->vehicle_plate);
             $vehicleInterestId = (string) $sale->vehicle_interest_id;
 
-            if ($saleDate === null || ($normalizedPlate === '' && $vehicleInterestId === '')) {
+            if ($saleDate === null) {
                 continue;
             }
 
@@ -336,25 +337,39 @@ class CommercialCommissionDashboardService
                 ->first();
 
             if (! $purchase) {
+                $purchase = null;
+            }
+
+            $purchaseOwnerId = (string) ($sale->vehicle_buyer_id ?: $purchase?->vehicle_buyer_id ?: $purchase?->owner_id ?: '');
+            $purchaseOwnerName = (string) ($sale->vehicle_buyer_name ?: $purchase?->vehicle_buyer_name ?: $purchase?->owner_name ?: $purchaseOwnerId);
+            $purchaseSource = (string) ($sale->vehicle_purchase_source ?: $purchase?->vehicle_purchase_source ?: '');
+
+            if ($purchaseOwnerId === '' && $purchaseOwnerName === '') {
                 continue;
             }
 
-            $rentability = max(0, (float) ($purchase->{$rentabilityField} ?? 0));
+            if (! $this->purchaseSourceAllowed($purchaseSource)) {
+                continue;
+            }
+
+            $rentability = $this->purchaseCommissionRentability($sale, $purchase);
             $commissionAmount = round($rentability > 0 ? $rentability * 0.018 : 0, 2);
 
             $details[] = [
-                'purchase_owner_id' => $purchase->owner_id,
-                'purchase_owner_name' => $purchase->owner_name,
-                'vehicle_plate' => $plate !== '' ? $plate : (string) $purchase->vehicle_plate,
-                'purchase_opportunity_id' => $purchase->salesforce_id,
-                'purchase_opportunity_name' => $purchase->name,
-                'purchase_record_type_name' => $purchase->record_type_name,
-                'purchase_date' => optional($purchase->cv_signed_date)->toDateString(),
+                'purchase_owner_id' => $purchaseOwnerId,
+                'purchase_owner_name' => $purchaseOwnerName,
+                'vehicle_plate' => $plate !== '' ? $plate : (string) ($purchase?->vehicle_plate ?? ''),
+                'purchase_opportunity_id' => $purchase?->salesforce_id,
+                'purchase_opportunity_name' => $purchase?->name ?: 'Sin oportunidad historica local',
+                'purchase_record_type_name' => $purchase?->record_type_name ?: 'Product2',
+                'purchase_date' => optional($purchase?->cv_signed_date)->toDateString(),
+                'purchase_source' => $purchaseSource !== '' ? $purchaseSource : null,
                 'sale_opportunity_id' => $sale->salesforce_id,
                 'sale_opportunity_name' => $sale->name,
                 'sale_date' => optional($sale->cv_signed_date)->toDateString(),
-                'rentability_amount' => round($rentability, $rentabilityField === 'rentabilidad_financiera' ? 6 : 2),
+                'rentability_amount' => round($rentability, 2),
                 'commission_amount' => $commissionAmount,
+                'source' => $purchase ? 'historical_opportunity' : 'product2_sale_vehicle',
             ];
         }
 
@@ -401,6 +416,11 @@ class CommercialCommissionDashboardService
                 'shared_delivery_id',
                 'shared_delivery_name',
                 'vehicle_interest_id',
+                'vehicle_sale_price',
+                'vehicle_purchase_price',
+                'vehicle_purchase_source',
+                'vehicle_buyer_id',
+                'vehicle_buyer_name',
                 'vehicle_days_in_stock',
                 'vehicle_plate',
                 'vehicle_entry_date',
@@ -409,8 +429,6 @@ class CommercialCommissionDashboardService
                 'importe_financiado',
                 'gestion_de_venta',
                 'opo_div_descuento',
-                'informe_rentabilidad',
-                'rentabilidad_financiera',
             ] as $column) {
                 if (! Schema::hasColumn('salesforce_opportunities', $column)) {
                     $issues[] = "Falta la columna local salesforce_opportunities.{$column}. Ejecuta las migraciones pendientes.";
@@ -432,12 +450,6 @@ class CommercialCommissionDashboardService
             }
         }
 
-        $purchaseRentabilityField = $this->purchaseRentabilityField();
-
-        if (! in_array($purchaseRentabilityField, self::SUPPORTED_PURCHASE_RENTABILITY_FIELDS, true)) {
-            $issues[] = 'La configuracion de rentabilidad de compra no apunta a un campo soportado.';
-        }
-
         $saleManagementField = $this->saleManagementField();
 
         if ($saleManagementField !== '' && Schema::hasTable('salesforce_opportunities') && ! Schema::hasColumn('salesforce_opportunities', $saleManagementField)) {
@@ -457,10 +469,10 @@ class CommercialCommissionDashboardService
 
         if (
             ($diagnostics['sales_count'] ?? 0) > 0
-            && ($diagnostics['sold_vehicle_links_count'] ?? 0) > 0
+            && ($diagnostics['sales_with_product_buyer_count'] ?? 0) === 0
             && ($diagnostics['historical_purchase_candidates_count'] ?? 0) === 0
         ) {
-            $warnings[] = 'No hay compras historicas locales para los vehiculos vendidos del mes. Si esperas compras liquidadas, sincroniza el historico de opportunities para comisiones.';
+            $warnings[] = 'No hay comprador de Product2 ni compras historicas locales para los vehiculos vendidos del mes. Si esperas compras liquidadas, revisa el sync de opportunities y los datos del vehiculo en Salesforce.';
         }
 
         return $warnings;
@@ -484,12 +496,9 @@ class CommercialCommissionDashboardService
             'synced_users_count' => 0,
             'sale_management_filter_applied' => $this->hasSaleManagementFilter(),
             'sold_vehicle_links_count' => 0,
+            'sales_with_product_buyer_count' => 0,
             'historical_purchase_candidates_count' => 0,
             'matched_purchase_commissions_count' => 0,
-            'candidate_rentability_fields' => [
-                ['field' => 'informe_rentabilidad', 'non_null_rows' => 0, 'positive_rows' => 0, 'sum' => 0.0],
-                ['field' => 'rentabilidad_financiera', 'non_null_rows' => 0, 'positive_rows' => 0, 'sum' => 0.0],
-            ],
         ];
 
         if ($issues !== []) {
@@ -554,22 +563,9 @@ class CommercialCommissionDashboardService
             'commercials_count' => $eligibleCommercialIds->count(),
             'synced_users_count' => SalesforceUser::query()->where('is_active', true)->count(),
             'sold_vehicle_links_count' => $soldVehicleLinksCount,
+            'sales_with_product_buyer_count' => (clone $salesQuery)->whereNotNull('vehicle_buyer_id')->count(),
             'historical_purchase_candidates_count' => $historicalCandidates->count(),
             'matched_purchase_commissions_count' => count($matchedPurchaseDetails),
-            'candidate_rentability_fields' => [
-                $this->rentabilityFieldDiagnostics(clone $baseQuery, 'informe_rentabilidad', 2),
-                $this->rentabilityFieldDiagnostics(clone $baseQuery, 'rentabilidad_financiera', 6),
-            ],
-        ];
-    }
-
-    private function rentabilityFieldDiagnostics(Builder $query, string $field, int $precision): array
-    {
-        return [
-            'field' => $field,
-            'non_null_rows' => (clone $query)->whereNotNull($field)->count(),
-            'positive_rows' => (clone $query)->where($field, '>', 0)->count(),
-            'sum' => round((float) ((clone $query)->sum($field) ?? 0), $precision),
         ];
     }
 
@@ -725,13 +721,6 @@ class CommercialCommissionDashboardService
         return 0.0;
     }
 
-    private function purchaseRentabilityField(): string
-    {
-        $field = trim((string) config('commercial_commissions.purchase_rentability_field', ''));
-
-        return $field !== '' ? $field : 'informe_rentabilidad';
-    }
-
     private function saleManagementField(): string
     {
         return trim((string) config('commercial_commissions.sale_management_field', ''));
@@ -805,6 +794,32 @@ class CommercialCommissionDashboardService
             ->ascii()
             ->replaceMatches('/[^a-z0-9]+/', ' ')
             ->replaceMatches('/\s+/', ' ')
+            ->trim()
+            ->toString();
+    }
+
+    private function purchaseCommissionRentability(SalesforceOpportunity $sale, ?SalesforceOpportunity $purchase = null): float
+    {
+        $salePrice = (float) ($sale->vehicle_sale_price ?? $purchase?->vehicle_sale_price ?? 0);
+        $purchasePrice = (float) ($sale->vehicle_purchase_price ?? $purchase?->vehicle_purchase_price ?? 0);
+        $discount = max(0, (float) ($sale->opo_div_descuento ?? 0));
+        $financingBenefit = max(0, (float) ($sale->beneficio_financiacion_comercial ?? 0));
+        $guaranteeTotal = max(0, (float) ($sale->garantia_total ?? 0));
+
+        return round(max($salePrice - $purchasePrice - $discount + $financingBenefit + $guaranteeTotal, 0), 2);
+    }
+
+    private function purchaseSourceAllowed(?string $value): bool
+    {
+        return in_array($this->normalizePurchaseSource($value), self::ALLOWED_PURCHASE_SOURCES, true);
+    }
+
+    private function normalizePurchaseSource(?string $value): string
+    {
+        return Str::of((string) $value)
+            ->lower()
+            ->ascii()
+            ->replaceMatches('/[^a-z0-9]+/', '')
             ->trim()
             ->toString();
     }

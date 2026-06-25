@@ -105,7 +105,7 @@ class ReservationsSalesDashboardDatasetService
                 'executive_insights' => $insights['insights'],
                 'executive_insights_source' => $insights['source'],
                 'insights' => $insights['insights'],
-                'filters' => $this->filterOptions(),
+                'filters' => $current['filters'],
             ],
             'commercial_zones' => $current['zones'],
             'commercial_delegations' => $current['delegations'],
@@ -122,6 +122,12 @@ class ReservationsSalesDashboardDatasetService
             ->orderBy('id')
             ->chunkById(1000, function (Collection $rows) use (&$items, $filters, $metric): void {
                 foreach ($rows as $opportunity) {
+                    $row = $this->decorate($opportunity);
+
+                    if (! $this->passesFilters($row, $filters)) {
+                        continue;
+                    }
+
                     $items[] = $this->decorateAuditOpportunity($opportunity, $metric, $filters['date_criterion']);
                 }
             });
@@ -145,12 +151,20 @@ class ReservationsSalesDashboardDatasetService
         $delegations = [];
         $commercials = [];
         $portals = [];
+        $filterOptions = $this->emptyFilterOptionsAccumulator();
 
         $this->baseQuery($filters, $period)
             ->orderBy('id')
-            ->chunkById(1000, function (Collection $rows) use (&$bucket, &$zones, &$delegations, &$commercials, &$portals): void {
+            ->chunkById(1000, function (Collection $rows) use (&$bucket, &$zones, &$delegations, &$commercials, &$portals, &$filterOptions, $filters): void {
                 foreach ($rows as $opportunity) {
                     $row = $this->decorate($opportunity);
+
+                    $this->collectFilterOptions($filterOptions, $row);
+
+                    if (! $this->passesFilters($row, $filters)) {
+                        continue;
+                    }
+
                     $this->addToBucket($bucket, $row);
                     $this->addGroup($zones, $row['zone'], $row['zone'], [], $row);
                     $this->addGroup($delegations, $row['commercial_delegation'].'|'.$row['zone'], $row['commercial_delegation'], ['zone' => $row['zone']], $row);
@@ -168,6 +182,7 @@ class ReservationsSalesDashboardDatasetService
             'delegations' => $this->finalizeGroups($delegations, 'commercial_delegation'),
             'commercials' => $this->finalizeGroups($commercials, 'comercial'),
             'portals' => $this->finalizeGroups($portals, 'portal'),
+            'filters' => $this->filterOptionsFromAccumulator($filterOptions),
         ];
     }
 
@@ -217,6 +232,22 @@ class ReservationsSalesDashboardDatasetService
             ->whereRaw("LOWER(COALESCE(stage_name, '')) <> 'cerrada perdida'");
 
         $this->applyOpportunityTypeFilter($query, $filters['opportunity_type']);
+
+        if ($this->hasOperationalFilters($filters)) {
+            $ids = [];
+
+            $query->orderBy('id')->chunkById(1000, function (Collection $rows) use (&$ids, $filters): void {
+                foreach ($rows as $opportunity) {
+                    $row = $this->decorate($opportunity);
+
+                    if ($this->passesFilters($row, $filters)) {
+                        $ids[] = $opportunity->getKey();
+                    }
+                }
+            });
+
+            return SalesforceOpportunity::query()->whereIn('id', $ids ?: [0]);
+        }
 
         return $query;
     }
@@ -289,7 +320,27 @@ class ReservationsSalesDashboardDatasetService
             'comparison_start' => $request->string('comparison_start')->toString(),
             'comparison_end' => $request->string('comparison_end')->toString(),
             'opportunity_type' => $request->string('opportunity_type')->toString() ?: 'all',
+            'commercial_delegation' => $request->string('commercial_delegation')->toString(),
+            'zone' => $request->string('zone')->toString(),
+            'commercial' => $request->string('commercial')->toString(),
         ];
+    }
+
+    private function passesFilters(array $row, array $filters): bool
+    {
+        if ($filters['commercial_delegation'] && $row['commercial_delegation'] !== $filters['commercial_delegation']) {
+            return false;
+        }
+
+        if ($filters['zone'] && $row['zone'] !== $filters['zone']) {
+            return false;
+        }
+
+        if ($filters['commercial'] && $row['owner_id'] !== $filters['commercial']) {
+            return false;
+        }
+
+        return true;
     }
 
     private function periods(array $filters): array
@@ -458,6 +509,61 @@ class ReservationsSalesDashboardDatasetService
         return [
             'opportunity_types' => self::OPPORTUNITY_TYPES,
         ];
+    }
+
+    private function emptyFilterOptionsAccumulator(): array
+    {
+        return [
+            'commercials' => [],
+            'commercial_delegations' => [],
+            'zones' => [],
+        ];
+    }
+
+    private function collectFilterOptions(array &$options, array $row): void
+    {
+        if (filled($row['owner_id'] ?? null) || filled($row['owner_name'] ?? null)) {
+            $options['commercials'][(string) ($row['owner_id'] ?? $row['owner_name'])] = [
+                'id' => (string) ($row['owner_id'] ?? ''),
+                'name' => (string) ($row['owner_name'] ?: $row['owner_id']),
+            ];
+        }
+
+        if (filled($row['commercial_delegation'] ?? null)) {
+            $options['commercial_delegations'][$row['commercial_delegation']] = true;
+        }
+
+        if (filled($row['zone'] ?? null) && $row['zone'] !== LeadDelegationNormalizer::UNCLASSIFIED) {
+            $options['zones'][$row['zone']] = true;
+        }
+    }
+
+    private function filterOptionsFromAccumulator(array $options): array
+    {
+        return [
+            'opportunity_types' => self::OPPORTUNITY_TYPES,
+            'commercials' => collect($options['commercials'])
+                ->values()
+                ->filter(fn (array $item) => $item['id'] !== '' || $item['name'] !== '')
+                ->sortBy('name')
+                ->values()
+                ->all(),
+            'commercial_delegations' => $this->delegationNormalizer->sortLabels(array_keys($options['commercial_delegations'])),
+            'zones' => $this->delegationNormalizer->sortLabels(
+                collect($this->delegationNormalizer->knownZones())
+                    ->merge(array_keys($options['zones']))
+                    ->unique()
+                    ->values()
+                    ->all()
+            ),
+        ];
+    }
+
+    private function hasOperationalFilters(array $filters): bool
+    {
+        return filled($filters['commercial_delegation'])
+            || filled($filters['zone'])
+            || filled($filters['commercial']);
     }
 
     private function dateField(string $criterion): string

@@ -36,9 +36,9 @@ class CommercialsEndpointTest extends TestCase
         $response->assertOk();
         $response->assertJsonStructure([
             'ok',
-            'zones' => [['zone', 'leads_totales', 'convertidos', 'conversion_pct', 'descartados', 'descarte_pct']],
-            'delegations' => [['commercial_delegation', 'zone', 'leads_totales', 'convertidos']],
-            'commercials' => [['comercial', 'commercial_delegation', 'zone', 'leads_totales', 'convertidos']],
+            'zones' => [['zone', 'leads_totales', 'convertidos', 'conversion_pct', 'descartados', 'descarte_pct', 'potenciales_pct', 'potenciales_sin_trabajar_pct', 'gestionados_pct']],
+            'delegations' => [['commercial_delegation', 'zone', 'leads_totales', 'convertidos', 'potenciales_pct']],
+            'commercials' => [['comercial', 'commercial_delegation', 'zone', 'leads_totales', 'convertidos', 'potenciales_pct', 'potenciales_sin_trabajar_pct', 'gestionados_pct']],
             'items',
         ]);
         $this->assertSame('Zona Sur y Centro', $response->json('zones.0.zone'));

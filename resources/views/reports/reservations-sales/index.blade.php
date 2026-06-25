@@ -44,8 +44,29 @@
             <label for="opportunityType">Tipo de oportunidad</label>
             <select id="opportunityType">
                 <option value="all">Todos</option>
-                <option value="Tasacion">Tasación</option>
+                <option value="Tasacion">Tasacion</option>
                 <option value="Venta">Venta</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="commercialDelegation">Delegacion comercial</label>
+            <select id="commercialDelegation">
+                <option value="">Todas</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="zone">Zona</label>
+            <select id="zone">
+                <option value="">Todas</option>
+            </select>
+        </div>
+
+        <div class="filter-group">
+            <label for="commercial">Comercial</label>
+            <select id="commercial">
+                <option value="">Todos</option>
             </select>
         </div>
         <div class="filter-actions">
@@ -183,18 +204,25 @@
                         <h2>Comerciales</h2>
                         <div class="small">Agrupado por responsable de la oportunidad</div>
                     </div>
+                    <div class="columns-menu">
+                        <button type="button" class="filter-reset" id="reservationsCommercialColumnsButton">Columnas</button>
+                        <div class="columns-popover card is-hidden" id="reservationsCommercialColumnsPopover"></div>
+                    </div>
                 </div>
                 <div class="table-wrap">
-                    <table>
+                    <table id="reservationsCommercialTable">
                         <thead>
                         <tr>
-                            <th>Comercial</th>
-                            <th>Delegacion comercial</th>
-                            <th>Zona</th>
-                            <th class="num">Oportunidades totales</th>
-                            <th class="num">Reservas vivas</th>
-                            <th class="num">Oportunidades caidas</th>
-                            <th class="num">Contratos CV firmados</th>
+                            <th data-column="comercial">Comercial</th>
+                            <th data-column="commercial_delegation">Delegacion comercial</th>
+                            <th data-column="zone">Zona</th>
+                            <th class="num" data-column="oportunidades_totales">Oportunidades totales</th>
+                            <th class="num" data-column="reservas_vivas">Reservas vivas</th>
+                            <th class="num is-hidden" data-column="reservas_vivas_pct">% reservas vivas</th>
+                            <th class="num" data-column="oportunidades_caidas">Oportunidades caidas</th>
+                            <th class="num is-hidden" data-column="oportunidades_caidas_pct">% oportunidades caidas</th>
+                            <th class="num" data-column="cv_firmados">Contratos CV firmados</th>
+                            <th class="num is-hidden" data-column="cv_firmados_pct">% contratos CV firmados</th>
                         </tr>
                         </thead>
                         <tbody id="commercialRows"></tbody>

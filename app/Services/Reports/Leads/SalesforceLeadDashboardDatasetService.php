@@ -692,6 +692,8 @@ class SalesforceLeadDashboardDatasetService
         return array_merge($bucket, [
             'conversion_pct' => $this->percentage($bucket['convertidos'], $total),
             'descarte_pct' => $this->percentage($bucket['descartados'], $total),
+            'potenciales_pct' => $this->percentage($bucket['potenciales'], $total),
+            'potenciales_sin_trabajar_pct' => $this->percentage($bucket['potenciales_sin_trabajar'], $total),
             'leads_unassigned_pct' => $this->percentage($bucket['leads_unassigned'], $total),
             'gestionados_pct' => $this->percentage($bucket['gestionados'], $total),
             'llamadas_pct' => $this->percentage($bucket['llamadas'], $total),

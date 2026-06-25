@@ -1,5 +1,26 @@
 const fmt = new Intl.NumberFormat('es-ES');
 const tableSortState = new Map();
+const leadCommercialColumnsStorageKey = 'leadCommercialColumns';
+const leadCommercialColumnDefinitions = [
+    { key: 'comercial', label: 'Comercial', alwaysVisible: true },
+    { key: 'commercial_delegation', label: 'Delegacion comercial', alwaysVisible: true },
+    { key: 'zone', label: 'Zona', alwaysVisible: true },
+    { key: 'leads_totales', label: 'Leads totales', alwaysVisible: true },
+    { key: 'convertidos', label: 'Convertidos', alwaysVisible: true },
+    { key: 'conversion_pct', label: '% convertidos' },
+    { key: 'descartados', label: 'Descartados', alwaysVisible: true },
+    { key: 'descarte_pct', label: '% descartados' },
+    { key: 'potenciales', label: 'Potenciales', alwaysVisible: true },
+    { key: 'potenciales_pct', label: '% potenciales' },
+    { key: 'potenciales_sin_trabajar', label: 'Potenciales sin trabajar', alwaysVisible: true },
+    { key: 'potenciales_sin_trabajar_pct', label: '% potenciales sin trabajar' },
+    { key: 'gestionados', label: 'Gestionados', alwaysVisible: true },
+    { key: 'gestionados_pct', label: '% gestionados' },
+];
+let leadCommercialVisibleColumns = loadVisibleColumns(
+    leadCommercialColumnsStorageKey,
+    leadCommercialColumnDefinitions
+);
 
 document.addEventListener('DOMContentLoaded', async () => {
     bindTabs();
@@ -7,6 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindResetFilters();
     bindCommercialPanelOrder();
     bindTableSorting();
+    initLeadCommercialColumns();
     toggleCustomPeriods();
     await reloadAllData();
 });
@@ -235,16 +257,23 @@ function renderInsights(items) {
 
 function renderCommercials(rows) {
     renderRows('commercialRows', rows, [
-        [(row) => row.comercial],
-        [(row) => row.commercial_delegation || '-'],
-        [(row) => row.zone || '-'],
-        [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
-        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
-        [(row) => formatNumber(row.potenciales), true],
-        [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
+        [(row) => row.comercial, false, null, false, 'comercial'],
+        [(row) => row.commercial_delegation || '-', false, null, false, 'commercial_delegation'],
+        [(row) => row.zone || '-', false, null, false, 'zone'],
+        [(row) => formatNumber(row.leads_totales), true, (row) => row.leads_totales, false, 'leads_totales'],
+        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true, 'convertidos'],
+        [(row) => formatPercent(row.conversion_pct), true, (row) => row.conversion_pct, false, 'conversion_pct'],
+        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true, 'descartados'],
+        [(row) => formatPercent(row.descarte_pct), true, (row) => row.descarte_pct, false, 'descarte_pct'],
+        [(row) => formatNumber(row.potenciales), true, (row) => row.potenciales, false, 'potenciales'],
+        [(row) => formatPercent(row.potenciales_pct), true, (row) => row.potenciales_pct, false, 'potenciales_pct'],
+        [(row) => formatNumber(row.potenciales_sin_trabajar), true, (row) => row.potenciales_sin_trabajar, false, 'potenciales_sin_trabajar'],
+        [(row) => formatPercent(row.potenciales_sin_trabajar_pct), true, (row) => row.potenciales_sin_trabajar_pct, false, 'potenciales_sin_trabajar_pct'],
+        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true, 'gestionados'],
+        [(row) => formatPercent(row.gestionados_pct), true, (row) => row.gestionados_pct, false, 'gestionados_pct'],
     ], 'No hay datos de comerciales para los filtros seleccionados.');
+
+    applyLeadCommercialColumnVisibility();
 }
 
 function renderCommercialZones(rows) {
@@ -305,19 +334,90 @@ function renderRows(rootId, rows, columns, emptyMessage) {
     }
 
     rows.forEach((row) => {
-        const cells = columns.map(([formatter, numeric, sortFormatter, html], index) => {
+        const cells = columns.map(([formatter, numeric, sortFormatter, html, columnKey], index) => {
             const value = formatter(row) ?? '-';
             const className = numeric ? ' class="num"' : '';
             const content = html ? value : (index === 0 ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value));
             const sortValue = sortFormatter ? ` data-sort-value="${escapeHtml(sortFormatter(row) ?? '')}"` : '';
+            const columnAttr = columnKey ? ` data-column="${escapeHtml(columnKey)}"` : '';
 
-            return `<td${className}${sortValue}>${content}</td>`;
+            return `<td${className}${sortValue}${columnAttr}>${content}</td>`;
         }).join('');
 
         root.insertAdjacentHTML('beforeend', `<tr>${cells}</tr>`);
     });
 
     applyStoredSort(root);
+}
+
+function initLeadCommercialColumns() {
+    const button = document.getElementById('leadCommercialColumnsButton');
+    const popover = document.getElementById('leadCommercialColumnsPopover');
+
+    if (!button || !popover) {
+        return;
+    }
+
+    renderLeadCommercialColumnsPopover();
+    applyLeadCommercialColumnVisibility();
+
+    button.addEventListener('click', () => {
+        popover.classList.toggle('is-hidden');
+    });
+
+    popover.addEventListener('change', (event) => {
+        const input = event.target.closest('[data-column-toggle]');
+
+        if (!input) {
+            return;
+        }
+
+        const visible = new Set(leadCommercialVisibleColumns);
+        const key = input.dataset.columnToggle;
+
+        if (input.checked) {
+            visible.add(key);
+        } else {
+            visible.delete(key);
+        }
+
+        leadCommercialVisibleColumns = leadCommercialColumnDefinitions
+            .filter((column) => column.alwaysVisible || visible.has(column.key))
+            .map((column) => column.key);
+
+        localStorage.setItem(leadCommercialColumnsStorageKey, JSON.stringify(leadCommercialVisibleColumns));
+        applyLeadCommercialColumnVisibility();
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.columns-menu')) {
+            popover.classList.add('is-hidden');
+        }
+    });
+}
+
+function renderLeadCommercialColumnsPopover() {
+    const root = document.getElementById('leadCommercialColumnsPopover');
+
+    if (!root) {
+        return;
+    }
+
+    root.innerHTML = leadCommercialColumnDefinitions
+        .filter((column) => !column.alwaysVisible)
+        .map((column) => `
+            <label class="column-option switch-option">
+                <input type="checkbox" data-column-toggle="${escapeHtml(column.key)}" ${leadCommercialVisibleColumns.includes(column.key) ? 'checked' : ''}>
+                <span>${escapeHtml(column.label)}</span>
+            </label>
+        `)
+        .join('');
+}
+
+function applyLeadCommercialColumnVisibility() {
+    document.querySelectorAll('#leadCommercialTable [data-column]').forEach((cell) => {
+        cell.classList.toggle('is-hidden', !leadCommercialVisibleColumns.includes(cell.dataset.column));
+    });
 }
 
 function bindTableSorting() {
@@ -434,6 +534,9 @@ function renderFilterOptions(filters) {
 
 function fillSelect(id, items, valueKey, labelKey) {
     const select = document.getElementById(id);
+    if (!select) {
+        return;
+    }
     const current = select.value;
     const first = select.querySelector('option')?.outerHTML || '<option value="">Todos</option>';
 
@@ -650,4 +753,24 @@ function escapeHtml(value) {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#039;');
+}
+
+function loadVisibleColumns(storageKey, definitions) {
+    const defaultColumns = definitions.filter((column) => column.alwaysVisible).map((column) => column.key);
+
+    try {
+        const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');
+
+        if (!Array.isArray(stored) || !stored.length) {
+            return defaultColumns;
+        }
+
+        const valid = stored.filter((key) => definitions.some((column) => column.key === key));
+
+        return definitions
+            .filter((column) => column.alwaysVisible || valid.includes(column.key))
+            .map((column) => column.key);
+    } catch (error) {
+        return defaultColumns;
+    }
 }

@@ -227,13 +227,13 @@ function bindKpiTooltips() {
         Oportunidades: 'Conteo de salesforce_opportunities con cv_signed=true, stage_name distinto de Cerrada perdida, record_type Venta/Cambio/Tasacion y gestion_de_venta false o null.',
         Resenas: 'Conteo de salesforce_reviews creadas dentro del mes. Fuente Salesforce: objeto Resena__c.',
         Estado: 'Indica si existen bloqueos de datos o estructura que impiden calcular el informe.',
-        Comerciales: 'Numero de usuarios activos cargados desde salesforce_users y mostrados en el resumen, aunque tengan 0 actividad en el mes.',
+        Comerciales: 'Numero de comerciales o tasadores con actividad real en el resumen: venta/cambio del mes o compra liquidada por venta posterior del vehiculo.',
         'Comision final': 'Formula: max(prima ajustada - penalizaciones, 0) + producto financiacion + producto garantias.',
         'Prima ajustada': 'Formula: prima total x tramo de entregas.',
         Penalizaciones: 'Suma de penalizacion por garantias, penalizacion por resenas y penalizacion por financiacion.',
         Entregas: 'Conteo de oportunidades de tipo Venta y Cambio del mes. Cada entrega suma 60 EUR.',
         Operaciones: 'Conteo de oportunidades de tipo Venta, Cambio y Tasacion del mes.',
-        'Compras liquidadas': 'Compras historicas enlazadas a una venta del mes. Formula por compra: rentabilidad_compra x 1.8%. Fuente principal: informe_rentabilidad.',
+        'Compras liquidadas': 'Compras historicas enlazadas a una venta del mes. Se atribuyen al Comprador_oportunidad__c del Product2 y la formula es: precio_venta - precio_compra - descuento + beneficio_financiacion + garantia. Sobre ese resultado se aplica el 1.8%.',
         Compartidas: 'Suma de 30 EUR por cada oportunidad con Entrega_Compartida__c.',
         Ventas: 'Importe calculado como entregas x 60 EUR.',
         'Stock +150': 'Suma de 10 EUR por cada entrega con Dias_en_stock__c >= 150.',
@@ -255,6 +255,6 @@ function bindKpiTooltips() {
 
             element.classList.add('kpi-tooltip');
             element.dataset.kpiTooltip = tooltip;
-            element.setAttribute('title', tooltip);
+            element.removeAttribute('title');
         });
 }

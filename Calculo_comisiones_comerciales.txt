@@ -16,6 +16,7 @@ En el resumen visible del informe solo se muestran:
 
 - comerciales o tasadores reales
 - con venta/cambio del mes o con compra liquidada en el mes
+- una compartida sola no genera fila propia si ese usuario no tiene venta/cambio o compra liquidada
 
 No se listan usuarios tecnicos ni usuarios sincronizados sin actividad.
 
@@ -26,14 +27,21 @@ A. Ventas / Cambios
 
 B. Compras
 - Se busca una compra previa de Tasacion o Cambio.
+- Solo se liquida si `Procedencia_de_compra__c` del `Product2` asociado viene como `Cambio` o `Compra directa`.
 - El cruce intenta primero `vehicle_interest_id` y despues la matricula normalizada.
 - La matricula se normaliza para tolerar espacios y guiones.
-- Esa compra solo se liquida cuando existe una venta posterior de esa matricula en el mes.
-- La comision de compra se asigna al owner de la compra original, no al vendedor posterior.
+- La compra se liquida principalmente desde la venta del mes, usando el comprador del `Product2` asociado.
+- Si no viene comprador en `Product2`, se intenta enlazar una compra historica local como fallback.
+- La comision de compra se asigna al `Comprador_oportunidad__c` del `Product2` asociado.
+- Si `Comprador_oportunidad__c` viene vacio, el fallback es el owner de la opportunity historica.
+- La rentabilidad de compra se calcula con:
+  `Product2.PRO_DIV_Precio_de_venta__c`
+  - `Product2.PRO_DIV_Precio_de_compra__c`
+  - `Opportunity.OPO_DIV_Descuento__c` de la venta final
+  + `Opportunity.Beneficio_financiacion_comercial__c` de la venta final
+  + `Opportunity.Garant_a_Total__c` de la venta final
 - La comision de compra es:
   rentabilidad_compra x 1.8%
-- Campo actual usado para rentabilidad:
-  informe_rentabilidad
 
 C. Compartidas
 - Si la oportunidad tiene copropietario en Entrega_Compartida__c, ese copropietario cobra 30 EUR.
@@ -132,3 +140,4 @@ En la propia vista de Comisiones Comerciales:
 
 - pueden verlo `admin` y `carlos.torres@hrmotor.es`
 - el resto de usuarios no ven la tab ni pueden abrir la ruta
+- el diagnostico base ampliado solo lo ve `admin`

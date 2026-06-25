@@ -70,6 +70,13 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'OPO_CAS_Contrato_CV_firmado__c' => false,
                         'Fecha_firma_contrato__c' => null,
                         'Gestion_de_venta__c' => false,
+                        'OPP_BUS_Vehiculo_de_interes__r' => [
+                            'PRO_DIV_Precio_de_venta__c' => 12000,
+                            'PRO_DIV_Precio_de_compra__c' => 9000,
+                            'Procedencia_de_compra__c' => 'Compra directa',
+                            'Comprador_oportunidad__c' => '005-buyer-1',
+                            'Comprador_oportunidad__r' => ['Name' => 'Comprador Uno'],
+                        ],
                     ],
                     [
                         'Id' => '006-opportunity-2',
@@ -133,6 +140,9 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertStringContainsString('OPO_FEC_Fecha_de_reserva__c', $result['soql']);
         $this->assertStringContainsString('Fecha_firma_contrato__c', $result['soql']);
         $this->assertStringContainsString('Gestion_de_venta__c', $result['soql']);
+        $this->assertStringContainsString('PRO_DIV_Precio_de_venta__c', $result['soql']);
+        $this->assertStringContainsString('Procedencia_de_compra__c', $result['soql']);
+        $this->assertStringContainsString('Comprador_oportunidad__c', $result['soql']);
 
         $this->assertDatabaseHas('salesforce_opportunities', [
             'salesforce_id' => '006-opportunity-1',
@@ -145,6 +155,11 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             'reservation' => true,
             'cv_signed' => false,
             'gestion_de_venta' => false,
+            'vehicle_sale_price' => 12000,
+            'vehicle_purchase_price' => 9000,
+            'vehicle_purchase_source' => 'Compra directa',
+            'vehicle_buyer_id' => '005-buyer-1',
+            'vehicle_buyer_name' => 'Comprador Uno',
         ]);
         $this->assertDatabaseHas('salesforce_opportunities', [
             'salesforce_id' => '006-opportunity-2',

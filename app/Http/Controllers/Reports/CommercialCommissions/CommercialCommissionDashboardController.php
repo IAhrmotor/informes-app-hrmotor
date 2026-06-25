@@ -22,6 +22,7 @@ class CommercialCommissionDashboardController extends Controller
 
         return view('reports.commercial-commissions.index', [
             'reportUserRole' => ReportUserAccess::role($request),
+            'canSeeSyncDiagnostics' => ReportUserAccess::canSeeSyncDiagnostics($request),
             'selectedMonth' => $selectedMonth,
             'dashboard' => $dashboard->build($selectedMonth),
         ]);

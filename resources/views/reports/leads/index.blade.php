@@ -24,7 +24,7 @@
         <div class="filter-group">
             <label for="period">Periodo</label>
             <select id="period">
-                <option value="last_30_days">Últimos 30 días</option>
+                <option value="last_30_days">Ultimos 30 dias</option>
                 <option value="current_month">Mes actual</option>
                 <option value="previous_month">Mes anterior</option>
                 <option value="custom">Personalizado</option>
@@ -35,20 +35,20 @@
             <label for="leadType">Tipo de Lead</label>
             <select id="leadType">
                 <option value="all">Todos</option>
-                <option value="Tasación">Tasación</option>
+                <option value="Tasacion">Tasacion</option>
                 <option value="Venta">Venta</option>
             </select>
         </div>
 
         <div class="filter-group">
-            <label for="leadDelegation">Delegación del lead</label>
+            <label for="leadDelegation">Delegacion del lead</label>
             <select id="leadDelegation">
                 <option value="">Todas</option>
             </select>
         </div>
 
         <div class="filter-group">
-            <label for="commercialDelegation">Delegación comercial</label>
+            <label for="commercialDelegation">Delegacion comercial</label>
             <select id="commercialDelegation">
                 <option value="">Todas</option>
             </select>
@@ -76,7 +76,7 @@
         </div>
 
         <div class="filter-group">
-            <label for="expositionMode">Exposición</label>
+            <label for="expositionMode">Exposicion</label>
             <select id="expositionMode">
                 <option value="with">Incluir</option>
                 <option value="without">Excluir</option>
@@ -106,8 +106,8 @@
         </div>
     </section>
 
-    <nav class="tabs-main" aria-label="Pestañas del informe">
-        <button class="main-tab active" data-panel="panel-resumen">Resumen Dirección</button>
+    <nav class="tabs-main" aria-label="Pestanas del informe">
+        <button class="main-tab active" data-panel="panel-resumen">Resumen Direccion</button>
         <button class="main-tab" data-panel="panel-comerciales">Comerciales/Delegaciones/Zonas</button>
         <button class="main-tab" data-panel="panel-delegaciones">Delegaciones por reparto de leads</button>
         <button class="main-tab" data-panel="panel-portales">Portales / Procedencia</button>
@@ -144,7 +144,7 @@
             <section class="card panel">
                 <div class="panel-title">
                     <div>
-                        <h2>Comparativa básica</h2>
+                        <h2>Comparativa basica</h2>
                         <div class="small">Periodo actual frente al periodo comparado</div>
                     </div>
                 </div>
@@ -152,7 +152,7 @@
                     <table>
                         <thead>
                         <tr>
-                            <th>Métrica</th>
+                            <th>Metrica</th>
                             <th class="num">Periodo actual</th>
                             <th class="num">Periodo comparado</th>
                             <th class="num">Diferencia</th>
@@ -207,14 +207,14 @@
                 <div class="panel-title">
                     <div>
                         <h2>Delegaciones</h2>
-                        <div class="small">Agrupado por delegación comercial del usuario atribuido</div>
+                        <div class="small">Agrupado por delegacion comercial del usuario atribuido</div>
                     </div>
                 </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
                         <tr>
-                            <th>Delegación comercial</th>
+                            <th>Delegacion comercial</th>
                             <th>Zona</th>
                             <th class="num">Leads totales</th>
                             <th class="num">Convertidos</th>
@@ -235,20 +235,29 @@
                         <h2>Comerciales</h2>
                         <div class="small">Solo usuarios activos con perfiles comerciales permitidos</div>
                     </div>
+                    <div class="columns-menu">
+                        <button type="button" class="filter-reset" id="leadCommercialColumnsButton">Columnas</button>
+                        <div class="columns-popover card is-hidden" id="leadCommercialColumnsPopover"></div>
+                    </div>
                 </div>
                 <div class="table-wrap">
-                    <table>
+                    <table id="leadCommercialTable">
                         <thead>
                         <tr>
-                            <th>Comercial</th>
-                            <th>Delegación comercial</th>
-                            <th>Zona</th>
-                            <th class="num">Leads totales</th>
-                            <th class="num">Convertidos</th>
-                            <th class="num">Descartados</th>
-                            <th class="num">Potenciales</th>
-                            <th class="num">Potenciales sin trabajar</th>
-                            <th class="num">Gestionados</th>
+                            <th data-column="comercial">Comercial</th>
+                            <th data-column="commercial_delegation">Delegacion comercial</th>
+                            <th data-column="zone">Zona</th>
+                            <th class="num" data-column="leads_totales">Leads totales</th>
+                            <th class="num" data-column="convertidos">Convertidos</th>
+                            <th class="num is-hidden" data-column="conversion_pct">% convertidos</th>
+                            <th class="num" data-column="descartados">Descartados</th>
+                            <th class="num is-hidden" data-column="descarte_pct">% descartados</th>
+                            <th class="num" data-column="potenciales">Potenciales</th>
+                            <th class="num is-hidden" data-column="potenciales_pct">% potenciales</th>
+                            <th class="num" data-column="potenciales_sin_trabajar">Potenciales sin trabajar</th>
+                            <th class="num is-hidden" data-column="potenciales_sin_trabajar_pct">% potenciales sin trabajar</th>
+                            <th class="num" data-column="gestionados">Gestionados</th>
+                            <th class="num is-hidden" data-column="gestionados_pct">% gestionados</th>
                         </tr>
                         </thead>
                         <tbody id="commercialRows"></tbody>
@@ -263,16 +272,16 @@
                 <div class="panel-title">
                     <div>
                         <h2>Delegaciones por reparto de leads</h2>
-                        <div class="small">Total entrado frente a leads en Potencial con owner genérico</div>
+                        <div class="small">Total entrado frente a leads en Potencial con owner generico</div>
                     </div>
                 </div>
                 <div class="table-wrap">
                     <table>
                         <thead>
                         <tr>
-                            <th>Delegación del lead</th>
+                            <th>Delegacion del lead</th>
                             <th class="num">Leads totales</th>
-                            <th class="num">Potencial con owner genérico</th>
+                            <th class="num">Potencial con owner generico</th>
                             <th class="num">% pendiente</th>
                         </tr>
                         </thead>

@@ -58,6 +58,14 @@ class OpportunityDashboardEndpointTest extends TestCase
             ->assertJsonPath('kpis.reservas_vivas', 1)
             ->assertJsonPath('kpis.cv_firmados', 1)
             ->assertJsonPath('kpis.oportunidades_caidas', 1)
+            ->assertJsonStructure([
+                'filters' => [
+                    'commercials',
+                    'commercial_delegations',
+                    'zones',
+                    'opportunity_types',
+                ],
+            ])
             ->assertJsonStructure(['executive_insights', 'executive_insights_source']);
 
         $this->getJson('/informes/reservas-ventas/data/commercials?'.http_build_query($query))
@@ -115,6 +123,53 @@ class OpportunityDashboardEndpointTest extends TestCase
         $this->get('/informes/reservas-ventas/export/kpi-audit.csv?'.$query)
             ->assertOk()
             ->assertHeader('content-type', 'text/csv; charset=UTF-8');
+    }
+
+    public function test_filtro_de_comercial_y_catalogo_de_filtros_aplican_en_summary_y_commercials(): void
+    {
+        $this->createOpportunity('006-filter-1', [
+            'created_date' => '2026-05-10 10:00:00',
+            'owner_id' => '005-a',
+            'owner_name' => 'Comercial Alcobendas',
+            'owner_delegation' => 'Alcobendas',
+            'portal_resolved' => 'Web',
+            'record_type_name' => 'Venta',
+            'reservation' => true,
+            'stage_name' => 'Reserva',
+        ]);
+        $this->createOpportunity('006-filter-2', [
+            'created_date' => '2026-05-11 10:00:00',
+            'owner_id' => '005-b',
+            'owner_name' => 'Comercial Sant Boi',
+            'owner_delegation' => 'Sant Boi',
+            'portal_resolved' => 'Meta',
+            'record_type_name' => 'Cambio',
+            'cv_signed' => true,
+            'stage_name' => 'Contrato',
+        ]);
+
+        $query = [
+            'period' => 'custom',
+            'date_criterion' => 'created_date',
+            'current_start' => '2026-05-01',
+            'current_end' => '2026-05-31',
+            'comparison_start' => '2026-04-01',
+            'comparison_end' => '2026-04-30',
+            'commercial' => '005-a',
+        ];
+
+        $this->getJson('/informes/reservas-ventas/data/summary?'.http_build_query($query))
+            ->assertOk()
+            ->assertJsonPath('kpis.oportunidades_totales', 1)
+            ->assertJsonPath('kpis.reservas_vivas', 1)
+            ->assertJsonPath('kpis.cv_firmados', 0)
+            ->assertJsonPath('filters.commercials.0.id', '005-a');
+
+        $this->getJson('/informes/reservas-ventas/data/commercials?'.http_build_query($query))
+            ->assertOk()
+            ->assertJsonPath('commercials.0.comercial', 'Comercial Alcobendas')
+            ->assertJsonPath('commercials.0.commercial_delegation', 'Alcobendas')
+            ->assertJsonPath('commercials.0.zone', 'Zona Sur y Centro');
     }
 
     private function createOpportunity(string $id, array $attributes): void
