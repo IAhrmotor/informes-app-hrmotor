@@ -9,13 +9,17 @@ use App\Http\Controllers\Reports\Calls\CallDashboardDataController;
 use App\Http\Controllers\Reports\Campaigns\CampaignDashboardController;
 use App\Http\Controllers\Reports\Campaigns\CampaignDashboardDataController;
 use App\Http\Controllers\Reports\CommercialCommissions\CommercialCommissionDashboardController;
+use App\Http\Controllers\Reports\CommercialCommissions\CommercialCommissionFormulaSettingsController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
+use App\Http\Controllers\Reports\Settings\ReportAccessManagementController;
 use App\Http\Controllers\Reports\Users\ReportUserManagementController;
+use App\Support\ReportUserAccess;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return redirect()->route('reports.leads.index');
+    return redirect()->route('reports.index');
 });
 
 Route::get('/login', [InformesLoginController::class, 'show'])->name('login');
@@ -23,12 +27,17 @@ Route::post('/login', [InformesLoginController::class, 'login'])->name('login.po
 Route::post('/logout', [InformesLoginController::class, 'logout'])->name('logout');
 
 Route::middleware('reports.auth')->group(function () {
-    Route::get('informes', function () {
-        return redirect()->route('reports.leads.index');
+    Route::get('informes', function (Request $request) {
+        $routeName = ReportUserAccess::defaultAccessibleRouteName($request);
+
+        abort_if($routeName === null, 403);
+
+        return redirect()->route($routeName);
     })->name('reports.index');
 
     Route::prefix('informes/leads')
         ->name('reports.leads.')
+        ->middleware('report.access:leads')
         ->group(function () {
             Route::get('/', [LeadDashboardController::class, 'index'])->name('index');
 
@@ -59,6 +68,7 @@ Route::middleware('reports.auth')->group(function () {
 
     Route::prefix('informes/reservas-ventas')
         ->name('reports.reservations-sales.')
+        ->middleware('report.access:reservations-sales')
         ->group(function () {
             Route::get('/', [ReservationsSalesDashboardController::class, 'index'])->name('index');
             Route::get('/data/summary', [ReservationsSalesDashboardDataController::class, 'summary'])->name('data.summary');
@@ -70,6 +80,7 @@ Route::middleware('reports.auth')->group(function () {
 
     Route::prefix('informes/llamadas')
         ->name('reports.calls.')
+        ->middleware('report.access:calls')
         ->group(function () {
             Route::get('/', [CallDashboardController::class, 'index'])->name('index');
             Route::get('/data/summary', [CallDashboardDataController::class, 'summary'])->name('data.summary');
@@ -80,6 +91,7 @@ Route::middleware('reports.auth')->group(function () {
 
     Route::prefix('informes/campanas')
         ->name('reports.campaigns.')
+        ->middleware('report.access:campaigns')
         ->group(function () {
             Route::get('/', [CampaignDashboardController::class, 'index'])->name('index');
             Route::get('/data/summary', [CampaignDashboardDataController::class, 'summary'])->name('data.summary');
@@ -92,6 +104,7 @@ Route::middleware('reports.auth')->group(function () {
 
     Route::prefix('informes/comisiones-comerciales')
         ->name('reports.commercial-commissions.')
+        ->middleware('report.access:commercial-commissions')
         ->group(function () {
             Route::get('/', [CommercialCommissionDashboardController::class, 'index'])->name('index');
         });
@@ -104,5 +117,20 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/{reportUser}/editar', [ReportUserManagementController::class, 'edit'])->name('edit');
             Route::put('/{reportUser}', [ReportUserManagementController::class, 'update'])->name('update');
             Route::delete('/{reportUser}', [ReportUserManagementController::class, 'destroy'])->name('destroy');
+        });
+
+    Route::prefix('informes/permisos-informes')
+        ->name('reports.access-settings.')
+        ->group(function () {
+            Route::get('/', [ReportAccessManagementController::class, 'index'])->name('index');
+            Route::put('/', [ReportAccessManagementController::class, 'update'])->name('update');
+        });
+
+    Route::prefix('informes/configuracion-comisiones')
+        ->name('reports.commission-settings.')
+        ->group(function () {
+            Route::get('/', [CommercialCommissionFormulaSettingsController::class, 'index'])->name('index');
+            Route::post('/unlock', [CommercialCommissionFormulaSettingsController::class, 'unlock'])->name('unlock');
+            Route::put('/', [CommercialCommissionFormulaSettingsController::class, 'update'])->name('update');
         });
 });

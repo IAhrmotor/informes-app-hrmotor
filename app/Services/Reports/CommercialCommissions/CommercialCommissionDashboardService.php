@@ -38,16 +38,25 @@ class CommercialCommissionDashboardService
         'platform integration user',
     ];
 
+    public function __construct(
+        private readonly CommercialCommissionFormulaConfigService $formulaConfig,
+    ) {
+    }
+
     public function build(?string $month): array
     {
         $selectedMonth = $this->resolveMonth($month);
         $periodStart = $selectedMonth->startOfMonth();
         $periodEnd = $periodStart->addMonth();
+        $formulaSettings = $this->formulaConfig->forMonth($selectedMonth);
         $blockingIssues = $this->blockingIssues();
-        $diagnostics = $this->diagnostics($selectedMonth, $periodStart, $periodEnd, $blockingIssues);
+        $diagnostics = $this->diagnostics($selectedMonth, $periodStart, $periodEnd, $blockingIssues, $formulaSettings);
         $warnings = $this->warnings($diagnostics);
         $summaryRows = $blockingIssues === []
-            ? $this->buildSummaryRows($periodStart, $periodEnd)
+            ? $this->buildSummaryRows($periodStart, $periodEnd, $formulaSettings)
+            : [];
+        $delegationRows = $blockingIssues === []
+            ? $this->buildDelegationRows($periodStart, $periodEnd, $formulaSettings)
             : [];
 
         return [
@@ -58,10 +67,11 @@ class CommercialCommissionDashboardService
             'warnings' => $warnings,
             'diagnostics' => $diagnostics,
             'summary_rows' => $summaryRows,
+            'delegation_rows' => $delegationRows,
         ];
     }
 
-    private function buildSummaryRows(CarbonImmutable $periodStart, CarbonImmutable $periodEnd): array
+    private function buildSummaryRows(CarbonImmutable $periodStart, CarbonImmutable $periodEnd, array $formulaSettings): array
     {
         $monthlyOperations = $this->monthlyOpportunities($periodStart, $periodEnd)->get();
         $deliveries = $monthlyOperations->filter(fn (SalesforceOpportunity $row) => $this->isDelivery($row));
@@ -69,7 +79,7 @@ class CommercialCommissionDashboardService
         $reviewsByOwner = $this->monthlyReviews($periodStart, $periodEnd)
             ->get()
             ->groupBy(fn (SalesforceReview $review) => (string) $review->opportunity_owner_id);
-        $purchaseDetails = $this->resolvePurchaseCommissionDetails($deliveries);
+        $purchaseDetails = $this->resolvePurchaseCommissionDetails($deliveries, $formulaSettings);
         $purchaseDetailsByOwner = collect($purchaseDetails)->groupBy('purchase_owner_id');
         $sharedDeliveriesByCoowner = $deliveries
             ->filter(fn (SalesforceOpportunity $row) => filled($row->shared_delivery_id))
@@ -113,6 +123,7 @@ class CommercialCommissionDashboardService
             $reviewsByOwner,
             $purchaseDetailsByOwner,
             $sharedDeliveriesByCoowner,
+            $formulaSettings,
             $userNames,
             $salesforceUsersById,
         ): array {
@@ -126,22 +137,30 @@ class CommercialCommissionDashboardService
             $ownerPurchaseDetails = collect($purchaseDetailsByOwner->get($userId, collect()))->values();
             $ownerSharedDeliveries = $sharedDeliveriesByCoowner->get($userId, collect())->values();
             $ownerStockDeliveries = $ownerDeliveries
-                ->filter(fn (SalesforceOpportunity $row) => $this->isStock150Delivery($row))
+                ->filter(fn (SalesforceOpportunity $row) => $this->isStock150Delivery($row, $formulaSettings))
                 ->values();
 
             $deliveriesCount = $ownerDeliveries->count();
             $operationsCount = $ownerOperations->count();
-            $salesAmount = round(($ownerSoloDeliveries->count() * 60) + ($ownerPrimarySharedDeliveries->count() * 30), 2);
+            $salesAmount = round(
+                ($ownerSoloDeliveries->count() * (float) $formulaSettings['sales']['solo_delivery_amount'])
+                + ($ownerPrimarySharedDeliveries->count() * (float) $formulaSettings['sales']['shared_owner_delivery_amount']),
+                2
+            );
             $purchasesAmount = round((float) $ownerPurchaseDetails->sum('commission_amount'), 2);
             $sharedCount = $ownerSharedDeliveries->count();
-            $sharedAmount = round($sharedCount * 30, 2);
+            $sharedAmount = round($sharedCount * (float) $formulaSettings['sales']['shared_secondary_delivery_amount'], 2);
             $discountTotal = round((float) $ownerOperations->sum(
                 fn (SalesforceOpportunity $row) => max(0, (float) ($row->opo_div_descuento ?? 0))
             ), 2);
             $discountPenaltyAmount = round($discountTotal * 0.05, 2);
             $stock150Count = $ownerStockDeliveries->count();
-            $stock150Amount = round($stock150Count * 10, 2);
-            $bonus15Amount = round(max($deliveriesCount - 15, 0) * 30, 2);
+            $stock150Amount = round($stock150Count * (float) $formulaSettings['stock']['amount'], 2);
+            $bonus15Amount = round(
+                max($deliveriesCount - (int) $formulaSettings['bonus']['start_after_delivery'], 0)
+                * (float) $formulaSettings['bonus']['amount_per_delivery'],
+                2
+            );
 
             $primaTotal = round(
                 $salesAmount
@@ -155,22 +174,23 @@ class CommercialCommissionDashboardService
 
             [$deliveryBracketLabel, $deliveryBracketPercent] = $this->deliveryBracket(
                 $deliveriesCount,
-                $salesforceUser?->profile_name
+                $salesforceUser?->profile_name,
+                $formulaSettings
             );
             $primaAdjusted = round($primaTotal * $deliveryBracketPercent, 2);
 
             $guaranteeTotal = round((float) $ownerOperations->sum(
                 fn (SalesforceOpportunity $row) => max(0, (float) ($row->garantia_total ?? 0))
             ), 2);
-            $guaranteePenalty = $guaranteeTotal < 3500 && $primaAdjusted > 0
-                ? round($primaAdjusted * 0.10, 2)
+            $guaranteePenalty = $guaranteeTotal < (float) $formulaSettings['penalties']['guarantee_total_threshold'] && $primaAdjusted > 0
+                ? round($primaAdjusted * (float) $formulaSettings['penalties']['guarantee_percent'], 2)
                 : 0.0;
 
             $reviewsCount = $ownerReviews->count();
             $reviewsPercentage = $operationsCount > 0
                 ? round(($reviewsCount / $operationsCount) * 100, 2)
                 : 0.0;
-            $reviewsPenalty = $this->reviewsPenalty($primaAdjusted, $reviewsPercentage);
+            $reviewsPenalty = $this->reviewsPenalty($primaAdjusted, $reviewsPercentage, $formulaSettings);
 
             $financedAmount = round((float) $ownerOperations->sum(
                 fn (SalesforceOpportunity $row) => max(0, (float) ($row->importe_financiado ?? 0))
@@ -187,8 +207,10 @@ class CommercialCommissionDashboardService
             $financingPercentage = $totalVehicleAmount > 0
                 ? round(($financedAmount / $totalVehicleAmount) * 100, 2)
                 : 0.0;
-            $financingPenalty = $primaAdjusted > 0 && $totalVehicleAmount > 0 && $financingPercentage < 40
-                ? round($primaAdjusted * 0.10, 2)
+            $financingPenalty = $primaAdjusted > 0
+                && $totalVehicleAmount > 0
+                && $financingPercentage < (float) $formulaSettings['penalties']['financing_percentage_threshold']
+                ? round($primaAdjusted * (float) $formulaSettings['penalties']['financing_percent'], 2)
                 : 0.0;
 
             $totalPenalties = round($guaranteePenalty + $reviewsPenalty + $financingPenalty, 2);
@@ -197,10 +219,10 @@ class CommercialCommissionDashboardService
             $financingBenefitTotal = round((float) $ownerOperations->sum(
                 fn (SalesforceOpportunity $row) => max(0, (float) ($row->beneficio_financiacion_comercial ?? 0))
             ), 2);
-            $financingProductPercent = $this->financingProductPercent($financingBenefitTotal);
+            $financingProductPercent = $this->financingProductPercent($financingBenefitTotal, $formulaSettings);
             $financingProductAmount = round($financingBenefitTotal * $financingProductPercent, 2);
 
-            $guaranteeProductPercent = $this->guaranteeProductPercent($guaranteeTotal);
+            $guaranteeProductPercent = $this->guaranteeProductPercent($guaranteeTotal, $formulaSettings);
             $guaranteeProductAmount = round($guaranteeTotal * $guaranteeProductPercent, 2);
 
             $finalCommission = round($primaAfterPenalties + $financingProductAmount + $guaranteeProductAmount, 2);
@@ -248,7 +270,9 @@ class CommercialCommissionDashboardService
                             'record_type_name' => $row->record_type_name,
                             'cv_signed_date' => optional($row->cv_signed_date)->toDateString(),
                             'vehicle_plate' => $row->vehicle_plate,
-                            'amount' => 60.0,
+                            'amount' => filled($row->shared_delivery_id)
+                                ? (float) $formulaSettings['sales']['shared_owner_delivery_amount']
+                                : (float) $formulaSettings['sales']['solo_delivery_amount'],
                         ])->values()->all(),
                     'purchases' => $ownerPurchaseDetails->all(),
                     'shared' => $ownerSharedDeliveries
@@ -258,7 +282,7 @@ class CommercialCommissionDashboardService
                             'owner_name' => $row->owner_name,
                             'shared_delivery_name' => $row->shared_delivery_name,
                             'cv_signed_date' => optional($row->cv_signed_date)->toDateString(),
-                            'amount' => 30.0,
+                            'amount' => (float) $formulaSettings['sales']['shared_secondary_delivery_amount'],
                         ])->values()->all(),
                     'stock_150' => $ownerStockDeliveries
                         ->map(fn (SalesforceOpportunity $row) => [
@@ -268,7 +292,7 @@ class CommercialCommissionDashboardService
                             'vehicle_entry_date' => optional($row->vehicle_entry_date)->toDateString(),
                             'cv_signed_date' => optional($row->cv_signed_date)->toDateString(),
                             'vehicle_days_in_stock' => $this->stockDaysForOpportunity($row) ?? 0,
-                            'amount' => 10.0,
+                            'amount' => (float) $formulaSettings['stock']['amount'],
                         ])->values()->all(),
                     'reviews' => $ownerReviews
                         ->map(fn (SalesforceReview $row) => [
@@ -286,7 +310,95 @@ class CommercialCommissionDashboardService
         return $rows;
     }
 
-    private function resolvePurchaseCommissionDetails(Collection $monthlyDeliveries): array
+    private function buildDelegationRows(CarbonImmutable $periodStart, CarbonImmutable $periodEnd, array $formulaSettings): array
+    {
+        $deliveries = $this->monthlyOpportunities($periodStart, $periodEnd)
+            ->get()
+            ->filter(fn (SalesforceOpportunity $row) => $this->isDelivery($row))
+            ->filter(fn (SalesforceOpportunity $row) => $this->formulaConfig->shouldIncludeDelegationLabel($row->owner_delegation));
+
+        $deliveriesByDelegation = $deliveries->groupBy(
+            fn (SalesforceOpportunity $row) => $this->delegationLabel($row->owner_delegation)
+        );
+        $configuredGoals = collect($formulaSettings['delegations']['goals'] ?? []);
+        $delegationLabels = collect($deliveriesByDelegation->keys())
+            ->merge($configuredGoals->map(fn (array $goal, string $key) => (string) ($goal['label'] ?? $key)))
+            ->filter(fn (string $label) => $this->formulaConfig->shouldIncludeDelegationLabel($label))
+            ->filter(fn (string $label) => trim($label) !== '')
+            ->unique()
+            ->sortBy(fn (string $label) => Str::of($label)->ascii()->lower()->toString())
+            ->values();
+
+        return $delegationLabels->map(function (string $delegationLabel) use ($deliveriesByDelegation, $configuredGoals, $formulaSettings): array {
+            /** @var Collection<int, SalesforceOpportunity> $delegationOperations */
+            $delegationOperations = $deliveriesByDelegation->get($delegationLabel, collect())->values();
+            $deliveriesCount = $delegationOperations->count();
+            $goal = $this->delegationGoal($configuredGoals, $delegationLabel);
+            $targetDeliveries = (int) ($goal['target_deliveries'] ?? 0);
+            $objectivePercentage = $targetDeliveries > 0
+                ? round(($deliveriesCount / $targetDeliveries) * 100, 2)
+                : null;
+            $objectiveCommissionPercent = $this->delegationObjectiveCommissionPercent($objectivePercentage, $formulaSettings);
+            $rentabilityTotal = round((float) $delegationOperations->sum(
+                fn (SalesforceOpportunity $row) => $this->operationRentability($row)
+            ), 2);
+            $averageRentability = $deliveriesCount > 0
+                ? round($rentabilityTotal / $deliveriesCount, 2)
+                : 0.0;
+            $primaFinal = round($averageRentability * $objectiveCommissionPercent, 2);
+            $financingBenefitTotal = round((float) $delegationOperations->sum(
+                fn (SalesforceOpportunity $row) => max(0, (float) ($row->beneficio_financiacion_comercial ?? 0))
+            ), 2);
+            $financedAmount = round((float) $delegationOperations->sum(
+                fn (SalesforceOpportunity $row) => max(0, (float) ($row->importe_financiado ?? 0))
+            ), 2);
+            $totalVehicleAmount = round((float) $delegationOperations->sum(function (SalesforceOpportunity $row): float {
+                $amount = (float) ($row->opo_for_importe_total ?? 0);
+
+                if ($amount <= 0) {
+                    $amount = (float) ($row->amount ?? 0);
+                }
+
+                return max(0, $amount);
+            }), 2);
+            $profitabilityRatio = $financedAmount > 0
+                ? round(($financingBenefitTotal / $financedAmount) * 100, 2)
+                : 0.0;
+            $financedAmountRatio = $totalVehicleAmount > 0
+                ? round(($financedAmount / $totalVehicleAmount) * 100, 2)
+                : 0.0;
+            $financedAmountBonusPercent = $financedAmountRatio > (float) ($formulaSettings['delegation_bonus']['financed_amount_ratio_threshold'] ?? 40.0)
+                ? (float) ($formulaSettings['delegation_bonus']['financed_amount_bonus_percent'] ?? 0.10)
+                : 0.0;
+            $financedAmountBonusAmount = round($primaFinal * $financedAmountBonusPercent, 2);
+            $baseAfterFinancedAmountBonus = $primaFinal + $financedAmountBonusAmount;
+            $profitabilityBonusPercent = $profitabilityRatio > (float) ($formulaSettings['delegation_bonus']['profitability_ratio_threshold'] ?? 14.0)
+                ? (float) ($formulaSettings['delegation_bonus']['profitability_bonus_percent'] ?? 0.10)
+                : 0.0;
+            $profitabilityBonusAmount = round($baseAfterFinancedAmountBonus * $profitabilityBonusPercent, 2);
+            $totalCommission = round($baseAfterFinancedAmountBonus + $profitabilityBonusAmount, 2);
+
+            return [
+                'delegation_name' => $delegationLabel,
+                'target_deliveries' => $targetDeliveries,
+                'deliveries_count' => $deliveriesCount,
+                'objective_percentage' => $objectivePercentage,
+                'objective_commission_percent' => round($objectiveCommissionPercent * 100, 2),
+                'rentability_total' => $rentabilityTotal,
+                'average_rentability' => $averageRentability,
+                'prima_final' => $primaFinal,
+                'financing_profitability_percentage' => $profitabilityRatio,
+                'profitability_bonus_percent' => round($profitabilityBonusPercent * 100, 2),
+                'profitability_bonus_amount' => $profitabilityBonusAmount,
+                'financed_amount_percentage' => $financedAmountRatio,
+                'financed_amount_bonus_percent' => round($financedAmountBonusPercent * 100, 2),
+                'financed_amount_bonus_amount' => $financedAmountBonusAmount,
+                'total_commission' => $totalCommission,
+            ];
+        })->sortByDesc('total_commission')->values()->all();
+    }
+
+    private function resolvePurchaseCommissionDetails(Collection $monthlyDeliveries, array $formulaSettings): array
     {
         if ($monthlyDeliveries->isEmpty()) {
             return [];
@@ -367,7 +479,7 @@ class CommercialCommissionDashboardService
             }
 
             $rentability = $this->purchaseCommissionRentability($sale, $purchase);
-            $commissionAmount = round($rentability > 0 ? $rentability * 0.018 : 0, 2);
+            $commissionAmount = round($rentability > 0 ? $rentability * (float) $formulaSettings['purchases']['commission_percent'] : 0, 2);
 
             $details[] = [
                 'purchase_owner_id' => $purchaseOwnerId,
@@ -427,6 +539,7 @@ class CommercialCommissionDashboardService
                 'record_type_name',
                 'owner_id',
                 'owner_name',
+                'owner_delegation',
                 'shared_delivery_id',
                 'shared_delivery_name',
                 'vehicle_interest_id',
@@ -493,7 +606,7 @@ class CommercialCommissionDashboardService
         return $warnings;
     }
 
-    private function diagnostics(CarbonImmutable $selectedMonth, CarbonImmutable $periodStart, CarbonImmutable $periodEnd, array $issues): array
+    private function diagnostics(CarbonImmutable $selectedMonth, CarbonImmutable $periodStart, CarbonImmutable $periodEnd, array $issues, array $formulaSettings): array
     {
         $base = [
             'selected_month' => $selectedMonth->format('Y-m'),
@@ -537,7 +650,7 @@ class CommercialCommissionDashboardService
                 ->unique()
                 ->values(),
         );
-        $matchedPurchaseDetails = $this->resolvePurchaseCommissionDetails($monthlyDeliveries);
+        $matchedPurchaseDetails = $this->resolvePurchaseCommissionDetails($monthlyDeliveries, $formulaSettings);
         $salesforceUsersById = $this->salesforceUsersById();
         $ownerNames = [];
 
@@ -574,7 +687,7 @@ class CommercialCommissionDashboardService
             'operations_count' => (clone $baseQuery)->count(),
             'shared_sales_count' => (clone $salesQuery)->whereNotNull('shared_delivery_id')->count(),
             'stock_150_count' => $monthlyDeliveries
-                ->filter(fn (SalesforceOpportunity $row) => $this->isStock150Delivery($row))
+                ->filter(fn (SalesforceOpportunity $row) => $this->isStock150Delivery($row, $formulaSettings))
                 ->count(),
             'reviews_count' => $this->monthlyReviews($periodStart, $periodEnd)->count(),
             'commercials_count' => $eligibleCommercialIds->count(),
@@ -602,11 +715,11 @@ class CommercialCommissionDashboardService
         });
     }
 
-    private function isStock150Delivery(SalesforceOpportunity $row): bool
+    private function isStock150Delivery(SalesforceOpportunity $row, array $formulaSettings): bool
     {
         $days = $this->stockDaysForOpportunity($row);
 
-        return $days !== null && $days >= 150;
+        return $days !== null && $days >= (int) $formulaSettings['stock']['days_threshold'];
     }
 
     private function stockDaysForOpportunity(SalesforceOpportunity $row): ?int
@@ -671,21 +784,31 @@ class CommercialCommissionDashboardService
             ->toString();
     }
 
-    private function deliveryBracket(int $deliveries, ?string $profileName = null): array
+    private function deliveryBracket(int $deliveries, ?string $profileName = null, array $formulaSettings = []): array
     {
         if ($this->alwaysFullDeliveryBracketProfile($profileName)) {
             return ['100%', 1.0];
         }
 
-        if ($deliveries <= 6) {
-            return ['0-6', 0.0];
+        $brackets = $formulaSettings['delivery_brackets'] ?? [];
+        $minDeliveries = 0;
+
+        foreach ($brackets as $bracket) {
+            $maxDeliveries = $bracket['max_deliveries'] ?? null;
+            $percent = (float) ($bracket['percent'] ?? 0);
+
+            if ($maxDeliveries === null || $deliveries <= (int) $maxDeliveries) {
+                $label = $maxDeliveries === null
+                    ? $minDeliveries.'+'
+                    : $minDeliveries.'-'.$maxDeliveries;
+
+                return [$label, $percent];
+            }
+
+            $minDeliveries = ((int) $maxDeliveries) + 1;
         }
 
-        if ($deliveries <= 11) {
-            return ['7-11', 0.8];
-        }
-
-        return ['12+', 1.0];
+        return ['100%', 1.0];
     }
 
     private function alwaysFullDeliveryBracketProfile(?string $profileName): bool
@@ -693,76 +816,40 @@ class CommercialCommissionDashboardService
         return (string) $profileName === 'Compra/Venta';
     }
 
-    private function financingProductPercent(float $amount): float
+    private function financingProductPercent(float $amount, array $formulaSettings): float
     {
-        if ($amount > 50000) {
-            return 0.09;
+        foreach ($formulaSettings['financing_product_brackets'] ?? [] as $bracket) {
+            if ($amount >= (float) ($bracket['min_amount'] ?? 0)) {
+                return (float) ($bracket['percent'] ?? 0);
+            }
         }
 
-        if ($amount >= 30001) {
-            return 0.08;
-        }
-
-        if ($amount >= 25001) {
-            return 0.07;
-        }
-
-        if ($amount >= 17001) {
-            return 0.06;
-        }
-
-        if ($amount >= 12001) {
-            return 0.05;
-        }
-
-        if ($amount >= 8001) {
-            return 0.04;
-        }
-
-        if ($amount >= 5001) {
-            return 0.03;
-        }
-
-        return $amount > 0 ? 0.02 : 0.0;
+        return 0.0;
     }
 
-    private function guaranteeProductPercent(float $amount): float
+    private function guaranteeProductPercent(float $amount, array $formulaSettings): float
     {
-        if ($amount > 20400) {
-            return 0.11;
+        foreach ($formulaSettings['guarantee_product_brackets'] ?? [] as $bracket) {
+            if ($amount >= (float) ($bracket['min_amount'] ?? 0)) {
+                return (float) ($bracket['percent'] ?? 0);
+            }
         }
 
-        if ($amount >= 14401) {
-            return 0.09;
-        }
-
-        if ($amount >= 9601) {
-            return 0.07;
-        }
-
-        if ($amount >= 5401) {
-            return 0.06;
-        }
-
-        if ($amount >= 3501) {
-            return 0.04;
-        }
-
-        return $amount > 0 ? 0.03 : 0.0;
+        return 0.0;
     }
 
-    private function reviewsPenalty(float $primaAdjusted, float $reviewsPercentage): float
+    private function reviewsPenalty(float $primaAdjusted, float $reviewsPercentage, array $formulaSettings): float
     {
         if ($primaAdjusted <= 0) {
             return 0.0;
         }
 
-        if ($reviewsPercentage < 30) {
-            return round($primaAdjusted * 0.50, 2);
+        if ($reviewsPercentage < (float) $formulaSettings['penalties']['reviews_low_threshold']) {
+            return round($primaAdjusted * (float) $formulaSettings['penalties']['reviews_low_percent'], 2);
         }
 
-        if ($reviewsPercentage < 50) {
-            return round($primaAdjusted * 0.10, 2);
+        if ($reviewsPercentage < (float) $formulaSettings['penalties']['reviews_mid_threshold']) {
+            return round($primaAdjusted * (float) $formulaSettings['penalties']['reviews_mid_percent'], 2);
         }
 
         return 0.0;
@@ -845,15 +932,28 @@ class CommercialCommissionDashboardService
             ->toString();
     }
 
+    private function operationRentability(SalesforceOpportunity $row): float
+    {
+        $salePrice = (float) ($row->vehicle_sale_price ?? 0);
+        $purchasePrice = (float) ($row->vehicle_purchase_price ?? 0);
+        $discount = (float) ($row->opo_div_descuento ?? 0);
+        $financingBenefit = (float) ($row->beneficio_financiacion_comercial ?? 0);
+        $guaranteeTotal = (float) ($row->garantia_total ?? 0);
+
+        return round($salePrice - $purchasePrice - $discount + $financingBenefit + $guaranteeTotal, 2);
+    }
+
     private function purchaseCommissionRentability(SalesforceOpportunity $sale, ?SalesforceOpportunity $purchase = null): float
     {
-        $salePrice = (float) ($sale->vehicle_sale_price ?? $purchase?->vehicle_sale_price ?? 0);
-        $purchasePrice = (float) ($sale->vehicle_purchase_price ?? $purchase?->vehicle_purchase_price ?? 0);
-        $discount = max(0, (float) ($sale->opo_div_descuento ?? 0));
-        $financingBenefit = max(0, (float) ($sale->beneficio_financiacion_comercial ?? 0));
-        $guaranteeTotal = max(0, (float) ($sale->garantia_total ?? 0));
+        $rentability = $this->operationRentability(new SalesforceOpportunity([
+            'vehicle_sale_price' => $sale->vehicle_sale_price ?? $purchase?->vehicle_sale_price ?? 0,
+            'vehicle_purchase_price' => $sale->vehicle_purchase_price ?? $purchase?->vehicle_purchase_price ?? 0,
+            'opo_div_descuento' => $sale->opo_div_descuento ?? 0,
+            'beneficio_financiacion_comercial' => $sale->beneficio_financiacion_comercial ?? 0,
+            'garantia_total' => $sale->garantia_total ?? 0,
+        ]));
 
-        return round(max($salePrice - $purchasePrice - $discount + $financingBenefit + $guaranteeTotal, 0), 2);
+        return round(max($rentability, 0), 2);
     }
 
     private function purchaseSourceAllowed(?string $value): bool
@@ -913,5 +1013,37 @@ class CommercialCommissionDashboardService
         }
 
         return CarbonImmutable::now()->subMonthNoOverflow()->startOfMonth();
+    }
+
+    private function delegationLabel(?string $value): string
+    {
+        $label = trim((string) $value);
+
+        return $label !== '' ? $label : 'Sin delegacion';
+    }
+
+    private function delegationGoal(Collection $configuredGoals, string $delegationLabel): array
+    {
+        $goalKey = $this->formulaConfig->delegationKey($delegationLabel);
+
+        return $configuredGoals->get($goalKey, [
+            'label' => $delegationLabel,
+            'target_deliveries' => 0,
+        ]);
+    }
+
+    private function delegationObjectiveCommissionPercent(?float $objectivePercentage, array $formulaSettings): float
+    {
+        if ($objectivePercentage === null) {
+            return 0.0;
+        }
+
+        foreach ($formulaSettings['delegation_bonus']['objective_brackets'] ?? [] as $bracket) {
+            if ($objectivePercentage >= (float) ($bracket['min_percent'] ?? 0)) {
+                return (float) ($bracket['percent'] ?? 0);
+            }
+        }
+
+        return 0.0;
     }
 }

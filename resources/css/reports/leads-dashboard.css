@@ -108,6 +108,7 @@ body.campaigns-report {
     align-items: center;
     justify-content: flex-end;
     gap: 10px;
+    flex-wrap: wrap;
 }
 
 .header {
@@ -331,6 +332,8 @@ h2 {
 }
 
 .filter-reset {
+    appearance: none;
+    -webkit-appearance: none;
     width: 100%;
     min-height: 41px;
     border: 1px solid rgba(229, 26, 46, .18);
@@ -338,7 +341,9 @@ h2 {
     background: #fff;
     color: var(--brand-accent);
     cursor: pointer;
+    font-family: inherit;
     font-weight: 700;
+    line-height: 1.2;
     transition: background .16s ease, border-color .16s ease, color .16s ease, transform .16s ease, box-shadow .16s ease;
 }
 
@@ -362,13 +367,22 @@ h2 {
 }
 
 .main-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    appearance: none;
+    -webkit-appearance: none;
     border: 1px solid var(--line);
     background: white;
     color: var(--brand-primary);
     border-radius: 999px;
     padding: 10px 16px;
+    font-family: inherit;
     font-weight: 700;
+    line-height: 1.2;
     cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
     transition: background .18s ease, color .18s ease, border-color .18s ease, transform .18s ease, box-shadow .18s ease;
 }
 
@@ -3262,6 +3276,18 @@ th.num {
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
 }
 
+.commercial-commissions-report .commission-delegation-note {
+    margin: 0 0 14px;
+}
+
+.commercial-commissions-report .commission-delegation-table-shell {
+    min-width: 0;
+}
+
+.commercial-commissions-report .commission-delegation-table-shell table {
+    min-width: 1540px;
+}
+
 .commercial-commissions-report .commission-detail-shell {
     display: grid;
     grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
@@ -3364,11 +3390,36 @@ th.num {
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
 }
 
+.report-users-page .admin-nav {
+    margin-bottom: 18px;
+}
+
 .report-users-page .report-user-form-grid,
 .report-users-page .report-user-edit-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
     gap: 16px;
+}
+
+.report-users-page .report-access-grid,
+.report-users-page .report-settings-brackets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+    gap: 16px;
+}
+
+.report-users-page .report-access-card {
+    padding: 18px;
+    display: grid;
+    gap: 12px;
+    border-radius: 24px;
+}
+
+.report-users-page .commission-settings-month-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+    gap: 16px;
+    align-items: end;
 }
 
 .report-users-page .report-user-create-action {
@@ -3394,6 +3445,7 @@ th.num {
 .report-users-page .report-user-row-actions .main-tab,
 .report-users-page .report-user-row-actions .filter-reset,
 .report-users-page .report-user-cancel-link {
+    width: auto;
     min-height: 38px;
     padding: 9px 14px;
     text-decoration: none;
@@ -3405,6 +3457,21 @@ th.num {
     gap: 10px;
     flex-wrap: wrap;
     grid-column: 1 / -1;
+}
+
+.report-users-page .commission-filter-actions,
+.report-users-page .report-user-form-actions .main-tab,
+.report-users-page .report-user-form-actions .filter-reset,
+.report-users-page .admin-nav .main-tab {
+    min-height: 42px;
+}
+
+.report-users-page .commission-filter-actions .main-tab,
+.report-users-page .report-user-form-actions .main-tab,
+.report-users-page .report-user-form-actions .filter-reset {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .report-users-page .report-users-header {

@@ -1,0 +1,195 @@
+<?php
+
+namespace App\Http\Controllers\Reports\CommercialCommissions;
+
+use App\Http\Controllers\Controller;
+use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
+use App\Support\ReportUserAccess;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\View\View;
+
+class CommercialCommissionFormulaSettingsController extends Controller
+{
+    public function __construct(
+        private readonly CommercialCommissionFormulaConfigService $formulaConfig,
+    ) {
+    }
+
+    public function index(Request $request): View|RedirectResponse
+    {
+        if (! ReportUserAccess::canManageReportUsers($request)) {
+            return redirect()->route('reports.index');
+        }
+
+        $selectedMonth = $this->formulaConfig->resolveSelectedMonth($request->query('month'));
+        $isEditableMonth = $this->formulaConfig->isEditableMonth($selectedMonth, $request);
+
+        return view('reports.commercial-commissions.settings', [
+            'reportUserRole' => ReportUserAccess::role($request),
+            'selectedMonth' => $selectedMonth,
+            'openMonth' => $this->formulaConfig->openMonth(),
+            'isEditableMonth' => $isEditableMonth,
+            'canTemporarilyUnlockMonth' => $this->formulaConfig->canTemporarilyUnlockMonth($selectedMonth),
+            'isTemporarilyUnlocked' => $this->formulaConfig->isTemporarilyUnlocked($request, $selectedMonth),
+            'settings' => $this->formulaConfig->forMonth($selectedMonth),
+            'availableDelegations' => $this->formulaConfig->availableDelegations(
+                $this->formulaConfig->forMonth($selectedMonth)
+            ),
+        ]);
+    }
+
+    public function update(Request $request): RedirectResponse
+    {
+        if (! ReportUserAccess::canManageReportUsers($request)) {
+            return redirect()->route('reports.index');
+        }
+
+        $selectedMonth = $this->formulaConfig->resolveSelectedMonth($request->input('month'));
+
+        if (! $this->formulaConfig->isEditableMonth($selectedMonth, $request)) {
+            return back()->withErrors(['month' => 'Solo se puede editar el mes abierto.'])->withInput();
+        }
+
+        $data = $request->validate([
+            'month' => ['required', 'date_format:Y-m'],
+            'sales.solo_delivery_amount' => ['required', 'numeric', 'min:0'],
+            'sales.shared_owner_delivery_amount' => ['required', 'numeric', 'min:0'],
+            'sales.shared_secondary_delivery_amount' => ['required', 'numeric', 'min:0'],
+            'purchases.commission_percent' => ['required', 'numeric', 'min:0', 'max:1'],
+            'stock.days_threshold' => ['required', 'integer', 'min:0'],
+            'stock.amount' => ['required', 'numeric', 'min:0'],
+            'bonus.start_after_delivery' => ['required', 'integer', 'min:0'],
+            'bonus.amount_per_delivery' => ['required', 'numeric', 'min:0'],
+            'delivery_brackets.0.max_deliveries' => ['required', 'integer', 'min:0'],
+            'delivery_brackets.0.percent' => ['required', 'numeric', 'min:0', 'max:1'],
+            'delivery_brackets.1.max_deliveries' => ['required', 'integer', 'gt:delivery_brackets.0.max_deliveries'],
+            'delivery_brackets.1.percent' => ['required', 'numeric', 'min:0', 'max:1'],
+            'delivery_brackets.2.percent' => ['required', 'numeric', 'min:0', 'max:1'],
+            'penalties.guarantee_total_threshold' => ['required', 'numeric', 'min:0'],
+            'penalties.guarantee_percent' => ['required', 'numeric', 'min:0', 'max:1'],
+            'penalties.reviews_low_threshold' => ['required', 'numeric', 'min:0', 'max:100'],
+            'penalties.reviews_mid_threshold' => ['required', 'numeric', 'gt:penalties.reviews_low_threshold', 'max:100'],
+            'penalties.reviews_low_percent' => ['required', 'numeric', 'min:0', 'max:1'],
+            'penalties.reviews_mid_percent' => ['required', 'numeric', 'min:0', 'max:1'],
+            'penalties.financing_percentage_threshold' => ['required', 'numeric', 'min:0', 'max:100'],
+            'penalties.financing_percent' => ['required', 'numeric', 'min:0', 'max:1'],
+            'delegations.goals' => ['nullable', 'array'],
+            'delegations.goals.*.label' => ['required', 'string', 'max:255'],
+            'delegations.goals.*.target_deliveries' => ['nullable', 'integer', 'min:0'],
+        ] + $this->productBracketRules('financing_product_brackets', 8) + $this->productBracketRules('guarantee_product_brackets', 6));
+
+        $settings = [
+            'sales' => $data['sales'],
+            'purchases' => $data['purchases'],
+            'stock' => $data['stock'],
+            'bonus' => $data['bonus'],
+            'delivery_brackets' => [
+                [
+                    'max_deliveries' => (int) $data['delivery_brackets'][0]['max_deliveries'],
+                    'percent' => (float) $data['delivery_brackets'][0]['percent'],
+                ],
+                [
+                    'max_deliveries' => (int) $data['delivery_brackets'][1]['max_deliveries'],
+                    'percent' => (float) $data['delivery_brackets'][1]['percent'],
+                ],
+                [
+                    'max_deliveries' => null,
+                    'percent' => (float) $data['delivery_brackets'][2]['percent'],
+                ],
+            ],
+            'penalties' => $data['penalties'],
+            'financing_product_brackets' => $this->normalizeProductBrackets($data['financing_product_brackets']),
+            'guarantee_product_brackets' => $this->normalizeProductBrackets($data['guarantee_product_brackets']),
+            'delegations' => [
+                'goals' => $this->normalizeDelegationGoals($data['delegations']['goals'] ?? []),
+            ],
+        ];
+
+        $this->formulaConfig->saveForMonth($selectedMonth->format('Y-m'), $settings);
+
+        if ($selectedMonth->format('Y-m') !== $this->formulaConfig->openMonth()->format('Y-m')) {
+            $this->formulaConfig->closeMonth($request, $selectedMonth);
+        }
+
+        return redirect()
+            ->route('reports.commission-settings.index', ['month' => $selectedMonth->format('Y-m')])
+            ->with(
+                'status',
+                $selectedMonth->format('Y-m') === $this->formulaConfig->openMonth()->format('Y-m')
+                    ? 'Coeficientes de comisiones actualizados correctamente.'
+                    : 'Coeficientes de comisiones actualizados correctamente. El mes se ha vuelto a cerrar.'
+            );
+    }
+
+    public function unlock(Request $request): RedirectResponse
+    {
+        if (! ReportUserAccess::canManageReportUsers($request)) {
+            return redirect()->route('reports.index');
+        }
+
+        $selectedMonth = $this->formulaConfig->resolveSelectedMonth($request->input('month'));
+
+        if (! $this->formulaConfig->unlockMonth($request, $selectedMonth)) {
+            return redirect()
+                ->route('reports.commission-settings.index', ['month' => $selectedMonth->format('Y-m')])
+                ->withErrors(['month' => 'Ese mes no se puede abrir temporalmente para edicion.']);
+        }
+
+        return redirect()
+            ->route('reports.commission-settings.index', ['month' => $selectedMonth->format('Y-m')])
+            ->with('status', 'Mes abierto temporalmente para edicion. Se cerrara de nuevo al guardar.');
+    }
+
+    private function productBracketRules(string $key, int $count): array
+    {
+        $rules = [];
+
+        foreach (range(0, $count - 1) as $index) {
+            $rules["{$key}.{$index}.min_amount"] = ['required', 'numeric', 'min:0'];
+            $rules["{$key}.{$index}.percent"] = ['required', 'numeric', 'min:0', 'max:1'];
+        }
+
+        return $rules;
+    }
+
+    private function normalizeProductBrackets(array $brackets): array
+    {
+        return collect($brackets)
+            ->map(fn (array $bracket) => [
+                'min_amount' => (float) $bracket['min_amount'],
+                'percent' => (float) $bracket['percent'],
+            ])
+            ->sortByDesc('min_amount')
+            ->values()
+            ->all();
+    }
+
+    private function normalizeDelegationGoals(array $goals): array
+    {
+        return collect($goals)
+            ->mapWithKeys(function (array $goal, string $goalKey): array {
+                $label = trim((string) ($goal['label'] ?? ''));
+
+                if (! $this->formulaConfig->shouldIncludeDelegationLabel($label !== '' ? $label : $goalKey)) {
+                    return [];
+                }
+
+                $key = $this->formulaConfig->delegationKey($label !== '' ? $label : $goalKey);
+
+                if ($key === '') {
+                    return [];
+                }
+
+                return [
+                    $key => [
+                        'label' => $label !== '' ? $label : $goalKey,
+                        'target_deliveries' => (int) ($goal['target_deliveries'] ?? 0),
+                    ],
+                ];
+            })
+            ->sortBy(fn (array $goal) => $goal['label'])
+            ->all();
+    }
+}

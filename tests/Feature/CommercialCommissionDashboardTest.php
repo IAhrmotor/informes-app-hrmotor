@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
 use App\Models\ReportUser;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceReview;
@@ -838,6 +839,102 @@ class CommercialCommissionDashboardTest extends TestCase
 
         $this->assertNotNull(collect($payload['summary_rows'])->firstWhere('commercial_id', '005-OK'));
         $this->assertNull(collect($payload['summary_rows'])->firstWhere('commercial_id', '005-NO'));
+    }
+
+    public function test_dashboard_calcula_cuadro_delegaciones_con_meta_y_bonus_de_calidad(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-06', [
+            'delegations' => [
+                'goals' => [
+                    'hr-motor-alicante' => [
+                        'label' => 'HR MOTOR ALICANTE',
+                        'target_deliveries' => 35,
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->createCommercialUser('005-D1', 'Delegacion Uno');
+
+        foreach (range(1, 30) as $index) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => 'DEL-ALICANTE-'.$index,
+                'name' => 'Venta Alicante '.$index,
+                'owner_id' => '005-D1',
+                'owner_name' => 'Delegacion Uno',
+                'owner_is_active' => true,
+                'owner_delegation' => 'HR MOTOR ALICANTE',
+                'stage_name' => 'Contrato',
+                'record_type_name' => $index === 30 ? 'Cambio' : 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-'.str_pad((string) min($index, 28), 2, '0', STR_PAD_LEFT),
+                'opo_for_importe_total' => 10000,
+                'vehicle_sale_price' => 12000,
+                'vehicle_purchase_price' => 10000,
+                'opo_div_descuento' => 0,
+                'importe_financiado' => 5000,
+                'beneficio_financiacion_comercial' => 800,
+                'garantia_total' => 200,
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $delegation = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'HR MOTOR ALICANTE');
+
+        $this->assertNotNull($delegation);
+        $this->assertSame(35, $delegation['target_deliveries']);
+        $this->assertSame(30, $delegation['deliveries_count']);
+        $this->assertEquals(85.71, $delegation['objective_percentage']);
+        $this->assertEquals(0.35, $delegation['objective_commission_percent']);
+        $this->assertEquals(90000.0, $delegation['rentability_total']);
+        $this->assertEquals(3000.0, $delegation['average_rentability']);
+        $this->assertEquals(10.5, $delegation['prima_final']);
+        $this->assertEquals(16.0, $delegation['financing_profitability_percentage']);
+        $this->assertEquals(50.0, $delegation['financed_amount_percentage']);
+        $this->assertEquals(1.05, $delegation['financed_amount_bonus_amount']);
+        $this->assertEquals(1.16, $delegation['profitability_bonus_amount']);
+        $this->assertEquals(12.71, $delegation['total_commission']);
+    }
+
+    public function test_dashboard_excluye_delegaciones_general_y_call_fontellas(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-D2', 'Delegacion Dos');
+
+        foreach ([
+            ['id' => 'DEL-GENERAL-1', 'delegation' => 'General'],
+            ['id' => 'DEL-CALL-1', 'delegation' => 'Call Fontellas'],
+            ['id' => 'DEL-VALID-1', 'delegation' => 'HR MOTOR ALICANTE'],
+        ] as $row) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $row['id'],
+                'name' => $row['id'],
+                'owner_id' => '005-D2',
+                'owner_name' => 'Delegacion Dos',
+                'owner_is_active' => true,
+                'owner_delegation' => $row['delegation'],
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-10',
+                'opo_for_importe_total' => 10000,
+                'vehicle_sale_price' => 12000,
+                'vehicle_purchase_price' => 10000,
+                'importe_financiado' => 5000,
+                'beneficio_financiacion_comercial' => 500,
+                'garantia_total' => 100,
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $delegationNames = collect($payload['delegation_rows'])->pluck('delegation_name');
+
+        $this->assertTrue($delegationNames->contains('HR MOTOR ALICANTE'));
+        $this->assertFalse($delegationNames->contains('General'));
+        $this->assertFalse($delegationNames->contains('Call Fontellas'));
     }
 
     private function createCommercialUser(string $id, string $name, bool $isActive = true, string $profile = 'Compra/Venta'): void

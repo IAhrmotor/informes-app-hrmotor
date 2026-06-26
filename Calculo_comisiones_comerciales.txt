@@ -153,14 +153,55 @@ Comision final =
 En la propia vista de Comisiones Comerciales:
 
 - tab Resumen: totales y tabla por comercial
+- tab Delegaciones: resumen por delegacion con metas, rentabilidad media, prima final y comision total
 - selector de columnas en el resumen
 - `Comision final` aparece al inicio
 - `Operaciones` ya no aparece en la tabla resumen
 - `Pen. resenas` y `Pen. financiacion` muestran importe monetario penalizado
 - tab Detalle auditable: buscar comercial y ver el detalle que alimenta el calculo
 
-8. Acceso actual
+8. Cuadro de delegaciones
+
+- La agrupacion se hace por `owner_delegation`.
+- Se toman todas las operaciones `Venta` y `Cambio` de esa delegacion.
+- Las entregas cuentan para la delegacion de la venta, aunque la compra del coche venga de otra delegacion.
+- La meta de entregas de cada delegacion se configura en `/informes/configuracion-comisiones` y se guarda por mes abierto.
+- La rentabilidad por operacion se calcula con:
+  - `Product2.PRO_DIV_Precio_de_venta__c`
+  - menos `Product2.PRO_DIV_Precio_de_compra__c`
+  - menos `Opportunity.OPO_DIV_Descuento__c`
+  - mas `Opportunity.Beneficio_financiacion_comercial__c`
+  - mas `Opportunity.Garant_a_Total__c`
+- La `Rentabilidad operación media` es:
+  - sumatorio de rentabilidades de Venta/Cambio / numero de entregas
+- El `% sobre objetivo` es:
+  - entregas / meta_entregas
+- El porcentaje aplicado a la rentabilidad media es:
+  - `<85% => 0%`
+  - `85-89,99% => 0,35%`
+  - `90-94,99% => 0,40%`
+  - `95-99,99% => 0,45%`
+  - `100% => 0,50%`
+  - `>100% => 0,60%`
+- `Prima Final` = `Rentabilidad operación media x % por objetivo`
+- Bonus de calidad:
+  - si `Beneficio_financiacion_comercial__c / Importe_financiado__c > 14%`, suma 10%
+  - si `Importe_financiado__c / OPO_FOR_Importe_total__c > 40%`, suma 10%
+  - el bonus de `% importe financiado` se aplica antes del bonus de `% rentabilidad`
+- La tabla muestra tanto la `Prima Final` como la `Comision total` final por delegacion.
+
+9. Acceso actual
 
 - pueden verlo `admin` y `carlos.torres@hrmotor.es`
 - el resto de usuarios no ven la tab ni pueden abrir la ruta
 - el diagnostico base ampliado solo lo ve `admin`
+
+10. Edicion de coeficientes por mes
+
+- El mes en curso permanece editable por defecto hasta que cierre el mes natural.
+- Los meses cerrados se muestran en solo lectura.
+- Excepcion temporal de validacion:
+  - `2026-04`
+  - `2026-05`
+- Esos meses pueden abrirse temporalmente desde la pantalla de coeficientes.
+- Tras guardar los cambios, vuelven a quedar cerrados automaticamente.

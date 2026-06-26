@@ -1,6 +1,11 @@
 @php
     $currentReport = $currentReport ?? 'leads';
     $currentAdminPage = $currentAdminPage ?? null;
+    $adminLinks = [
+        ['key' => 'users', 'label' => 'Usuarios', 'route' => 'reports.users.index'],
+        ['key' => 'access-settings', 'label' => 'Permisos', 'route' => 'reports.access-settings.index'],
+        ['key' => 'commission-settings', 'label' => 'Coeficientes', 'route' => 'reports.commission-settings.index'],
+    ];
     $tabs = [
         ['key' => 'leads', 'label' => 'Leads', 'subtitle' => 'Captacion y seguimiento comercial', 'route' => 'reports.leads.index'],
         ['key' => 'reservations-sales', 'label' => 'Reservas / Ventas', 'subtitle' => 'Reservas, ventas y contratos', 'route' => 'reports.reservations-sales.index'],
@@ -14,28 +19,24 @@
             return false;
         }
 
-        if ($tab['key'] === 'campaigns') {
-            return \App\Support\ReportUserAccess::canViewCampaigns(request());
-        }
-
-        if ($tab['key'] === 'commercial-commissions') {
-            return \App\Support\ReportUserAccess::canViewCommercialCommissions(request());
-        }
-
-        return true;
+        return \App\Support\ReportUserAccess::canViewReport(request(), $tab['key']);
     }));
 @endphp
 
 <header class="app-header">
     <div class="header-actions">
         <div class="badge" id="updatedBadge">Cargando datos de Salesforce...</div>
-        @if (\Illuminate\Support\Facades\Route::has('reports.users.index') && \App\Support\ReportUserAccess::canManageReportUsers(request()))
-            <a
-                href="{{ route('reports.users.index') }}"
-                @class(['header-link', 'active' => $currentAdminPage === 'users'])
-            >
-                Gestion usuarios
-            </a>
+        @if (\App\Support\ReportUserAccess::canManageReportUsers(request()))
+            @foreach ($adminLinks as $link)
+                @if (\Illuminate\Support\Facades\Route::has($link['route']))
+                    <a
+                        href="{{ route($link['route']) }}"
+                        @class(['header-link', 'active' => $currentAdminPage === $link['key']])
+                    >
+                        {{ $link['label'] }}
+                    </a>
+                @endif
+            @endforeach
         @endif
         @if (config('services.informes_auth.enabled'))
             <form method="POST" action="{{ route('logout') }}" class="logout-form">

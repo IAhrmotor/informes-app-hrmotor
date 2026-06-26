@@ -41,7 +41,7 @@ class ReportsAuthMiddlewareTest extends TestCase
             ->assertSessionHas('informes_authenticated', true)
             ->assertSessionHas('informes_user', 'admin@hrmotor.com');
 
-        $this->get('/login')->assertRedirect('/informes/campanas');
+        $this->get('/login')->assertRedirect('/informes');
 
         $this->post('/logout')
             ->assertRedirect('/login')
@@ -64,7 +64,7 @@ class ReportsAuthMiddlewareTest extends TestCase
             'email' => 'viewer@hrmotor.com',
             'password' => 'secret',
         ])
-            ->assertRedirect('/informes/campanas')
+            ->assertRedirect('/informes/leads')
             ->assertSessionHas('informes_authenticated', true)
             ->assertSessionHas('report_user_email', 'viewer@hrmotor.com')
             ->assertSessionHas('report_user_role', ReportUser::ROLE_VIEWER);

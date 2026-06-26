@@ -26,6 +26,8 @@
             </div>
         </section>
 
+        @include('reports.partials.admin-nav', ['currentAdminPage' => 'users'])
+
         @if ($errors->any())
             <div class="notice">
                 {{ $errors->first() }}

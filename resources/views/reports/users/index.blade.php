@@ -28,6 +28,8 @@
             </div>
         </section>
 
+        @include('reports.partials.admin-nav', ['currentAdminPage' => 'users'])
+
         @if (session('status'))
             <div class="notice notice-success">{{ session('status') }}</div>
         @endif

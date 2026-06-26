@@ -1,0 +1,313 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\ReportUser;
+use App\Models\SalesforceOpportunity;
+use App\Models\SalesforceUser;
+use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
+use Carbon\CarbonImmutable;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
+use Tests\TestCase;
+
+class CommercialCommissionFormulaSettingsTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        CarbonImmutable::setTestNow();
+
+        parent::tearDown();
+    }
+
+    public function test_admin_puede_guardar_coeficientes_del_mes_abierto_y_el_calculo_los_aplica(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 12:00:00'));
+        config()->set('services.informes_auth.enabled', true);
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        $admin = ReportUser::query()->create([
+            'name' => 'Admin',
+            'email' => 'admin@hrmotor.com',
+            'password' => Hash::make('secret'),
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => true,
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $admin->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => $admin->email,
+        ];
+
+        $this->withSession($session)
+            ->put('/informes/configuracion-comisiones', $this->validPayload('2026-06', [
+                'sales' => ['solo_delivery_amount' => 100.0],
+                'stock' => ['amount' => 25.0],
+            ]))
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-06');
+
+        SalesforceUser::query()->create([
+            'salesforce_id' => '005-CFG',
+            'name' => 'Comercial Config',
+            'profile_name' => 'Compra/Venta',
+            'is_active' => true,
+        ]);
+
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => 'SALE-CFG-1',
+            'name' => 'Venta configurada',
+            'owner_id' => '005-CFG',
+            'owner_name' => 'Comercial Config',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-10',
+            'opo_for_importe_total' => 12000,
+            'importe_financiado' => 12000,
+            'garantia_total' => 5000,
+            'gestion_de_venta' => false,
+            'vehicle_entry_date' => '2025-12-01',
+        ]);
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $row = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-CFG');
+
+        $this->assertNotNull($row);
+        $this->assertEquals(100.0, $row['sales_amount']);
+        $this->assertEquals(25.0, $row['stock_150_amount']);
+    }
+
+    public function test_admin_puede_guardar_meta_por_delegacion_del_mes_abierto(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 12:00:00'));
+        config()->set('services.informes_auth.enabled', true);
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        $admin = ReportUser::query()->create([
+            'name' => 'Admin',
+            'email' => 'admin@hrmotor.com',
+            'password' => Hash::make('secret'),
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => true,
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $admin->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => $admin->email,
+        ];
+
+        $this->withSession($session)
+            ->put('/informes/configuracion-comisiones', $this->validPayload('2026-06', [
+                'delegations' => [
+                    'goals' => [
+                        'hr-motor-alicante' => [
+                            'label' => 'HR MOTOR ALICANTE',
+                            'target_deliveries' => 35,
+                        ],
+                    ],
+                ],
+            ]))
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-06');
+
+        SalesforceUser::query()->create([
+            'salesforce_id' => '005-DEL',
+            'name' => 'Comercial Delegacion',
+            'profile_name' => 'Compra/Venta',
+            'is_active' => true,
+        ]);
+
+        foreach (range(1, 2) as $index) {
+            SalesforceOpportunity::query()->create([
+                'salesforce_id' => 'SALE-DEL-'.$index,
+                'name' => 'Venta delegacion '.$index,
+                'owner_id' => '005-DEL',
+                'owner_name' => 'Comercial Delegacion',
+                'owner_is_active' => true,
+                'owner_delegation' => 'HR MOTOR ALICANTE',
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-0'.($index + 1),
+                'opo_for_importe_total' => 10000,
+                'vehicle_sale_price' => 13000,
+                'vehicle_purchase_price' => 10000,
+                'importe_financiado' => 5000,
+                'beneficio_financiacion_comercial' => 800,
+                'garantia_total' => 200,
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $row = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'HR MOTOR ALICANTE');
+
+        $this->assertNotNull($row);
+        $this->assertSame(35, $row['target_deliveries']);
+        $this->assertSame(2, $row['deliveries_count']);
+    }
+
+    public function test_mes_cerrado_no_permita_guardar_coeficientes(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 12:00:00'));
+        config()->set('services.informes_auth.enabled', true);
+
+        $admin = ReportUser::query()->create([
+            'name' => 'Admin',
+            'email' => 'admin@hrmotor.com',
+            'password' => Hash::make('secret'),
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => true,
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $admin->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => $admin->email,
+        ];
+
+        $this->withSession($session)
+            ->from('/informes/configuracion-comisiones?month=2026-05')
+            ->put('/informes/configuracion-comisiones', $this->validPayload('2026-05'))
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-05')
+            ->assertSessionHasErrors('month');
+    }
+
+    public function test_admin_puede_abrir_temporalmente_mayo_guardar_y_el_mes_vuelve_a_cerrarse(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 12:00:00'));
+        config()->set('services.informes_auth.enabled', true);
+
+        $admin = ReportUser::query()->create([
+            'name' => 'Admin',
+            'email' => 'admin@hrmotor.com',
+            'password' => Hash::make('secret'),
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => true,
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $admin->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => $admin->email,
+        ];
+
+        $this->withSession($session)
+            ->post('/informes/configuracion-comisiones/unlock', ['month' => '2026-05'])
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-05');
+
+        $this->withSession(array_merge($session, [
+            'commercial_commission_temporarily_unlocked_months' => ['2026-05'],
+        ]))
+            ->put('/informes/configuracion-comisiones', $this->validPayload('2026-05', [
+                'sales' => ['solo_delivery_amount' => 95.0],
+            ]))
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-05')
+            ->assertSessionHas('status', 'Coeficientes de comisiones actualizados correctamente. El mes se ha vuelto a cerrar.');
+
+        $this->withSession($session)
+            ->from('/informes/configuracion-comisiones?month=2026-05')
+            ->put('/informes/configuracion-comisiones', $this->validPayload('2026-05'))
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-05')
+            ->assertSessionHasErrors('month');
+    }
+
+    public function test_solo_abril_y_mayo_se_pueden_abrir_temporalmente(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 12:00:00'));
+        config()->set('services.informes_auth.enabled', true);
+
+        $admin = ReportUser::query()->create([
+            'name' => 'Admin',
+            'email' => 'admin@hrmotor.com',
+            'password' => Hash::make('secret'),
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => true,
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $admin->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => $admin->email,
+        ];
+
+        $this->withSession($session)
+            ->post('/informes/configuracion-comisiones/unlock', ['month' => '2026-04'])
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-04');
+
+        $this->withSession($session)
+            ->post('/informes/configuracion-comisiones/unlock', ['month' => '2026-03'])
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-03')
+            ->assertSessionHasErrors('month');
+    }
+
+    private function validPayload(string $month, array $overrides = []): array
+    {
+        $payload = [
+            'month' => $month,
+            'sales' => [
+                'solo_delivery_amount' => 60.0,
+                'shared_owner_delivery_amount' => 30.0,
+                'shared_secondary_delivery_amount' => 30.0,
+            ],
+            'purchases' => [
+                'commission_percent' => 0.018,
+            ],
+            'stock' => [
+                'days_threshold' => 150,
+                'amount' => 10.0,
+            ],
+            'bonus' => [
+                'start_after_delivery' => 15,
+                'amount_per_delivery' => 30.0,
+            ],
+            'delivery_brackets' => [
+                ['max_deliveries' => 6, 'percent' => 0.0],
+                ['max_deliveries' => 11, 'percent' => 0.8],
+                ['percent' => 1.0],
+            ],
+            'penalties' => [
+                'guarantee_total_threshold' => 3500.0,
+                'guarantee_percent' => 0.10,
+                'reviews_low_threshold' => 30.0,
+                'reviews_mid_threshold' => 50.0,
+                'reviews_low_percent' => 0.50,
+                'reviews_mid_percent' => 0.10,
+                'financing_percentage_threshold' => 40.0,
+                'financing_percent' => 0.10,
+            ],
+            'financing_product_brackets' => [
+                ['min_amount' => 50001.0, 'percent' => 0.09],
+                ['min_amount' => 30001.0, 'percent' => 0.08],
+                ['min_amount' => 25001.0, 'percent' => 0.07],
+                ['min_amount' => 17001.0, 'percent' => 0.06],
+                ['min_amount' => 12001.0, 'percent' => 0.05],
+                ['min_amount' => 8001.0, 'percent' => 0.04],
+                ['min_amount' => 5001.0, 'percent' => 0.03],
+                ['min_amount' => 1.0, 'percent' => 0.02],
+            ],
+            'guarantee_product_brackets' => [
+                ['min_amount' => 20401.0, 'percent' => 0.11],
+                ['min_amount' => 14401.0, 'percent' => 0.09],
+                ['min_amount' => 9601.0, 'percent' => 0.07],
+                ['min_amount' => 5401.0, 'percent' => 0.06],
+                ['min_amount' => 3501.0, 'percent' => 0.04],
+                ['min_amount' => 1.0, 'percent' => 0.03],
+            ],
+            'delegations' => [
+                'goals' => [],
+            ],
+        ];
+
+        return array_replace_recursive($payload, $overrides);
+    }
+}

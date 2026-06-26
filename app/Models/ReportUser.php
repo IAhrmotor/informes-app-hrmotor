@@ -11,6 +11,12 @@ class ReportUser extends Model
     public const ROLE_DIRECTOR = 'director';
     public const ROLE_AREA_MANAGER = 'area_manager';
     public const ROLE_VIEWER = 'viewer';
+    public const ROLE_WEIGHTS = [
+        self::ROLE_VIEWER => 10,
+        self::ROLE_AREA_MANAGER => 20,
+        self::ROLE_DIRECTOR => 30,
+        self::ROLE_ADMIN => 40,
+    ];
     public const ROLE_LABELS = [
         self::ROLE_ADMIN => 'Administrador',
         self::ROLE_DIRECTOR => 'Direccion',
@@ -71,5 +77,10 @@ class ReportUser extends Model
     public static function roleLabel(?string $role): string
     {
         return self::ROLE_LABELS[$role ?? ''] ?? (string) $role;
+    }
+
+    public static function roleWeight(?string $role): int
+    {
+        return self::ROLE_WEIGHTS[$role ?? ''] ?? 0;
     }
 }

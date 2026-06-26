@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\ReportUser;
+use App\Support\ReportUserAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cookie;
@@ -16,7 +17,7 @@ class InformesLoginController extends Controller
     {
         if (! config('services.informes_auth.enabled', true)
             || (bool) $request->session()->get('informes_authenticated', false)) {
-            return redirect()->route('reports.campaigns.index');
+            return redirect()->route('reports.index');
         }
 
         return view('auth.informes-login');
@@ -25,7 +26,7 @@ class InformesLoginController extends Controller
     public function login(Request $request): RedirectResponse
     {
         if (! config('services.informes_auth.enabled', true)) {
-            return redirect()->intended(route('reports.campaigns.index'));
+            return redirect()->intended(route('reports.index'));
         }
 
         $credentials = $request->validate([
@@ -52,7 +53,9 @@ class InformesLoginController extends Controller
             Cookie::queue(Cookie::forget('report_user_remember'));
         }
 
-        return redirect()->intended(route('reports.campaigns.index'));
+        $fallbackRoute = ReportUserAccess::defaultAccessibleRouteName($request) ?? 'reports.index';
+
+        return redirect()->intended(route($fallbackRoute));
     }
 
     public function logout(Request $request): RedirectResponse
