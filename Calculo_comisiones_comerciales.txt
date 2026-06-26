@@ -1,5 +1,13 @@
 CALCULO DE COMISIONES COMERCIALES
-Version: 2026-06-24
+Version: 2026-06-26
+
+0. Acceso y administracion
+
+- El informe de comisiones comerciales lo pueden ver los usuarios con rol `admin` y `director`.
+- `area_manager` y `viewer` no pueden abrir ese informe.
+- La gestion de usuarios del portal de informes esta en `/informes/usuarios`.
+- Esa pantalla permite crear, editar, activar, desactivar, cambiar rol y eliminar usuarios de `report_users`.
+- La gestion de usuarios solo la puede usar un `admin`.
 
 1. Universo que entra en el informe
 

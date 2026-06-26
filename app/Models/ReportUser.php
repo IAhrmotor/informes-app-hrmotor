@@ -11,6 +11,12 @@ class ReportUser extends Model
     public const ROLE_DIRECTOR = 'director';
     public const ROLE_AREA_MANAGER = 'area_manager';
     public const ROLE_VIEWER = 'viewer';
+    public const ROLE_LABELS = [
+        self::ROLE_ADMIN => 'Administrador',
+        self::ROLE_DIRECTOR => 'Direccion',
+        self::ROLE_AREA_MANAGER => 'Area Manager',
+        self::ROLE_VIEWER => 'Viewer',
+    ];
 
     protected $fillable = [
         'name',
@@ -50,5 +56,20 @@ class ReportUser extends Model
     public function isAreaManager(): bool
     {
         return $this->role === self::ROLE_AREA_MANAGER;
+    }
+
+    public static function availableRoles(): array
+    {
+        return array_keys(self::ROLE_LABELS);
+    }
+
+    public static function roleOptions(): array
+    {
+        return self::ROLE_LABELS;
+    }
+
+    public static function roleLabel(?string $role): string
+    {
+        return self::ROLE_LABELS[$role ?? ''] ?? (string) $role;
     }
 }

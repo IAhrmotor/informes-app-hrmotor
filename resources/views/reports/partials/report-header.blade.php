@@ -1,5 +1,6 @@
 @php
     $currentReport = $currentReport ?? 'leads';
+    $currentAdminPage = $currentAdminPage ?? null;
     $tabs = [
         ['key' => 'leads', 'label' => 'Leads', 'subtitle' => 'Captacion y seguimiento comercial', 'route' => 'reports.leads.index'],
         ['key' => 'reservations-sales', 'label' => 'Reservas / Ventas', 'subtitle' => 'Reservas, ventas y contratos', 'route' => 'reports.reservations-sales.index'],
@@ -28,6 +29,14 @@
 <header class="app-header">
     <div class="header-actions">
         <div class="badge" id="updatedBadge">Cargando datos de Salesforce...</div>
+        @if (\Illuminate\Support\Facades\Route::has('reports.users.index') && \App\Support\ReportUserAccess::canManageReportUsers(request()))
+            <a
+                href="{{ route('reports.users.index') }}"
+                @class(['header-link', 'active' => $currentAdminPage === 'users'])
+            >
+                Gestion usuarios
+            </a>
+        @endif
         @if (config('services.informes_auth.enabled'))
             <form method="POST" action="{{ route('logout') }}" class="logout-form">
                 @csrf

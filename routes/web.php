@@ -11,6 +11,7 @@ use App\Http\Controllers\Reports\Campaigns\CampaignDashboardDataController;
 use App\Http\Controllers\Reports\CommercialCommissions\CommercialCommissionDashboardController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
+use App\Http\Controllers\Reports\Users\ReportUserManagementController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -93,5 +94,15 @@ Route::middleware('reports.auth')->group(function () {
         ->name('reports.commercial-commissions.')
         ->group(function () {
             Route::get('/', [CommercialCommissionDashboardController::class, 'index'])->name('index');
+        });
+
+    Route::prefix('informes/usuarios')
+        ->name('reports.users.')
+        ->group(function () {
+            Route::get('/', [ReportUserManagementController::class, 'index'])->name('index');
+            Route::post('/', [ReportUserManagementController::class, 'store'])->name('store');
+            Route::get('/{reportUser}/editar', [ReportUserManagementController::class, 'edit'])->name('edit');
+            Route::put('/{reportUser}', [ReportUserManagementController::class, 'update'])->name('update');
+            Route::delete('/{reportUser}', [ReportUserManagementController::class, 'destroy'])->name('destroy');
         });
 });

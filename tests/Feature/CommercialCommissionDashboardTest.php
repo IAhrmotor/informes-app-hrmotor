@@ -37,14 +37,14 @@ class CommercialCommissionDashboardTest extends TestCase
             ->assertSee('Diagnostico de datos base');
     }
 
-    public function test_carlos_torres_puede_ver_tab_y_puede_entrar_a_comisiones_comerciales_sin_ser_admin(): void
+    public function test_director_ve_tab_y_puede_entrar_a_comisiones_comerciales_sin_ser_admin(): void
     {
         config()->set('services.informes_auth.enabled', true);
 
         $session = [
             'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_VIEWER,
-            'report_user_email' => 'carlos.torres@hrmotor.es',
+            'report_user_role' => ReportUser::ROLE_DIRECTOR,
+            'report_user_email' => 'director@hrmotor.com',
         ];
 
         $this->withSession($session)
@@ -59,15 +59,10 @@ class CommercialCommissionDashboardTest extends TestCase
             ->assertDontSee('Diagnostico de datos base');
     }
 
-    public function test_director_area_manager_y_viewer_no_autorizado_no_ven_la_tab_ni_pueden_entrar(): void
+    public function test_area_manager_y_viewer_no_autorizados_no_ven_la_tab_ni_pueden_entrar(): void
     {
         config()->set('services.informes_auth.enabled', true);
 
-        $directorSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_DIRECTOR,
-            'report_user_email' => 'director@hrmotor.com',
-        ];
         $areaManagerSession = [
             'informes_authenticated' => true,
             'report_user_role' => ReportUser::ROLE_AREA_MANAGER,
@@ -78,15 +73,6 @@ class CommercialCommissionDashboardTest extends TestCase
             'report_user_role' => ReportUser::ROLE_VIEWER,
             'report_user_email' => 'viewer@hrmotor.com',
         ];
-
-        $this->withSession($directorSession)
-            ->get('/informes/leads')
-            ->assertOk()
-            ->assertDontSee('/informes/comisiones-comerciales', false);
-
-        $this->withSession($directorSession)
-            ->get('/informes/comisiones-comerciales')
-            ->assertRedirect('/informes/leads');
 
         $this->withSession($areaManagerSession)
             ->get('/informes/leads')
