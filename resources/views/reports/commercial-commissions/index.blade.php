@@ -355,6 +355,7 @@
                                 <thead>
                                 <tr>
                                     <th data-sortable="true">Delegacion</th>
+                                    <th class="num" data-sortable="true">Comision total</th>
                                     <th class="num" data-sortable="true">Meta entregas</th>
                                     <th class="num" data-sortable="true">Entregas</th>
                                     <th class="num" data-sortable="true">% objetivo</th>
@@ -376,15 +377,36 @@
                                 @foreach ($delegationRows as $row)
                                     <tr>
                                         <td>{{ $row['delegation_name'] }}</td>
+                                        <td class="num" data-sort-value="{{ $row['total_commission'] }}">
+                                            <strong @class([
+                                                'commission-goal-hit' => $row['objective_reached'],
+                                                'commission-goal-miss' => ! $row['objective_reached'],
+                                            ])>{{ number_format($row['total_commission'], 2, ',', '.') }}</strong>
+                                        </td>
                                         <td class="num" data-sort-value="{{ $row['target_deliveries'] }}">{{ number_format($row['target_deliveries'], 0, ',', '.') }}</td>
                                         <td class="num" data-sort-value="{{ $row['deliveries_count'] }}">{{ number_format($row['deliveries_count'], 0, ',', '.') }}</td>
                                         <td class="num" data-sort-value="{{ $row['objective_percentage'] ?? -1 }}">
+                                            <span @class([
+                                                'commission-goal-hit' => $row['objective_reached'],
+                                                'commission-goal-miss' => ! $row['objective_reached'],
+                                            ])>
                                             {{ $row['objective_percentage'] === null ? '-' : number_format($row['objective_percentage'], 2, ',', '.').'%' }}
+                                            </span>
                                         </td>
-                                        <td class="num" data-sort-value="{{ $row['objective_commission_percent'] }}">{{ number_format($row['objective_commission_percent'], 2, ',', '.') }}%</td>
+                                        <td class="num" data-sort-value="{{ $row['objective_commission_percent'] }}">
+                                            <span @class([
+                                                'commission-goal-hit' => $row['objective_reached'],
+                                                'commission-goal-miss' => ! $row['objective_reached'],
+                                            ])>{{ number_format($row['objective_commission_percent'], 2, ',', '.') }}%</span>
+                                        </td>
                                         <td class="num" data-sort-value="{{ $row['rentability_total'] }}">{{ number_format($row['rentability_total'], 2, ',', '.') }}</td>
                                         <td class="num" data-sort-value="{{ $row['average_rentability'] }}">{{ number_format($row['average_rentability'], 2, ',', '.') }}</td>
-                                        <td class="num" data-sort-value="{{ $row['prima_final'] }}"><strong>{{ number_format($row['prima_final'], 2, ',', '.') }}</strong></td>
+                                        <td class="num" data-sort-value="{{ $row['prima_final'] }}">
+                                            <strong @class([
+                                                'commission-goal-hit' => $row['objective_reached'],
+                                                'commission-goal-miss' => ! $row['objective_reached'],
+                                            ])>{{ number_format($row['prima_final'], 2, ',', '.') }}</strong>
+                                        </td>
                                         <td class="num" data-sort-value="{{ $row['reviews_count'] }}">{{ number_format($row['reviews_count'], 0, ',', '.') }}</td>
                                         <td class="num" data-sort-value="{{ $row['reviews_average_rating'] ?? -1 }}">
                                             {{ $row['reviews_average_rating'] === null ? '-' : number_format($row['reviews_average_rating'], 2, ',', '.') }}
@@ -400,7 +422,6 @@
                                         <td class="num" data-sort-value="{{ $row['financed_amount_bonus_amount'] }}">
                                             {{ $row['financed_amount_bonus_percent'] > 0 ? '+' : '' }}{{ number_format($row['financed_amount_bonus_amount'], 2, ',', '.') }}
                                         </td>
-                                        <td class="num" data-sort-value="{{ $row['total_commission'] }}"><strong>{{ number_format($row['total_commission'], 2, ',', '.') }}</strong></td>
                                     </tr>
                                 @endforeach
                                 </tbody>

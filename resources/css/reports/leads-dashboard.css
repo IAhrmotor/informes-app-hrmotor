@@ -3212,6 +3212,14 @@ th.num {
     color: #c81426 !important;
 }
 
+.commercial-commissions-report .commission-goal-hit {
+    color: #17803d;
+}
+
+.commercial-commissions-report .commission-goal-miss {
+    color: #c81426;
+}
+
 .commercial-commissions-report .commission-summary-toolbar {
     display: flex;
     align-items: center;

@@ -1038,6 +1038,14 @@ class CommercialCommissionDashboardTest extends TestCase
             ['id' => 'DEL-VILLAREAL-1', 'delivery_store' => 'Villareal/Almasora'],
             ['id' => 'DEL-MALAGA-1', 'delivery_store' => 'Malaga'],
             ['id' => 'DEL-LLICA-1', 'delivery_store' => 'Lliçà De Vall'],
+            ['id' => 'DEL-ALCALA-1', 'delivery_store' => 'Alcalá de Guadaira'],
+            ['id' => 'DEL-ALCALA-2', 'delivery_store' => 'Alcala De Guadaira'],
+            ['id' => 'DEL-CASTELLON-1', 'delivery_store' => 'Castellón'],
+            ['id' => 'DEL-CASTELLON-2', 'delivery_store' => 'Castellon'],
+            ['id' => 'DEL-DH-1', 'delivery_store' => 'Dos Hermanas'],
+            ['id' => 'DEL-DH-2', 'delivery_store' => 'Dos hermanas'],
+            ['id' => 'DEL-TORREJON-1', 'delivery_store' => 'Torrejón'],
+            ['id' => 'DEL-TORREJON-2', 'delivery_store' => 'Torrejon'],
         ] as $row) {
             SalesforceOpportunity::create([
                 'salesforce_id' => $row['id'],
@@ -1068,12 +1076,20 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertSame(1, $rows->where('delegation_name', 'Sant Boi')->count());
         $this->assertSame(1, $rows->where('delegation_name', 'Villareal')->count());
         $this->assertSame(1, $rows->where('delegation_name', 'Malaga')->count());
+        $this->assertSame(1, $rows->where('delegation_name', 'Alcalá de Guadaira')->count());
+        $this->assertSame(1, $rows->where('delegation_name', 'Castellón')->count());
+        $this->assertSame(1, $rows->where('delegation_name', 'Dos Hermanas')->count());
+        $this->assertSame(1, $rows->where('delegation_name', 'Torrejón')->count());
         $this->assertFalse($rows->pluck('delegation_name')->contains('Mallorca'));
         $this->assertFalse($rows->pluck('delegation_name')->contains('San Boi'));
         $this->assertFalse($rows->pluck('delegation_name')->contains('Sant_Boi'));
         $this->assertFalse($rows->pluck('delegation_name')->contains('Villareal/Almasora'));
         $this->assertFalse($rows->pluck('delegation_name')->contains('Malga'));
         $this->assertFalse($rows->pluck('delegation_name')->contains('Lliçà De Vall'));
+        $this->assertFalse($rows->pluck('delegation_name')->contains('Alcala De Guadaira'));
+        $this->assertFalse($rows->pluck('delegation_name')->contains('Castellon'));
+        $this->assertFalse($rows->pluck('delegation_name')->contains('Dos hermanas'));
+        $this->assertFalse($rows->pluck('delegation_name')->contains('Torrejon'));
 
         $this->assertSame(1, $rows->firstWhere('delegation_name', 'Palma')['target_deliveries']);
         $this->assertSame(1, $rows->firstWhere('delegation_name', 'Sant Boi')['target_deliveries']);

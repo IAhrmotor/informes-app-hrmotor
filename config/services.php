@@ -74,4 +74,9 @@ return [
         'timeout' => (int) env('INTERNAL_REVIEWS_TIMEOUT', 20),
     ],
 
+    'commissions_api' => [
+        'user' => env('COMMISSIONS_API_USER', 'hrmotor-comisiones'),
+        'password' => env('COMMISSIONS_API_PASSWORD', 'cambiar-en-produccion'),
+    ],
+
 ];

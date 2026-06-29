@@ -72,6 +72,36 @@ class CommercialCommissionDashboardService
         ];
     }
 
+    public function finalCommissionForCommercial(string $commercialId, CarbonImmutable|string $month): ?array
+    {
+        $selectedMonth = $month instanceof CarbonImmutable
+            ? $month->startOfMonth()
+            : CarbonImmutable::createFromFormat('Y-m', (string) $month)->startOfMonth();
+        $periodStart = $selectedMonth->startOfMonth();
+        $periodEnd = $periodStart->addMonth();
+        $blockingIssues = $this->blockingIssues();
+
+        if ($blockingIssues !== []) {
+            return null;
+        }
+
+        $formulaSettings = $this->formulaConfig->forMonth($selectedMonth);
+        $row = collect($this->buildSummaryRows($periodStart, $periodEnd, $formulaSettings))
+            ->firstWhere('commercial_id', $commercialId);
+
+        if (! is_array($row)) {
+            return null;
+        }
+
+        return [
+            'commercial_id' => $commercialId,
+            'commercial_name' => (string) ($row['commercial_name'] ?? $commercialId),
+            'month' => $selectedMonth->format('Y-m'),
+            'month_label' => $selectedMonth->translatedFormat('F Y'),
+            'final_commission' => round((float) ($row['final_commission'] ?? 0), 2),
+        ];
+    }
+
     private function buildSummaryRows(CarbonImmutable $periodStart, CarbonImmutable $periodEnd, array $formulaSettings): array
     {
         $monthlyOperations = $this->monthlyOpportunities($periodStart, $periodEnd)->get();
@@ -410,6 +440,7 @@ class CommercialCommissionDashboardService
                 'target_deliveries' => $targetDeliveries,
                 'deliveries_count' => $deliveriesCount,
                 'objective_percentage' => $objectivePercentage,
+                'objective_reached' => $objectiveReached,
                 'objective_commission_percent' => round($objectiveCommissionPercent * 100, 2),
                 'rentability_total' => $rentabilityTotal,
                 'average_rentability' => $averageRentability,
