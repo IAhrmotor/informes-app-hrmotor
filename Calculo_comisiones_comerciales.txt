@@ -1,5 +1,5 @@
 CALCULO DE COMISIONES COMERCIALES
-Version: 2026-06-26
+Version: 2026-06-29
 
 0. Acceso y administracion
 
@@ -162,10 +162,20 @@ En la propia vista de Comisiones Comerciales:
 
 8. Cuadro de delegaciones
 
-- La agrupacion se hace por `owner_delegation`.
+- La agrupacion se hace por `Opportunity.Tienda_de_entrega__c`, guardado localmente como `delivery_store`.
+- Si `delivery_store` viene vacio, se usa `owner_delegation` como fallback.
 - Se toman todas las operaciones `Venta` y `Cambio` de esa delegacion.
-- Las entregas cuentan para la delegacion de la venta, aunque la compra del coche venga de otra delegacion.
+- Las entregas cuentan para la delegacion donde se entrego el coche, aunque la compra del coche venga de otra delegacion.
+- Para este cuadro de auditoria no se filtra por `owner_is_active` ni por `Gestion_de_venta__c`.
 - La meta de entregas de cada delegacion se configura en `/informes/configuracion-comisiones` y se guarda por mes abierto.
+- Antes de agrupar y antes de cruzar las metas, las delegaciones se normalizan con alias canonicos:
+  - `HR MOTOR *` se muestra sin el prefijo `HR MOTOR`
+  - `San Boi`, `Sant_Boi` y variantes => `Sant Boi`
+  - `Mallorca` => `Palma`
+  - `Villareal/Almasora`, `Villareal Almassora`, `Villarreal/Almassora`, `Almassora` y variantes => `Villareal`
+  - `Malga` => `Malaga`
+  - `General`, `Call Fontellas` y `Lliçà de Vall` se excluyen
+- Si una meta se guardo con un alias antiguo y la delegacion del cuadro llega con otro alias, ambos se normalizan al mismo nombre antes de calcular el objetivo. Esto evita que `Meta entregas = 0` y que la `Prima Final` quede en `0` por no hacer match.
 - La rentabilidad por operacion se calcula con:
   - `Product2.PRO_DIV_Precio_de_venta__c`
   - menos `Product2.PRO_DIV_Precio_de_compra__c`
@@ -183,7 +193,29 @@ En la propia vista de Comisiones Comerciales:
   - `95-99,99% => 0,45%`
   - `100% => 0,50%`
   - `>100% => 0,60%`
-- `Prima Final` = `Rentabilidad operación media x % por objetivo`
+- `Prima Final`:
+  - si no cumple objetivo minimo de tramo (`% sobre objetivo < 85%`) => `0`
+  - si cumple objetivo => `(Rentabilidad operación media x % por objetivo) + Rentabilidad operación media`
+- Reseñas por delegacion:
+  - se consultan en:
+    - `https://app.hrmotor.com/api/internal/google-reviews/count`
+  - auth basica:
+    - `INTERNAL_REVIEWS_USER`
+    - `INTERNAL_REVIEWS_PASSWORD`
+  - query:
+    - `month` en formato `m-y`
+    - `location` segun la sede Google asociada a la delegacion
+  - columnas nuevas del cuadro:
+    - `Reseñas`
+    - `Media nota`
+    - `Com. reseñas`
+  - comision de reseñas:
+    - primero verificar que la delegacion cumple objetivo para tramo
+    - despues verificar que `reviews_count / deliveries_count > 50%`
+    - si `average_rating > 4.5` => `+200 EUR`
+    - si `average_rating < 4.0` => `-200 EUR`
+    - si `average_rating < 3.7` => `-300 EUR`
+  - la comision fija de reseñas se suma o resta sobre la `Prima Final` antes de aplicar los bonus porcentuales de calidad
 - Bonus de calidad:
   - si `Beneficio_financiacion_comercial__c / Importe_financiado__c > 14%`, suma 10%
   - si `Importe_financiado__c / OPO_FOR_Importe_total__c > 40%`, suma 10%

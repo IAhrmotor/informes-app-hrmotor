@@ -19,6 +19,7 @@ class SalesforceOpportunity extends Model
         'owner_name',
         'owner_is_active',
         'owner_delegation',
+        'delivery_store',
         'account_id',
         'account_name',
         'account_phone',

@@ -67,4 +67,11 @@ return [
         'name' => env('REPORT_ADMIN_NAME', 'Administrador informes'),
     ],
 
+    'internal_reviews' => [
+        'endpoint' => env('INTERNAL_REVIEWS_ENDPOINT', 'https://app.hrmotor.com/api/internal/google-reviews/count'),
+        'user' => env('INTERNAL_REVIEWS_USER', 'hrmotor-informes'),
+        'password' => env('INTERNAL_REVIEWS_PASSWORD', 'frY5v&gQ8*UR*1Uq99t9kCrPo'),
+        'timeout' => (int) env('INTERNAL_REVIEWS_TIMEOUT', 20),
+    ],
+
 ];

@@ -69,6 +69,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'OPO_FEC_Fecha_de_reserva__c' => '2026-05-02',
                         'OPO_CAS_Contrato_CV_firmado__c' => false,
                         'Fecha_firma_contrato__c' => null,
+                        'Tienda_de_entrega__c' => 'HR MOTOR ALICANTE',
                         'Gestion_de_venta__c' => false,
                         'OPP_BUS_Vehiculo_de_interes__r' => [
                             'PRO_DIV_Precio_de_venta__c' => 12000,
@@ -140,6 +141,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertStringContainsString('OPO_FOR_Importe_total__c', $result['soql']);
         $this->assertStringContainsString('OPO_FEC_Fecha_de_reserva__c', $result['soql']);
         $this->assertStringContainsString('Fecha_firma_contrato__c', $result['soql']);
+        $this->assertStringContainsString('Tienda_de_entrega__c', $result['soql']);
         $this->assertStringContainsString('Gestion_de_venta__c', $result['soql']);
         $this->assertStringContainsString('PRO_DIV_Precio_de_venta__c', $result['soql']);
         $this->assertStringContainsString('Procedencia_de_compra__c', $result['soql']);
@@ -150,6 +152,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             'salesforce_id' => '006-opportunity-1',
             'record_type_name' => 'Venta',
             'owner_delegation' => 'Alcobendas',
+            'delivery_store' => 'HR MOTOR ALICANTE',
             'amount' => 12500.50,
             'opo_for_importe_total' => 13000.75,
             'portal_resolved' => 'Web',

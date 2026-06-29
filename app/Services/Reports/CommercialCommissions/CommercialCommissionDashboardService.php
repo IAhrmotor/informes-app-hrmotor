@@ -40,6 +40,7 @@ class CommercialCommissionDashboardService
 
     public function __construct(
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
+        private readonly CommercialCommissionDelegationReviewsService $delegationReviews,
     ) {
     }
 
@@ -312,13 +313,20 @@ class CommercialCommissionDashboardService
 
     private function buildDelegationRows(CarbonImmutable $periodStart, CarbonImmutable $periodEnd, array $formulaSettings): array
     {
-        $deliveries = $this->monthlyOpportunities($periodStart, $periodEnd)
+        $deliveries = $this->monthlyOpportunities(
+            $periodStart,
+            $periodEnd,
+            requireActiveOwner: false,
+            applySaleManagementFilter: false
+        )
             ->get()
             ->filter(fn (SalesforceOpportunity $row) => $this->isDelivery($row))
-            ->filter(fn (SalesforceOpportunity $row) => $this->formulaConfig->shouldIncludeDelegationLabel($row->owner_delegation));
+            ->filter(fn (SalesforceOpportunity $row) => $this->formulaConfig->shouldIncludeDelegationLabel(
+                $this->deliveryDelegation($row)
+            ));
 
         $deliveriesByDelegation = $deliveries->groupBy(
-            fn (SalesforceOpportunity $row) => $this->delegationLabel($row->owner_delegation)
+            fn (SalesforceOpportunity $row) => $this->delegationLabel($this->deliveryDelegation($row))
         );
         $configuredGoals = collect($formulaSettings['delegations']['goals'] ?? []);
         $delegationLabels = collect($deliveriesByDelegation->keys())
@@ -328,8 +336,9 @@ class CommercialCommissionDashboardService
             ->unique()
             ->sortBy(fn (string $label) => Str::of($label)->ascii()->lower()->toString())
             ->values();
+        $reviewsByDelegation = $this->delegationReviews->forMonthAndDelegations($periodStart, $delegationLabels);
 
-        return $delegationLabels->map(function (string $delegationLabel) use ($deliveriesByDelegation, $configuredGoals, $formulaSettings): array {
+        return $delegationLabels->map(function (string $delegationLabel) use ($deliveriesByDelegation, $configuredGoals, $formulaSettings, $reviewsByDelegation): array {
             /** @var Collection<int, SalesforceOpportunity> $delegationOperations */
             $delegationOperations = $deliveriesByDelegation->get($delegationLabel, collect())->values();
             $deliveriesCount = $delegationOperations->count();
@@ -345,7 +354,25 @@ class CommercialCommissionDashboardService
             $averageRentability = $deliveriesCount > 0
                 ? round($rentabilityTotal / $deliveriesCount, 2)
                 : 0.0;
-            $primaFinal = round($averageRentability * $objectiveCommissionPercent, 2);
+            $objectiveReached = $objectiveCommissionPercent > 0;
+            $primaFinalBeforeReviews = $objectiveReached
+                ? round(($averageRentability * $objectiveCommissionPercent) + $averageRentability, 2)
+                : 0.0;
+            $reviewsPayload = $reviewsByDelegation[$delegationLabel] ?? ['reviews_count' => 0, 'average_rating' => null];
+            $reviewsCount = max(0, (int) ($reviewsPayload['reviews_count'] ?? 0));
+            $reviewsAverageRating = is_numeric($reviewsPayload['average_rating'] ?? null)
+                ? round((float) $reviewsPayload['average_rating'], 2)
+                : null;
+            $reviewsCoveragePercentage = $deliveriesCount > 0
+                ? round(($reviewsCount / $deliveriesCount) * 100, 2)
+                : 0.0;
+            $reviewsCommissionAmount = $this->delegationReviewsCommissionAmount(
+                $objectiveReached,
+                $deliveriesCount,
+                $reviewsCount,
+                $reviewsAverageRating
+            );
+            $primaFinal = round($primaFinalBeforeReviews + $reviewsCommissionAmount, 2);
             $financingBenefitTotal = round((float) $delegationOperations->sum(
                 fn (SalesforceOpportunity $row) => max(0, (float) ($row->beneficio_financiacion_comercial ?? 0))
             ), 2);
@@ -386,7 +413,12 @@ class CommercialCommissionDashboardService
                 'objective_commission_percent' => round($objectiveCommissionPercent * 100, 2),
                 'rentability_total' => $rentabilityTotal,
                 'average_rentability' => $averageRentability,
+                'prima_final_before_reviews' => $primaFinalBeforeReviews,
                 'prima_final' => $primaFinal,
+                'reviews_count' => $reviewsCount,
+                'reviews_average_rating' => $reviewsAverageRating,
+                'reviews_coverage_percentage' => $reviewsCoveragePercentage,
+                'reviews_commission_amount' => $reviewsCommissionAmount,
                 'financing_profitability_percentage' => $profitabilityRatio,
                 'profitability_bonus_percent' => round($profitabilityBonusPercent * 100, 2),
                 'profitability_bonus_amount' => $profitabilityBonusAmount,
@@ -502,17 +534,28 @@ class CommercialCommissionDashboardService
         return $details;
     }
 
-    private function monthlyOpportunities(CarbonImmutable $periodStart, CarbonImmutable $periodEnd): Builder
+    private function monthlyOpportunities(
+        CarbonImmutable $periodStart,
+        CarbonImmutable $periodEnd,
+        bool $requireActiveOwner = true,
+        bool $applySaleManagementFilter = true
+    ): Builder
     {
         $query = SalesforceOpportunity::query()
             ->where('cv_signed', true)
-            ->where('owner_is_active', true)
             ->whereDate('cv_signed_date', '>=', $periodStart->toDateString())
             ->whereDate('cv_signed_date', '<', $periodEnd->toDateString())
             ->whereRaw('LOWER(COALESCE(stage_name, \'\')) <> ?', ['cerrada perdida']);
 
+        if ($requireActiveOwner) {
+            $query->where('owner_is_active', true);
+        }
+
         $this->applyRecordTypeFilter($query, ['venta', 'cambio', 'tasacion']);
-        $this->applySaleManagementFilter($query);
+
+        if ($applySaleManagementFilter) {
+            $this->applySaleManagementFilter($query);
+        }
 
         return $query;
     }
@@ -540,6 +583,7 @@ class CommercialCommissionDashboardService
                 'owner_id',
                 'owner_name',
                 'owner_delegation',
+                'delivery_store',
                 'shared_delivery_id',
                 'shared_delivery_name',
                 'vehicle_interest_id',
@@ -1022,6 +1066,14 @@ class CommercialCommissionDashboardService
         return $label !== '' ? $label : 'Sin delegacion';
     }
 
+    private function deliveryDelegation(SalesforceOpportunity $row): string
+    {
+        return $this->formulaConfig->deliveryDelegationLabel(
+            $row->delivery_store,
+            $row->owner_delegation
+        );
+    }
+
     private function delegationGoal(Collection $configuredGoals, string $delegationLabel): array
     {
         $goalKey = $this->formulaConfig->delegationKey($delegationLabel);
@@ -1042,6 +1094,37 @@ class CommercialCommissionDashboardService
             if ($objectivePercentage >= (float) ($bracket['min_percent'] ?? 0)) {
                 return (float) ($bracket['percent'] ?? 0);
             }
+        }
+
+        return 0.0;
+    }
+
+    private function delegationReviewsCommissionAmount(
+        bool $objectiveReached,
+        int $deliveriesCount,
+        int $reviewsCount,
+        ?float $averageRating
+    ): float {
+        if (! $objectiveReached || $deliveriesCount <= 0 || $averageRating === null) {
+            return 0.0;
+        }
+
+        $coverage = ($reviewsCount / $deliveriesCount) * 100;
+
+        if ($coverage <= 50.0) {
+            return 0.0;
+        }
+
+        if ($averageRating < 3.7) {
+            return -300.0;
+        }
+
+        if ($averageRating < 4.0) {
+            return -200.0;
+        }
+
+        if ($averageRating > 4.5) {
+            return 200.0;
         }
 
         return 0.0;

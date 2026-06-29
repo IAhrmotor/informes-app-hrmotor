@@ -3,17 +3,33 @@
 namespace Tests\Feature;
 
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
+use App\Services\Reports\CommercialCommissions\CommercialCommissionDelegationReviewsService;
 use App\Models\ReportUser;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceReview;
 use App\Models\SalesforceUser;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class CommercialCommissionDashboardTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Http::fake([
+            'https://app.hrmotor.com/api/internal/google-reviews/count*' => Http::response([
+                'month' => '06-26',
+                'location' => 'HR Motor || Test',
+                'reviews_count' => 0,
+                'average_rating' => null,
+            ], 200),
+        ]);
+    }
 
     public function test_admin_ve_tab_y_puede_entrar_a_comisiones_comerciales(): void
     {
@@ -864,7 +880,8 @@ class CommercialCommissionDashboardTest extends TestCase
                 'owner_id' => '005-D1',
                 'owner_name' => 'Delegacion Uno',
                 'owner_is_active' => true,
-                'owner_delegation' => 'HR MOTOR ALICANTE',
+                'owner_delegation' => 'HR MOTOR BARCELONA',
+                'delivery_store' => 'HR MOTOR ALICANTE',
                 'stage_name' => 'Contrato',
                 'record_type_name' => $index === 30 ? 'Cambio' : 'Venta',
                 'cv_signed' => true,
@@ -881,7 +898,7 @@ class CommercialCommissionDashboardTest extends TestCase
         }
 
         $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
-        $delegation = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'HR MOTOR ALICANTE');
+        $delegation = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'Alicante');
 
         $this->assertNotNull($delegation);
         $this->assertSame(35, $delegation['target_deliveries']);
@@ -890,12 +907,15 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(0.35, $delegation['objective_commission_percent']);
         $this->assertEquals(90000.0, $delegation['rentability_total']);
         $this->assertEquals(3000.0, $delegation['average_rentability']);
-        $this->assertEquals(10.5, $delegation['prima_final']);
+        $this->assertEquals(3010.5, $delegation['prima_final']);
+        $this->assertSame(0, $delegation['reviews_count']);
+        $this->assertNull($delegation['reviews_average_rating']);
+        $this->assertEquals(0.0, $delegation['reviews_commission_amount']);
         $this->assertEquals(16.0, $delegation['financing_profitability_percentage']);
         $this->assertEquals(50.0, $delegation['financed_amount_percentage']);
-        $this->assertEquals(1.05, $delegation['financed_amount_bonus_amount']);
-        $this->assertEquals(1.16, $delegation['profitability_bonus_amount']);
-        $this->assertEquals(12.71, $delegation['total_commission']);
+        $this->assertEquals(301.05, $delegation['financed_amount_bonus_amount']);
+        $this->assertEquals(331.16, $delegation['profitability_bonus_amount']);
+        $this->assertEquals(3642.71, $delegation['total_commission']);
     }
 
     public function test_dashboard_excluye_delegaciones_general_y_call_fontellas(): void
@@ -915,6 +935,7 @@ class CommercialCommissionDashboardTest extends TestCase
                 'owner_name' => 'Delegacion Dos',
                 'owner_is_active' => true,
                 'owner_delegation' => $row['delegation'],
+                'delivery_store' => $row['delegation'],
                 'stage_name' => 'Contrato',
                 'record_type_name' => 'Venta',
                 'cv_signed' => true,
@@ -932,9 +953,228 @@ class CommercialCommissionDashboardTest extends TestCase
         $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
         $delegationNames = collect($payload['delegation_rows'])->pluck('delegation_name');
 
-        $this->assertTrue($delegationNames->contains('HR MOTOR ALICANTE'));
+        $this->assertTrue($delegationNames->contains('Alicante'));
         $this->assertFalse($delegationNames->contains('General'));
         $this->assertFalse($delegationNames->contains('Call Fontellas'));
+        $this->assertFalse($delegationNames->contains('HR MOTOR ALICANTE'));
+    }
+
+    public function test_dashboard_cuadro_delegaciones_audita_entregas_sin_filtrar_por_owner_activo_ni_gestion_de_venta(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-D3', 'Delegacion Tres');
+
+        foreach ([
+            ['id' => 'DEL-BILBAO-1', 'delivery_store' => 'Bilbao', 'owner_is_active' => true, 'gestion_de_venta' => false],
+            ['id' => 'DEL-BILBAO-2', 'delivery_store' => 'HR MOTOR BILBAO', 'owner_is_active' => false, 'gestion_de_venta' => false],
+            ['id' => 'DEL-BILBAO-3', 'delivery_store' => 'Bilbao', 'owner_is_active' => true, 'gestion_de_venta' => true],
+        ] as $row) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $row['id'],
+                'name' => $row['id'],
+                'owner_id' => '005-D3',
+                'owner_name' => 'Delegacion Tres',
+                'owner_is_active' => $row['owner_is_active'],
+                'owner_delegation' => 'HR MOTOR BILBAO',
+                'delivery_store' => $row['delivery_store'],
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-10',
+                'opo_for_importe_total' => 10000,
+                'vehicle_sale_price' => 12000,
+                'vehicle_purchase_price' => 10000,
+                'importe_financiado' => 5000,
+                'beneficio_financiacion_comercial' => 500,
+                'garantia_total' => 100,
+                'gestion_de_venta' => $row['gestion_de_venta'],
+            ]);
+        }
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $delegation = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'Bilbao');
+
+        $this->assertNotNull($delegation);
+        $this->assertSame(3, $delegation['deliveries_count']);
+        $this->assertNull(collect($payload['delegation_rows'])->firstWhere('delegation_name', 'HR MOTOR BILBAO'));
+    }
+
+    public function test_dashboard_normaliza_alias_delegaciones_y_hace_match_con_meta_para_evitar_prima_final_en_cero(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-06', [
+            'delegations' => [
+                'goals' => [
+                    'mallorca' => [
+                        'label' => 'Mallorca',
+                        'target_deliveries' => 1,
+                    ],
+                    'san-boi' => [
+                        'label' => 'San Boi',
+                        'target_deliveries' => 1,
+                    ],
+                    'villarreal-almassora' => [
+                        'label' => 'Villarreal/Almassora',
+                        'target_deliveries' => 1,
+                    ],
+                    'malga' => [
+                        'label' => 'Malga',
+                        'target_deliveries' => 1,
+                    ],
+                    'llica-de-vall' => [
+                        'label' => 'Lliçà De Vall',
+                        'target_deliveries' => 99,
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->createCommercialUser('005-D4', 'Delegacion Cuatro');
+
+        foreach ([
+            ['id' => 'DEL-PALMA-1', 'delivery_store' => 'Palma'],
+            ['id' => 'DEL-SANT-BOI-1', 'delivery_store' => 'Sant_Boi'],
+            ['id' => 'DEL-VILLAREAL-1', 'delivery_store' => 'Villareal/Almasora'],
+            ['id' => 'DEL-MALAGA-1', 'delivery_store' => 'Malaga'],
+            ['id' => 'DEL-LLICA-1', 'delivery_store' => 'Lliçà De Vall'],
+        ] as $row) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $row['id'],
+                'name' => $row['id'],
+                'owner_id' => '005-D4',
+                'owner_name' => 'Delegacion Cuatro',
+                'owner_is_active' => true,
+                'owner_delegation' => $row['delivery_store'],
+                'delivery_store' => $row['delivery_store'],
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-10',
+                'opo_for_importe_total' => 10000,
+                'vehicle_sale_price' => 12000,
+                'vehicle_purchase_price' => 10000,
+                'importe_financiado' => 5000,
+                'beneficio_financiacion_comercial' => 500,
+                'garantia_total' => 100,
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $rows = collect($payload['delegation_rows']);
+
+        $this->assertSame(1, $rows->where('delegation_name', 'Palma')->count());
+        $this->assertSame(1, $rows->where('delegation_name', 'Sant Boi')->count());
+        $this->assertSame(1, $rows->where('delegation_name', 'Villareal')->count());
+        $this->assertSame(1, $rows->where('delegation_name', 'Malaga')->count());
+        $this->assertFalse($rows->pluck('delegation_name')->contains('Mallorca'));
+        $this->assertFalse($rows->pluck('delegation_name')->contains('San Boi'));
+        $this->assertFalse($rows->pluck('delegation_name')->contains('Sant_Boi'));
+        $this->assertFalse($rows->pluck('delegation_name')->contains('Villareal/Almasora'));
+        $this->assertFalse($rows->pluck('delegation_name')->contains('Malga'));
+        $this->assertFalse($rows->pluck('delegation_name')->contains('Lliçà De Vall'));
+
+        $this->assertSame(1, $rows->firstWhere('delegation_name', 'Palma')['target_deliveries']);
+        $this->assertSame(1, $rows->firstWhere('delegation_name', 'Sant Boi')['target_deliveries']);
+        $this->assertSame(1, $rows->firstWhere('delegation_name', 'Villareal')['target_deliveries']);
+        $this->assertSame(1, $rows->firstWhere('delegation_name', 'Malaga')['target_deliveries']);
+        $this->assertGreaterThan(0, $rows->firstWhere('delegation_name', 'Palma')['prima_final']);
+    }
+
+    public function test_dashboard_aplica_comision_de_resenas_solo_si_cumple_objetivo_y_supera_el_50_por_ciento(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        app()->instance(
+            CommercialCommissionDelegationReviewsService::class,
+            new class(app(CommercialCommissionFormulaConfigService::class)) extends CommercialCommissionDelegationReviewsService {
+                public function forMonthAndDelegations(\Carbon\CarbonImmutable $month, \Illuminate\Support\Collection $delegationLabels): array
+                {
+                    return [
+                        'Zaragoza' => ['reviews_count' => 23, 'average_rating' => 4.6],
+                        'Bilbao' => ['reviews_count' => 10, 'average_rating' => 3.6],
+                    ];
+                }
+            }
+        );
+
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-06', [
+            'delegations' => [
+                'goals' => [
+                    'zaragoza' => [
+                        'label' => 'Zaragoza',
+                        'target_deliveries' => 20,
+                    ],
+                    'bilbao' => [
+                        'label' => 'Bilbao',
+                        'target_deliveries' => 20,
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->createCommercialUser('005-R1', 'Delegacion Reviews');
+
+        foreach (range(1, 27) as $index) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => 'DEL-ZARAGOZA-'.$index,
+                'name' => 'Venta Zaragoza '.$index,
+                'owner_id' => '005-R1',
+                'owner_name' => 'Delegacion Reviews',
+                'owner_is_active' => true,
+                'owner_delegation' => 'Zaragoza',
+                'delivery_store' => 'Zaragoza',
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-10',
+                'opo_for_importe_total' => 10000,
+                'vehicle_sale_price' => 12000,
+                'vehicle_purchase_price' => 10000,
+                'importe_financiado' => 5000,
+                'beneficio_financiacion_comercial' => 500,
+                'garantia_total' => 100,
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        foreach (range(1, 20) as $index) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => 'DEL-BILBAO-R-'.$index,
+                'name' => 'Venta Bilbao '.$index,
+                'owner_id' => '005-R1',
+                'owner_name' => 'Delegacion Reviews',
+                'owner_is_active' => true,
+                'owner_delegation' => 'Bilbao',
+                'delivery_store' => 'Bilbao',
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-10',
+                'opo_for_importe_total' => 10000,
+                'vehicle_sale_price' => 12000,
+                'vehicle_purchase_price' => 10000,
+                'importe_financiado' => 5000,
+                'beneficio_financiacion_comercial' => 500,
+                'garantia_total' => 100,
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $zaragoza = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'Zaragoza');
+        $bilbao = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'Bilbao');
+
+        $this->assertNotNull($zaragoza);
+        $this->assertSame(23, $zaragoza['reviews_count']);
+        $this->assertEquals(4.6, $zaragoza['reviews_average_rating']);
+        $this->assertEquals(200.0, $zaragoza['reviews_commission_amount']);
+        $this->assertEquals(2815.6, $zaragoza['prima_final']);
+
+        $this->assertNotNull($bilbao);
+        $this->assertSame(10, $bilbao['reviews_count']);
+        $this->assertEquals(3.6, $bilbao['reviews_average_rating']);
+        $this->assertEquals(0.0, $bilbao['reviews_commission_amount']);
     }
 
     private function createCommercialUser(string $id, string $name, bool $isActive = true, string $profile = 'Compra/Venta'): void

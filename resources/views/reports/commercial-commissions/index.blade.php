@@ -362,6 +362,9 @@
                                     <th class="num" data-sortable="true">Rentabilidad total</th>
                                     <th class="num" data-sortable="true">Rent. op. media</th>
                                     <th class="num" data-sortable="true">Prima final</th>
+                                    <th class="num" data-sortable="true">Reseñas</th>
+                                    <th class="num" data-sortable="true">Media nota</th>
+                                    <th class="num" data-sortable="true">Com. reseñas</th>
                                     <th class="num" data-sortable="true">% rentabilidad</th>
                                     <th class="num" data-sortable="true">Bonus rent.</th>
                                     <th class="num" data-sortable="true">% imp. financiado</th>
@@ -382,6 +385,13 @@
                                         <td class="num" data-sort-value="{{ $row['rentability_total'] }}">{{ number_format($row['rentability_total'], 2, ',', '.') }}</td>
                                         <td class="num" data-sort-value="{{ $row['average_rentability'] }}">{{ number_format($row['average_rentability'], 2, ',', '.') }}</td>
                                         <td class="num" data-sort-value="{{ $row['prima_final'] }}"><strong>{{ number_format($row['prima_final'], 2, ',', '.') }}</strong></td>
+                                        <td class="num" data-sort-value="{{ $row['reviews_count'] }}">{{ number_format($row['reviews_count'], 0, ',', '.') }}</td>
+                                        <td class="num" data-sort-value="{{ $row['reviews_average_rating'] ?? -1 }}">
+                                            {{ $row['reviews_average_rating'] === null ? '-' : number_format($row['reviews_average_rating'], 2, ',', '.') }}
+                                        </td>
+                                        <td class="num" data-sort-value="{{ $row['reviews_commission_amount'] }}">
+                                            {{ $row['reviews_commission_amount'] > 0 ? '+' : '' }}{{ number_format($row['reviews_commission_amount'], 2, ',', '.') }}
+                                        </td>
                                         <td class="num" data-sort-value="{{ $row['financing_profitability_percentage'] }}">{{ number_format($row['financing_profitability_percentage'], 2, ',', '.') }}%</td>
                                         <td class="num" data-sort-value="{{ $row['profitability_bonus_amount'] }}">
                                             {{ $row['profitability_bonus_percent'] > 0 ? '+' : '' }}{{ number_format($row['profitability_bonus_amount'], 2, ',', '.') }}

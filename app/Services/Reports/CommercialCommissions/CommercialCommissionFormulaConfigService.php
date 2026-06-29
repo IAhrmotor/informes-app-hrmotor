@@ -11,6 +11,71 @@ use Illuminate\Support\Facades\Schema;
 
 class CommercialCommissionFormulaConfigService
 {
+    private const EXCLUDED_NORMALIZED_DELEGATIONS = [
+        'call fontellas',
+        'general',
+        'llica de vall',
+        'llica',
+        'llica de vall barcelona',
+    ];
+
+    private const NORMALIZED_DELEGATION_ALIASES = [
+        'san boi' => 'Sant Boi',
+        'sant boi' => 'Sant Boi',
+        'sant boi de llobregat' => 'Sant Boi',
+        'mallorca' => 'Palma',
+        'palma' => 'Palma',
+        'palma de mallorca' => 'Palma',
+        'villareal' => 'Villareal',
+        'villarreal' => 'Villareal',
+        'villareal almasora' => 'Villareal',
+        'villarreal almassora' => 'Villareal',
+        'villarreal almasora' => 'Villareal',
+        'villareal almassora' => 'Villareal',
+        'almassora' => 'Villareal',
+        'almasora' => 'Villareal',
+        'malga' => 'Malaga',
+        'malaga' => 'Malaga',
+    ];
+
+    private const GOOGLE_REVIEWS_LOCATION_BY_DELEGATION = [
+        'a coruna' => 'HR Motor || A Coruña',
+        'alcala de guadaira' => 'HR Motor || Alcalá de Guadaíra',
+        'alcobendas' => 'HR Motor || Alcobendas',
+        'alcoy' => 'HR Motor || Alcoy',
+        'alicante' => 'HR Motor || Alicante',
+        'badalona' => 'HR Motor || Badalona',
+        'badajoz' => 'HR Motor || Badajoz',
+        'bilbao' => 'HR Motor || Bilbao',
+        'castellon' => 'HR Motor || Castellón',
+        'collado villalba' => 'HR Motor || Collado Villalba',
+        'dos hermanas' => 'HR Motor || Dos Hermanas',
+        'elche' => 'HR MOTOR || Elche',
+        'gijon' => 'HR Motor || Gijón',
+        'girona' => 'HR Motor || Girona',
+        'lleida' => 'HR Motor || Lleida',
+        'llica de vall' => 'HR Motor || Lliçà de Vall',
+        'malaga' => 'HR Motor || Málaga',
+        'malaga centro' => 'HR Motor || Málaga Centro',
+        'manresa' => 'HR Motor || Manresa',
+        'murcia' => 'HR Motor || Murcia',
+        'palma' => 'HR Motor || Palma de Mallorca',
+        'pamplona' => 'HR Motor || Pamplona',
+        'rivas vaciamadrid' => 'HR Motor || Rivas - Vaciamadrid',
+        'san sebastian' => 'HR Motor || San Sebastián',
+        'sant boi' => 'HR Motor || Sant Boi de Llobregat',
+        'sedavi' => 'HR Motor || Sedaví',
+        'sevilla centro' => 'HR Motor || Sevilla Centro',
+        'torrejon de ardoz' => 'HR Motor || Torrejón de Ardoz',
+        'fontellas' => 'HR Motor || Tudela-Fontellas',
+        'tudela fontellas' => 'HR Motor || Tudela-Fontellas',
+        'valencia' => 'HR Motor || València',
+        'valencia paterna' => 'HR Motor || Valencia Paterna',
+        'valladolid' => 'HR Motor || Valladolid',
+        'villareal' => 'HR Motor || Villarreal',
+        'zaragoza' => 'HR Motor || Zaragoza',
+    ];
+
     private const TEMPORARILY_UNLOCKABLE_MONTHS = [
         '2026-04',
         '2026-05',
@@ -138,14 +203,16 @@ class CommercialCommissionFormulaConfigService
             return $defaults;
         }
 
-        return array_replace_recursive($defaults, $stored->settings);
+        return $this->normalizeSettings(
+            array_replace_recursive($defaults, $stored->settings)
+        );
     }
 
     public function saveForMonth(string $month, array $settings): void
     {
         CommercialCommissionMonthSetting::query()->updateOrCreate(
             ['month' => $month],
-            ['settings' => $settings]
+            ['settings' => $this->normalizeSettings($settings)]
         );
     }
 
@@ -155,15 +222,19 @@ class CommercialCommissionFormulaConfigService
 
         if (
             Schema::hasTable('salesforce_opportunities')
-            && Schema::hasColumn('salesforce_opportunities', 'owner_delegation')
+            && (
+                Schema::hasColumn('salesforce_opportunities', 'delivery_store')
+                || Schema::hasColumn('salesforce_opportunities', 'owner_delegation')
+            )
         ) {
             $storedDelegations = SalesforceOpportunity::query()
-                ->whereNotNull('owner_delegation')
-                ->where('owner_delegation', '<>', '')
-                ->pluck('owner_delegation');
+                ->get(['delivery_store', 'owner_delegation']);
 
-            foreach ($storedDelegations as $delegation) {
-                $label = trim((string) $delegation);
+            foreach ($storedDelegations as $opportunity) {
+                $label = $this->deliveryDelegationLabel(
+                    $opportunity->delivery_store,
+                    $opportunity->owner_delegation
+                );
 
                 if (! $this->shouldIncludeDelegationLabel($label)) {
                     continue;
@@ -174,7 +245,7 @@ class CommercialCommissionFormulaConfigService
         }
 
         foreach (($settings['delegations']['goals'] ?? []) as $goalKey => $goal) {
-            $label = trim((string) ($goal['label'] ?? $goalKey));
+            $label = $this->normalizeDelegationLabel($goal['label'] ?? $goalKey);
 
             if (! $this->shouldIncludeDelegationLabel($label)) {
                 continue;
@@ -195,7 +266,7 @@ class CommercialCommissionFormulaConfigService
 
     public function delegationKey(string $value): string
     {
-        return Str::of($value)
+        return Str::of($this->normalizeDelegationLabel($value))
             ->ascii()
             ->lower()
             ->replaceMatches('/[^a-z0-9]+/', '-')
@@ -205,7 +276,7 @@ class CommercialCommissionFormulaConfigService
 
     public function shouldIncludeDelegationLabel(?string $value): bool
     {
-        $label = trim((string) $value);
+        $label = $this->normalizeDelegationLabel($value);
 
         if ($label === '') {
             return false;
@@ -218,11 +289,106 @@ class CommercialCommissionFormulaConfigService
             ->trim()
             ->toString();
 
-        if (in_array($normalized, ['general', 'call fontellas'], true)) {
+        if (in_array($normalized, self::EXCLUDED_NORMALIZED_DELEGATIONS, true)) {
             return false;
         }
 
         return ! str_ends_with($normalized, ' general');
+    }
+
+    public function deliveryDelegationLabel(?string $deliveryStore, ?string $ownerDelegation = null): string
+    {
+        $deliveryStoreLabel = $this->normalizeDelegationLabel($deliveryStore);
+
+        if ($deliveryStoreLabel !== '') {
+            return $deliveryStoreLabel;
+        }
+
+        return $this->normalizeDelegationLabel($ownerDelegation);
+    }
+
+    public function googleReviewsLocationForDelegation(string $delegationLabel): ?string
+    {
+        $normalized = $this->normalizedDelegationComparable(
+            $this->normalizeDelegationLabel($delegationLabel)
+        );
+
+        return self::GOOGLE_REVIEWS_LOCATION_BY_DELEGATION[$normalized] ?? null;
+    }
+
+    public function normalizeDelegationLabel(mixed $value): string
+    {
+        $label = trim((string) $value);
+
+        if ($label === '') {
+            return '';
+        }
+
+        $label = preg_replace('/[_\/\\\\-]+/u', ' ', $label) ?? $label;
+        $label = preg_replace('/\s+/u', ' ', $label) ?? $label;
+        $label = preg_replace('/^hr\s*motor\s+/iu', '', $label) ?? $label;
+        $label = trim(preg_replace('/\s+/u', ' ', $label) ?? $label);
+
+        if ($label === '') {
+            return '';
+        }
+
+        $comparable = $this->normalizedDelegationComparable($label);
+
+        if (in_array($comparable, self::EXCLUDED_NORMALIZED_DELEGATIONS, true)) {
+            return '';
+        }
+
+        if (array_key_exists($comparable, self::NORMALIZED_DELEGATION_ALIASES)) {
+            return self::NORMALIZED_DELEGATION_ALIASES[$comparable];
+        }
+
+        if (Str::upper($label) === $label) {
+            return Str::of(Str::lower($label))
+                ->headline()
+                ->trim()
+                ->toString();
+        }
+
+        return $label;
+    }
+
+    private function normalizedDelegationComparable(string $value): string
+    {
+        return Str::of($value)
+            ->ascii()
+            ->lower()
+            ->replaceMatches('/[^a-z0-9]+/', ' ')
+            ->replaceMatches('/\s+/', ' ')
+            ->trim()
+            ->toString();
+    }
+
+    private function normalizeSettings(array $settings): array
+    {
+        $goals = [];
+
+        foreach (($settings['delegations']['goals'] ?? []) as $goalKey => $goal) {
+            $label = $this->normalizeDelegationLabel($goal['label'] ?? $goalKey);
+            $key = $this->delegationKey($label);
+
+            if ($key === '' || ! $this->shouldIncludeDelegationLabel($label)) {
+                continue;
+            }
+
+            $candidate = [
+                'label' => $label,
+                'target_deliveries' => max(0, (int) ($goal['target_deliveries'] ?? 0)),
+            ];
+
+            if (! array_key_exists($key, $goals) || $candidate['target_deliveries'] > 0) {
+                $goals[$key] = $candidate;
+            }
+        }
+
+        $settings['delegations']['goals'] = $goals;
+
+        return $settings;
     }
 
     public function canTemporarilyUnlockMonth(CarbonImmutable|string $month): bool

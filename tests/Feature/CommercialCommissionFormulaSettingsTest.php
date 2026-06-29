@@ -8,12 +8,27 @@ use App\Models\SalesforceUser;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class CommercialCommissionFormulaSettingsTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Http::fake([
+            'https://app.hrmotor.com/api/internal/google-reviews/count*' => Http::response([
+                'month' => '06-26',
+                'location' => 'HR Motor || Test',
+                'reviews_count' => 0,
+                'average_rating' => null,
+            ], 200),
+        ]);
+    }
 
     protected function tearDown(): void
     {
@@ -131,6 +146,7 @@ class CommercialCommissionFormulaSettingsTest extends TestCase
                 'owner_name' => 'Comercial Delegacion',
                 'owner_is_active' => true,
                 'owner_delegation' => 'HR MOTOR ALICANTE',
+                'delivery_store' => 'HR MOTOR ALICANTE',
                 'stage_name' => 'Contrato',
                 'record_type_name' => 'Venta',
                 'cv_signed' => true,
@@ -146,7 +162,7 @@ class CommercialCommissionFormulaSettingsTest extends TestCase
         }
 
         $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
-        $row = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'HR MOTOR ALICANTE');
+        $row = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'Alicante');
 
         $this->assertNotNull($row);
         $this->assertSame(35, $row['target_deliveries']);
