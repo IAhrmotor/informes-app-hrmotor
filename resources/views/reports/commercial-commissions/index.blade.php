@@ -19,9 +19,11 @@
 @php
     $summaryRows = collect($dashboard['summary_rows'] ?? []);
     $delegationRows = collect($dashboard['delegation_rows'] ?? []);
+    $callCenterSummaryRows = collect($callCenterDashboard['summary_rows'] ?? []);
     $stockLabel = 'Stock +'.(int) ($formulaSettings['stock']['days_threshold'] ?? 150);
     $bonusLabel = 'Bonus +'.(int) ($formulaSettings['bonus']['start_after_delivery'] ?? 15);
     $defaultCommercialId = $summaryRows->first()['commercial_id'] ?? null;
+    $callCenterDefaultAgentKey = $callCenterSummaryRows->first()['agent_key'] ?? null;
     $totalFinalCommission = (float) $summaryRows->sum('final_commission');
     $totalPrimaAdjusted = (float) $summaryRows->sum('prima_adjusted');
     $totalPenalties = (float) $summaryRows->sum('total_penalties');
@@ -30,6 +32,17 @@
     $totalDelegationPrimaFinal = (float) $delegationRows->sum('prima_final');
     $totalDelegationCommissions = (float) $delegationRows->sum('total_commission');
     $delegationGoalsConfigured = (int) $delegationRows->filter(fn (array $row) => ($row['target_deliveries'] ?? 0) > 0)->count();
+    $callCenterTotalAutomatic = (float) $callCenterSummaryRows->sum('automatic_total');
+    $callCenterTotalPurchases = (float) $callCenterSummaryRows->sum('purchase_commission');
+    $callCenterTotalSales = (float) $callCenterSummaryRows->sum('sales_commission');
+    $callCenterTotalChanges = (float) $callCenterSummaryRows->sum('changes_commission');
+    $callCenterTotalGerman = (float) $callCenterSummaryRows->sum('german_negotiation_commission');
+    $callCenterTotalFacilitea = (float) $callCenterSummaryRows->sum('facilitea_commission');
+    $callCenterCountPurchases = (int) $callCenterSummaryRows->sum('purchase_count');
+    $callCenterCountSales = (int) $callCenterSummaryRows->sum('sales_count');
+    $callCenterCountChanges = (int) $callCenterSummaryRows->sum('changes_count');
+    $callCenterCountGerman = (int) $callCenterSummaryRows->sum('german_negotiation_count');
+    $callCenterCountFacilitea = (int) $callCenterSummaryRows->sum('facilitea_count');
     $kpiTooltips = [
         'Mes analizado' => 'Mes cerrado usado por el informe. Pivota por cv_signed_date, que viene de Fecha_firma_contrato__c.',
         'Oportunidades' => 'Conteo de salesforce_opportunities con cv_signed=true, stage_name distinto de Cerrada perdida, record_type Venta/Cambio/Tasacion y gestion_de_venta false o null.',
@@ -60,6 +73,12 @@
         <section class="tab-panel active">
             <section class="filters card commission-filters">
                 <form method="GET" class="commission-filter-form">
+                    @if (! empty($callCenterDashboard['contract_from']))
+                        <input type="hidden" name="call_center_contract_from" value="{{ $callCenterDashboard['contract_from'] }}">
+                    @endif
+                    @if (! empty($callCenterDashboard['contract_to']))
+                        <input type="hidden" name="call_center_contract_to" value="{{ $callCenterDashboard['contract_to'] }}">
+                    @endif
                     <div class="filter-group">
                         <label for="month">Mes cerrado</label>
                         <input type="month" id="month" name="month" value="{{ $dashboard['month'] }}">
@@ -168,7 +187,7 @@
                 </section>
             @endif
 
-            @if ($summaryRows->isNotEmpty())
+            @if ($summaryRows->isNotEmpty() || $delegationRows->isNotEmpty() || $callCenterSummaryRows->isNotEmpty())
                 <section class="card panel">
                     <div class="panel-title">
                         <div>
@@ -179,8 +198,9 @@
 
                     <nav class="tabs-main commission-inner-tabs" aria-label="Vista de comisiones">
                         <button type="button" class="main-tab active" data-commission-tab-trigger="summary">Resumen</button>
+                        <button type="button" class="main-tab" data-commission-tab-trigger="detail">Detalle por comercial</button>
                         <button type="button" class="main-tab" data-commission-tab-trigger="delegations">Delegaciones</button>
-                        <button type="button" class="main-tab" data-commission-tab-trigger="detail">Detalle auditable</button>
+                        <button type="button" class="main-tab" data-commission-tab-trigger="call-center">Call Center</button>
                     </nav>
 
                     <div data-commission-tab-panel="summary">
@@ -347,7 +367,7 @@
                         </section>
 
                         <div class="small commission-delegation-note">
-                            La prima final de delegacion se calcula como <strong>rentabilidad media por operacion x % sobre objetivo</strong>. El bonus de importe financiado se aplica antes del bonus de % de rentabilidad.
+                            La prima final de delegacion se calcula como <strong>rentabilidad media por operacion + (rentabilidad media por operacion x % sobre objetivo)</strong> cuando la delegacion alcanza al menos el 85% del objetivo. La comision fija de reseñas se aplica antes de los bonus porcentuales.
                         </div>
 
                         <div class="table-shell commission-delegation-table-shell">
@@ -370,42 +390,43 @@
                                     <th class="num" data-sortable="true">Bonus rent.</th>
                                     <th class="num" data-sortable="true">% imp. financiado</th>
                                     <th class="num" data-sortable="true">Bonus imp. fin.</th>
-                                    <th class="num" data-sortable="true">Comision total</th>
                                 </tr>
                                 </thead>
                                 <tbody data-sort-body="commission-delegations">
                                 @foreach ($delegationRows as $row)
                                     <tr>
                                         <td>{{ $row['delegation_name'] }}</td>
-                                        <td class="num" data-sort-value="{{ $row['total_commission'] }}">
-                                            <strong @class([
-                                                'commission-goal-hit' => $row['objective_reached'],
-                                                'commission-goal-miss' => ! $row['objective_reached'],
-                                            ])>{{ number_format($row['total_commission'], 2, ',', '.') }}</strong>
+                                        <td @class([
+                                            'num',
+                                            'commission-goal-hit' => $row['objective_reached'],
+                                            'commission-goal-miss' => ! $row['objective_reached'],
+                                        ]) data-sort-value="{{ $row['total_commission'] }}">
+                                            <strong>{{ number_format($row['total_commission'], 2, ',', '.') }}</strong>
                                         </td>
                                         <td class="num" data-sort-value="{{ $row['target_deliveries'] }}">{{ number_format($row['target_deliveries'], 0, ',', '.') }}</td>
                                         <td class="num" data-sort-value="{{ $row['deliveries_count'] }}">{{ number_format($row['deliveries_count'], 0, ',', '.') }}</td>
-                                        <td class="num" data-sort-value="{{ $row['objective_percentage'] ?? -1 }}">
-                                            <span @class([
-                                                'commission-goal-hit' => $row['objective_reached'],
-                                                'commission-goal-miss' => ! $row['objective_reached'],
-                                            ])>
+                                        <td @class([
+                                            'num',
+                                            'commission-goal-hit' => $row['objective_reached'],
+                                            'commission-goal-miss' => ! $row['objective_reached'],
+                                        ]) data-sort-value="{{ $row['objective_percentage'] ?? -1 }}">
                                             {{ $row['objective_percentage'] === null ? '-' : number_format($row['objective_percentage'], 2, ',', '.').'%' }}
-                                            </span>
                                         </td>
-                                        <td class="num" data-sort-value="{{ $row['objective_commission_percent'] }}">
-                                            <span @class([
-                                                'commission-goal-hit' => $row['objective_reached'],
-                                                'commission-goal-miss' => ! $row['objective_reached'],
-                                            ])>{{ number_format($row['objective_commission_percent'], 2, ',', '.') }}%</span>
+                                        <td @class([
+                                            'num',
+                                            'commission-goal-hit' => $row['objective_reached'],
+                                            'commission-goal-miss' => ! $row['objective_reached'],
+                                        ]) data-sort-value="{{ $row['objective_commission_percent'] }}">
+                                            {{ number_format($row['objective_commission_percent'], 2, ',', '.') }}%
                                         </td>
                                         <td class="num" data-sort-value="{{ $row['rentability_total'] }}">{{ number_format($row['rentability_total'], 2, ',', '.') }}</td>
                                         <td class="num" data-sort-value="{{ $row['average_rentability'] }}">{{ number_format($row['average_rentability'], 2, ',', '.') }}</td>
-                                        <td class="num" data-sort-value="{{ $row['prima_final'] }}">
-                                            <strong @class([
-                                                'commission-goal-hit' => $row['objective_reached'],
-                                                'commission-goal-miss' => ! $row['objective_reached'],
-                                            ])>{{ number_format($row['prima_final'], 2, ',', '.') }}</strong>
+                                        <td @class([
+                                            'num',
+                                            'commission-goal-hit' => $row['objective_reached'],
+                                            'commission-goal-miss' => ! $row['objective_reached'],
+                                        ]) data-sort-value="{{ $row['prima_final'] }}">
+                                            <strong>{{ number_format($row['prima_final'], 2, ',', '.') }}</strong>
                                         </td>
                                         <td class="num" data-sort-value="{{ $row['reviews_count'] }}">{{ number_format($row['reviews_count'], 0, ',', '.') }}</td>
                                         <td class="num" data-sort-value="{{ $row['reviews_average_rating'] ?? -1 }}">
@@ -430,7 +451,7 @@
                     </div>
 
                     <div class="is-hidden" data-commission-tab-panel="detail">
-                        <div class="commission-detail-shell">
+                        <div class="commission-detail-shell" data-agent-browser>
                             <aside class="card commission-commercial-picker">
                                 <div class="filter-group">
                                     <label for="commissionCommercialSearch">Buscar comercial</label>
@@ -439,16 +460,17 @@
                                         id="commissionCommercialSearch"
                                         placeholder="Nombre o ID de Salesforce"
                                         autocomplete="off"
+                                        data-agent-search-input
                                     >
                                 </div>
-                                <div class="commission-commercial-list" id="commissionCommercialList">
+                                <div class="commission-commercial-list">
                                     @foreach ($summaryRows as $row)
                                         <button
                                             type="button"
                                             class="commission-commercial-option{{ $row['commercial_id'] === $defaultCommercialId ? ' is-active' : '' }}"
-                                            data-commercial-option
-                                            data-commercial-id="{{ $row['commercial_id'] }}"
-                                            data-commercial-search="{{ \Illuminate\Support\Str::lower($row['commercial_name'].' '.$row['commercial_id']) }}"
+                                            data-agent-option
+                                            data-agent-id="{{ $row['commercial_id'] }}"
+                                            data-agent-search="{{ \Illuminate\Support\Str::lower(\Illuminate\Support\Str::ascii($row['commercial_name'].' '.$row['commercial_id'])) }}"
                                         >
                                             <strong>{{ $row['commercial_name'] }}</strong>
                                             <span>{{ $row['commercial_id'] }}</span>
@@ -462,7 +484,7 @@
                             </aside>
 
                             <section class="commission-detail-stage">
-                                <div class="empty-state is-hidden" id="commissionCommercialEmpty">
+                                <div class="empty-state is-hidden" data-agent-empty>
                                     No hay comerciales que coincidan con la busqueda.
                                 </div>
 
@@ -476,8 +498,8 @@
                                     @endphp
                                     <article
                                         class="commission-commercial-panel{{ $row['commercial_id'] === $defaultCommercialId ? ' is-active' : ' is-hidden' }}"
-                                        data-commercial-panel
-                                        data-commercial-id="{{ $row['commercial_id'] }}"
+                                        data-agent-panel
+                                        data-agent-id="{{ $row['commercial_id'] }}"
                                     >
                                         <section class="card panel commission-commercial-hero">
                                             <div class="panel-title compact">
@@ -666,6 +688,27 @@
                                 @endforeach
                             </section>
                         </div>
+                    </div>
+
+                    <div class="is-hidden" data-commission-tab-panel="call-center">
+                        <section class="card panel">
+                            <div class="panel-title compact">
+                                <div>
+                                    <h2>Comisiones Call Center</h2>
+                                    <div class="small">Compras, ventas, cambios, negociaciones German y Facilitea auditables desde la misma pantalla mensual.</div>
+                                </div>
+                            </div>
+
+                            @foreach ($callCenterDashboard['issues'] ?? [] as $issue)
+                                <div class="notice">{{ $issue }}</div>
+                            @endforeach
+
+                            @foreach ($callCenterDashboard['warnings'] ?? [] as $warning)
+                                <div class="notice commission-warning">{{ $warning }}</div>
+                            @endforeach
+
+                            @include('reports.commercial-commissions.partials.call-center-tab')
+                        </section>
                     </div>
                 </section>
             @endif

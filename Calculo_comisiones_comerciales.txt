@@ -58,7 +58,7 @@ B. Compras
   rentabilidad_compra x 1.8%
 
 C. Compartidas
-- Si la oportunidad tiene copropietario en Entrega_Compartida__c, la entrega compartida reparte 30 EUR para el owner y 30 EUR para el comercial compartido.
+- Si la oportunidad tiene copropietario en `Entrega_Compartida__c`, la entrega compartida reparte 30 EUR para el owner y 30 EUR para el comercial compartido.
 
 D. Stock +150
 - Si la venta tiene al menos 150 dias entre:
@@ -72,12 +72,11 @@ E. Bonus +15
 3. Conceptos que restan
 
 A. Descuento comercial
-- Se suma OPO_DIV_Descuento__c del comercial en el mes.
+- Se suma `OPO_DIV_Descuento__c` del comercial en el mes.
 - Se descuenta el 5% de ese total.
 
 B. Penalizacion por garantias
-- Si el total de Garant_a_Total__c del mes es menor de 3500 EUR,
-  se descuenta el 10% de la prima ajustada.
+- Si el total de `Garant_a_Total__c` del mes es menor de 3500 EUR, se descuenta el 10% de la prima ajustada.
 
 C. Penalizacion por resenas
 - Se calcula:
@@ -106,7 +105,7 @@ La prima total no se cobra completa siempre. Antes se ajusta por tramo:
 5. Productos adicionales
 
 A. Producto financiacion
-- Se suma Beneficio_financiacion_comercial__c del mes.
+- Se suma `Beneficio_financiacion_comercial__c` del mes.
 - Sobre ese total se aplica un porcentaje por tramo:
   - > 50000 => 9%
   - 30001 a 50000 => 8%
@@ -118,7 +117,7 @@ A. Producto financiacion
   - 1 a 5000 => 2%
 
 B. Producto garantias
-- Se suma Garant_a_Total__c del mes.
+- Se suma `Garant_a_Total__c` del mes.
 - Sobre ese total se aplica un porcentaje por tramo:
   - > 20400 => 11%
   - 14401 a 20400 => 9%
@@ -153,12 +152,18 @@ Comision final =
 En la propia vista de Comisiones Comerciales:
 
 - tab Resumen: totales y tabla por comercial
+- tab Detalle por comercial: buscar comercial y ver el detalle que alimenta el calculo
 - tab Delegaciones: resumen por delegacion con metas, rentabilidad media, prima final y comision total
+- tab Call Center: resumen mensual y detalle auditable de captadores/agentes
 - selector de columnas en el resumen
 - `Comision final` aparece al inicio
 - `Operaciones` ya no aparece en la tabla resumen
 - `Pen. resenas` y `Pen. financiacion` muestran importe monetario penalizado
-- tab Detalle auditable: buscar comercial y ver el detalle que alimenta el calculo
+- orden actual de pestañas:
+  - `Resumen`
+  - `Detalle por comercial`
+  - `Delegaciones`
+  - `Call Center`
 
 8. Cuadro de delegaciones
 
@@ -170,11 +175,15 @@ En la propia vista de Comisiones Comerciales:
 - La meta de entregas de cada delegacion se configura en `/informes/configuracion-comisiones` y se guarda por mes abierto.
 - Antes de agrupar y antes de cruzar las metas, las delegaciones se normalizan con alias canonicos:
   - `HR MOTOR *` se muestra sin el prefijo `HR MOTOR`
+  - `Alcala De Guadaira` => `Alcala de Guadaira`
+  - `Castellon` => `Castellon`
+  - `Dos hermanas` => `Dos Hermanas`
   - `San Boi`, `Sant_Boi` y variantes => `Sant Boi`
   - `Mallorca` => `Palma`
+  - `Torrejon`, `Torrejon de Ardoz` y variantes => `Torrejon`
   - `Villareal/Almasora`, `Villareal Almassora`, `Villarreal/Almassora`, `Almassora` y variantes => `Villareal`
   - `Malga` => `Malaga`
-  - `General`, `Call Fontellas` y `Lliçà de Vall` se excluyen
+  - `General`, `Call Fontellas` y `Llisa de Vall` se excluyen
 - Si una meta se guardo con un alias antiguo y la delegacion del cuadro llega con otro alias, ambos se normalizan al mismo nombre antes de calcular el objetivo. Esto evita que `Meta entregas = 0` y que la `Prima Final` quede en `0` por no hacer match.
 - La rentabilidad por operacion se calcula con:
   - `Product2.PRO_DIV_Precio_de_venta__c`
@@ -182,7 +191,7 @@ En la propia vista de Comisiones Comerciales:
   - menos `Opportunity.OPO_DIV_Descuento__c`
   - mas `Opportunity.Beneficio_financiacion_comercial__c`
   - mas `Opportunity.Garant_a_Total__c`
-- La `Rentabilidad operación media` es:
+- La `Rentabilidad operacion media` es:
   - sumatorio de rentabilidades de Venta/Cambio / numero de entregas
 - El `% sobre objetivo` es:
   - entregas / meta_entregas
@@ -195,8 +204,8 @@ En la propia vista de Comisiones Comerciales:
   - `>100% => 0,60%`
 - `Prima Final`:
   - si no cumple objetivo minimo de tramo (`% sobre objetivo < 85%`) => `0`
-  - si cumple objetivo => `(Rentabilidad operación media x % por objetivo) + Rentabilidad operación media`
-- Reseñas por delegacion:
+  - si cumple objetivo => `(Rentabilidad operacion media x % por objetivo) + Rentabilidad operacion media`
+- Resenas por delegacion:
   - se consultan en:
     - `https://app.hrmotor.com/api/internal/google-reviews/count`
   - auth basica:
@@ -206,16 +215,16 @@ En la propia vista de Comisiones Comerciales:
     - `month` en formato `m-y`
     - `location` segun la sede Google asociada a la delegacion
   - columnas nuevas del cuadro:
-    - `Reseñas`
+    - `Resenas`
     - `Media nota`
-    - `Com. reseñas`
-  - comision de reseñas:
+    - `Com. resenas`
+  - comision de resenas:
     - primero verificar que la delegacion cumple objetivo para tramo
     - despues verificar que `reviews_count / deliveries_count > 50%`
     - si `average_rating > 4.5` => `+200 EUR`
     - si `average_rating < 4.0` => `-200 EUR`
     - si `average_rating < 3.7` => `-300 EUR`
-  - la comision fija de reseñas se suma o resta sobre la `Prima Final` antes de aplicar los bonus porcentuales de calidad
+  - la comision fija de resenas se suma o resta sobre la `Prima Final` antes de aplicar los bonus porcentuales de calidad
 - Bonus de calidad:
   - si `Beneficio_financiacion_comercial__c / Importe_financiado__c > 14%`, suma 10%
   - si `Importe_financiado__c / OPO_FOR_Importe_total__c > 40%`, suma 10%
@@ -224,8 +233,8 @@ En la propia vista de Comisiones Comerciales:
 
 9. Acceso actual
 
-- pueden verlo `admin` y `carlos.torres@hrmotor.es`
-- el resto de usuarios no ven la tab ni pueden abrir la ruta
+- pueden verlo `admin` y `director`
+- `area_manager` y `viewer` no ven la tab ni pueden abrir la ruta
 - el diagnostico base ampliado solo lo ve `admin`
 
 10. Edicion de coeficientes por mes
@@ -237,3 +246,59 @@ En la propia vista de Comisiones Comerciales:
   - `2026-05`
 - Esos meses pueden abrirse temporalmente desde la pantalla de coeficientes.
 - Tras guardar los cambios, vuelven a quedar cerrados automaticamente.
+
+11. API auxiliar de comisiones por comercial
+
+- Endpoint:
+  - `GET /api/comisiones_comercial?salesforce_id={id_salesforce}`
+- Protegido con basic auth.
+- Credenciales por entorno:
+  - `COMMISSIONS_API_USER`
+  - `COMMISSIONS_API_PASSWORD`
+- Devuelve JSON con:
+  - comercial consultado
+  - comision final del mes en curso
+  - comision final del mes anterior cerrado
+
+12. Bloque Call Center integrado en Comisiones Comerciales
+
+- No tiene una pagina independiente en el menu principal.
+- Se muestra como una cuarta pestaña dentro de `/informes/comisiones-comerciales`.
+- Usa oportunidades del mes cerrado por `Fecha_firma_contrato__c` (`cv_signed_date` local).
+- Bloques calculados:
+  - Compras / Tasaciones:
+    - `Record Type = Tasacion`
+    - `Captador__c` informado
+    - `Gestion_de_venta__c = false`
+    - comision = suma de `Comisi_n_Captador__c`
+    - si `Comisi_n_Captador__c` viene vacio, se computa `0` y queda marcado para revision
+  - Ventas / Cambios:
+    - `Record Type = Venta` o `Cambio`
+    - `Captador__c` informado
+    - `Gestion_de_venta__c = false`
+    - comision = suma de `Comisi_n_Captador__c`
+    - `Cambio` cuenta una sola vez dentro de ventas
+  - Negociaciones German:
+    - primera version automatizada inferida desde `Captador_2__c`, `Captador_3__c` y `Captador_4__c`
+    - cada oportunidad valida suma `5 EUR`
+  - Facilitea:
+    - owner con variantes de `Vanesa/Vanessa Sanjuan`
+    - `Gestion_de_venta__c = false`
+    - fuente/origen o nombre asociado a `FACILITEA`
+    - cada operacion valida suma `5 EUR`
+- La pestaña muestra:
+  - resumen por agente/captador
+  - totales por bloque
+  - detalle auditable por bloque:
+    - `Compras`
+    - `Ventas`
+    - `Negociaciones German`
+    - `Facilitea`
+
+12.1 Ajustes vigentes de Call Center
+
+- El bloque ya admite filtros `Fecha contrato desde` y `Fecha contrato hasta`, siempre acotados al mes cerrado seleccionado.
+- `Cambios` se separa de `Ventas` y tiene bloque propio en resumen, tabla y detalle.
+- Si el cuadro sale con muchos importes a `0` y sin captadores, el resync recomendado es:
+  - `php artisan salesforce:sync-opportunities --from=2026-05-01 --to=2026-06-01`
+- El informe avisa cuando faltan `Captador__c` o `Comisi_n_Captador__c` en la base local.

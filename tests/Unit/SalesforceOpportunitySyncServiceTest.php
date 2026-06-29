@@ -65,13 +65,31 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                             'AC_C_EMA_email__c' => null,
                         ],
                         'Portal__c' => 'Web',
+                        'Captador__c' => 'Jose Mari',
+                        'Comisi_n_Captador__c' => 5.0,
+                        'Fecha_captador__c' => '2026-05-01',
+                        'Captador_2__c' => 'German Olsen',
+                        'Captador_3__c' => null,
+                        'Captador_4__c' => null,
+                        'Fecha_captado_2__c' => '2026-05-02',
+                        'Fecha_captador_3__c' => null,
+                        'Fecha_captador_4__c' => null,
                         'OPO_CAS_Reserva__c' => true,
                         'OPO_FEC_Fecha_de_reserva__c' => '2026-05-02',
                         'OPO_CAS_Contrato_CV_firmado__c' => false,
                         'Fecha_firma_contrato__c' => null,
                         'Tienda_de_entrega__c' => 'HR MOTOR ALICANTE',
                         'Gestion_de_venta__c' => false,
+                        'OPO_FEC_Fecha_entrega__c' => '2026-05-10',
+                        'Delegacion_del_propietario__c' => 'CAPTADOR U ONLINE',
+                        'Facturado_Facilitea__c' => false,
+                        'Numero_Factura_Facilitea__c' => null,
+                        'OPO_BUS_Vehiculo_a_tasar__c' => '01t-appraise-1',
+                        'OPO_BUS_Vehiculo_a_tasar__r' => [
+                            'Name' => '1234ABC Opel Corsa',
+                        ],
                         'OPP_BUS_Vehiculo_de_interes__r' => [
+                            'Name' => '5678DEF Peugeot 308',
                             'PRO_DIV_Precio_de_venta__c' => 12000,
                             'PRO_DIV_Precio_de_compra__c' => 9000,
                             'Procedencia_de_compra__c' => 'Compra directa',
@@ -143,6 +161,18 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertStringContainsString('Fecha_firma_contrato__c', $result['soql']);
         $this->assertStringContainsString('Tienda_de_entrega__c', $result['soql']);
         $this->assertStringContainsString('Gestion_de_venta__c', $result['soql']);
+        $this->assertStringContainsString('Captador__c', $result['soql']);
+        $this->assertStringContainsString('Comisi_n_Captador__c', $result['soql']);
+        $this->assertStringContainsString('Fecha_captador__c', $result['soql']);
+        $this->assertStringContainsString('Captador_2__c', $result['soql']);
+        $this->assertStringContainsString('Fecha_captado_2__c', $result['soql']);
+        $this->assertStringContainsString('OPO_FEC_Fecha_entrega__c', $result['soql']);
+        $this->assertStringContainsString('Delegacion_del_propietario__c', $result['soql']);
+        $this->assertStringContainsString('Facturado_Facilitea__c', $result['soql']);
+        $this->assertStringContainsString('Numero_Factura_Facilitea__c', $result['soql']);
+        $this->assertStringContainsString('OPO_BUS_Vehiculo_a_tasar__c', $result['soql']);
+        $this->assertStringContainsString('OPO_BUS_Vehiculo_a_tasar__r.Name', $result['soql']);
+        $this->assertStringContainsString('OPP_BUS_Vehiculo_de_interes__r.Name', $result['soql']);
         $this->assertStringContainsString('PRO_DIV_Precio_de_venta__c', $result['soql']);
         $this->assertStringContainsString('Procedencia_de_compra__c', $result['soql']);
         $this->assertStringContainsString('PRO_FEC_Fecha_compra__c', $result['soql']);
@@ -183,5 +213,14 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             'portal_resolution_source' => 'lead',
             'stage_name' => 'Cerrada Perdida',
         ]);
+
+        $storedOpportunity = SalesforceOpportunity::query()->where('salesforce_id', '006-opportunity-1')->firstOrFail();
+
+        $this->assertSame('Jose Mari', $storedOpportunity->raw_payload['Captador__c'] ?? null);
+        $this->assertEquals(5.0, $storedOpportunity->raw_payload['Comisi_n_Captador__c'] ?? null);
+        $this->assertSame('German Olsen', $storedOpportunity->raw_payload['Captador_2__c'] ?? null);
+        $this->assertSame('2026-05-10', $storedOpportunity->raw_payload['OPO_FEC_Fecha_entrega__c'] ?? null);
+        $this->assertSame('1234ABC Opel Corsa', data_get($storedOpportunity->raw_payload, 'OPO_BUS_Vehiculo_a_tasar__r.Name'));
+        $this->assertSame('5678DEF Peugeot 308', data_get($storedOpportunity->raw_payload, 'OPP_BUS_Vehiculo_de_interes__r.Name'));
     }
 }

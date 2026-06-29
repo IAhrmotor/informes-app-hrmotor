@@ -29,7 +29,7 @@ let commissionSummaryVisibleColumns = loadVisibleColumns(
 
 document.addEventListener('DOMContentLoaded', () => {
     bindCommissionTabs();
-    bindCommissionCommercialPicker();
+    bindAgentBrowsers();
     bindCommissionDetailTabs();
     bindSortableTables();
     initCommissionSummaryColumns();
@@ -60,11 +60,17 @@ function bindCommissionTabs() {
     });
 }
 
-function bindCommissionCommercialPicker() {
-    const searchInput = document.getElementById('commissionCommercialSearch');
-    const emptyState = document.getElementById('commissionCommercialEmpty');
-    const options = [...document.querySelectorAll('[data-commercial-option]')];
-    const panels = [...document.querySelectorAll('[data-commercial-panel]')];
+function bindAgentBrowsers() {
+    document.querySelectorAll('[data-agent-browser]').forEach((browser) => {
+        bindAgentBrowser(browser);
+    });
+}
+
+function bindAgentBrowser(browser) {
+    const searchInput = browser.querySelector('[data-agent-search-input]');
+    const emptyState = browser.querySelector('[data-agent-empty]');
+    const options = [...browser.querySelectorAll('[data-agent-option]')];
+    const panels = [...browser.querySelectorAll('[data-agent-panel]')];
 
     if (!options.length || !panels.length) {
         return;
@@ -72,17 +78,17 @@ function bindCommissionCommercialPicker() {
 
     const visibleOptions = () => options.filter((option) => !option.classList.contains('is-hidden'));
 
-    const activateCommercial = (commercialId) => {
+    const activateAgent = (agentId) => {
         let matched = false;
 
         options.forEach((option) => {
-            const isActive = option.dataset.commercialId === commercialId && !option.classList.contains('is-hidden');
+            const isActive = option.dataset.agentId === agentId && !option.classList.contains('is-hidden');
             option.classList.toggle('is-active', isActive);
             matched = matched || isActive;
         });
 
         panels.forEach((panel) => {
-            const isActive = panel.dataset.commercialId === commercialId && matched;
+            const isActive = panel.dataset.agentId === agentId && matched;
             panel.classList.toggle('is-hidden', !isActive);
             panel.classList.toggle('is-active', isActive);
         });
@@ -96,7 +102,7 @@ function bindCommissionCommercialPicker() {
         const term = (searchInput?.value || '').trim().toLowerCase();
 
         options.forEach((option) => {
-            const haystack = option.dataset.commercialSearch || '';
+            const haystack = option.dataset.agentSearch || '';
             option.classList.toggle('is-hidden', term !== '' && !haystack.includes(term));
         });
 
@@ -104,15 +110,15 @@ function bindCommissionCommercialPicker() {
         emptyState?.classList.toggle('is-hidden', Boolean(firstVisible));
 
         if (firstVisible) {
-            activateCommercial(firstVisible.dataset.commercialId);
+            activateAgent(firstVisible.dataset.agentId);
         } else {
-            activateCommercial('');
+            activateAgent('');
         }
     };
 
     options.forEach((option) => {
         option.addEventListener('click', () => {
-            activateCommercial(option.dataset.commercialId);
+            activateAgent(option.dataset.agentId);
         });
     });
 
@@ -121,7 +127,7 @@ function bindCommissionCommercialPicker() {
 }
 
 function bindCommissionDetailTabs() {
-    const commercialPanels = [...document.querySelectorAll('[data-commercial-panel]')];
+    const commercialPanels = [...document.querySelectorAll('[data-agent-panel]')];
 
     commercialPanels.forEach((panel) => {
         const triggers = [...panel.querySelectorAll('[data-commercial-detail-tab-trigger]')];

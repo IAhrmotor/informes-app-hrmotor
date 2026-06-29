@@ -73,36 +73,32 @@
                     <button type="submit" class="main-tab">Cargar configuracion</button>
                 </div>
             </form>
-        </section>
+            @if (! $isEditableMonth)
+                <div class="commission-settings-status-block">
+                    <div class="notice commission-settings-inline-notice">
+                        El mes {{ $selectedMonthKey }} esta cerrado. Puedes revisar su configuracion historica, pero no modificarla.
+                    </div>
 
-        @if (! $isEditableMonth)
-            <div class="notice">
-                El mes {{ $selectedMonthKey }} esta cerrado. Puedes revisar su configuracion historica, pero no modificarla.
-            </div>
-
-            @if ($canTemporarilyUnlockMonth)
-                <section class="card panel commission-unlock-panel">
-                    <div class="panel-title compact">
-                        <div>
-                            <h2>Apertura temporal</h2>
+                    @if ($canTemporarilyUnlockMonth)
+                        <div class="commission-settings-inline-unlock">
                             <div class="small">
                                 {{ $isTemporarilyUnlocked
                                     ? 'Este mes esta abierto temporalmente para esta sesion. Guarda los cambios para que vuelva a cerrarse.'
                                     : 'Puedes abrir temporalmente este mes para verificar calculos. Al guardar se volvera a cerrar automaticamente.' }}
                             </div>
-                        </div>
-                    </div>
 
-                    @if (! $isTemporarilyUnlocked)
-                        <form method="POST" action="{{ route('reports.commission-settings.unlock') }}">
-                            @csrf
-                            <input type="hidden" name="month" value="{{ $selectedMonthKey }}">
-                            <button type="submit" class="main-tab active">Abrir mes temporalmente</button>
-                        </form>
+                            @if (! $isTemporarilyUnlocked)
+                                <form method="POST" action="{{ route('reports.commission-settings.unlock') }}">
+                                    @csrf
+                                    <input type="hidden" name="month" value="{{ $selectedMonthKey }}">
+                                    <button type="submit" class="main-tab active">Abrir mes temporalmente</button>
+                                </form>
+                            @endif
+                        </div>
                     @endif
-                </section>
+                </div>
             @endif
-        @endif
+        </section>
 
         <form method="POST" action="{{ route('reports.commission-settings.update') }}">
             @csrf
