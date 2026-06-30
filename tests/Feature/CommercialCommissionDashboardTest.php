@@ -907,15 +907,15 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(0.35, $delegation['objective_commission_percent']);
         $this->assertEquals(90000.0, $delegation['rentability_total']);
         $this->assertEquals(3000.0, $delegation['average_rentability']);
-        $this->assertEquals(3010.5, $delegation['prima_final']);
+        $this->assertEquals(315.0, $delegation['prima_final']);
         $this->assertSame(0, $delegation['reviews_count']);
         $this->assertNull($delegation['reviews_average_rating']);
         $this->assertEquals(0.0, $delegation['reviews_commission_amount']);
         $this->assertEquals(16.0, $delegation['financing_profitability_percentage']);
         $this->assertEquals(50.0, $delegation['financed_amount_percentage']);
-        $this->assertEquals(301.05, $delegation['financed_amount_bonus_amount']);
-        $this->assertEquals(331.16, $delegation['profitability_bonus_amount']);
-        $this->assertEquals(3642.71, $delegation['total_commission']);
+        $this->assertEquals(31.5, $delegation['financed_amount_bonus_amount']);
+        $this->assertEquals(34.65, $delegation['profitability_bonus_amount']);
+        $this->assertEquals(381.15, $delegation['total_commission']);
     }
 
     public function test_dashboard_excluye_delegaciones_general_y_call_fontellas(): void
@@ -1185,7 +1185,7 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertSame(23, $zaragoza['reviews_count']);
         $this->assertEquals(4.6, $zaragoza['reviews_average_rating']);
         $this->assertEquals(200.0, $zaragoza['reviews_commission_amount']);
-        $this->assertEquals(2815.6, $zaragoza['prima_final']);
+        $this->assertEquals(621.2, $zaragoza['prima_final']);
 
         $this->assertNotNull($bilbao);
         $this->assertSame(10, $bilbao['reviews_count']);

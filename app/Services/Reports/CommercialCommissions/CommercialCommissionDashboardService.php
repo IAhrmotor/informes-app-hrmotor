@@ -386,7 +386,7 @@ class CommercialCommissionDashboardService
                 : 0.0;
             $objectiveReached = $objectiveCommissionPercent > 0;
             $primaFinalBeforeReviews = $objectiveReached
-                ? round(($averageRentability * $objectiveCommissionPercent) + $averageRentability, 2)
+                ? round($rentabilityTotal * $objectiveCommissionPercent, 2)
                 : 0.0;
             $reviewsPayload = $reviewsByDelegation[$delegationLabel] ?? ['reviews_count' => 0, 'average_rating' => null];
             $reviewsCount = max(0, (int) ($reviewsPayload['reviews_count'] ?? 0));

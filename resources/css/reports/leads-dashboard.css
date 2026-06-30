@@ -3264,6 +3264,12 @@ th.num {
     gap: 8px;
 }
 
+.commercial-commissions-report .commission-delegation-table-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
 .commercial-commissions-report .table-scrollbar-top {
     overflow-x: auto;
     overflow-y: hidden;

@@ -1,6 +1,7 @@
 const tableSortState = new Map();
 const commissionSummaryColumnsStorageKey = 'commissionSummaryColumns';
 let syncCommissionSummaryScrollbar = () => {};
+let syncCommissionDelegationScrollbar = () => {};
 const commissionSummaryColumnDefinitions = [
     { key: 'commercial_name', label: 'Comercial', alwaysVisible: true },
     { key: 'final_commission', label: 'Comision final', alwaysVisible: true },
@@ -35,6 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     bindSortableTables();
     initCommissionSummaryColumns();
     initCommissionSummaryHorizontalScroll();
+    initCommissionDelegationHorizontalScroll();
     bindKpiTooltips();
 });
 
@@ -601,10 +603,34 @@ function initCommissionSummaryColumns() {
 }
 
 function initCommissionSummaryHorizontalScroll() {
-    const topScroll = document.getElementById('commissionSummaryTableScrollTop');
-    const spacer = document.getElementById('commissionSummaryTableScrollTopSpacer');
-    const shell = document.getElementById('commissionSummaryTableShell');
-    const table = document.getElementById('commissionSummaryTable');
+    initHorizontalScroll(
+        'commissionSummaryTableScrollTop',
+        'commissionSummaryTableScrollTopSpacer',
+        'commissionSummaryTableShell',
+        'commissionSummaryTable',
+        (syncFn) => {
+            syncCommissionSummaryScrollbar = syncFn;
+        }
+    );
+}
+
+function initCommissionDelegationHorizontalScroll() {
+    initHorizontalScroll(
+        'commissionDelegationTableScrollTop',
+        'commissionDelegationTableScrollTopSpacer',
+        'commissionDelegationTableShell',
+        'commissionDelegationTable',
+        (syncFn) => {
+            syncCommissionDelegationScrollbar = syncFn;
+        }
+    );
+}
+
+function initHorizontalScroll(topId, spacerId, shellId, tableId, setSyncFn) {
+    const topScroll = document.getElementById(topId);
+    const spacer = document.getElementById(spacerId);
+    const shell = document.getElementById(shellId);
+    const table = document.getElementById(tableId);
 
     if (!topScroll || !spacer || !shell || !table) {
         return;
@@ -613,10 +639,12 @@ function initCommissionSummaryHorizontalScroll() {
     let syncingFromTop = false;
     let syncingFromShell = false;
 
-    syncCommissionSummaryScrollbar = () => {
+    const syncScrollbar = () => {
         spacer.style.width = `${table.scrollWidth}px`;
         topScroll.scrollLeft = shell.scrollLeft;
     };
+
+    setSyncFn(syncScrollbar);
 
     topScroll.addEventListener('scroll', () => {
         if (syncingFromShell) {
@@ -639,14 +667,14 @@ function initCommissionSummaryHorizontalScroll() {
     });
 
     if (typeof ResizeObserver === 'function') {
-        const resizeObserver = new ResizeObserver(() => syncCommissionSummaryScrollbar());
+        const resizeObserver = new ResizeObserver(() => syncScrollbar());
         resizeObserver.observe(table);
         resizeObserver.observe(shell);
     } else {
-        window.addEventListener('resize', syncCommissionSummaryScrollbar);
+        window.addEventListener('resize', syncScrollbar);
     }
 
-    syncCommissionSummaryScrollbar();
+    syncScrollbar();
 }
 
 function renderCommissionSummaryColumnsPopover() {

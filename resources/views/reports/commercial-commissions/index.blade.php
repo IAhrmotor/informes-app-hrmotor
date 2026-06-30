@@ -378,11 +378,16 @@
                         </section>
 
                         <div class="small commission-delegation-note">
-                            La prima final de delegacion se calcula como <strong>rentabilidad media por operacion + (rentabilidad media por operacion x % sobre objetivo)</strong> cuando la delegacion alcanza al menos el 85% del objetivo. La comision fija de reseñas se aplica antes de los bonus porcentuales.
+                            La prima final de delegacion se calcula como <strong>rentabilidad total x % sobre objetivo</strong> cuando la delegacion alcanza al menos el 85% del objetivo. La comision fija de reseñas se aplica antes de los bonus porcentuales.
                         </div>
 
-                        <div class="table-shell commission-delegation-table-shell">
-                            <table data-sortable-table="commission-delegations">
+                        <div class="commission-delegation-table-wrap">
+                            <div class="table-scrollbar-top" id="commissionDelegationTableScrollTop" aria-hidden="true">
+                                <div class="table-scrollbar-spacer" id="commissionDelegationTableScrollTopSpacer"></div>
+                            </div>
+
+                            <div class="table-shell commission-delegation-table-shell" id="commissionDelegationTableShell">
+                            <table data-sortable-table="commission-delegations" id="commissionDelegationTable">
                                 <thead>
                                 <tr>
                                     <th data-sortable="true">Delegacion</th>
@@ -458,6 +463,7 @@
                                 @endforeach
                                 </tbody>
                             </table>
+                            </div>
                         </div>
                     </div>
 
