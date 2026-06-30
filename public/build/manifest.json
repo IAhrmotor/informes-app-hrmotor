@@ -52,7 +52,7 @@
     "src": "_instrument-sans-600-normal-DMks36a2.woff"
   },
   "resources/css/app.css": {
-    "file": "assets/app-DqUp7jzI.css",
+    "file": "assets/app-B3ac5XH1.css",
     "name": "app",
     "names": [
       "app.css"
@@ -61,7 +61,7 @@
     "isEntry": true
   },
   "resources/css/reports/leads-dashboard.css": {
-    "file": "assets/leads-dashboard-0MJ02jKA.css",
+    "file": "assets/leads-dashboard-BqUXFP8k.css",
     "name": "leads-dashboard",
     "names": [
       "leads-dashboard.css"
@@ -88,7 +88,7 @@
     "isEntry": true
   },
   "resources/js/reports/commercial-commissions-dashboard.js": {
-    "file": "assets/commercial-commissions-dashboard-8RhfEqMU.js",
+    "file": "assets/commercial-commissions-dashboard-Qb8g_sMN.js",
     "name": "commercial-commissions-dashboard",
     "src": "resources/js/reports/commercial-commissions-dashboard.js",
     "isEntry": true

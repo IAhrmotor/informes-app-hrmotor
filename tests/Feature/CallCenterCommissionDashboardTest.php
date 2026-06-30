@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\ReportUser;
 use App\Models\SalesforceOpportunity;
+use App\Models\SalesforceTasacion;
 use App\Models\SalesforceUser;
 use App\Services\Reports\CallCenterCommissions\CallCenterCommissionDashboardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -95,12 +96,12 @@ class CallCenterCommissionDashboardTest extends TestCase
             ->assertRedirect('/informes/leads');
     }
 
-    public function test_dashboard_calcula_bloques_de_call_center_y_marca_comisiones_vacias(): void
+    public function test_dashboard_calcula_bloques_de_call_center_y_negociaciones_desde_tasaciones(): void
     {
         $this->createCallCenterOpportunity([
             'salesforce_id' => 'CC-PURCHASE-1',
             'name' => 'Tasacion Jose Mari',
-            'record_type_name' => 'Tasación',
+            'record_type_name' => 'Tasacion',
             'owner_name' => 'Owner Uno',
             'account_name' => 'Cuenta Compra 1',
             'cv_signed_date' => '2026-05-05',
@@ -116,7 +117,7 @@ class CallCenterCommissionDashboardTest extends TestCase
         $this->createCallCenterOpportunity([
             'salesforce_id' => 'CC-PURCHASE-2',
             'name' => 'Tasacion Coches.net',
-            'record_type_name' => 'Tasación',
+            'record_type_name' => 'Tasacion',
             'owner_name' => 'Owner Dos',
             'account_name' => 'Cuenta Compra 2',
             'cv_signed_date' => '2026-05-06',
@@ -124,8 +125,6 @@ class CallCenterCommissionDashboardTest extends TestCase
             'raw_payload' => [
                 'Captador__c' => 'Coches.net',
                 'Comisi_n_Captador__c' => 5,
-                'Captador_2__c' => 'German Olsen',
-                'Fecha_captado_2__c' => '2026-05-02',
                 'OPO_BUS_Vehiculo_a_tasar__r' => ['Name' => '2222BBB Peugeot 208'],
             ],
         ]);
@@ -186,7 +185,7 @@ class CallCenterCommissionDashboardTest extends TestCase
         $this->createCallCenterOpportunity([
             'salesforce_id' => 'CC-MISSING-1',
             'name' => 'Tasacion sin comision',
-            'record_type_name' => 'Tasación',
+            'record_type_name' => 'Tasacion',
             'owner_name' => 'Owner Cinco',
             'account_name' => 'Cuenta Compra 3',
             'cv_signed_date' => '2026-05-10',
@@ -213,10 +212,28 @@ class CallCenterCommissionDashboardTest extends TestCase
             ],
         ]);
 
+        SalesforceTasacion::query()->create([
+            'salesforce_id' => 'a02-tasacion-1',
+            'name' => 'Tasacion German 1',
+            'created_date' => '2026-05-09 10:00:00',
+            'opportunity_salesforce_id' => '006-german-1',
+            'opportunity_name' => 'Negociacion German 1',
+            'contract_signed_date' => '2026-05-09',
+            'cv_signed' => true,
+            'tracking_name' => 'German',
+            'negotiation_1' => 'Primera llamada',
+            'negotiation_2' => 'Seguimiento',
+            'negotiation_3' => null,
+            'negotiation_4' => null,
+            'source_query_profile' => 'opportunity_relation',
+            'raw_payload' => [],
+        ]);
+
         $payload = app(CallCenterCommissionDashboardService::class)->build('2026-05');
 
         $this->assertTrue($payload['ready']);
         $this->assertSame(7, $payload['diagnostics']['monthly_opportunities']);
+        $this->assertSame(1, $payload['diagnostics']['monthly_tasaciones']);
         $this->assertSame(3, $payload['diagnostics']['purchases_count']);
         $this->assertSame(1, $payload['diagnostics']['sales_count']);
         $this->assertSame(1, $payload['diagnostics']['changes_count']);
@@ -233,8 +250,7 @@ class CallCenterCommissionDashboardTest extends TestCase
         $this->assertEquals(5.0, $rows->firstWhere('agent_name', 'German Olsen')['german_negotiation_commission']);
         $this->assertEquals(5.0, $rows->firstWhere('agent_name', 'Vanessa Sanjuan')['facilitea_commission']);
         $this->assertEquals(0.0, $rows->firstWhere('agent_name', 'Miriam Gonzalez')['automatic_total']);
-        $this->assertStringContainsString('Comisión Captador', collect($payload['warnings'])->implode(' | '));
-        $this->assertStringContainsString('Captador 2, Captador 3 y Captador 4', collect($payload['warnings'])->implode(' | '));
+        $this->assertStringContainsString('Comision Captador', collect($payload['warnings'])->implode(' | '));
     }
 
     private function createCallCenterOpportunity(array $attributes): void

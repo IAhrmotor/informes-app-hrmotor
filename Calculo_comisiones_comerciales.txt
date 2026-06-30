@@ -302,3 +302,20 @@ En la propia vista de Comisiones Comerciales:
 - Si el cuadro sale con muchos importes a `0` y sin captadores, el resync recomendado es:
   - `php artisan salesforce:sync-opportunities --from=2026-05-01 --to=2026-06-01`
 - El informe avisa cuando faltan `Captador__c` o `Comisi_n_Captador__c` en la base local.
+
+12.2 Ajustes vigentes de Call Center sobre Negociaciones German y cuadro de agentes
+
+- `Negociaciones German` ya no se calcula desde `Captador_2__c`, `Captador_3__c` y `Captador_4__c`.
+- La fuente real pasa a ser `Tasacion__c`, persistida en la tabla local `salesforce_tasaciones`.
+- Nuevo comando de sync:
+  - `php artisan salesforce:sync-tasaciones --from=2026-05-01 --to=2026-06-01`
+- Regla del bloque `Negociaciones German`:
+  - solo cuentan tasaciones con `Seguimiento` tipo German
+  - `Negociacion 1` debe venir informada
+  - cada tasacion valida suma `5 EUR`
+- El cuadro resumen de agentes de `Call Center`:
+  - elimina columna `Mes`
+  - elimina columna `Observaciones`
+  - mueve `Total final` a la 2da columna
+  - deja los comandos de resync dentro del bloque de diagnostico
+- El auditable por captador queda contenido dentro del panel, sin desbordar el cuadro principal.

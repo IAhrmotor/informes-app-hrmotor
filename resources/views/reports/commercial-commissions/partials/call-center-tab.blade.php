@@ -1,3 +1,8 @@
+@php
+    $callCenterMonthStart = \Carbon\CarbonImmutable::parse(($callCenterDashboard['month'] ?? $dashboard['month']).'-01');
+    $callCenterMonthEnd = $callCenterMonthStart->addMonth();
+@endphp
+
 <section class="card panel call-center-toolbar-panel">
     <div class="panel-title compact">
         <div>
@@ -15,12 +20,6 @@
         <div class="filter-group">
             <label for="callCenterContractTo">Fecha contrato hasta</label>
             <input type="date" id="callCenterContractTo" name="call_center_contract_to" value="{{ $callCenterDashboard['contract_to'] ?? '' }}">
-        </div>
-        <div class="filter-group filter-group-readonly">
-            <label>Comando de resync recomendado</label>
-            <div class="filter-readonly-code">
-                <code>php artisan salesforce:sync-opportunities --from={{ $callCenterDashboard['month'] }}-01 --to={{ \Carbon\CarbonImmutable::parse(($callCenterDashboard['month'] ?? $dashboard['month']).'-01')->addMonth()->format('Y-m-d') }}</code>
-            </div>
         </div>
         <div class="filter-actions commission-filter-actions">
             <button type="submit" class="main-tab">Aplicar filtro</button>
@@ -56,20 +55,21 @@
         <article class="card platform-comparison-card">
             <div class="platform-comparison-head">
                 <strong>Base mensual</strong>
-                <span>Bloques automáticos calculados desde Salesforce para el rango de contrato activo.</span>
+                <span>Bloques automaticos calculados desde Salesforce para el rango de contrato activo.</span>
             </div>
             <div class="platform-comparison-metrics">
                 <div class="platform-metric-item"><span>Agentes / captadores</span><strong>{{ number_format($callCenterSummaryRows->count(), 0, ',', '.') }}</strong></div>
                 <div class="platform-metric-item"><span>Operaciones base</span><strong>{{ number_format($callCenterDashboard['diagnostics']['monthly_opportunities'] ?? 0, 0, ',', '.') }}</strong></div>
+                <div class="platform-metric-item"><span>Tasaciones sync</span><strong>{{ number_format($callCenterDashboard['diagnostics']['monthly_tasaciones'] ?? 0, 0, ',', '.') }}</strong></div>
                 <div class="platform-metric-item"><span>Sin captador</span><strong>{{ number_format($callCenterDashboard['diagnostics']['missing_captador_count'] ?? 0, 0, ',', '.') }}</strong></div>
-                <div class="platform-metric-item"><span>Comisiones vacías</span><strong>{{ number_format($callCenterDashboard['diagnostics']['missing_commission_count'] ?? 0, 0, ',', '.') }}</strong></div>
-                <div class="platform-metric-item"><span>Total automático</span><strong>{{ number_format($callCenterTotalAutomatic, 2, ',', '.') }} EUR</strong></div>
+                <div class="platform-metric-item"><span>Comisiones vacias</span><strong>{{ number_format($callCenterDashboard['diagnostics']['missing_commission_count'] ?? 0, 0, ',', '.') }}</strong></div>
+                <div class="platform-metric-item"><span>Total automatico</span><strong>{{ number_format($callCenterTotalAutomatic, 2, ',', '.') }} EUR</strong></div>
             </div>
         </article>
         <article class="card platform-comparison-card">
             <div class="platform-comparison-head">
                 <strong>Bloques aplicados</strong>
-                <span>Compras, ventas y cambios usan Captador + Comisión Captador. Facilitea usa origen FACILITEA.</span>
+                <span>Compras, ventas y cambios usan Captador + Comision Captador. Facilitea usa origen FACILITEA.</span>
             </div>
             <div class="platform-comparison-metrics">
                 <div class="platform-metric-item"><span>Compras</span><strong>{{ number_format($callCenterTotalPurchases, 2, ',', '.') }} EUR</strong></div>
@@ -79,14 +79,30 @@
                 <div class="platform-metric-item"><span>Facilitea</span><strong>{{ number_format($callCenterTotalFacilitea, 2, ',', '.') }} EUR</strong></div>
             </div>
         </article>
+        <article class="card platform-comparison-card call-center-diagnostics-card">
+            <div class="platform-comparison-head">
+                <strong>Diagnostico y resync</strong>
+                <span>Usa estos comandos para refrescar el mes completo antes de validar captadores y negociaciones.</span>
+            </div>
+            <div class="call-center-diagnostics-list">
+                <div class="call-center-diagnostics-row">
+                    <span>Opportunities</span>
+                    <code>php artisan salesforce:sync-opportunities --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+                </div>
+                <div class="call-center-diagnostics-row">
+                    <span>Tasaciones</span>
+                    <code>php artisan salesforce:sync-tasaciones --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+                </div>
+            </div>
+        </article>
     </section>
 
     <div class="table-shell call-center-summary-shell">
         <table data-sortable-table="call-center-summary">
             <thead>
             <tr>
-                <th data-sortable="true">Mes</th>
                 <th data-sortable="true">Agente / Captador</th>
+                <th class="num" data-sortable="true">Total final</th>
                 <th class="num" data-sortable="true">Com. compras</th>
                 <th class="num" data-sortable="true">N compras</th>
                 <th class="num" data-sortable="true">Com. ventas</th>
@@ -97,17 +113,15 @@
                 <th class="num" data-sortable="true">N neg. German</th>
                 <th class="num" data-sortable="true">Com. Facilitea</th>
                 <th class="num" data-sortable="true">N Facilitea</th>
-                <th class="num" data-sortable="true">Total automático</th>
+                <th class="num" data-sortable="true">Total automatico</th>
                 <th class="num" data-sortable="true">Ajuste manual</th>
-                <th class="num" data-sortable="true">Total final</th>
-                <th data-sortable="true">Observaciones</th>
             </tr>
             </thead>
             <tbody data-sort-body="call-center-summary">
             @foreach ($callCenterSummaryRows as $row)
                 <tr>
-                    <td data-sort-value="{{ $callCenterDashboard['month'] }}">{{ $callCenterDashboard['month'] }}</td>
                     <td data-sort-value="{{ $row['agent_name'] }}">{{ $row['agent_name'] }}</td>
+                    <td class="num" data-sort-value="{{ $row['final_total'] }}"><strong>{{ number_format($row['final_total'], 2, ',', '.') }}</strong></td>
                     <td class="num" data-sort-value="{{ $row['purchase_commission'] }}">{{ number_format($row['purchase_commission'], 2, ',', '.') }}</td>
                     <td class="num" data-sort-value="{{ $row['purchase_count'] }}">{{ number_format($row['purchase_count'], 0, ',', '.') }}</td>
                     <td class="num" data-sort-value="{{ $row['sales_commission'] }}">{{ number_format($row['sales_commission'], 2, ',', '.') }}</td>
@@ -120,15 +134,20 @@
                     <td class="num" data-sort-value="{{ $row['facilitea_count'] }}">{{ number_format($row['facilitea_count'], 0, ',', '.') }}</td>
                     <td class="num" data-sort-value="{{ $row['automatic_total'] }}"><strong>{{ number_format($row['automatic_total'], 2, ',', '.') }}</strong></td>
                     <td class="num" data-sort-value="{{ $row['manual_adjustment'] }}">{{ number_format($row['manual_adjustment'], 2, ',', '.') }}</td>
-                    <td class="num" data-sort-value="{{ $row['final_total'] }}"><strong>{{ number_format($row['final_total'], 2, ',', '.') }}</strong></td>
-                    <td data-sort-value="{{ $row['observations'] }}">{{ $row['observations'] !== '' ? $row['observations'] : '-' }}</td>
                 </tr>
             @endforeach
             </tbody>
         </table>
     </div>
 
-    <section class="commission-detail-shell commission-call-center-detail-shell" data-agent-browser>
+    @php
+        $callCenterAgentPayload = $callCenterSummaryRows
+            ->mapWithKeys(fn (array $row) => [$row['agent_key'] => $row])
+            ->all();
+        $callCenterActiveRow = $callCenterSummaryRows->firstWhere('agent_key', $callCenterDefaultAgentKey) ?? $callCenterSummaryRows->first();
+    @endphp
+
+    <section class="commission-detail-shell commission-call-center-detail-shell" data-call-center-browser>
         <aside class="card commission-commercial-picker">
             <div class="filter-group">
                 <label for="callCenterAgentSearch">Buscar agente</label>
@@ -155,32 +174,32 @@
                     </button>
                 @endforeach
             </div>
-            <div class="notice is-hidden" data-agent-empty>No hay agentes que coincidan con la búsqueda.</div>
+            <div class="notice is-hidden" data-agent-empty>No hay agentes que coincidan con la busqueda.</div>
         </aside>
 
         <div class="commission-detail-stage">
-            @foreach ($callCenterSummaryRows as $row)
+            @if ($callCenterActiveRow)
                 <section
-                    class="commission-commercial-panel{{ $row['agent_key'] === $callCenterDefaultAgentKey ? ' is-active' : ' is-hidden' }}"
-                    data-agent-panel
-                    data-agent-id="{{ $row['agent_key'] }}"
+                    class="commission-commercial-panel is-active"
+                    data-call-center-panel-root
+                    data-agent-id="{{ $callCenterActiveRow['agent_key'] }}"
                 >
                     <section class="call-center-agent-hero">
                         <article class="card campaign-context-card">
                             <span>Agente / Captador</span>
-                            <strong>{{ $row['agent_name'] }}</strong>
+                            <strong>{{ $callCenterActiveRow['agent_name'] }}</strong>
                         </article>
                         <article class="card campaign-context-card">
-                            <span>Total automático</span>
-                            <strong>{{ number_format($row['automatic_total'], 2, ',', '.') }} EUR</strong>
+                            <span>Total automatico</span>
+                            <strong>{{ number_format($callCenterActiveRow['automatic_total'], 2, ',', '.') }} EUR</strong>
                         </article>
                         <article class="card campaign-context-card">
                             <span>Total final</span>
-                            <strong>{{ number_format($row['final_total'], 2, ',', '.') }} EUR</strong>
+                            <strong>{{ number_format($callCenterActiveRow['final_total'], 2, ',', '.') }} EUR</strong>
                         </article>
                         <article class="card campaign-context-card">
                             <span>Observaciones</span>
-                            <strong>{{ $row['observations'] !== '' ? $row['observations'] : 'Sin incidencias' }}</strong>
+                            <strong>{{ $callCenterActiveRow['observations'] !== '' ? $callCenterActiveRow['observations'] : 'Sin incidencias' }}</strong>
                         </article>
                     </section>
 
@@ -195,22 +214,22 @@
                     <div class="commission-detail-grid">
                         <div data-commercial-detail-tab-panel="purchases">
                             <div class="table-shell">
-                                <table data-sortable-table="call-center-purchases-{{ $row['agent_key'] }}">
+                                <table data-sortable-table="call-center-purchases-{{ $callCenterActiveRow['agent_key'] }}">
                                     <thead>
                                     <tr>
                                         <th data-sortable="true">Opportunity Id</th>
                                         <th data-sortable="true">Opportunity Name</th>
                                         <th data-sortable="true">Record Type</th>
                                         <th data-sortable="true">Captador</th>
-                                        <th class="num" data-sortable="true">Comisión Captador</th>
+                                        <th class="num" data-sortable="true">Comision Captador</th>
                                         <th data-sortable="true">Fecha firma contrato</th>
-                                        <th data-sortable="true">Vehículo a tasar</th>
+                                        <th data-sortable="true">Vehiculo a tasar</th>
                                         <th data-sortable="true">Fecha captador</th>
                                         <th data-sortable="true">Account Name</th>
                                     </tr>
                                     </thead>
-                                    <tbody data-sort-body="call-center-purchases-{{ $row['agent_key'] }}">
-                                    @forelse ($row['details']['purchases'] as $detail)
+                                    <tbody data-sort-body="call-center-purchases-{{ $callCenterActiveRow['agent_key'] }}">
+                                    @forelse ($callCenterActiveRow['details']['purchases'] as $detail)
                                         <tr>
                                             <td>{{ $detail['opportunity_id'] }}</td>
                                             <td>{{ $detail['opportunity_name'] }}</td>
@@ -232,24 +251,24 @@
 
                         <div class="is-hidden" data-commercial-detail-tab-panel="sales">
                             <div class="table-shell">
-                                <table data-sortable-table="call-center-sales-{{ $row['agent_key'] }}">
+                                <table data-sortable-table="call-center-sales-{{ $callCenterActiveRow['agent_key'] }}">
                                     <thead>
                                     <tr>
                                         <th data-sortable="true">Opportunity Id</th>
                                         <th data-sortable="true">Opportunity Name</th>
                                         <th data-sortable="true">Record Type</th>
                                         <th data-sortable="true">Captador</th>
-                                        <th class="num" data-sortable="true">Comisión Captador</th>
+                                        <th class="num" data-sortable="true">Comision Captador</th>
                                         <th data-sortable="true">Fecha firma contrato</th>
-                                        <th data-sortable="true">Vehículo a tasar</th>
-                                        <th data-sortable="true">Vehículo de interés</th>
+                                        <th data-sortable="true">Vehiculo a tasar</th>
+                                        <th data-sortable="true">Vehiculo de interes</th>
                                         <th data-sortable="true">Account Name</th>
                                         <th data-sortable="true">Fuente de origen</th>
                                         <th data-sortable="true">Opportunity Owner</th>
                                     </tr>
                                     </thead>
-                                    <tbody data-sort-body="call-center-sales-{{ $row['agent_key'] }}">
-                                    @forelse ($row['details']['sales'] as $detail)
+                                    <tbody data-sort-body="call-center-sales-{{ $callCenterActiveRow['agent_key'] }}">
+                                    @forelse ($callCenterActiveRow['details']['sales'] as $detail)
                                         <tr>
                                             <td>{{ $detail['opportunity_id'] }}</td>
                                             <td>{{ $detail['opportunity_name'] }}</td>
@@ -273,24 +292,24 @@
 
                         <div class="is-hidden" data-commercial-detail-tab-panel="changes">
                             <div class="table-shell">
-                                <table data-sortable-table="call-center-changes-{{ $row['agent_key'] }}">
+                                <table data-sortable-table="call-center-changes-{{ $callCenterActiveRow['agent_key'] }}">
                                     <thead>
                                     <tr>
                                         <th data-sortable="true">Opportunity Id</th>
                                         <th data-sortable="true">Opportunity Name</th>
                                         <th data-sortable="true">Record Type</th>
                                         <th data-sortable="true">Captador</th>
-                                        <th class="num" data-sortable="true">Comisión Captador</th>
+                                        <th class="num" data-sortable="true">Comision Captador</th>
                                         <th data-sortable="true">Fecha firma contrato</th>
-                                        <th data-sortable="true">Vehículo a tasar</th>
-                                        <th data-sortable="true">Vehículo de interés</th>
+                                        <th data-sortable="true">Vehiculo a tasar</th>
+                                        <th data-sortable="true">Vehiculo de interes</th>
                                         <th data-sortable="true">Account Name</th>
                                         <th data-sortable="true">Fuente de origen</th>
                                         <th data-sortable="true">Opportunity Owner</th>
                                     </tr>
                                     </thead>
-                                    <tbody data-sort-body="call-center-changes-{{ $row['agent_key'] }}">
-                                    @forelse ($row['details']['changes'] as $detail)
+                                    <tbody data-sort-body="call-center-changes-{{ $callCenterActiveRow['agent_key'] }}">
+                                    @forelse ($callCenterActiveRow['details']['changes'] as $detail)
                                         <tr>
                                             <td>{{ $detail['opportunity_id'] }}</td>
                                             <td>{{ $detail['opportunity_name'] }}</td>
@@ -314,35 +333,39 @@
 
                         <div class="is-hidden" data-commercial-detail-tab-panel="german">
                             <div class="table-shell">
-                                <table data-sortable-table="call-center-german-{{ $row['agent_key'] }}">
+                                <table data-sortable-table="call-center-german-{{ $callCenterActiveRow['agent_key'] }}">
                                     <thead>
                                     <tr>
+                                        <th data-sortable="true">Tasacion Id</th>
+                                        <th data-sortable="true">Tasacion</th>
                                         <th data-sortable="true">Opportunity Id</th>
                                         <th data-sortable="true">Opportunity Name</th>
-                                        <th data-sortable="true">Record Type</th>
                                         <th data-sortable="true">Fecha firma contrato</th>
-                                        <th data-sortable="true">Captador original</th>
-                                        <th data-sortable="true">Captador 2</th>
-                                        <th data-sortable="true">Captador 3</th>
-                                        <th data-sortable="true">Captador 4</th>
+                                        <th data-sortable="true">Seguimiento</th>
+                                        <th data-sortable="true">Negociacion 1</th>
+                                        <th data-sortable="true">Negociacion 2</th>
+                                        <th data-sortable="true">Negociacion 3</th>
+                                        <th data-sortable="true">Negociacion 4</th>
                                         <th class="num" data-sortable="true">Importe</th>
                                     </tr>
                                     </thead>
-                                    <tbody data-sort-body="call-center-german-{{ $row['agent_key'] }}">
-                                    @forelse ($row['details']['german_negotiations'] as $detail)
+                                    <tbody data-sort-body="call-center-german-{{ $callCenterActiveRow['agent_key'] }}">
+                                    @forelse ($callCenterActiveRow['details']['german_negotiations'] as $detail)
                                         <tr>
-                                            <td>{{ $detail['opportunity_id'] }}</td>
-                                            <td>{{ $detail['opportunity_name'] }}</td>
-                                            <td>{{ $detail['record_type_name'] }}</td>
+                                            <td>{{ $detail['tasacion_id'] }}</td>
+                                            <td>{{ $detail['tasacion_name'] !== '' ? $detail['tasacion_name'] : '-' }}</td>
+                                            <td>{{ $detail['opportunity_id'] !== '' ? $detail['opportunity_id'] : '-' }}</td>
+                                            <td>{{ $detail['opportunity_name'] !== '' ? $detail['opportunity_name'] : '-' }}</td>
                                             <td>{{ $detail['contract_signed_date'] ?? '-' }}</td>
-                                            <td>{{ $detail['captador_original'] !== '' ? $detail['captador_original'] : '-' }}</td>
+                                            <td>{{ $detail['tracking_name'] !== '' ? $detail['tracking_name'] : '-' }}</td>
                                             <td>{{ $detail['negotiation_1'] !== '' ? $detail['negotiation_1'] : '-' }}</td>
                                             <td>{{ $detail['negotiation_2'] !== '' ? $detail['negotiation_2'] : '-' }}</td>
                                             <td>{{ $detail['negotiation_3'] !== '' ? $detail['negotiation_3'] : '-' }}</td>
+                                            <td>{{ $detail['negotiation_4'] !== '' ? $detail['negotiation_4'] : '-' }}</td>
                                             <td class="num">{{ number_format($detail['commission_amount'], 2, ',', '.') }}</td>
                                         </tr>
                                     @empty
-                                        <tr><td colspan="9">Sin negociaciones German para este agente en el mes.</td></tr>
+                                        <tr><td colspan="11">Sin negociaciones German para este agente en el mes.</td></tr>
                                     @endforelse
                                     </tbody>
                                 </table>
@@ -351,24 +374,24 @@
 
                         <div class="is-hidden" data-commercial-detail-tab-panel="facilitea">
                             <div class="table-shell">
-                                <table data-sortable-table="call-center-facilitea-{{ $row['agent_key'] }}">
+                                <table data-sortable-table="call-center-facilitea-{{ $callCenterActiveRow['agent_key'] }}">
                                     <thead>
                                     <tr>
                                         <th data-sortable="true">Opportunity Id</th>
                                         <th data-sortable="true">Opportunity Owner</th>
-                                        <th class="num" data-sortable="true">Días entrega</th>
+                                        <th class="num" data-sortable="true">Dias entrega</th>
                                         <th data-sortable="true">Opportunity Name</th>
                                         <th data-sortable="true">Account Name</th>
                                         <th data-sortable="true">Fecha firma contrato</th>
                                         <th data-sortable="true">Coopropietario</th>
-                                        <th data-sortable="true">Delegación propietario</th>
-                                        <th data-sortable="true">Vehículo de interés</th>
+                                        <th data-sortable="true">Delegacion propietario</th>
+                                        <th data-sortable="true">Vehiculo de interes</th>
                                         <th data-sortable="true">Fecha entrega</th>
                                         <th class="num" data-sortable="true">Importe</th>
                                     </tr>
                                     </thead>
-                                    <tbody data-sort-body="call-center-facilitea-{{ $row['agent_key'] }}">
-                                    @forelse ($row['details']['facilitea'] as $detail)
+                                    <tbody data-sort-body="call-center-facilitea-{{ $callCenterActiveRow['agent_key'] }}">
+                                    @forelse ($callCenterActiveRow['details']['facilitea'] as $detail)
                                         <tr>
                                             <td>{{ $detail['opportunity_id'] }}</td>
                                             <td>{{ $detail['owner_name'] !== '' ? $detail['owner_name'] : '-' }}</td>
@@ -391,9 +414,28 @@
                         </div>
                     </div>
                 </section>
-            @endforeach
+            @endif
         </div>
     </section>
+    <script type="application/json" id="callCenterAgentPayload">@json($callCenterAgentPayload)</script>
 @else
+    <section class="platform-comparison-grid commission-overview-grid call-center-overview-grid">
+        <article class="card platform-comparison-card call-center-diagnostics-card">
+            <div class="platform-comparison-head">
+                <strong>Diagnostico y resync</strong>
+                <span>Si el bloque llega vacio, refresca opportunities y tasaciones del mes completo antes de revisar captadores o Negociaciones German.</span>
+            </div>
+            <div class="call-center-diagnostics-list">
+                <div class="call-center-diagnostics-row">
+                    <span>Opportunities</span>
+                    <code>php artisan salesforce:sync-opportunities --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+                </div>
+                <div class="call-center-diagnostics-row">
+                    <span>Tasaciones</span>
+                    <code>php artisan salesforce:sync-tasaciones --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+                </div>
+            </div>
+        </article>
+    </section>
     <div class="notice">No hay operaciones comisionables de Call Center para el mes seleccionado o el rango de contrato activo.</div>
 @endif

@@ -29,6 +29,7 @@ let commissionSummaryVisibleColumns = loadVisibleColumns(
 
 document.addEventListener('DOMContentLoaded', () => {
     bindCommissionTabs();
+    bindCallCenterBrowser();
     bindAgentBrowsers();
     bindCommissionDetailTabs();
     bindSortableTables();
@@ -63,6 +64,296 @@ function bindCommissionTabs() {
 function bindAgentBrowsers() {
     document.querySelectorAll('[data-agent-browser]').forEach((browser) => {
         bindAgentBrowser(browser);
+    });
+}
+
+function bindCallCenterBrowser() {
+    const browser = document.querySelector('[data-call-center-browser]');
+    const payloadNode = document.getElementById('callCenterAgentPayload');
+
+    if (!browser || !payloadNode) {
+        return;
+    }
+
+    const searchInput = browser.querySelector('[data-agent-search-input]');
+    const emptyState = browser.querySelector('[data-agent-empty]');
+    const options = [...browser.querySelectorAll('[data-agent-option]')];
+    const panelRoot = browser.querySelector('[data-call-center-panel-root]');
+
+    if (!options.length || !panelRoot) {
+        return;
+    }
+
+    let payload = {};
+
+    try {
+        payload = JSON.parse(payloadNode.textContent || '{}');
+    } catch (error) {
+        payload = {};
+    }
+
+    let activeTab = 'purchases';
+
+    const visibleOptions = () => options.filter((option) => !option.classList.contains('is-hidden'));
+
+    const activateAgent = (agentId) => {
+        const row = payload[agentId];
+
+        options.forEach((option) => {
+            option.classList.toggle('is-active', option.dataset.agentId === agentId && !option.classList.contains('is-hidden'));
+        });
+
+        if (!row) {
+            panelRoot.classList.add('is-hidden');
+            return;
+        }
+
+        panelRoot.classList.remove('is-hidden');
+        panelRoot.dataset.agentId = agentId;
+        panelRoot.innerHTML = renderCallCenterAgentPanel(row, activeTab);
+        bindCallCenterPanelTabs(panelRoot, (nextTab) => {
+            activeTab = nextTab;
+            activateAgent(agentId);
+        });
+        panelRoot.querySelectorAll('table[data-sortable-table]').forEach((table) => makeTableSortable(table));
+    };
+
+    const filterOptions = () => {
+        const term = (searchInput?.value || '').trim().toLowerCase();
+
+        options.forEach((option) => {
+            const haystack = option.dataset.agentSearch || '';
+            option.classList.toggle('is-hidden', term !== '' && !haystack.includes(term));
+        });
+
+        const firstVisible = visibleOptions()[0];
+        emptyState?.classList.toggle('is-hidden', Boolean(firstVisible));
+
+        if (firstVisible) {
+            activateAgent(firstVisible.dataset.agentId);
+        } else {
+            panelRoot.classList.add('is-hidden');
+        }
+    };
+
+    options.forEach((option) => {
+        option.addEventListener('click', () => {
+            activateAgent(option.dataset.agentId);
+        });
+    });
+
+    searchInput?.addEventListener('input', filterOptions);
+    filterOptions();
+}
+
+function bindCallCenterPanelTabs(panelRoot, onChange) {
+    const triggers = [...panelRoot.querySelectorAll('[data-commercial-detail-tab-trigger]')];
+
+    if (!triggers.length) {
+        return;
+    }
+
+    triggers.forEach((trigger) => {
+        trigger.addEventListener('click', () => {
+            onChange(trigger.dataset.commercialDetailTabTrigger);
+        });
+    });
+}
+
+function renderCallCenterAgentPanel(row, activeTab) {
+    return `
+        <section class="call-center-agent-hero">
+            ${renderCallCenterMetricCard('Agente / Captador', row.agent_name)}
+            ${renderCallCenterMetricCard('Total automatico', `${formatCurrencyEs(row.automatic_total)} EUR`)}
+            ${renderCallCenterMetricCard('Total final', `${formatCurrencyEs(row.final_total)} EUR`)}
+            ${renderCallCenterMetricCard('Observaciones', row.observations || 'Sin incidencias')}
+        </section>
+
+        <nav class="tabs-main commission-detail-tabs" aria-label="Detalle Call Center por bloque">
+            ${renderCallCenterTabButton('purchases', 'Compras', activeTab)}
+            ${renderCallCenterTabButton('sales', 'Ventas', activeTab)}
+            ${renderCallCenterTabButton('changes', 'Cambios', activeTab)}
+            ${renderCallCenterTabButton('german', 'Negociaciones German', activeTab)}
+            ${renderCallCenterTabButton('facilitea', 'Facilitea', activeTab)}
+        </nav>
+
+        <div class="commission-detail-grid">
+            <div class="${activeTab === 'purchases' ? '' : 'is-hidden'}" data-commercial-detail-tab-panel="purchases">
+                <div class="table-shell">
+                    ${renderCallCenterTable(
+                        `call-center-purchases-${escapeHtml(row.agent_key)}`,
+                        [
+                            ['Opportunity Id', (detail) => detail.opportunity_id || '-'],
+                            ['Opportunity Name', (detail) => detail.opportunity_name || '-'],
+                            ['Record Type', (detail) => detail.record_type_name || '-'],
+                            ['Captador', (detail) => detail.captador || '-'],
+                            ['Comision Captador', (detail) => formatCurrencyEs(detail.commission_amount), 'num'],
+                            ['Fecha firma contrato', (detail) => detail.contract_signed_date || '-'],
+                            ['Vehiculo a tasar', (detail) => detail.vehicle_to_appraise || '-'],
+                            ['Fecha captador', (detail) => detail.capture_date || '-'],
+                            ['Account Name', (detail) => detail.account_name || '-'],
+                        ],
+                        row.details?.purchases || [],
+                        'Sin compras/tasaciones comisionables para este agente.'
+                    )}
+                </div>
+            </div>
+
+            <div class="${activeTab === 'sales' ? '' : 'is-hidden'}" data-commercial-detail-tab-panel="sales">
+                <div class="table-shell">
+                    ${renderCallCenterTable(
+                        `call-center-sales-${escapeHtml(row.agent_key)}`,
+                        [
+                            ['Opportunity Id', (detail) => detail.opportunity_id || '-'],
+                            ['Opportunity Name', (detail) => detail.opportunity_name || '-'],
+                            ['Record Type', (detail) => detail.record_type_name || '-'],
+                            ['Captador', (detail) => detail.captador || '-'],
+                            ['Comision Captador', (detail) => formatCurrencyEs(detail.commission_amount), 'num'],
+                            ['Fecha firma contrato', (detail) => detail.contract_signed_date || '-'],
+                            ['Vehiculo a tasar', (detail) => detail.vehicle_to_appraise || '-'],
+                            ['Vehiculo de interes', (detail) => detail.vehicle_interest || '-'],
+                            ['Account Name', (detail) => detail.account_name || '-'],
+                            ['Fuente de origen', (detail) => detail.source || '-'],
+                            ['Opportunity Owner', (detail) => detail.owner_name || '-'],
+                        ],
+                        row.details?.sales || [],
+                        'Sin ventas comisionables para este agente.'
+                    )}
+                </div>
+            </div>
+
+            <div class="${activeTab === 'changes' ? '' : 'is-hidden'}" data-commercial-detail-tab-panel="changes">
+                <div class="table-shell">
+                    ${renderCallCenterTable(
+                        `call-center-changes-${escapeHtml(row.agent_key)}`,
+                        [
+                            ['Opportunity Id', (detail) => detail.opportunity_id || '-'],
+                            ['Opportunity Name', (detail) => detail.opportunity_name || '-'],
+                            ['Record Type', (detail) => detail.record_type_name || '-'],
+                            ['Captador', (detail) => detail.captador || '-'],
+                            ['Comision Captador', (detail) => formatCurrencyEs(detail.commission_amount), 'num'],
+                            ['Fecha firma contrato', (detail) => detail.contract_signed_date || '-'],
+                            ['Vehiculo a tasar', (detail) => detail.vehicle_to_appraise || '-'],
+                            ['Vehiculo de interes', (detail) => detail.vehicle_interest || '-'],
+                            ['Account Name', (detail) => detail.account_name || '-'],
+                            ['Fuente de origen', (detail) => detail.source || '-'],
+                            ['Opportunity Owner', (detail) => detail.owner_name || '-'],
+                        ],
+                        row.details?.changes || [],
+                        'Sin cambios comisionables para este agente.'
+                    )}
+                </div>
+            </div>
+
+            <div class="${activeTab === 'german' ? '' : 'is-hidden'}" data-commercial-detail-tab-panel="german">
+                <div class="table-shell">
+                    ${renderCallCenterTable(
+                        `call-center-german-${escapeHtml(row.agent_key)}`,
+                        [
+                            ['Tasacion Id', (detail) => detail.tasacion_id || '-'],
+                            ['Tasacion', (detail) => detail.tasacion_name || '-'],
+                            ['Opportunity Id', (detail) => detail.opportunity_id || '-'],
+                            ['Opportunity Name', (detail) => detail.opportunity_name || '-'],
+                            ['Fecha firma contrato', (detail) => detail.contract_signed_date || '-'],
+                            ['Seguimiento', (detail) => detail.tracking_name || '-'],
+                            ['Negociacion 1', (detail) => detail.negotiation_1 || '-'],
+                            ['Negociacion 2', (detail) => detail.negotiation_2 || '-'],
+                            ['Negociacion 3', (detail) => detail.negotiation_3 || '-'],
+                            ['Negociacion 4', (detail) => detail.negotiation_4 || '-'],
+                            ['Importe', (detail) => formatCurrencyEs(detail.commission_amount), 'num'],
+                        ],
+                        row.details?.german_negotiations || [],
+                        'Sin negociaciones German para este agente en el mes.'
+                    )}
+                </div>
+            </div>
+
+            <div class="${activeTab === 'facilitea' ? '' : 'is-hidden'}" data-commercial-detail-tab-panel="facilitea">
+                <div class="table-shell">
+                    ${renderCallCenterTable(
+                        `call-center-facilitea-${escapeHtml(row.agent_key)}`,
+                        [
+                            ['Opportunity Id', (detail) => detail.opportunity_id || '-'],
+                            ['Opportunity Owner', (detail) => detail.owner_name || '-'],
+                            ['Dias entrega', (detail) => detail.delivery_days ?? '-', 'num'],
+                            ['Opportunity Name', (detail) => detail.opportunity_name || '-'],
+                            ['Account Name', (detail) => detail.account_name || '-'],
+                            ['Fecha firma contrato', (detail) => detail.contract_signed_date || '-'],
+                            ['Coopropietario', (detail) => detail.coowner_name || '-'],
+                            ['Delegacion propietario', (detail) => detail.owner_delegation || '-'],
+                            ['Vehiculo de interes', (detail) => detail.vehicle_interest || '-'],
+                            ['Fecha entrega', (detail) => detail.delivery_date || '-'],
+                            ['Importe', (detail) => formatCurrencyEs(detail.commission_amount), 'num'],
+                        ],
+                        row.details?.facilitea || [],
+                        'Sin operaciones Facilitea para este agente en el mes.'
+                    )}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderCallCenterMetricCard(label, value) {
+    return `
+        <article class="card campaign-context-card">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+        </article>
+    `;
+}
+
+function renderCallCenterTabButton(key, label, activeTab) {
+    return `
+        <button type="button" class="main-tab ${activeTab === key ? 'active' : ''}" data-commercial-detail-tab-trigger="${escapeHtml(key)}">
+            ${escapeHtml(label)}
+        </button>
+    `;
+}
+
+function renderCallCenterTable(tableId, columns, rows, emptyMessage) {
+    const header = columns
+        .map(([label, , align]) => `<th ${align === 'num' ? 'class="num"' : ''} data-sortable="true">${escapeHtml(label)}</th>`)
+        .join('');
+    const body = rows.length
+        ? rows.map((row) => `
+            <tr>
+                ${columns.map(([, formatter, align]) => {
+                    const value = formatter(row);
+                    const rendered = value === null || value === undefined || value === '' ? '-' : String(value);
+
+                    return `<td ${align === 'num' ? 'class="num"' : ''}>${escapeHtml(rendered)}</td>`;
+                }).join('')}
+            </tr>
+        `).join('')
+        : `<tr><td colspan="${columns.length}">${escapeHtml(emptyMessage)}</td></tr>`;
+
+    return `
+        <table data-sortable-table="${escapeHtml(tableId)}">
+            <thead>
+                <tr>${header}</tr>
+            </thead>
+            <tbody data-sort-body="${escapeHtml(tableId)}">
+                ${body}
+            </tbody>
+        </table>
+    `;
+}
+
+function formatCurrencyEs(value) {
+    return formatNumberEs(value, 2);
+}
+
+function formatNumberEs(value, decimals = 0) {
+    const number = Number(value || 0);
+
+    if (Number.isNaN(number)) {
+        return decimals > 0 ? '0,00' : '0';
+    }
+
+    return number.toLocaleString('es-ES', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
     });
 }
 

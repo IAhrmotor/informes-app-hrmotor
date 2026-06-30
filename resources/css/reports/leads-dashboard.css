@@ -3323,6 +3323,7 @@ th.num {
     grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
     gap: 18px;
     align-items: start;
+    min-width: 0;
 }
 
 .commercial-commissions-report .commission-commercial-picker {
@@ -3385,11 +3386,13 @@ th.num {
 
 .commercial-commissions-report .commission-detail-stage {
     min-width: 0;
+    overflow: hidden;
 }
 
 .commercial-commissions-report .commission-commercial-panel {
     display: grid;
     gap: 18px;
+    min-width: 0;
 }
 
 .commercial-commissions-report .commission-commercial-hero {
@@ -3402,14 +3405,17 @@ th.num {
 
 .commercial-commissions-report .commission-detail-grid {
     display: block;
+    min-width: 0;
 }
 
 .commercial-commissions-report .commission-detail-grid table {
     min-width: 620px;
 }
 
+.commercial-commissions-report .commission-detail-grid > div,
 .commercial-commissions-report .commission-detail-grid .table-shell {
     min-width: 0;
+    width: 100%;
 }
 
 .commercial-commissions-report .commission-reviews-table {
@@ -3635,7 +3641,7 @@ th.num {
 
 .commercial-commissions-report .call-center-filter-form {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
     align-items: end;
 }
@@ -3672,6 +3678,41 @@ th.num {
     margin-bottom: 18px;
 }
 
+.commercial-commissions-report .call-center-diagnostics-card {
+    min-width: 0;
+}
+
+.commercial-commissions-report .call-center-diagnostics-list {
+    display: grid;
+    gap: 12px;
+}
+
+.commercial-commissions-report .call-center-diagnostics-row {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+.commercial-commissions-report .call-center-diagnostics-row span {
+    color: rgba(31, 41, 68, .62);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+
+.commercial-commissions-report .call-center-diagnostics-row code {
+    display: block;
+    overflow: auto;
+    padding: 10px 12px;
+    border: 1px solid rgba(31, 41, 68, .10);
+    border-radius: 16px;
+    background: rgba(245, 247, 251, .9);
+    color: #1f2944;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
 .commercial-commissions-report .call-center-summary-shell {
     margin-bottom: 20px;
 }
@@ -3679,6 +3720,8 @@ th.num {
 .commercial-commissions-report .commission-call-center-detail-shell {
     grid-template-columns: 280px minmax(0, 1fr);
     align-items: start;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .commercial-commissions-report .call-center-agent-hero {
@@ -3686,6 +3729,15 @@ th.num {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 16px;
     margin-bottom: 18px;
+    min-width: 0;
+}
+
+.commercial-commissions-report .call-center-agent-hero > .card {
+    min-width: 0;
+}
+
+.commercial-commissions-report .call-center-agent-hero .campaign-context-card strong {
+    overflow-wrap: anywhere;
 }
 
 .commercial-commissions-report .commission-call-center-detail-shell .commission-commercial-picker {
