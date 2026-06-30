@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Reports\CallCenterCommissions\CallCenterCommissionDashboardService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
+use App\Services\Reports\ContactCenterCommissions\ContactCenterCommissionDashboardService;
 use App\Support\ReportUserAccess;
 use Illuminate\Http\Request;
 
@@ -16,6 +17,7 @@ class CommercialCommissionDashboardController extends Controller
         CommercialCommissionDashboardService $dashboard,
         CommercialCommissionFormulaConfigService $formulaConfig,
         CallCenterCommissionDashboardService $callCenterDashboard,
+        ContactCenterCommissionDashboardService $contactCenterDashboard,
     )
     {
         $selectedMonth = $request->query('month');
@@ -38,6 +40,7 @@ class CommercialCommissionDashboardController extends Controller
                 is_string($callCenterContractFrom) ? $callCenterContractFrom : null,
                 is_string($callCenterContractTo) ? $callCenterContractTo : null
             ),
+            'contactCenterDashboard' => $contactCenterDashboard->build($payload['month']),
             'formulaSettings' => $formulaConfig->forMonth($payload['month']),
         ]);
     }

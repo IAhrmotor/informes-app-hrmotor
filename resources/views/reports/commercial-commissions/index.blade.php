@@ -20,6 +20,7 @@
     $summaryRows = collect($dashboard['summary_rows'] ?? []);
     $delegationRows = collect($dashboard['delegation_rows'] ?? []);
     $callCenterSummaryRows = collect($callCenterDashboard['summary_rows'] ?? []);
+    $contactCenterSummaryRows = collect($contactCenterDashboard['summary_rows'] ?? []);
     $stockLabel = 'Stock +'.(int) ($formulaSettings['stock']['days_threshold'] ?? 150);
     $bonusLabel = 'Bonus +'.(int) ($formulaSettings['bonus']['start_after_delivery'] ?? 15);
     $defaultCommercialId = $summaryRows->first()['commercial_id'] ?? null;
@@ -187,7 +188,16 @@
                 </section>
             @endif
 
-            @if ($summaryRows->isNotEmpty() || $delegationRows->isNotEmpty() || $callCenterSummaryRows->isNotEmpty())
+            @if (
+                $summaryRows->isNotEmpty()
+                || $delegationRows->isNotEmpty()
+                || $callCenterSummaryRows->isNotEmpty()
+                || $contactCenterSummaryRows->isNotEmpty()
+                || ! empty($callCenterDashboard['issues'])
+                || ! empty($callCenterDashboard['warnings'])
+                || ! empty($contactCenterDashboard['issues'])
+                || ! empty($contactCenterDashboard['warnings'])
+            )
                 <section class="card panel">
                     <div class="panel-title">
                         <div>
@@ -201,6 +211,7 @@
                         <button type="button" class="main-tab" data-commission-tab-trigger="detail">Detalle por comercial</button>
                         <button type="button" class="main-tab" data-commission-tab-trigger="delegations">Delegaciones</button>
                         <button type="button" class="main-tab" data-commission-tab-trigger="call-center">Call Center</button>
+                        <button type="button" class="main-tab" data-commission-tab-trigger="contact-center">Contact Center</button>
                     </nav>
 
                     <div data-commission-tab-panel="summary">
@@ -708,6 +719,27 @@
                             @endforeach
 
                             @include('reports.commercial-commissions.partials.call-center-tab')
+                        </section>
+                    </div>
+
+                    <div class="is-hidden" data-commission-tab-panel="contact-center">
+                        <section class="card panel">
+                            <div class="panel-title compact">
+                                <div>
+                                    <h2>Comisiones Contact Center</h2>
+                                    <div class="small">Citas, oportunidades, reservas y ventas imputadas por captador de cita en el mes cerrado.</div>
+                                </div>
+                            </div>
+
+                            @foreach ($contactCenterDashboard['issues'] ?? [] as $issue)
+                                <div class="notice">{{ $issue }}</div>
+                            @endforeach
+
+                            @foreach ($contactCenterDashboard['warnings'] ?? [] as $warning)
+                                <div class="notice commission-warning">{{ $warning }}</div>
+                            @endforeach
+
+                            @include('reports.commercial-commissions.partials.contact-center-tab')
                         </section>
                     </div>
                 </section>

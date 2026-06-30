@@ -34,14 +34,23 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
                         'CreatedDate' => '2026-05-01T10:00:00.000+0000',
                         'LastActivityDate' => '2026-05-02',
                         'Status' => 'Convertido',
-                        'RecordType' => ['Name' => 'Tasación'],
+                        'RecordType' => ['Name' => 'Tasacion'],
                         'OwnerId' => '005-owner-1',
                         'Owner' => ['Name' => 'Owner Uno'],
+                        'Captador_de_cita__c' => '005-setter-1',
+                        'Captador_de_cita__r' => ['Name' => 'Maria Vidal'],
                         'Persona_que_trabaj__c' => '005-worker-1',
                         'Persona_que_trabaj__r' => ['Name' => 'Worker Uno'],
                         'Propietario_cuando_se_descarto__c' => null,
                         'Propietario_cuando_se_descarto__r' => null,
                         'Fecha_Asignacion__c' => '2026-05-01T10:05:00.000+0000',
+                        'Fecha_captador__c' => '2026-05-01',
+                        'Cita_llamada__c' => true,
+                        'Cita_Tienda__c' => false,
+                        'Acudi_a_la_cita__c' => 'ACUDIO',
+                        'Comercial_que_atiende_en_tienda__c' => '005-store-1',
+                        'Comercial_que_atiende_en_tienda__r' => ['Name' => 'Comercial Tienda 1'],
+                        'Estado_del_candidato_formula__c' => 'Citado',
                         'LEA_SEL_Fuente_Origen__c' => 'Fuente',
                         'LEA_SEL_Medio_Origen__c' => 'Medio',
                         'Portal_Text__c' => 'Web',
@@ -79,6 +88,7 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
         $this->assertSame(2, $result['queried']);
         $this->assertSame(2, $result['saved']);
         $this->assertStringContainsString('RecordType.Name', $result['soql']);
+        $this->assertStringContainsString('Captador_de_cita__c', $result['soql']);
         $this->assertStringContainsString('CreatedDate >= 2026-03-14T13:37:27Z', $result['soql']);
         $this->assertStringContainsString('CreatedDate < 2026-05-13T13:37:27Z', $result['soql']);
 
@@ -86,7 +96,10 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
         $this->assertDatabaseHas('salesforce_leads', [
             'salesforce_id' => '00Q1',
             'owner_name' => 'Owner Uno',
-            'record_type_name' => 'Tasación',
+            'record_type_name' => 'Tasacion',
+            'appointment_setter_name' => 'Maria Vidal',
+            'appointment_call' => true,
+            'appointment_attended_status' => 'ACUDIO',
             'persona_que_trabajo_name' => 'Worker Uno',
             'portal_text' => 'Web',
         ]);

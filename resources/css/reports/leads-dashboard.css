@@ -3255,6 +3255,7 @@ th.num {
     border: 1px solid rgba(31, 41, 68, .10);
     border-radius: 24px;
     background: #fff;
+    height: 700px;
 }
 
 .commercial-commissions-report .commission-summary-table-wrap {
@@ -3725,6 +3726,14 @@ th.num {
     overflow: hidden;
 }
 
+.commercial-commissions-report .commission-contact-center-detail-shell {
+    grid-template-columns: 280px minmax(0, 1fr);
+    align-items: start;
+    min-width: 0;
+    overflow: hidden;
+    margin-top: 18px;
+}
+
 .commercial-commissions-report .call-center-agent-hero {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3746,13 +3755,27 @@ th.num {
     top: 24px;
 }
 
+.commercial-commissions-report .commission-contact-center-detail-shell .commission-commercial-picker {
+    position: sticky;
+    top: 24px;
+}
+
 .commercial-commissions-report .commission-call-center-detail-shell .commission-commercial-list {
+    max-height: 560px;
+    overflow: auto;
+}
+
+.commercial-commissions-report .commission-contact-center-detail-shell .commission-commercial-list {
     max-height: 560px;
     overflow: auto;
 }
 
 .commercial-commissions-report .commission-call-center-detail-shell .commission-detail-grid {
     gap: 16px;
+}
+
+.commercial-commissions-report .contact-center-global-incidents-panel {
+    margin-top: 18px;
 }
 
 @media (max-width: 1180px) {
@@ -3769,6 +3792,14 @@ th.num {
     }
 
     .commercial-commissions-report .commission-call-center-detail-shell .commission-commercial-picker {
+        position: static;
+    }
+
+    .commercial-commissions-report .commission-contact-center-detail-shell {
+        grid-template-columns: 1fr;
+    }
+
+    .commercial-commissions-report .commission-contact-center-detail-shell .commission-commercial-picker {
         position: static;
     }
 }

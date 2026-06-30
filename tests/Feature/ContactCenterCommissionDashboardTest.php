@@ -1,0 +1,253 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\ReportUser;
+use App\Models\SalesforceLead;
+use App\Models\SalesforceOpportunity;
+use App\Services\Reports\ContactCenterCommissions\ContactCenterCommissionDashboardService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class ContactCenterCommissionDashboardTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_dashboard_calcula_contact_center_por_citas_oportunidades_reservas_y_ventas(): void
+    {
+        $this->createLead([
+            'salesforce_id' => '00Q-MARIA-1',
+            'name' => 'Lead Maria 1',
+            'appointment_setter_id' => '005-maria',
+            'appointment_setter_name' => 'Maria Vidal',
+            'appointment_capture_date' => '2026-05-03',
+            'appointment_call' => true,
+            'appointment_store' => false,
+            'appointment_attended_status' => 'ACUDIO',
+            'phone' => '600 000 001',
+            'converted_opportunity_id' => '006-1',
+            'portal_text' => 'Web',
+        ]);
+
+        $this->createLead([
+            'salesforce_id' => '00Q-MARIA-2',
+            'name' => 'Lead Maria 2',
+            'appointment_setter_id' => '005-maria',
+            'appointment_setter_name' => 'Maria Vidal',
+            'appointment_capture_date' => '2026-05-10',
+            'appointment_call' => false,
+            'appointment_store' => true,
+            'appointment_attended_status' => 'NO ACUDIO',
+            'phone' => '600000002',
+            'portal_text' => 'Web',
+        ]);
+
+        $this->createLead([
+            'salesforce_id' => '00Q-JOSE-1',
+            'name' => 'Lead Jose 1',
+            'appointment_setter_id' => '005-jose',
+            'appointment_setter_name' => 'Jose Mari',
+            'appointment_capture_date' => '2026-04-28',
+            'appointment_call' => true,
+            'appointment_store' => false,
+            'appointment_attended_status' => 'ACUDIO',
+            'phone' => '600000003',
+            'portal_text' => 'Web',
+        ]);
+
+        $this->createOpportunity([
+            'salesforce_id' => '006-1',
+            'name' => 'Opportunity Maria',
+            'created_date' => '2026-05-05 10:00:00',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'owner_name' => 'Comercial Uno',
+            'owner_delegation' => 'Madrid',
+            'account_name' => 'Cuenta Maria',
+            'account_phone' => '600000001',
+            'reservation' => true,
+            'reservation_date' => '2026-05-06',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-20',
+        ]);
+
+        $this->createOpportunity([
+            'salesforce_id' => '006-2',
+            'name' => 'Opportunity Jose',
+            'created_date' => '2026-05-12 10:00:00',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'owner_name' => 'Comercial Dos',
+            'owner_delegation' => 'Bilbao',
+            'account_name' => 'Cuenta Jose',
+            'account_phone' => '600000003',
+            'reservation' => false,
+            'reservation_date' => null,
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-15',
+        ]);
+
+        $payload = app(ContactCenterCommissionDashboardService::class)->build('2026-05');
+
+        $this->assertTrue($payload['ready']);
+        $this->assertSame(2, $payload['diagnostics']['appointments_count']);
+        $this->assertSame(2, $payload['diagnostics']['sales_count']);
+        $this->assertSame(1, $payload['diagnostics']['opportunity_links_count']);
+        $this->assertSame(1, $payload['diagnostics']['reservation_links_count']);
+        $this->assertSame(0, $payload['diagnostics']['sales_without_appointment_count']);
+
+        $rows = collect($payload['summary_rows']);
+        $maria = $rows->firstWhere('agent_name', 'Maria Vidal');
+        $jose = $rows->firstWhere('agent_name', 'Jose Mari');
+
+        $this->assertSame(2, $maria['appointment_count']);
+        $this->assertSame(1, $maria['opportunity_count']);
+        $this->assertSame(1, $maria['reservation_count']);
+        $this->assertSame(1, $maria['sales_count']);
+        $this->assertSame(1, $maria['show_count']);
+        $this->assertEquals(0.5, $maria['sales_ratio']);
+        $this->assertEquals(5.0, $maria['opportunity_commission']);
+        $this->assertEquals(12.0, $maria['sales_commission']);
+        $this->assertEquals(2.0, $maria['ratio_bonus']);
+        $this->assertEquals(19.0, $maria['final_total']);
+        $this->assertSame('OK', $maria['review_status']);
+
+        $this->assertSame(0, $jose['appointment_count']);
+        $this->assertSame(1, $jose['sales_count']);
+        $this->assertEquals(12.0, $jose['final_total']);
+        $this->assertEquals(0.0, $jose['sales_ratio']);
+
+        $this->assertSame([], $payload['global_incidents']);
+    }
+
+    public function test_director_ve_contact_center_como_pestana_en_comisiones_comerciales(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        $this->createLead([
+            'salesforce_id' => '00Q-VIEW-1',
+            'name' => 'Lead Vista',
+            'appointment_setter_id' => '005-view',
+            'appointment_setter_name' => 'Vanesa German',
+            'appointment_capture_date' => '2026-05-08',
+            'appointment_call' => true,
+            'phone' => '600000009',
+            'portal_text' => 'Web',
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_DIRECTOR,
+            'report_user_email' => 'director@hrmotor.com',
+        ];
+
+        $this->withSession($session)
+            ->get('/informes/comisiones-comerciales?month=2026-05')
+            ->assertOk()
+            ->assertSee('Contact Center')
+            ->assertSee('Comisiones Contact Center')
+            ->assertSee('Citas concertadas');
+    }
+
+    private function createLead(array $attributes): void
+    {
+        SalesforceLead::query()->create(array_merge([
+            'salesforce_id' => '00Q-default',
+            'name' => 'Lead',
+            'created_date' => '2026-05-01 10:00:00',
+            'last_activity_date' => '2026-05-01',
+            'status' => 'Nuevo',
+            'record_type_name' => 'Lead',
+            'owner_id' => '005-owner',
+            'owner_name' => 'Owner',
+            'appointment_setter_id' => null,
+            'appointment_setter_name' => null,
+            'fecha_asignacion' => '2026-05-01 10:00:00',
+            'appointment_capture_date' => null,
+            'appointment_call' => false,
+            'appointment_store' => false,
+            'appointment_attended_status' => null,
+            'store_commercial_id' => null,
+            'store_commercial_name' => null,
+            'candidate_status_formula' => 'Citado',
+            'fuente_origen' => null,
+            'medio_origen' => null,
+            'campaign_acquired' => null,
+            'acquired_id' => null,
+            'content_acquired' => null,
+            'vehicle_interest' => null,
+            'phone' => null,
+            'mobile_phone' => null,
+            'email' => null,
+            'is_converted' => false,
+            'converted_date' => null,
+            'converted_account_id' => null,
+            'converted_contact_id' => null,
+            'converted_opportunity_id' => null,
+            'medio_nuevo' => null,
+            'fuente_nuevo' => null,
+            'remitente_lead' => null,
+            'portal_text' => null,
+            'delegacion_encargada_text' => null,
+            'delegacion_encargada_bueno' => null,
+            'delegacion_encargada' => null,
+            'delegacion_original' => null,
+            'raw_payload' => [],
+        ], $attributes));
+    }
+
+    private function createOpportunity(array $attributes): void
+    {
+        SalesforceOpportunity::query()->create(array_merge([
+            'salesforce_id' => '006-default',
+            'name' => 'Opportunity',
+            'created_date' => '2026-05-01 10:00:00',
+            'close_date' => null,
+            'amount' => null,
+            'opo_for_importe_total' => null,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'owner_id' => null,
+            'owner_name' => 'Owner',
+            'owner_is_active' => true,
+            'owner_delegation' => 'Madrid',
+            'delivery_store' => null,
+            'account_id' => null,
+            'account_name' => 'Cuenta',
+            'account_phone' => null,
+            'account_person_email' => null,
+            'account_company_email' => null,
+            'shared_delivery_id' => null,
+            'shared_delivery_name' => null,
+            'garantia_total' => null,
+            'beneficio_financiacion_comercial' => null,
+            'importe_financiado' => null,
+            'gestion_de_venta' => false,
+            'opo_div_descuento' => null,
+            'informe_rentabilidad' => null,
+            'rentabilidad_financiera' => null,
+            'vehicle_interest_id' => null,
+            'vehicle_sale_price' => null,
+            'vehicle_purchase_price' => null,
+            'vehicle_purchase_source' => null,
+            'vehicle_purchase_date' => null,
+            'vehicle_buyer_id' => null,
+            'vehicle_buyer_name' => null,
+            'vehicle_plate' => null,
+            'vehicle_entry_date' => null,
+            'vehicle_days_in_stock' => null,
+            'portal_original' => null,
+            'opportunity_source_raw' => null,
+            'opportunity_source_normalized' => null,
+            'portal_resolved' => 'Web',
+            'portal_resolution_source' => null,
+            'portal_resolution_lead_id' => null,
+            'portal_resolution_debug' => null,
+            'reservation' => false,
+            'reservation_date' => null,
+            'cv_signed' => false,
+            'cv_signed_date' => null,
+            'raw_payload' => [],
+        ], $attributes));
+    }
+}
