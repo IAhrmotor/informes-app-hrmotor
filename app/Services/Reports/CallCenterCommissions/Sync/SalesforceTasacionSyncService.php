@@ -14,6 +14,12 @@ class SalesforceTasacionSyncService
     private const HISTORY_START = '2020-01-01';
 
     private const QUERY_PROFILES = [
+        'oportunidad_relation' => [
+            'opportunity_id' => 'Oportunidad__c',
+            'opportunity_name' => 'Oportunidad__r.Name',
+            'opportunity_contract_signed_date' => 'Oportunidad__r.Fecha_firma_contrato__c',
+            'opportunity_cv_signed' => 'Oportunidad__r.OPO_CAS_Contrato_CV_firmado__c',
+        ],
         'opportunity_relation' => [
             'opportunity_id' => 'Opportunity__c',
             'opportunity_name' => 'Opportunity__r.Name',
@@ -51,6 +57,10 @@ class SalesforceTasacionSyncService
         'Negociacion_2__c',
         'Negociacion_3__c',
         'Negociacion_4__c',
+        'Negociaci_n_1__c',
+        'Negociaci_n_2__c',
+        'Negociaci_n_3__c',
+        'Negociaci_n_4__c',
     ];
 
     public function __construct(
@@ -150,10 +160,10 @@ class SalesforceTasacionSyncService
 
     private function previewQueryProfile(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
     {
-        $profile = self::QUERY_PROFILES['opportunity_relation'];
+        $profile = self::QUERY_PROFILES['oportunidad_relation'];
 
         return [
-            'profile' => 'opportunity_relation',
+            'profile' => 'oportunidad_relation',
             'soql' => $this->buildSoql($this->selectFields($profile), $periodStart, $periodEnd),
         ];
     }
@@ -181,7 +191,13 @@ class SalesforceTasacionSyncService
             "(CreatedDate >= {$startDateTime} AND CreatedDate < {$endDateTime})",
         ];
 
-        foreach (['Fecha_firma_contrato__c', 'Opportunity__r.Fecha_firma_contrato__c', 'RES_BUS_Oportunidad__r.Fecha_firma_contrato__c', 'TAS_BUS_Oportunidad__r.Fecha_firma_contrato__c'] as $field) {
+        foreach ([
+            'Fecha_firma_contrato__c',
+            'Oportunidad__r.Fecha_firma_contrato__c',
+            'Opportunity__r.Fecha_firma_contrato__c',
+            'RES_BUS_Oportunidad__r.Fecha_firma_contrato__c',
+            'TAS_BUS_Oportunidad__r.Fecha_firma_contrato__c',
+        ] as $field) {
             if (in_array($field, $fields, true)) {
                 $whereClauses[] = "({$field} >= {$startDate} AND {$field} < {$endDate})";
             }
@@ -213,12 +229,14 @@ SOQL;
                 'created_date' => data_get($record, 'CreatedDate'),
                 'opportunity_salesforce_id' => $this->candidateValue($record, [
                     $profile['opportunity_id'] ?? null,
+                    'Oportunidad__c',
                     'Opportunity__c',
                     'RES_BUS_Oportunidad__c',
                     'TAS_BUS_Oportunidad__c',
                 ]),
                 'opportunity_name' => $this->candidateValue($record, [
                     $profile['opportunity_name'] ?? null,
+                    'Oportunidad__r.Name',
                     'Opportunity__r.Name',
                     'RES_BUS_Oportunidad__r.Name',
                     'TAS_BUS_Oportunidad__r.Name',
@@ -226,6 +244,7 @@ SOQL;
                 'contract_signed_date' => $this->candidateValue($record, [
                     'Fecha_firma_contrato__c',
                     $profile['opportunity_contract_signed_date'] ?? null,
+                    'Oportunidad__r.Fecha_firma_contrato__c',
                     'Opportunity__r.Fecha_firma_contrato__c',
                     'RES_BUS_Oportunidad__r.Fecha_firma_contrato__c',
                     'TAS_BUS_Oportunidad__r.Fecha_firma_contrato__c',
@@ -233,15 +252,16 @@ SOQL;
                 'cv_signed' => (bool) $this->candidateValue($record, [
                     'Contrato_CV_firmado__c',
                     $profile['opportunity_cv_signed'] ?? null,
+                    'Oportunidad__r.OPO_CAS_Contrato_CV_firmado__c',
                     'Opportunity__r.OPO_CAS_Contrato_CV_firmado__c',
                     'RES_BUS_Oportunidad__r.OPO_CAS_Contrato_CV_firmado__c',
                     'TAS_BUS_Oportunidad__r.OPO_CAS_Contrato_CV_firmado__c',
                 ]),
                 'tracking_name' => $this->candidateValue($record, ['Seguimiento__c']),
-                'negotiation_1' => $this->candidateValue($record, ['Negociacion_1__c']),
-                'negotiation_2' => $this->candidateValue($record, ['Negociacion_2__c']),
-                'negotiation_3' => $this->candidateValue($record, ['Negociacion_3__c']),
-                'negotiation_4' => $this->candidateValue($record, ['Negociacion_4__c']),
+                'negotiation_1' => $this->candidateValue($record, ['Negociaci_n_1__c', 'Negociacion_1__c']),
+                'negotiation_2' => $this->candidateValue($record, ['Negociaci_n_2__c', 'Negociacion_2__c']),
+                'negotiation_3' => $this->candidateValue($record, ['Negociaci_n_3__c', 'Negociacion_3__c']),
+                'negotiation_4' => $this->candidateValue($record, ['Negociaci_n_4__c', 'Negociacion_4__c']),
                 'source_query_profile' => $profileName,
                 'raw_payload' => $record,
             ]

@@ -1,6 +1,33 @@
 @php
     $callCenterMonthStart = \Carbon\CarbonImmutable::parse(($callCenterDashboard['month'] ?? $dashboard['month']).'-01');
     $callCenterMonthEnd = $callCenterMonthStart->addMonth();
+    $callCenterKpiTooltips = [
+        'Compras / Tasaciones' => 'Tasaciones con Captador informado, gestion de venta false y Comision Captador sumada como importe final.',
+        'Ventas' => 'Ventas con Captador informado, gestion de venta false y Comision Captador sumada como importe final.',
+        'Cambios' => 'Cambios comisionados una sola vez dentro del bloque de ventas/cambios usando Comision Captador.',
+        'Negociaciones German' => 'Tasaciones con Seguimiento German y Negociaci_n_1__c informada. Si falta fecha firma contrato en local, se usa CreatedDate del registro sincronizado.',
+        'Facilitea' => 'Operaciones Facilitea validas con owner Vanessa/Vanesa y 5 EUR por operacion.',
+        'Agentes / captadores' => 'Numero de filas agrupadas por captador o agente dentro del mes y rango de contrato activo.',
+        'Operaciones base' => 'Oportunidades locales del rango activo evaluadas para compras, ventas, cambios y Facilitea.',
+        'Tasaciones sync' => 'Tasaciones sincronizadas del rango activo usando Fecha firma contrato y, si no existe, fallback a CreatedDate.',
+        'Sin captador' => 'Conteo auditor de oportunidades con señales reales de Call Center pero sin Captador principal informado.',
+        'Comisiones vacias' => 'Operaciones con Comision Captador vacia; se computan a 0 EUR y quedan visibles para revision.',
+        'Total automatico' => 'Suma automatica de compras, ventas, cambios, negociaciones German y Facilitea.',
+        'Compras' => 'Suma de Comision Captador del bloque compras/tasaciones.',
+        'Neg. German' => 'Suma de negociaciones atribuidas a German Olsen a 5 EUR por tasacion valida.',
+    ];
+    $callCenterTooltip = static fn (string $label): string => $callCenterKpiTooltips[$label] ?? '';
+    $callCenterMissingCaptadorParams = [
+        'month' => $dashboard['month'],
+        'call_center_contract_from' => $callCenterDashboard['contract_from'] ?? null,
+        'call_center_contract_to' => $callCenterDashboard['contract_to'] ?? null,
+    ];
+    $callCenterMissingCaptadorExportUrl = \Illuminate\Support\Facades\Route::has('reports.commercial-commissions.export.call-center-missing-captador')
+        ? route('reports.commercial-commissions.export.call-center-missing-captador', $callCenterMissingCaptadorParams)
+        : url('/informes/comisiones-comerciales/export/call-center-missing-captador.csv?'.http_build_query(array_filter(
+            $callCenterMissingCaptadorParams,
+            fn ($value) => $value !== null && $value !== ''
+        )));
 @endphp
 
 <section class="card panel call-center-toolbar-panel">
@@ -30,23 +57,23 @@
 @if ($callCenterSummaryRows->isNotEmpty())
     <section class="call-center-kpis-grid">
         <article class="card campaign-context-card">
-            <span>Compras / Tasaciones</span>
+            <span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Compras / Tasaciones') }}">Compras / Tasaciones</span>
             <strong>{{ number_format($callCenterCountPurchases, 0, ',', '.') }} ops / {{ number_format($callCenterTotalPurchases, 2, ',', '.') }} EUR</strong>
         </article>
         <article class="card campaign-context-card">
-            <span>Ventas</span>
+            <span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Ventas') }}">Ventas</span>
             <strong>{{ number_format($callCenterCountSales, 0, ',', '.') }} ops / {{ number_format($callCenterTotalSales, 2, ',', '.') }} EUR</strong>
         </article>
         <article class="card campaign-context-card">
-            <span>Cambios</span>
+            <span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Cambios') }}">Cambios</span>
             <strong>{{ number_format($callCenterCountChanges, 0, ',', '.') }} ops / {{ number_format($callCenterTotalChanges, 2, ',', '.') }} EUR</strong>
         </article>
         <article class="card campaign-context-card">
-            <span>Negociaciones German</span>
+            <span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Negociaciones German') }}">Negociaciones German</span>
             <strong>{{ number_format($callCenterCountGerman, 0, ',', '.') }} ops / {{ number_format($callCenterTotalGerman, 2, ',', '.') }} EUR</strong>
         </article>
         <article class="card campaign-context-card">
-            <span>Facilitea</span>
+            <span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Facilitea') }}">Facilitea</span>
             <strong>{{ number_format($callCenterCountFacilitea, 0, ',', '.') }} ops / {{ number_format($callCenterTotalFacilitea, 2, ',', '.') }} EUR</strong>
         </article>
     </section>
@@ -58,12 +85,12 @@
                 <span>Bloques automaticos calculados desde Salesforce para el rango de contrato activo.</span>
             </div>
             <div class="platform-comparison-metrics">
-                <div class="platform-metric-item"><span>Agentes / captadores</span><strong>{{ number_format($callCenterSummaryRows->count(), 0, ',', '.') }}</strong></div>
-                <div class="platform-metric-item"><span>Operaciones base</span><strong>{{ number_format($callCenterDashboard['diagnostics']['monthly_opportunities'] ?? 0, 0, ',', '.') }}</strong></div>
-                <div class="platform-metric-item"><span>Tasaciones sync</span><strong>{{ number_format($callCenterDashboard['diagnostics']['monthly_tasaciones'] ?? 0, 0, ',', '.') }}</strong></div>
-                <div class="platform-metric-item"><span>Sin captador</span><strong>{{ number_format($callCenterDashboard['diagnostics']['missing_captador_count'] ?? 0, 0, ',', '.') }}</strong></div>
-                <div class="platform-metric-item"><span>Comisiones vacias</span><strong>{{ number_format($callCenterDashboard['diagnostics']['missing_commission_count'] ?? 0, 0, ',', '.') }}</strong></div>
-                <div class="platform-metric-item"><span>Total automatico</span><strong>{{ number_format($callCenterTotalAutomatic, 2, ',', '.') }} EUR</strong></div>
+                <div class="platform-metric-item"><span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Agentes / captadores') }}">Agentes / captadores</span><strong>{{ number_format($callCenterSummaryRows->count(), 0, ',', '.') }}</strong></div>
+                <div class="platform-metric-item"><span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Operaciones base') }}">Operaciones base</span><strong>{{ number_format($callCenterDashboard['diagnostics']['monthly_opportunities'] ?? 0, 0, ',', '.') }}</strong></div>
+                <div class="platform-metric-item"><span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Tasaciones sync') }}">Tasaciones sync</span><strong>{{ number_format($callCenterDashboard['diagnostics']['monthly_tasaciones'] ?? 0, 0, ',', '.') }}</strong></div>
+                <div class="platform-metric-item"><span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Sin captador') }}">Sin captador</span><strong>{{ number_format($callCenterDashboard['diagnostics']['missing_captador_count'] ?? 0, 0, ',', '.') }}</strong></div>
+                <div class="platform-metric-item"><span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Comisiones vacias') }}">Comisiones vacias</span><strong>{{ number_format($callCenterDashboard['diagnostics']['missing_commission_count'] ?? 0, 0, ',', '.') }}</strong></div>
+                <div class="platform-metric-item"><span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Total automatico') }}">Total automatico</span><strong>{{ number_format($callCenterTotalAutomatic, 2, ',', '.') }} EUR</strong></div>
             </div>
         </article>
         <article class="card platform-comparison-card">
@@ -72,29 +99,39 @@
                 <span>Compras, ventas y cambios usan Captador + Comision Captador. Facilitea usa origen FACILITEA.</span>
             </div>
             <div class="platform-comparison-metrics">
-                <div class="platform-metric-item"><span>Compras</span><strong>{{ number_format($callCenterTotalPurchases, 2, ',', '.') }} EUR</strong></div>
-                <div class="platform-metric-item"><span>Ventas</span><strong>{{ number_format($callCenterTotalSales, 2, ',', '.') }} EUR</strong></div>
-                <div class="platform-metric-item"><span>Cambios</span><strong>{{ number_format($callCenterTotalChanges, 2, ',', '.') }} EUR</strong></div>
-                <div class="platform-metric-item"><span>Neg. German</span><strong>{{ number_format($callCenterTotalGerman, 2, ',', '.') }} EUR</strong></div>
-                <div class="platform-metric-item"><span>Facilitea</span><strong>{{ number_format($callCenterTotalFacilitea, 2, ',', '.') }} EUR</strong></div>
+                <div class="platform-metric-item"><span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Compras') }}">Compras</span><strong>{{ number_format($callCenterTotalPurchases, 2, ',', '.') }} EUR</strong></div>
+                <div class="platform-metric-item"><span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Ventas') }}">Ventas</span><strong>{{ number_format($callCenterTotalSales, 2, ',', '.') }} EUR</strong></div>
+                <div class="platform-metric-item"><span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Cambios') }}">Cambios</span><strong>{{ number_format($callCenterTotalChanges, 2, ',', '.') }} EUR</strong></div>
+                <div class="platform-metric-item"><span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Neg. German') }}">Neg. German</span><strong>{{ number_format($callCenterTotalGerman, 2, ',', '.') }} EUR</strong></div>
+                <div class="platform-metric-item"><span class="kpi-tooltip" data-kpi-tooltip="{{ $callCenterTooltip('Facilitea') }}">Facilitea</span><strong>{{ number_format($callCenterTotalFacilitea, 2, ',', '.') }} EUR</strong></div>
             </div>
         </article>
-        <article class="card platform-comparison-card call-center-diagnostics-card">
-            <div class="platform-comparison-head">
-                <strong>Diagnostico y resync</strong>
-                <span>Usa estos comandos para refrescar el mes completo antes de validar captadores y negociaciones.</span>
-            </div>
-            <div class="call-center-diagnostics-list">
-                <div class="call-center-diagnostics-row">
-                    <span>Opportunities</span>
-                    <code>php artisan salesforce:sync-opportunities --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+        @if (($reportUserRole ?? null) === \App\Models\ReportUser::ROLE_ADMIN)
+            <article class="card platform-comparison-card call-center-diagnostics-card">
+                <div class="platform-comparison-head">
+                    <strong>Diagnostico y resync</strong>
+                    <span>Usa estos comandos para refrescar el mes completo antes de validar captadores y negociaciones.</span>
                 </div>
-                <div class="call-center-diagnostics-row">
-                    <span>Tasaciones</span>
-                    <code>php artisan salesforce:sync-tasaciones --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+                <div class="call-center-diagnostics-list">
+                    <div class="call-center-diagnostics-row">
+                        <span>Opportunities</span>
+                        <code>php artisan salesforce:sync-opportunities --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+                    </div>
+                    <div class="call-center-diagnostics-row">
+                        <span>Tasaciones</span>
+                        <code>php artisan salesforce:sync-tasaciones --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+                    </div>
                 </div>
-            </div>
-        </article>
+                <div class="filter-actions commission-filter-actions">
+                    <a
+                        class="main-tab"
+                        href="{{ $callCenterMissingCaptadorExportUrl }}"
+                    >
+                        Descargar CSV sin Captador ({{ number_format($callCenterDashboard['diagnostics']['missing_captador_count'] ?? 0, 0, ',', '.') }})
+                    </a>
+                </div>
+            </article>
+        @endif
     </section>
 
     <div class="table-shell call-center-summary-shell">
@@ -420,22 +457,32 @@
     <script type="application/json" id="callCenterAgentPayload">@json($callCenterAgentPayload)</script>
 @else
     <section class="platform-comparison-grid commission-overview-grid call-center-overview-grid">
-        <article class="card platform-comparison-card call-center-diagnostics-card">
-            <div class="platform-comparison-head">
-                <strong>Diagnostico y resync</strong>
-                <span>Si el bloque llega vacio, refresca opportunities y tasaciones del mes completo antes de revisar captadores o Negociaciones German.</span>
-            </div>
-            <div class="call-center-diagnostics-list">
-                <div class="call-center-diagnostics-row">
-                    <span>Opportunities</span>
-                    <code>php artisan salesforce:sync-opportunities --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+        @if (($reportUserRole ?? null) === \App\Models\ReportUser::ROLE_ADMIN)
+            <article class="card platform-comparison-card call-center-diagnostics-card">
+                <div class="platform-comparison-head">
+                    <strong>Diagnostico y resync</strong>
+                    <span>Si el bloque llega vacio, refresca opportunities y tasaciones del mes completo antes de revisar captadores o Negociaciones German.</span>
                 </div>
-                <div class="call-center-diagnostics-row">
-                    <span>Tasaciones</span>
-                    <code>php artisan salesforce:sync-tasaciones --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+                <div class="call-center-diagnostics-list">
+                    <div class="call-center-diagnostics-row">
+                        <span>Opportunities</span>
+                        <code>php artisan salesforce:sync-opportunities --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+                    </div>
+                    <div class="call-center-diagnostics-row">
+                        <span>Tasaciones</span>
+                        <code>php artisan salesforce:sync-tasaciones --from={{ $callCenterMonthStart->toDateString() }} --to={{ $callCenterMonthEnd->toDateString() }}</code>
+                    </div>
                 </div>
-            </div>
-        </article>
+                <div class="filter-actions commission-filter-actions">
+                    <a
+                        class="main-tab"
+                        href="{{ $callCenterMissingCaptadorExportUrl }}"
+                    >
+                        Descargar CSV sin Captador (0)
+                    </a>
+                </div>
+            </article>
+        @endif
     </section>
     <div class="notice">No hay operaciones comisionables de Call Center para el mes seleccionado o el rango de contrato activo.</div>
 @endif

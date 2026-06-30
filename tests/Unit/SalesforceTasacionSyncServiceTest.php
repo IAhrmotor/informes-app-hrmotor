@@ -32,14 +32,14 @@ class SalesforceTasacionSyncServiceTest extends TestCase
                         'Id' => 'a02-1',
                         'Name' => 'Tasacion German',
                         'CreatedDate' => '2026-05-09T10:00:00.000+0000',
-                        'Fecha_firma_contrato__c' => '2026-05-09',
-                        'Contrato_CV_firmado__c' => true,
                         'Seguimiento__c' => 'German',
-                        'Negociacion_1__c' => 'Seguimiento inicial',
-                        'Negociacion_2__c' => 'Llamada 2',
-                        'Opportunity__c' => '006-opp-1',
-                        'Opportunity__r' => [
+                        'Negociaci_n_1__c' => 'Seguimiento inicial',
+                        'Negociaci_n_2__c' => 'Llamada 2',
+                        'Oportunidad__c' => '006-opp-1',
+                        'Oportunidad__r' => [
                             'Name' => 'Opportunity German',
+                            'Fecha_firma_contrato__c' => '2026-05-09',
+                            'OPO_CAS_Contrato_CV_firmado__c' => true,
                         ],
                     ],
                 ];
@@ -55,6 +55,9 @@ class SalesforceTasacionSyncServiceTest extends TestCase
         $this->assertSame(1, $result['queried']);
         $this->assertSame(1, $result['saved']);
         $this->assertStringContainsString('FROM Tasacion__c', $result['soql']);
+        $this->assertStringContainsString('Oportunidad__r.Fecha_firma_contrato__c', $result['soql']);
+        $this->assertStringContainsString('Negociaci_n_1__c', $result['soql']);
+        $this->assertContains('oportunidad_relation', $result['profiles']);
         $this->assertDatabaseHas('salesforce_tasaciones', [
             'salesforce_id' => 'a02-1',
             'opportunity_salesforce_id' => '006-opp-1',

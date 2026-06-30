@@ -220,13 +220,16 @@ class CallCenterCommissionDashboardTest extends TestCase
             'opportunity_name' => 'Negociacion German 1',
             'contract_signed_date' => '2026-05-09',
             'cv_signed' => true,
-            'tracking_name' => 'German',
-            'negotiation_1' => 'Primera llamada',
+            'tracking_name' => null,
+            'negotiation_1' => null,
             'negotiation_2' => 'Seguimiento',
             'negotiation_3' => null,
             'negotiation_4' => null,
             'source_query_profile' => 'opportunity_relation',
-            'raw_payload' => [],
+            'raw_payload' => [
+                'Seguimiento__c' => 'German',
+                'Negociaci_n_1__c' => 'Primera llamada',
+            ],
         ]);
 
         $payload = app(CallCenterCommissionDashboardService::class)->build('2026-05');
@@ -251,6 +254,137 @@ class CallCenterCommissionDashboardTest extends TestCase
         $this->assertEquals(5.0, $rows->firstWhere('agent_name', 'Vanessa Sanjuan')['facilitea_commission']);
         $this->assertEquals(0.0, $rows->firstWhere('agent_name', 'Miriam Gonzalez')['automatic_total']);
         $this->assertStringContainsString('Comision Captador', collect($payload['warnings'])->implode(' | '));
+    }
+
+    public function test_dashboard_cuenta_negociaciones_german_por_created_date_cuando_falta_fecha_firma_y_cv_en_tasacion(): void
+    {
+        SalesforceTasacion::query()->create([
+            'salesforce_id' => 'a02-real-1',
+            'name' => 'Tasacion German real',
+            'created_date' => '2026-05-11 10:00:00',
+            'opportunity_salesforce_id' => null,
+            'opportunity_name' => null,
+            'contract_signed_date' => null,
+            'cv_signed' => false,
+            'tracking_name' => 'German',
+            'negotiation_1' => 'Seguimiento real',
+            'negotiation_2' => null,
+            'negotiation_3' => null,
+            'negotiation_4' => null,
+            'source_query_profile' => 'without_relation',
+            'raw_payload' => [
+                'CreatedDate' => '2026-05-11T10:00:00.000+0000',
+                'Seguimiento__c' => 'German',
+                'Negociaci_n_1__c' => 'Seguimiento real',
+            ],
+        ]);
+
+        $payload = app(CallCenterCommissionDashboardService::class)->build('2026-05');
+        $rows = collect($payload['summary_rows']);
+
+        $this->assertSame(1, $payload['diagnostics']['monthly_tasaciones']);
+        $this->assertSame(1, $payload['diagnostics']['german_negotiations_count']);
+        $this->assertEquals(5.0, $rows->firstWhere('agent_name', 'German Olsen')['german_negotiation_commission']);
+    }
+
+    public function test_dashboard_no_cuenta_como_sin_captador_oportunidades_sin_senales_reales_de_call_center(): void
+    {
+        $this->createCallCenterOpportunity([
+            'salesforce_id' => 'CC-NO-SIGNAL-1',
+            'name' => 'Venta sin senales',
+            'record_type_name' => 'Venta',
+            'cv_signed_date' => '2026-05-12',
+            'raw_payload' => [
+                'Captador__c' => null,
+                'Comisi_n_Captador__c' => null,
+                'Fecha_captador__c' => null,
+            ],
+        ]);
+
+        $this->createCallCenterOpportunity([
+            'salesforce_id' => 'CC-SIGNAL-1',
+            'name' => 'Venta auditable',
+            'record_type_name' => 'Venta',
+            'cv_signed_date' => '2026-05-13',
+            'raw_payload' => [
+                'Captador__c' => null,
+                'Comisi_n_Captador__c' => 5,
+            ],
+        ]);
+
+        $payload = app(CallCenterCommissionDashboardService::class)->build('2026-05');
+        $audit = app(CallCenterCommissionDashboardService::class)->missingCaptadorAudit('2026-05');
+
+        $this->assertSame(1, $payload['diagnostics']['missing_captador_count']);
+        $this->assertCount(1, $audit['rows']);
+        $this->assertSame('CC-SIGNAL-1', $audit['rows'][0]['opportunity_id']);
+        $this->assertStringNotContainsString('sin Captador__c', collect($payload['warnings'])->implode(' | '));
+    }
+
+    public function test_director_puede_exportar_csv_de_oportunidades_sin_captador_para_auditoria(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        $this->createCallCenterOpportunity([
+            'salesforce_id' => 'CC-CSV-1',
+            'name' => 'Venta CSV',
+            'record_type_name' => 'Venta',
+            'cv_signed_date' => '2026-05-14',
+            'raw_payload' => [
+                'Captador__c' => null,
+                'Comisi_n_Captador__c' => 5,
+            ],
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_DIRECTOR,
+            'report_user_email' => 'director@hrmotor.com',
+        ];
+
+        $response = $this->withSession($session)
+            ->get('/informes/comisiones-comerciales/export/call-center-missing-captador.csv?month=2026-05')
+            ->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8')
+            ->assertDownload('call-center-sin-captador-2026-05.csv');
+
+        $content = $response->streamedContent();
+
+        $this->assertStringContainsString('Opportunity Id', $content);
+        $this->assertStringContainsString('CC-CSV-1', $content);
+        $this->assertStringContainsString('Venta CSV', $content);
+    }
+
+    public function test_director_ve_call_center_sin_cuadro_de_diagnostico_y_resync(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        SalesforceTasacion::query()->create([
+            'salesforce_id' => 'a02-view-1',
+            'name' => 'Tasacion German vista',
+            'created_date' => '2026-05-11 10:00:00',
+            'tracking_name' => 'German',
+            'negotiation_1' => 'Seguimiento real',
+            'source_query_profile' => 'without_relation',
+            'raw_payload' => [
+                'CreatedDate' => '2026-05-11T10:00:00.000+0000',
+                'Seguimiento__c' => 'German',
+                'Negociaci_n_1__c' => 'Seguimiento real',
+            ],
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_DIRECTOR,
+            'report_user_email' => 'director@hrmotor.com',
+        ];
+
+        $this->withSession($session)
+            ->get('/informes/comisiones-comerciales?month=2026-05')
+            ->assertOk()
+            ->assertDontSee('Diagnostico y resync')
+            ->assertDontSee('salesforce:sync-tasaciones')
+            ->assertSee('Negociaciones German');
     }
 
     private function createCallCenterOpportunity(array $attributes): void

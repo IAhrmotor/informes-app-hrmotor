@@ -21,6 +21,8 @@ class CallCenterCommissionDashboardService
         'vanessa san juan',
     ];
 
+    private array $tasacionOpportunityCache = [];
+
     public function build(?string $month, ?string $contractFrom = null, ?string $contractTo = null): array
     {
         [$selectedMonth, $monthWarning] = $this->resolveMonth($month);
@@ -65,6 +67,8 @@ class CallCenterCommissionDashboardService
                 [$summaryRows, $tasacionWarnings, $diagnostics] = $this->appendGermanNegotiationsFromTasaciones(
                     $summaryRows,
                     $monthlyTasaciones,
+                    $periodStart,
+                    $periodEnd,
                     $diagnostics
                 );
                 $warnings = array_values(array_filter([...$warnings, ...$tasacionWarnings]));
@@ -88,16 +92,43 @@ class CallCenterCommissionDashboardService
         ];
     }
 
+    public function missingCaptadorAudit(?string $month, ?string $contractFrom = null, ?string $contractTo = null): array
+    {
+        [$selectedMonth, $monthWarning] = $this->resolveMonth($month);
+        [$periodStart, $periodEnd, $contractFilterWarning] = $this->resolveContractDateRange(
+            $selectedMonth,
+            $contractFrom,
+            $contractTo
+        );
+        $issues = $this->blockingIssues();
+        $warnings = array_values(array_filter([$monthWarning, $contractFilterWarning]));
+        $rows = collect();
+
+        if ($issues === []) {
+            $rows = $this->missingCaptadorAuditRowsFromCollection(
+                $this->monthlyOpportunities($periodStart, $periodEnd)->get()
+            );
+        }
+
+        return [
+            'ready' => $issues === [],
+            'month' => $selectedMonth->format('Y-m'),
+            'contract_from' => $periodStart->toDateString(),
+            'contract_to' => $periodEnd->subDay()->toDateString(),
+            'issues' => $issues,
+            'warnings' => $warnings,
+            'rows' => $rows->values()->all(),
+        ];
+    }
+
     private function buildSummaryRows(Collection $monthlyOpportunities, array $diagnostics): array
     {
         $rows = [];
         $warnings = [];
+        $missingCaptadorAuditRows = $this->missingCaptadorAuditRowsFromCollection($monthlyOpportunities);
+        $diagnostics['missing_captador_count'] = $missingCaptadorAuditRows->count();
 
         foreach ($monthlyOpportunities as $opportunity) {
-            if ($this->isCallCenterCandidateWithoutCaptador($opportunity)) {
-                $diagnostics['missing_captador_count']++;
-            }
-
             if ($this->isPurchaseOperation($opportunity)) {
                 $captador = $this->primaryCaptador($opportunity);
                 $entry = $this->captadorCommissionEntry($opportunity);
@@ -204,22 +235,25 @@ class CallCenterCommissionDashboardService
             $warnings[] = 'Hay '.$diagnostics['missing_commission_count'].' operaciones con Comision Captador vacia. Se han computado a 0 EUR y quedan marcadas para revision.';
         }
 
-        if (($diagnostics['missing_captador_count'] ?? 0) > 0) {
-            $warnings[] = 'Hay '.$diagnostics['missing_captador_count'].' oportunidades del periodo sin Captador__c en local. Re-sincroniza opportunities para refrescar Call Center.';
-        }
-
         return [$rows, $warnings, $diagnostics];
     }
 
-    private function appendGermanNegotiationsFromTasaciones(array $summaryRows, Collection $tasaciones, array $diagnostics): array
+    private function appendGermanNegotiationsFromTasaciones(
+        array $summaryRows,
+        Collection $tasaciones,
+        CarbonImmutable $periodStart,
+        CarbonImmutable $periodEnd,
+        array $diagnostics
+    ): array
     {
         $rows = collect($summaryRows)
             ->keyBy('agent_key')
             ->all();
         $warnings = [];
+        $germanCountBefore = $diagnostics['german_negotiations_count'] ?? 0;
 
         foreach ($tasaciones as $tasacion) {
-            if (! $this->isGermanNegotiationTasacion($tasacion)) {
+            if (! $this->isGermanNegotiationTasacion($tasacion, $periodStart, $periodEnd)) {
                 continue;
             }
 
@@ -232,19 +266,21 @@ class CallCenterCommissionDashboardService
                 'tasacion_name' => (string) ($tasacion->name ?? ''),
                 'opportunity_id' => (string) ($tasacion->opportunity_salesforce_id ?? ''),
                 'opportunity_name' => (string) ($tasacion->opportunity_name ?? ''),
-                'contract_signed_date' => optional($tasacion->contract_signed_date)?->toDateString(),
-                'tracking_name' => (string) ($tasacion->tracking_name ?? ''),
-                'negotiation_1' => (string) ($tasacion->negotiation_1 ?? ''),
-                'negotiation_2' => (string) ($tasacion->negotiation_2 ?? ''),
-                'negotiation_3' => (string) ($tasacion->negotiation_3 ?? ''),
-                'negotiation_4' => (string) ($tasacion->negotiation_4 ?? ''),
+                'contract_signed_date' => $this->tasacionEffectiveDate($tasacion),
+                'tracking_name' => (string) ($this->tasacionTrackingName($tasacion) ?? ''),
+                'negotiation_1' => (string) ($this->tasacionNegotiationValue($tasacion, 1) ?? ''),
+                'negotiation_2' => (string) ($this->tasacionNegotiationValue($tasacion, 2) ?? ''),
+                'negotiation_3' => (string) ($this->tasacionNegotiationValue($tasacion, 3) ?? ''),
+                'negotiation_4' => (string) ($this->tasacionNegotiationValue($tasacion, 4) ?? ''),
                 'commission_amount' => 5.0,
             ];
             $diagnostics['german_negotiations_count']++;
         }
 
         if (($diagnostics['monthly_tasaciones'] ?? 0) === 0) {
-            $warnings[] = 'No hay tasaciones sincronizadas para el rango activo. Ejecuta salesforce:sync-tasaciones para revisar Negociaciones German.';
+            $warnings[] = 'No hay tasaciones sincronizadas en el rango activo para revisar Negociaciones German.';
+        } elseif (($diagnostics['german_negotiations_count'] ?? 0) === $germanCountBefore) {
+            $warnings[] = 'No hay tasaciones del rango activo con Seguimiento German y Negociaci_n_1__c informado.';
         }
 
         return [
@@ -306,9 +342,19 @@ class CallCenterCommissionDashboardService
     private function monthlyTasaciones(CarbonImmutable $periodStart, CarbonImmutable $periodEnd): Builder
     {
         return SalesforceTasacion::query()
-            ->where('cv_signed', true)
-            ->whereDate('contract_signed_date', '>=', $periodStart->toDateString())
-            ->whereDate('contract_signed_date', '<', $periodEnd->toDateString());
+            ->where(function (Builder $query) use ($periodStart, $periodEnd): void {
+                $query
+                    ->where(function (Builder $dateQuery) use ($periodStart, $periodEnd): void {
+                        $dateQuery
+                            ->whereDate('contract_signed_date', '>=', $periodStart->toDateString())
+                            ->whereDate('contract_signed_date', '<', $periodEnd->toDateString());
+                    })
+                    ->orWhere(function (Builder $dateQuery) use ($periodStart, $periodEnd): void {
+                        $dateQuery
+                            ->whereDate('created_date', '>=', $periodStart->toDateString())
+                            ->whereDate('created_date', '<', $periodEnd->toDateString());
+                    });
+            });
     }
 
     private function blockingIssues(): array
@@ -480,10 +526,16 @@ class CallCenterCommissionDashboardService
             && ! (bool) $opportunity->gestion_de_venta;
     }
 
-    private function isGermanNegotiationTasacion(SalesforceTasacion $tasacion): bool
+    private function isGermanNegotiationTasacion(
+        SalesforceTasacion $tasacion,
+        CarbonImmutable $periodStart,
+        CarbonImmutable $periodEnd
+    ): bool
     {
-        return $this->isGermanName($tasacion->tracking_name)
-            && filled($tasacion->negotiation_1);
+        return $this->isGermanName($this->tasacionTrackingName($tasacion))
+            && filled($this->tasacionNegotiationValue($tasacion, 1))
+            && $this->tasacionFallsWithinPeriod($tasacion, $periodStart, $periodEnd)
+            && $this->tasacionAllowsCommission($tasacion);
     }
 
     private function isFaciliteaOperation(SalesforceOpportunity $opportunity): bool
@@ -592,7 +644,7 @@ class CallCenterCommissionDashboardService
             'Fecha_captador_3__c',
             'Fecha_captador_4__c',
         ] as $field) {
-            if ($this->payloadHasKey($opportunity, $field)) {
+            if (filled($this->payloadValue($opportunity, $field))) {
                 return true;
             }
         }
@@ -734,6 +786,176 @@ class CallCenterCommissionDashboardService
         }
 
         return false;
+    }
+
+    private function tasacionTrackingName(SalesforceTasacion $tasacion): ?string
+    {
+        return $this->tasacionPayloadValue($tasacion, 'Seguimiento__c')
+            ?? $tasacion->tracking_name;
+    }
+
+    private function tasacionEffectiveDate(SalesforceTasacion $tasacion): ?string
+    {
+        $rawDate = $this->tasacionPayloadValue($tasacion, 'Fecha_firma_contrato__c')
+            ?? $this->tasacionPayloadValue($tasacion, 'Oportunidad__r.Fecha_firma_contrato__c')
+            ?? $this->tasacionPayloadValue($tasacion, 'Opportunity__r.Fecha_firma_contrato__c')
+            ?? $this->tasacionPayloadValue($tasacion, 'RES_BUS_Oportunidad__r.Fecha_firma_contrato__c')
+            ?? $this->tasacionPayloadValue($tasacion, 'TAS_BUS_Oportunidad__r.Fecha_firma_contrato__c')
+            ?? optional($tasacion->contract_signed_date)?->toDateString()
+            ?? optional($this->linkedOpportunityForTasacion($tasacion)?->cv_signed_date)?->toDateString()
+            ?? optional($tasacion->created_date)?->toDateString();
+
+        if (! filled($rawDate)) {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse((string) $rawDate)->toDateString();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function tasacionFallsWithinPeriod(
+        SalesforceTasacion $tasacion,
+        CarbonImmutable $periodStart,
+        CarbonImmutable $periodEnd
+    ): bool
+    {
+        $effectiveDate = $this->tasacionEffectiveDate($tasacion);
+
+        if (! $effectiveDate) {
+            return false;
+        }
+
+        return $effectiveDate >= $periodStart->toDateString()
+            && $effectiveDate < $periodEnd->toDateString();
+    }
+
+    private function tasacionAllowsCommission(SalesforceTasacion $tasacion): bool
+    {
+        $explicitCvSigned = $this->tasacionPayloadValue($tasacion, 'Contrato_CV_firmado__c')
+            ?? $this->tasacionPayloadValue($tasacion, 'Oportunidad__r.OPO_CAS_Contrato_CV_firmado__c')
+            ?? $this->tasacionPayloadValue($tasacion, 'Opportunity__r.OPO_CAS_Contrato_CV_firmado__c')
+            ?? $this->tasacionPayloadValue($tasacion, 'RES_BUS_Oportunidad__r.OPO_CAS_Contrato_CV_firmado__c')
+            ?? $this->tasacionPayloadValue($tasacion, 'TAS_BUS_Oportunidad__r.OPO_CAS_Contrato_CV_firmado__c');
+
+        if ($explicitCvSigned !== null && $explicitCvSigned !== '') {
+            return (bool) $explicitCvSigned;
+        }
+
+        $linkedOpportunity = $this->linkedOpportunityForTasacion($tasacion);
+
+        if ($linkedOpportunity !== null) {
+            return (bool) $linkedOpportunity->cv_signed;
+        }
+
+        return true;
+    }
+
+    private function tasacionNegotiationValue(SalesforceTasacion $tasacion, int $index): mixed
+    {
+        $field = 'negotiation_'.$index;
+
+        return $this->tasacionPayloadValue($tasacion, 'Negociaci_n_'.$index.'__c')
+            ?? $this->tasacionPayloadValue($tasacion, 'Negociacion_'.$index.'__c')
+            ?? $tasacion->{$field};
+    }
+
+    private function tasacionPayloadValue(SalesforceTasacion $tasacion, string $path): mixed
+    {
+        $payload = is_array($tasacion->raw_payload) ? $tasacion->raw_payload : [];
+
+        if ($payload === []) {
+            return null;
+        }
+
+        $segments = explode('.', $path);
+        $current = $payload;
+
+        foreach ($segments as $segment) {
+            if (! is_array($current)) {
+                return null;
+            }
+
+            $matchedKey = null;
+
+            foreach ($current as $key => $value) {
+                if (Str::lower((string) $key) === Str::lower($segment)) {
+                    $matchedKey = $key;
+                    break;
+                }
+            }
+
+            if ($matchedKey === null) {
+                return null;
+            }
+
+            $current = $current[$matchedKey];
+        }
+
+        return $current;
+    }
+
+    private function linkedOpportunityForTasacion(SalesforceTasacion $tasacion): ?SalesforceOpportunity
+    {
+        $salesforceId = $tasacion->opportunity_salesforce_id
+            ?: $this->tasacionPayloadValue($tasacion, 'Oportunidad__c')
+            ?: $this->tasacionPayloadValue($tasacion, 'Opportunity__c')
+            ?: $this->tasacionPayloadValue($tasacion, 'RES_BUS_Oportunidad__c')
+            ?: $this->tasacionPayloadValue($tasacion, 'TAS_BUS_Oportunidad__c');
+
+        if (! filled($salesforceId)) {
+            return null;
+        }
+
+        if (array_key_exists((string) $salesforceId, $this->tasacionOpportunityCache)) {
+            return $this->tasacionOpportunityCache[(string) $salesforceId];
+        }
+
+        $this->tasacionOpportunityCache[(string) $salesforceId] = SalesforceOpportunity::query()
+            ->where('salesforce_id', (string) $salesforceId)
+            ->first();
+
+        return $this->tasacionOpportunityCache[(string) $salesforceId];
+    }
+
+    private function missingCaptadorAuditRowsFromCollection(Collection $monthlyOpportunities): Collection
+    {
+        return $monthlyOpportunities
+            ->filter(fn (SalesforceOpportunity $opportunity): bool => $this->isCallCenterCandidateWithoutCaptador($opportunity))
+            ->map(function (SalesforceOpportunity $opportunity): array {
+                $signalFields = collect([
+                    'Comisi_n_Captador__c',
+                    'Fecha_captador__c',
+                    'Captador_2__c',
+                    'Captador_3__c',
+                    'Captador_4__c',
+                    'Fecha_captado_2__c',
+                    'Fecha_captador_3__c',
+                    'Fecha_captador_4__c',
+                ])->filter(fn (string $field): bool => filled($this->payloadValue($opportunity, $field)))
+                    ->values()
+                    ->all();
+
+                return [
+                    'opportunity_id' => $opportunity->salesforce_id,
+                    'opportunity_name' => (string) $opportunity->name,
+                    'record_type_name' => (string) $opportunity->record_type_name,
+                    'stage_name' => (string) $opportunity->stage_name,
+                    'owner_name' => (string) ($opportunity->owner_name ?? ''),
+                    'account_name' => (string) ($opportunity->account_name ?? ''),
+                    'contract_signed_date' => optional($opportunity->cv_signed_date)?->toDateString(),
+                    'source' => (string) ($opportunity->opportunity_source_raw ?? ''),
+                    'signal_fields' => implode(', ', $signalFields),
+                ];
+            })
+            ->sortBy([
+                ['contract_signed_date', 'desc'],
+                ['record_type_name', 'asc'],
+                ['opportunity_name', 'asc'],
+            ])
+            ->values();
     }
 
     private function registerCommissionWarning(
