@@ -43,10 +43,10 @@ class ContactCenterCommissionDashboardTest extends TestCase
         ]);
 
         $this->createLead([
-            'salesforce_id' => '00Q-JOSE-1',
-            'name' => 'Lead Jose 1',
-            'appointment_setter_id' => '005-jose',
-            'appointment_setter_name' => 'Jose Mari',
+            'salesforce_id' => '00Q-YULEIDIS-1',
+            'name' => 'Lead Yuleidis 1',
+            'appointment_setter_id' => '005-yuleidis',
+            'appointment_setter_name' => 'Yuleidis Garcia',
             'appointment_capture_date' => '2026-04-28',
             'appointment_call' => true,
             'appointment_store' => false,
@@ -69,27 +69,39 @@ class ContactCenterCommissionDashboardTest extends TestCase
             'reservation_date' => '2026-05-06',
             'cv_signed' => true,
             'cv_signed_date' => '2026-05-20',
+            'raw_payload' => [
+                'Captador__c' => 'Maria Paz Vidal Perez',
+                'Fecha_captador__c' => '2026-05-03',
+            ],
         ]);
 
         $this->createOpportunity([
             'salesforce_id' => '006-2',
-            'name' => 'Opportunity Jose',
+            'name' => 'Opportunity Yuleidis',
             'created_date' => '2026-05-12 10:00:00',
             'stage_name' => 'Contrato',
             'record_type_name' => 'Venta',
             'owner_name' => 'Comercial Dos',
             'owner_delegation' => 'Bilbao',
-            'account_name' => 'Cuenta Jose',
+            'account_name' => 'Cuenta Yuleidis',
             'account_phone' => '600000003',
             'reservation' => false,
             'reservation_date' => null,
             'cv_signed' => true,
             'cv_signed_date' => '2026-05-15',
+            'raw_payload' => [
+                'Captador__c' => 'Yuleidis Garcia',
+                'Fecha_captador__c' => '2026-04-28',
+            ],
         ]);
 
         $payload = app(ContactCenterCommissionDashboardService::class)->build('2026-05');
 
         $this->assertTrue($payload['ready']);
+        $this->assertStringNotContainsString(
+            'ventas del mes sin una cita previa imputable al Contact Center',
+            collect($payload['warnings'])->implode(' | ')
+        );
         $this->assertSame(2, $payload['diagnostics']['appointments_count']);
         $this->assertSame(2, $payload['diagnostics']['sales_count']);
         $this->assertSame(1, $payload['diagnostics']['opportunity_links_count']);
@@ -97,8 +109,8 @@ class ContactCenterCommissionDashboardTest extends TestCase
         $this->assertSame(0, $payload['diagnostics']['sales_without_appointment_count']);
 
         $rows = collect($payload['summary_rows']);
-        $maria = $rows->firstWhere('agent_name', 'Maria Vidal');
-        $jose = $rows->firstWhere('agent_name', 'Jose Mari');
+        $maria = $rows->firstWhere('agent_name', 'Maria Paz Vidal Perez');
+        $yuleidis = $rows->firstWhere('agent_name', 'Yuleidis Garcia');
 
         $this->assertSame(2, $maria['appointment_count']);
         $this->assertSame(1, $maria['opportunity_count']);
@@ -112,10 +124,10 @@ class ContactCenterCommissionDashboardTest extends TestCase
         $this->assertEquals(19.0, $maria['final_total']);
         $this->assertSame('OK', $maria['review_status']);
 
-        $this->assertSame(0, $jose['appointment_count']);
-        $this->assertSame(1, $jose['sales_count']);
-        $this->assertEquals(12.0, $jose['final_total']);
-        $this->assertEquals(0.0, $jose['sales_ratio']);
+        $this->assertSame(0, $yuleidis['appointment_count']);
+        $this->assertSame(1, $yuleidis['sales_count']);
+        $this->assertEquals(12.0, $yuleidis['final_total']);
+        $this->assertEquals(0.0, $yuleidis['sales_ratio']);
 
         $this->assertSame([], $payload['global_incidents']);
     }
@@ -128,7 +140,7 @@ class ContactCenterCommissionDashboardTest extends TestCase
             'salesforce_id' => '00Q-VIEW-1',
             'name' => 'Lead Vista',
             'appointment_setter_id' => '005-view',
-            'appointment_setter_name' => 'Vanesa German',
+            'appointment_setter_name' => 'Maria German',
             'appointment_capture_date' => '2026-05-08',
             'appointment_call' => true,
             'phone' => '600000009',

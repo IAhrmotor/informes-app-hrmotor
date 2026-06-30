@@ -44,7 +44,7 @@
             <label for="opportunityType">Tipo de oportunidad</label>
             <select id="opportunityType">
                 <option value="all">Todos</option>
-                <option value="Tasacion">Tasacion</option>
+                <option value="Tasacion">Tasación</option>
                 <option value="Venta">Venta</option>
             </select>
         </div>

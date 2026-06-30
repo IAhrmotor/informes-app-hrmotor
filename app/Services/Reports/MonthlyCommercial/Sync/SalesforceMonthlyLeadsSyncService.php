@@ -128,6 +128,8 @@ class SalesforceMonthlyLeadsSyncService
     {
         $start = $this->soqlDateTime($periodStart);
         $end = $this->soqlDateTime($periodEnd);
+        $startDate = CarbonImmutable::parse($periodStart)->utc()->toDateString();
+        $endDate = CarbonImmutable::parse($periodEnd)->utc()->toDateString();
         $optionalFields = $includeOptionalDashboardFields
             ? <<<'SOQL'
     Medio_Nuevo__c,
@@ -158,6 +160,17 @@ class SalesforceMonthlyLeadsSyncService
     Estado_del_candidato_formula__c,
 SOQL
             : '';
+        $dateWhere = $includeOptionalDashboardFields
+            ? <<<SOQL
+    AND (
+        (CreatedDate >= {$start} AND CreatedDate < {$end})
+        OR (Fecha_captador__c >= {$startDate} AND Fecha_captador__c < {$endDate})
+    )
+SOQL
+            : <<<SOQL
+    AND CreatedDate >= {$start}
+    AND CreatedDate < {$end}
+SOQL;
 
         $campaignWhere = $campaignOnly
             ? <<<'SOQL'
@@ -194,8 +207,7 @@ SELECT
 FROM Lead
 WHERE
     IsDeleted = false
-    AND CreatedDate >= {$start}
-    AND CreatedDate < {$end}
+{$dateWhere}
 {$campaignWhere}
 SOQL;
     }

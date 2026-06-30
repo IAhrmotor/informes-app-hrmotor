@@ -1,5 +1,5 @@
 CALCULO DE COMISIONES COMERCIALES
-Version: 2026-06-29
+Version: 2026-06-30
 
 0. Acceso y administracion
 
@@ -155,6 +155,7 @@ En la propia vista de Comisiones Comerciales:
 - tab Detalle por comercial: buscar comercial y ver el detalle que alimenta el calculo
 - tab Delegaciones: resumen por delegacion con metas, rentabilidad media, prima final y comision total
 - tab Call Center: resumen mensual y detalle auditable de captadores/agentes
+- tab Contact Center: resumen mensual y detalle auditable de citas, oportunidades, reservas y ventas por captador de cita
 - selector de columnas en el resumen
 - `Comision final` aparece al inicio
 - `Operaciones` ya no aparece en la tabla resumen
@@ -164,6 +165,7 @@ En la propia vista de Comisiones Comerciales:
   - `Detalle por comercial`
   - `Delegaciones`
   - `Call Center`
+  - `Contact Center`
 
 8. Cuadro de delegaciones
 
@@ -319,3 +321,87 @@ En la propia vista de Comisiones Comerciales:
   - mueve `Total final` a la 2da columna
   - deja los comandos de resync dentro del bloque de diagnostico
 - El auditable por captador queda contenido dentro del panel, sin desbordar el cuadro principal.
+
+13. Bloque Contact Center integrado en Comisiones Comerciales
+
+- No tiene pagina propia en el menu principal.
+- Se muestra como una quinta pestaña dentro de `/informes/comisiones-comerciales`.
+- Se calcula por mes cerrado.
+- La fuente valida sigue siendo Salesforce, persistida localmente en:
+  - `salesforce_leads`
+  - `salesforce_opportunities`
+
+13.1 Reglas de datos
+
+- El sync de leads no puede depender solo de `CreatedDate`.
+- Para que entren correctamente las citas del mes, la query local trae leads cuando se cumple cualquiera:
+  - `Lead.CreatedDate` dentro del rango
+  - `Lead.Fecha_captador__c` dentro del rango
+- El sync de opportunities debe traer tambien:
+  - `Captador_de_cita__c`
+  - `Captador_de_cita__r.Name`
+  - `Fecha_captador__c`
+- Resync minimo recomendado tras desplegar:
+  - `php artisan salesforce:sync-monthly-commercial --from=2026-04-20 --to=2026-07-01`
+  - `php artisan salesforce:sync-opportunities --from=2026-04-20 --to=2026-07-01`
+
+13.2 Bloques y calculo
+
+- Citas concertadas
+  - salen de `salesforce_leads`
+  - `Fecha_captador__c` dentro del mes seleccionado
+  - `Captador_de_cita__c` / `Captador_de_cita__r.Name` dentro del equipo Contact Center
+  - al menos una de:
+    - `Cita_llamada__c = true`
+    - `Cita_Tienda__c = true`
+- Citas con oportunidad
+  - se calculan desde la cita del mes
+  - se enlaza primero por `ConvertedOpportunityId`
+  - si no hay match, se enlaza por telefono normalizado
+  - la oportunidad debe tener un hito posterior a la cita y antes del cierre operativo
+  - cada cita cuenta una sola vez
+  - importe: `5 EUR`
+- Reservas detectadas
+  - salen del mismo cruce de citas con oportunidad
+  - cuentan si la oportunidad tiene reserva posterior a la cita y antes del cierre
+  - son informativas; no anaden un producto de comision aparte
+- Ventas confirmadas
+  - salen de oportunidades con:
+    - `Contrato CV firmado = true`
+    - `Stage != Cerrada perdida`
+    - `Fecha_firma_contrato__c` dentro del mes
+  - la atribucion se hace contra la mejor cita previa:
+    - prioridad 1: cita del mismo mes
+    - prioridad 2: cita previa anterior
+    - primero `ConvertedOpportunityId` y despues telefono
+  - importe: `12 EUR`
+- Ratio ventas / citas
+  - formula:
+    - `ventas_del_mes / citas_concertadas_del_mes`
+  - si el ratio es `> 3%`:
+    - `+2 EUR` por cada venta
+- Bonus por volumen
+  - `10 ventas => 100 EUR`
+  - `15 ventas => 250 EUR`
+  - `20 ventas => 500 EUR`
+  - no es acumulativo: se aplica solo el tramo maximo alcanzado
+- Show
+  - se calcula desde `Acudi_a_la_cita__c`
+  - es solo informativo
+  - no suma importe
+
+13.3 Formula final de Contact Center
+
+- `comision_citas_oportunidad = citas_con_oportunidad * 5`
+- `comision_ventas = ventas * 12`
+- `extra_ratio = ventas * 2` si `ventas / citas > 3%`, si no `0`
+- `bonus_ventas` segun tramo de 10 / 15 / 20 ventas
+- `show = 0` a efectos economicos
+- `total_automatico = comision_citas_oportunidad + comision_ventas + extra_ratio + bonus_ventas`
+
+13.4 Estado actual de implementacion
+
+- La atribucion ya no depende solo del captador grabado en la oportunidad.
+- La base principal para `Contact Center` es la cita efectiva y su cruce posterior con oportunidades/ventas.
+- Si tras desplegar sigue saliendo poca actividad, lo primero a revisar no es la formula:
+  - hay que resincronizar leads y opportunities con ventana suficiente para incluir citas del mes y del mes anterior.

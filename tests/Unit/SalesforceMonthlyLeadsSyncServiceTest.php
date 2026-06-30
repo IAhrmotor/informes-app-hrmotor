@@ -91,6 +91,8 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
         $this->assertStringContainsString('Captador_de_cita__c', $result['soql']);
         $this->assertStringContainsString('CreatedDate >= 2026-03-14T13:37:27Z', $result['soql']);
         $this->assertStringContainsString('CreatedDate < 2026-05-13T13:37:27Z', $result['soql']);
+        $this->assertStringContainsString('Fecha_captador__c >= 2026-03-14', $result['soql']);
+        $this->assertStringContainsString('Fecha_captador__c < 2026-05-13', $result['soql']);
 
         $this->assertSame(2, SalesforceLead::query()->count());
         $this->assertDatabaseHas('salesforce_leads', [

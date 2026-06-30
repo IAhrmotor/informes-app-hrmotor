@@ -65,6 +65,8 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                             'AC_C_EMA_email__c' => null,
                         ],
                         'Portal__c' => 'Web',
+                        'Captador_de_cita__c' => '005-contact-center-1',
+                        'Captador_de_cita__r' => ['Name' => 'Maria Paz Vidal Perez'],
                         'Captador__c' => 'Jose Mari',
                         'Comisi_n_Captador__c' => 5.0,
                         'Fecha_captador__c' => '2026-05-01',
@@ -115,6 +117,8 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                             'AC_C_EMA_email__c' => null,
                         ],
                         'Portal__c' => null,
+                        'Captador_de_cita__c' => '005-contact-center-2',
+                        'Captador_de_cita__r' => ['Name' => 'Yuleidis Garcia'],
                         'OPO_CAS_Reserva__c' => true,
                         'OPO_FEC_Fecha_de_reserva__c' => '2026-05-04',
                         'OPO_CAS_Contrato_CV_firmado__c' => true,
@@ -161,6 +165,8 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertStringContainsString('Fecha_firma_contrato__c', $result['soql']);
         $this->assertStringContainsString('Tienda_de_entrega__c', $result['soql']);
         $this->assertStringContainsString('Gestion_de_venta__c', $result['soql']);
+        $this->assertStringContainsString('Captador_de_cita__c', $result['soql']);
+        $this->assertStringContainsString('Captador_de_cita__r.Name', $result['soql']);
         $this->assertStringContainsString('Captador__c', $result['soql']);
         $this->assertStringContainsString('Comisi_n_Captador__c', $result['soql']);
         $this->assertStringContainsString('Fecha_captador__c', $result['soql']);
@@ -217,6 +223,8 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $storedOpportunity = SalesforceOpportunity::query()->where('salesforce_id', '006-opportunity-1')->firstOrFail();
 
         $this->assertSame('Jose Mari', $storedOpportunity->raw_payload['Captador__c'] ?? null);
+        $this->assertSame('005-contact-center-1', $storedOpportunity->raw_payload['Captador_de_cita__c'] ?? null);
+        $this->assertSame('Maria Paz Vidal Perez', data_get($storedOpportunity->raw_payload, 'Captador_de_cita__r.Name'));
         $this->assertEquals(5.0, $storedOpportunity->raw_payload['Comisi_n_Captador__c'] ?? null);
         $this->assertSame('German Olsen', $storedOpportunity->raw_payload['Captador_2__c'] ?? null);
         $this->assertSame('2026-05-10', $storedOpportunity->raw_payload['OPO_FEC_Fecha_entrega__c'] ?? null);

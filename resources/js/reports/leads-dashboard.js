@@ -7,15 +7,10 @@ const leadCommercialColumnDefinitions = [
     { key: 'zone', label: 'Zona', alwaysVisible: true },
     { key: 'leads_totales', label: 'Leads totales', alwaysVisible: true },
     { key: 'convertidos', label: 'Convertidos', alwaysVisible: true },
-    { key: 'conversion_pct', label: '% convertidos' },
     { key: 'descartados', label: 'Descartados', alwaysVisible: true },
-    { key: 'descarte_pct', label: '% descartados' },
     { key: 'potenciales', label: 'Potenciales', alwaysVisible: true },
-    { key: 'potenciales_pct', label: '% potenciales' },
     { key: 'potenciales_sin_trabajar', label: 'Potenciales sin trabajar', alwaysVisible: true },
-    { key: 'potenciales_sin_trabajar_pct', label: '% potenciales sin trabajar' },
     { key: 'gestionados', label: 'Gestionados', alwaysVisible: true },
-    { key: 'gestionados_pct', label: '% gestionados' },
 ];
 let leadCommercialVisibleColumns = loadVisibleColumns(
     leadCommercialColumnsStorageKey,
@@ -262,15 +257,10 @@ function renderCommercials(rows) {
         [(row) => row.zone || '-', false, null, false, 'zone'],
         [(row) => formatNumber(row.leads_totales), true, (row) => row.leads_totales, false, 'leads_totales'],
         [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true, 'convertidos'],
-        [(row) => formatPercent(row.conversion_pct), true, (row) => row.conversion_pct, false, 'conversion_pct'],
         [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true, 'descartados'],
-        [(row) => formatPercent(row.descarte_pct), true, (row) => row.descarte_pct, false, 'descarte_pct'],
         [(row) => formatNumber(row.potenciales), true, (row) => row.potenciales, false, 'potenciales'],
-        [(row) => formatPercent(row.potenciales_pct), true, (row) => row.potenciales_pct, false, 'potenciales_pct'],
         [(row) => formatNumber(row.potenciales_sin_trabajar), true, (row) => row.potenciales_sin_trabajar, false, 'potenciales_sin_trabajar'],
-        [(row) => formatPercent(row.potenciales_sin_trabajar_pct), true, (row) => row.potenciales_sin_trabajar_pct, false, 'potenciales_sin_trabajar_pct'],
         [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true, 'gestionados'],
-        [(row) => formatPercent(row.gestionados_pct), true, (row) => row.gestionados_pct, false, 'gestionados_pct'],
     ], 'No hay datos de comerciales para los filtros seleccionados.');
 
     applyLeadCommercialColumnVisibility();

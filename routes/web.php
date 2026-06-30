@@ -19,7 +19,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return redirect()->route('reports.index');
+    return redirect()->route('reports.leads.index');
 });
 
 Route::get('/login', [InformesLoginController::class, 'show'])->name('login');

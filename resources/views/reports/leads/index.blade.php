@@ -35,7 +35,7 @@
             <label for="leadType">Tipo de Lead</label>
             <select id="leadType">
                 <option value="all">Todos</option>
-                <option value="Tasacion">Tasacion</option>
+                <option value="Tasacion">Tasación</option>
                 <option value="Venta">Venta</option>
             </select>
         </div>
@@ -76,7 +76,7 @@
         </div>
 
         <div class="filter-group">
-            <label for="expositionMode">Exposicion</label>
+            <label for="expositionMode">Exposición</label>
             <select id="expositionMode">
                 <option value="with">Incluir</option>
                 <option value="without">Excluir</option>
@@ -107,7 +107,7 @@
     </section>
 
     <nav class="tabs-main" aria-label="Pestanas del informe">
-        <button class="main-tab active" data-panel="panel-resumen">Resumen Direccion</button>
+        <button class="main-tab active" data-panel="panel-resumen">Resumen Dirección</button>
         <button class="main-tab" data-panel="panel-comerciales">Comerciales/Delegaciones/Zonas</button>
         <button class="main-tab" data-panel="panel-delegaciones">Delegaciones por reparto de leads</button>
         <button class="main-tab" data-panel="panel-portales">Portales / Procedencia</button>
@@ -235,10 +235,6 @@
                         <h2>Comerciales</h2>
                         <div class="small">Solo usuarios activos con perfiles comerciales permitidos</div>
                     </div>
-                    <div class="columns-menu">
-                        <button type="button" class="filter-reset" id="leadCommercialColumnsButton">Columnas</button>
-                        <div class="columns-popover card is-hidden" id="leadCommercialColumnsPopover"></div>
-                    </div>
                 </div>
                 <div class="table-wrap">
                     <table id="leadCommercialTable">
@@ -249,15 +245,10 @@
                             <th data-column="zone">Zona</th>
                             <th class="num" data-column="leads_totales">Leads totales</th>
                             <th class="num" data-column="convertidos">Convertidos</th>
-                            <th class="num is-hidden" data-column="conversion_pct">% convertidos</th>
                             <th class="num" data-column="descartados">Descartados</th>
-                            <th class="num is-hidden" data-column="descarte_pct">% descartados</th>
                             <th class="num" data-column="potenciales">Potenciales</th>
-                            <th class="num is-hidden" data-column="potenciales_pct">% potenciales</th>
                             <th class="num" data-column="potenciales_sin_trabajar">Potenciales sin trabajar</th>
-                            <th class="num is-hidden" data-column="potenciales_sin_trabajar_pct">% potenciales sin trabajar</th>
                             <th class="num" data-column="gestionados">Gestionados</th>
-                            <th class="num is-hidden" data-column="gestionados_pct">% gestionados</th>
                         </tr>
                         </thead>
                         <tbody id="commercialRows"></tbody>

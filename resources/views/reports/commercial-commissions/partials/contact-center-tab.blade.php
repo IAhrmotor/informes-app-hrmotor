@@ -11,10 +11,10 @@
     $contactCenterTotalAutomatic = (float) $contactCenterSummaryRows->sum('automatic_total');
     $contactCenterTotalShow = (int) $contactCenterSummaryRows->sum('show_count');
     $contactCenterTooltips = [
-        'Citas concertadas' => 'Leads con Fecha_captador__c dentro del mes, captador de cita informado y al menos una de las marcas Cita_llamada__c o Cita_Tienda__c activa.',
-        'Citas con oportunidad' => 'Cada cita del mes que ha generado una oportunidad, reserva o contrato posterior dentro de la ventana de cierre operativo.',
-        'Reservas detectadas' => 'Reservas vinculadas a citas del mes. Son informativas y cuentan como cita con oportunidad, no como venta.',
-        'Ventas confirmadas' => 'Oportunidades con Contrato CV firmado = true y Stage distinto de Cerrada perdida, imputadas al mes de firma.',
+        'Citas concertadas' => 'Leads con Fecha_captador__c dentro del mes, captador de cita del equipo Contact Center y al menos una de las marcas Cita_llamada__c o Cita_Tienda__c activa.',
+        'Citas con oportunidad' => 'Oportunidades del equipo Contact Center con Fecha_captador__c dentro del mes y algun hito posterior antes del cierre operativo.',
+        'Reservas detectadas' => 'Reservas del equipo Contact Center posteriores a la fecha de captacion y dentro de la misma ventana de cierre operativo.',
+        'Ventas confirmadas' => 'Oportunidades del equipo Contact Center con Contrato CV firmado = true y Stage distinto de Cerrada perdida, imputadas al mes de firma.',
         'Ratio venta / cita' => 'Ventas confirmadas del mes dividido entre citas concertadas del mismo agente en ese mes.',
         'Extra >3%' => 'Si el ratio venta/cita supera el 3%, se suman 2 EUR por cada venta confirmada.',
         'Bonus ventas' => 'Tramo maximo por volumen: 10 ventas = 100 EUR, 15 = 250 EUR, 20 = 500 EUR.',
@@ -412,7 +412,7 @@
         <div class="panel-title compact">
             <div>
                 <h3>Incidencias globales</h3>
-                <div class="small">Incluye ventas sin cita previa localizada y conflictos de atribucion entre varias citas.</div>
+                <div class="small">Incidencias de datos detectadas durante el calculo automatico del Contact Center.</div>
             </div>
         </div>
         <div class="table-shell">

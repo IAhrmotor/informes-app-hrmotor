@@ -146,6 +146,8 @@ SELECT
     Importe_financiado__c,
     Gestion_de_venta__c,
     OPO_DIV_Descuento__c,
+    Captador_de_cita__c,
+    Captador_de_cita__r.Name,
     Captador__c,
     Comisi_n_Captador__c,
     Fecha_captador__c,
