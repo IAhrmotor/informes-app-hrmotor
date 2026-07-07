@@ -195,6 +195,13 @@ En la propia vista de Comisiones Comerciales:
   - mas `Opportunity.Garant_a_Total__c`
 - La `Rentabilidad operacion media` es:
   - sumatorio de rentabilidades de Venta/Cambio / numero de entregas
+- La `% rentabilidad financiacion` del cuadro de delegaciones se calcula exactamente como en Salesforce:
+  - `SUM(Opportunity.Beneficio_financiacion_comercial__c) / SUM(Opportunity.Importe_financiado__c)`
+  - no se filtran a positivo los importes ni los beneficios antes de dividir
+  - el agrupado de este KPI y del `% importe financiado` se hace por `owner_delegation` normalizada
+  - para alias se reutiliza la misma normalizacion del proyecto, por ejemplo:
+    - `HR MOTOR MALLORCA` => `Palma`
+  - si `owner_delegation` viene vacia, hace fallback a la delegacion de entrega
 - El `% sobre objetivo` es:
   - entregas / meta_entregas
 - El porcentaje aplicado a la rentabilidad media es:
@@ -206,7 +213,7 @@ En la propia vista de Comisiones Comerciales:
   - `>100% => 0,60%`
 - `Prima Final`:
   - si no cumple objetivo minimo de tramo (`% sobre objetivo < 85%`) => `0`
-  - si cumple objetivo => `(Rentabilidad operacion media x % por objetivo) + Rentabilidad operacion media`
+  - si cumple objetivo => `Rentabilidad total delegacion x % por objetivo`
 - Resenas por delegacion:
   - se consultan en:
     - `https://app.hrmotor.com/api/internal/google-reviews/count`
@@ -227,6 +234,14 @@ En la propia vista de Comisiones Comerciales:
     - si `average_rating < 4.0` => `-200 EUR`
     - si `average_rating < 3.7` => `-300 EUR`
   - la comision fija de resenas se suma o resta sobre la `Prima Final` antes de aplicar los bonus porcentuales de calidad
+  - el fetch del endpoint esta blindado:
+    - si el endpoint falla o devuelve error, el dashboard no rompe
+    - la delegacion queda con `reviews_count = 0` y `average_rating = null`
+  - el cache del endpoint se invalido con una nueva version de clave y ahora refresca cada `15` minutos por defecto
+  - no existe comando de sync para estas resenas de delegacion porque se leen en vivo desde el endpoint interno
+  - si necesitas forzar refresco inmediato en entorno desplegado:
+    - `php artisan optimize:clear`
+    - o esperar al TTL de `INTERNAL_REVIEWS_CACHE_MINUTES` (15 minutos por defecto)
 - Bonus de calidad:
   - si `Beneficio_financiacion_comercial__c / Importe_financiado__c > 14%`, suma 10%
   - si `Importe_financiado__c / OPO_FOR_Importe_total__c > 40%`, suma 10%
@@ -238,6 +253,16 @@ En la propia vista de Comisiones Comerciales:
 - pueden verlo `admin` y `director`
 - `area_manager` y `viewer` no ven la tab ni pueden abrir la ruta
 - el diagnostico base ampliado solo lo ve `admin`
+- la edicion de coeficientes y metas solo la puede hacer `admin`
+
+10. Coeficientes por mes
+
+- el mes en curso permanece abierto y editable hasta que cambie el mes natural
+- cualquier mes cerrado puede abrirse temporalmente desde la pantalla de coeficientes
+- al guardar un mes cerrado abierto temporalmente, vuelve a cerrarse automaticamente
+- los meses futuros no se pueden abrir temporalmente
+- si un mes no tiene metas propias por delegacion, hereda automaticamente las metas del mes anterior mas cercano que si tenga configuracion guardada
+- en cuanto se guarda una configuracion propia para ese mes, deja de depender de la herencia y usa su propia foto historica
 
 10. Edicion de coeficientes por mes
 

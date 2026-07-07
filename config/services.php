@@ -72,6 +72,7 @@ return [
         'user' => env('INTERNAL_REVIEWS_USER', 'hrmotor-informes'),
         'password' => env('INTERNAL_REVIEWS_PASSWORD', 'frY5v&gQ8*UR*1Uq99t9kCrPo'),
         'timeout' => (int) env('INTERNAL_REVIEWS_TIMEOUT', 20),
+        'cache_minutes' => (int) env('INTERNAL_REVIEWS_CACHE_MINUTES', 15),
     ],
 
     'commissions_api' => [

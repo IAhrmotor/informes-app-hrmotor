@@ -880,7 +880,7 @@ class CommercialCommissionDashboardTest extends TestCase
                 'owner_id' => '005-D1',
                 'owner_name' => 'Delegacion Uno',
                 'owner_is_active' => true,
-                'owner_delegation' => 'HR MOTOR BARCELONA',
+                'owner_delegation' => 'HR MOTOR ALICANTE',
                 'delivery_store' => 'HR MOTOR ALICANTE',
                 'stage_name' => 'Contrato',
                 'record_type_name' => $index === 30 ? 'Cambio' : 'Venta',
@@ -916,6 +916,166 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(31.5, $delegation['financed_amount_bonus_amount']);
         $this->assertEquals(34.65, $delegation['profitability_bonus_amount']);
         $this->assertEquals(381.15, $delegation['total_commission']);
+    }
+
+    public function test_dashboard_delegaciones_calcula_porcentaje_rentabilidad_con_la_misma_suma_que_salesforce(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-06', [
+            'delegations' => [
+                'goals' => [
+                    'valladolid' => [
+                        'label' => 'Valladolid',
+                        'target_deliveries' => 2,
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->createCommercialUser('005-V1', 'Delegacion Valladolid');
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'DEL-VALL-1',
+            'name' => 'Venta Valladolid 1',
+            'owner_id' => '005-V1',
+            'owner_name' => 'Delegacion Valladolid',
+            'owner_is_active' => true,
+            'owner_delegation' => 'Valladolid',
+            'delivery_store' => 'Valladolid',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-10',
+            'opo_for_importe_total' => 10000,
+            'vehicle_sale_price' => 12000,
+            'vehicle_purchase_price' => 10000,
+            'importe_financiado' => 5000,
+            'beneficio_financiacion_comercial' => 800,
+            'garantia_total' => 100,
+            'gestion_de_venta' => false,
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'DEL-VALL-2',
+            'name' => 'Venta Valladolid 2',
+            'owner_id' => '005-V1',
+            'owner_name' => 'Delegacion Valladolid',
+            'owner_is_active' => true,
+            'owner_delegation' => 'Valladolid',
+            'delivery_store' => 'Valladolid',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Cambio',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-12',
+            'opo_for_importe_total' => 10000,
+            'vehicle_sale_price' => 12000,
+            'vehicle_purchase_price' => 10000,
+            'importe_financiado' => 5000,
+            'beneficio_financiacion_comercial' => -100,
+            'garantia_total' => 100,
+            'gestion_de_venta' => false,
+        ]);
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $delegation = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'Valladolid');
+
+        $this->assertNotNull($delegation);
+        $this->assertEquals(7.0, $delegation['financing_profitability_percentage']);
+    }
+
+    public function test_dashboard_delegaciones_calcula_kpis_financieros_desde_owner_delegation_normalizada(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-05', [
+            'delegations' => [
+                'goals' => [
+                    'palma' => [
+                        'label' => 'Palma',
+                        'target_deliveries' => 1,
+                    ],
+                ],
+            ],
+        ]);
+
+        $this->createCommercialUser('005-P1', 'Delegacion Palma');
+
+        foreach (range(1, 2) as $index) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => 'DEL-PALMA-'.$index,
+                'name' => 'Venta Palma '.$index,
+                'owner_id' => '005-P1',
+                'owner_name' => 'Delegacion Palma',
+                'owner_is_active' => true,
+                'owner_delegation' => 'HR MOTOR MALLORCA',
+                'delivery_store' => 'Palma',
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-05-10',
+                'opo_for_importe_total' => 10000,
+                'vehicle_sale_price' => 12000,
+                'vehicle_purchase_price' => 10000,
+                'importe_financiado' => 10000,
+                'beneficio_financiacion_comercial' => 1090,
+                'garantia_total' => 100,
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-05');
+        $delegation = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'Palma');
+
+        $this->assertNotNull($delegation);
+        $this->assertSame(2, $delegation['deliveries_count']);
+        $this->assertEquals(10.9, $delegation['financing_profitability_percentage']);
+    }
+
+    public function test_dashboard_no_rompe_la_pagina_si_falla_el_endpoint_de_resenas_con_filtro_call_center(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        Http::fake([
+            'https://app.hrmotor.com/api/internal/google-reviews/count*' => Http::failedConnection(),
+        ]);
+
+        $this->createCommercialUser('005-RV', 'Delegacion Resenas');
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'DEL-REV-1',
+            'name' => 'Venta Zaragoza 1',
+            'owner_id' => '005-RV',
+            'owner_name' => 'Delegacion Resenas',
+            'owner_is_active' => true,
+            'owner_delegation' => 'Zaragoza',
+            'delivery_store' => 'Zaragoza',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-15',
+            'opo_for_importe_total' => 10000,
+            'vehicle_sale_price' => 12000,
+            'vehicle_purchase_price' => 10000,
+            'importe_financiado' => 5000,
+            'beneficio_financiacion_comercial' => 500,
+            'garantia_total' => 100,
+            'gestion_de_venta' => false,
+            'raw_payload' => [
+                'Captador__c' => 'Vanesa',
+                'Comisi_n_Captador__c' => 5,
+            ],
+        ]);
+
+        $adminSession = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => 'admin@hrmotor.com',
+        ];
+
+        $this->withSession($adminSession)
+            ->get('/informes/comisiones-comerciales?call_center_contract_from=2026-06-01&call_center_contract_to=2026-06-30&month=2026-05')
+            ->assertOk()
+            ->assertSee('Comisiones Comerciales');
     }
 
     public function test_dashboard_excluye_delegaciones_general_y_call_fontellas(): void

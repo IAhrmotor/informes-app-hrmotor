@@ -81,11 +81,6 @@ class CommercialCommissionFormulaConfigService
         'zaragoza' => 'HR Motor || Zaragoza',
     ];
 
-    private const TEMPORARILY_UNLOCKABLE_MONTHS = [
-        '2026-04',
-        '2026-05',
-    ];
-
     private const TEMPORARY_UNLOCKED_MONTHS_SESSION_KEY = 'commercial_commission_temporarily_unlocked_months';
 
     public function defaults(): array
@@ -193,8 +188,12 @@ class CommercialCommissionFormulaConfigService
 
     public function forMonth(CarbonImmutable|string $month): array
     {
-        $monthKey = $month instanceof CarbonImmutable ? $month->format('Y-m') : (string) $month;
+        $selectedMonth = $month instanceof CarbonImmutable
+            ? $month->startOfMonth()
+            : CarbonImmutable::createFromFormat('Y-m', (string) $month)->startOfMonth();
+        $monthKey = $selectedMonth->format('Y-m');
         $defaults = $this->defaults();
+        $defaults['delegations']['goals'] = $this->inheritedDelegationGoals($selectedMonth);
 
         if (! Schema::hasTable('commercial_commission_month_settings')) {
             return $defaults;
@@ -398,11 +397,11 @@ class CommercialCommissionFormulaConfigService
 
     public function canTemporarilyUnlockMonth(CarbonImmutable|string $month): bool
     {
-        $value = $month instanceof CarbonImmutable
-            ? $month->format('Y-m')
-            : (string) $month;
+        $selectedMonth = $month instanceof CarbonImmutable
+            ? $month->startOfMonth()
+            : CarbonImmutable::createFromFormat('Y-m', (string) $month)->startOfMonth();
 
-        return in_array($value, self::TEMPORARILY_UNLOCKABLE_MONTHS, true);
+        return $selectedMonth->lessThan($this->openMonth()->startOfMonth());
     }
 
     public function unlockMonth(Request $request, CarbonImmutable|string $month): bool
@@ -454,5 +453,33 @@ class CommercialCommissionFormulaConfigService
 
         return collect($request->session()->get(self::TEMPORARY_UNLOCKED_MONTHS_SESSION_KEY, []))
             ->contains(fn (mixed $item) => (string) $item === $value);
+    }
+
+    private function inheritedDelegationGoals(CarbonImmutable $selectedMonth): array
+    {
+        if (! Schema::hasTable('commercial_commission_month_settings')) {
+            return [];
+        }
+
+        $cursor = $selectedMonth->subMonthNoOverflow()->startOfMonth();
+        $oldestMonth = CarbonImmutable::parse('2020-01-01')->startOfMonth();
+
+        while ($cursor->greaterThanOrEqualTo($oldestMonth)) {
+            $stored = CommercialCommissionMonthSetting::query()
+                ->where('month', $cursor->format('Y-m'))
+                ->first();
+
+            if (is_array($stored?->settings) && ! empty($stored->settings['delegations']['goals'])) {
+                return $this->normalizeSettings([
+                    'delegations' => [
+                        'goals' => $stored->settings['delegations']['goals'],
+                    ],
+                ])['delegations']['goals'] ?? [];
+            }
+
+            $cursor = $cursor->subMonthNoOverflow()->startOfMonth();
+        }
+
+        return [];
     }
 }

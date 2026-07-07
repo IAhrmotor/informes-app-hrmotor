@@ -38,6 +38,53 @@ class CommercialCommissionDashboardService
         'platform integration user',
     ];
 
+    private const OPPORTUNITY_COLUMNS = [
+        'salesforce_id',
+        'name',
+        'amount',
+        'opo_for_importe_total',
+        'stage_name',
+        'record_type_name',
+        'owner_id',
+        'owner_name',
+        'owner_is_active',
+        'owner_delegation',
+        'delivery_store',
+        'account_name',
+        'shared_delivery_id',
+        'shared_delivery_name',
+        'garantia_total',
+        'beneficio_financiacion_comercial',
+        'importe_financiado',
+        'gestion_de_venta',
+        'opo_div_descuento',
+        'vehicle_interest_id',
+        'vehicle_sale_price',
+        'vehicle_purchase_price',
+        'vehicle_purchase_source',
+        'vehicle_purchase_date',
+        'vehicle_buyer_id',
+        'vehicle_buyer_name',
+        'vehicle_plate',
+        'vehicle_entry_date',
+        'vehicle_days_in_stock',
+        'cv_signed',
+        'cv_signed_date',
+    ];
+
+    private const REVIEW_COLUMNS = [
+        'salesforce_id',
+        'created_date',
+        'owner_id',
+        'owner_name',
+        'opportunity_salesforce_id',
+        'opportunity_name',
+        'opportunity_owner_id',
+        'opportunity_owner_name',
+        'opportunity_record_type_name',
+        'opportunity_cv_signed_date',
+    ];
+
     public function __construct(
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
         private readonly CommercialCommissionDelegationReviewsService $delegationReviews,
@@ -358,6 +405,9 @@ class CommercialCommissionDashboardService
         $deliveriesByDelegation = $deliveries->groupBy(
             fn (SalesforceOpportunity $row) => $this->delegationLabel($this->deliveryDelegation($row))
         );
+        $financialOperationsByDelegation = $deliveries->groupBy(
+            fn (SalesforceOpportunity $row) => $this->delegationLabel($this->financialDelegation($row))
+        );
         $configuredGoals = collect($formulaSettings['delegations']['goals'] ?? []);
         $delegationLabels = collect($deliveriesByDelegation->keys())
             ->merge($configuredGoals->map(fn (array $goal, string $key) => (string) ($goal['label'] ?? $key)))
@@ -368,9 +418,11 @@ class CommercialCommissionDashboardService
             ->values();
         $reviewsByDelegation = $this->delegationReviews->forMonthAndDelegations($periodStart, $delegationLabels);
 
-        return $delegationLabels->map(function (string $delegationLabel) use ($deliveriesByDelegation, $configuredGoals, $formulaSettings, $reviewsByDelegation): array {
+        return $delegationLabels->map(function (string $delegationLabel) use ($deliveriesByDelegation, $financialOperationsByDelegation, $configuredGoals, $formulaSettings, $reviewsByDelegation): array {
             /** @var Collection<int, SalesforceOpportunity> $delegationOperations */
             $delegationOperations = $deliveriesByDelegation->get($delegationLabel, collect())->values();
+            /** @var Collection<int, SalesforceOpportunity> $delegationFinancialOperations */
+            $delegationFinancialOperations = $financialOperationsByDelegation->get($delegationLabel, collect())->values();
             $deliveriesCount = $delegationOperations->count();
             $goal = $this->delegationGoal($configuredGoals, $delegationLabel);
             $targetDeliveries = (int) ($goal['target_deliveries'] ?? 0);
@@ -403,13 +455,13 @@ class CommercialCommissionDashboardService
                 $reviewsAverageRating
             );
             $primaFinal = round($primaFinalBeforeReviews + $reviewsCommissionAmount, 2);
-            $financingBenefitTotal = round((float) $delegationOperations->sum(
-                fn (SalesforceOpportunity $row) => max(0, (float) ($row->beneficio_financiacion_comercial ?? 0))
+            $financingBenefitTotal = round((float) $delegationFinancialOperations->sum(
+                fn (SalesforceOpportunity $row) => (float) ($row->beneficio_financiacion_comercial ?? 0)
             ), 2);
-            $financedAmount = round((float) $delegationOperations->sum(
-                fn (SalesforceOpportunity $row) => max(0, (float) ($row->importe_financiado ?? 0))
+            $financedAmount = round((float) $delegationFinancialOperations->sum(
+                fn (SalesforceOpportunity $row) => (float) ($row->importe_financiado ?? 0)
             ), 2);
-            $totalVehicleAmount = round((float) $delegationOperations->sum(function (SalesforceOpportunity $row): float {
+            $totalVehicleAmount = round((float) $delegationFinancialOperations->sum(function (SalesforceOpportunity $row): float {
                 $amount = (float) ($row->opo_for_importe_total ?? 0);
 
                 if ($amount <= 0) {
@@ -573,6 +625,7 @@ class CommercialCommissionDashboardService
     ): Builder
     {
         $query = SalesforceOpportunity::query()
+            ->select(self::OPPORTUNITY_COLUMNS)
             ->where('cv_signed', true)
             ->whereDate('cv_signed_date', '>=', $periodStart->toDateString())
             ->whereDate('cv_signed_date', '<', $periodEnd->toDateString())
@@ -594,6 +647,7 @@ class CommercialCommissionDashboardService
     private function monthlyReviews(CarbonImmutable $periodStart, CarbonImmutable $periodEnd): Builder
     {
         return SalesforceReview::query()
+            ->select(self::REVIEW_COLUMNS)
             ->where('created_date', '>=', $periodStart->utc()->toDateTimeString())
             ->where('created_date', '<', $periodEnd->utc()->toDateTimeString());
     }
@@ -822,6 +876,7 @@ class CommercialCommissionDashboardService
         }
 
         $query = SalesforceOpportunity::query()
+            ->select(self::OPPORTUNITY_COLUMNS)
             ->where('cv_signed', true)
             ->whereRaw('LOWER(COALESCE(stage_name, \'\')) <> ?', ['cerrada perdida'])
             ->whereDate('vehicle_purchase_date', '>', self::PURCHASE_DATE_CUTOFF)
@@ -1103,6 +1158,17 @@ class CommercialCommissionDashboardService
             $row->delivery_store,
             $row->owner_delegation
         );
+    }
+
+    private function financialDelegation(SalesforceOpportunity $row): string
+    {
+        $ownerDelegation = $this->formulaConfig->normalizeDelegationLabel($row->owner_delegation);
+
+        if ($ownerDelegation !== '') {
+            return $ownerDelegation;
+        }
+
+        return $this->deliveryDelegation($row);
     }
 
     private function delegationGoal(Collection $configuredGoals, string $delegationLabel): array

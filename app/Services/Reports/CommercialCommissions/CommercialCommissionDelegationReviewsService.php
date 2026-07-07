@@ -49,36 +49,46 @@ class CommercialCommissionDelegationReviewsService
         }
 
         if ($uncachedLabels->isNotEmpty()) {
-            $responses = Http::pool(function (Pool $pool) use ($uncachedLabels, $endpoint, $monthParam, $user, $password, $timeout): array {
-                $requests = [];
+            try {
+                $responses = Http::pool(function (Pool $pool) use ($uncachedLabels, $endpoint, $monthParam, $user, $password, $timeout): array {
+                    $requests = [];
 
-                foreach ($uncachedLabels as $delegationLabel) {
-                    $location = $this->formulaConfig->googleReviewsLocationForDelegation($delegationLabel);
+                    foreach ($uncachedLabels as $delegationLabel) {
+                        $location = $this->formulaConfig->googleReviewsLocationForDelegation($delegationLabel);
 
-                    if ($location === null) {
-                        continue;
+                        if ($location === null) {
+                            continue;
+                        }
+
+                        $requests[$delegationLabel] = $pool
+                            ->as($delegationLabel)
+                            ->acceptJson()
+                            ->connectTimeout($timeout)
+                            ->timeout($timeout)
+                            ->withBasicAuth($user, $password)
+                            ->get($endpoint, [
+                                'month' => $monthParam,
+                                'location' => $location,
+                            ]);
                     }
 
-                    $requests[$delegationLabel] = $pool
-                        ->as($delegationLabel)
-                        ->acceptJson()
-                        ->connectTimeout($timeout)
-                        ->timeout($timeout)
-                        ->withBasicAuth($user, $password)
-                        ->get($endpoint, [
-                            'month' => $monthParam,
-                            'location' => $location,
-                        ]);
+                    return $requests;
+                });
+            } catch (\Throwable $exception) {
+                report($exception);
+
+                foreach ($uncachedLabels as $delegationLabel) {
+                    $results[$delegationLabel] = $this->emptyPayload();
                 }
 
-                return $requests;
-            });
+                return $results;
+            }
 
             foreach ($uncachedLabels as $delegationLabel) {
                 $cacheKey = $this->cacheKey($monthParam, $delegationLabel);
                 $response = $responses[$delegationLabel] ?? null;
 
-                if ($response === null || ! $response->successful()) {
+                if (! $response instanceof \Illuminate\Http\Client\Response || ! $response->successful()) {
                     $results[$delegationLabel] = $this->emptyPayload();
                     continue;
                 }
@@ -94,16 +104,14 @@ class CommercialCommissionDelegationReviewsService
 
     private function cacheKey(string $monthParam, string $delegationLabel): string
     {
-        return 'commercial-commissions:delegation-reviews:'.$monthParam.':'.$this->formulaConfig->delegationKey($delegationLabel);
+        return 'commercial-commissions:delegation-reviews:v2:'.$monthParam.':'.$this->formulaConfig->delegationKey($delegationLabel);
     }
 
     private function cacheTtlForMonth(CarbonImmutable $month): \DateTimeInterface
     {
-        $isCurrentMonth = $month->startOfMonth()->equalTo(CarbonImmutable::now()->startOfMonth());
+        $minutes = max(1, (int) config('services.internal_reviews.cache_minutes', 15));
 
-        return $isCurrentMonth
-            ? now()->addMinutes(15)
-            : now()->addDay();
+        return now()->addMinutes($minutes);
     }
 
     private function normalizePayload(array $payload): array

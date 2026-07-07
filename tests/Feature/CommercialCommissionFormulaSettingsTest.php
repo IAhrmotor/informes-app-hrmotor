@@ -198,7 +198,7 @@ class CommercialCommissionFormulaSettingsTest extends TestCase
 
     public function test_admin_puede_abrir_temporalmente_mayo_guardar_y_el_mes_vuelve_a_cerrarse(): void
     {
-        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 12:00:00'));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-07 12:00:00'));
         config()->set('services.informes_auth.enabled', true);
 
         $admin = ReportUser::query()->create([
@@ -217,28 +217,28 @@ class CommercialCommissionFormulaSettingsTest extends TestCase
         ];
 
         $this->withSession($session)
-            ->post('/informes/configuracion-comisiones/unlock', ['month' => '2026-05'])
-            ->assertRedirect('/informes/configuracion-comisiones?month=2026-05');
+            ->post('/informes/configuracion-comisiones/unlock', ['month' => '2026-06'])
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-06');
 
         $this->withSession(array_merge($session, [
-            'commercial_commission_temporarily_unlocked_months' => ['2026-05'],
+            'commercial_commission_temporarily_unlocked_months' => ['2026-06'],
         ]))
-            ->put('/informes/configuracion-comisiones', $this->validPayload('2026-05', [
+            ->put('/informes/configuracion-comisiones', $this->validPayload('2026-06', [
                 'sales' => ['solo_delivery_amount' => 95.0],
             ]))
-            ->assertRedirect('/informes/configuracion-comisiones?month=2026-05')
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-06')
             ->assertSessionHas('status', 'Coeficientes de comisiones actualizados correctamente. El mes se ha vuelto a cerrar.');
 
         $this->withSession($session)
-            ->from('/informes/configuracion-comisiones?month=2026-05')
-            ->put('/informes/configuracion-comisiones', $this->validPayload('2026-05'))
-            ->assertRedirect('/informes/configuracion-comisiones?month=2026-05')
+            ->from('/informes/configuracion-comisiones?month=2026-06')
+            ->put('/informes/configuracion-comisiones', $this->validPayload('2026-06'))
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-06')
             ->assertSessionHasErrors('month');
     }
 
-    public function test_solo_abril_y_mayo_se_pueden_abrir_temporalmente(): void
+    public function test_cualquier_mes_cerrado_se_puede_abrir_temporalmente_y_mes_actual_o_futuro_no(): void
     {
-        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 12:00:00'));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-07 12:00:00'));
         config()->set('services.informes_auth.enabled', true);
 
         $admin = ReportUser::query()->create([
@@ -257,13 +257,88 @@ class CommercialCommissionFormulaSettingsTest extends TestCase
         ];
 
         $this->withSession($session)
-            ->post('/informes/configuracion-comisiones/unlock', ['month' => '2026-04'])
-            ->assertRedirect('/informes/configuracion-comisiones?month=2026-04');
+            ->post('/informes/configuracion-comisiones/unlock', ['month' => '2026-06'])
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-06');
 
         $this->withSession($session)
-            ->post('/informes/configuracion-comisiones/unlock', ['month' => '2026-03'])
-            ->assertRedirect('/informes/configuracion-comisiones?month=2026-03')
+            ->post('/informes/configuracion-comisiones/unlock', ['month' => '2026-07'])
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-07')
             ->assertSessionHasErrors('month');
+
+        $this->withSession($session)
+            ->post('/informes/configuracion-comisiones/unlock', ['month' => '2026-08'])
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-08')
+            ->assertSessionHasErrors('month');
+    }
+
+    public function test_junio_cerrado_muestra_boton_de_apertura_temporal(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-07 12:00:00'));
+        config()->set('services.informes_auth.enabled', true);
+
+        $admin = ReportUser::query()->create([
+            'name' => 'Admin',
+            'email' => 'admin@hrmotor.com',
+            'password' => Hash::make('secret'),
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => true,
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $admin->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => $admin->email,
+        ];
+
+        $this->withSession($session)
+            ->get('/informes/configuracion-comisiones?month=2026-06')
+            ->assertOk()
+            ->assertSee('Abrir mes temporalmente');
+    }
+
+    public function test_mes_sin_configuracion_hereda_metas_delegacion_del_mes_anterior(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-07 12:00:00'));
+        config()->set('services.informes_auth.enabled', true);
+
+        $admin = ReportUser::query()->create([
+            'name' => 'Admin',
+            'email' => 'admin@hrmotor.com',
+            'password' => Hash::make('secret'),
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => true,
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $admin->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => $admin->email,
+        ];
+
+        $this->withSession($session)
+            ->put('/informes/configuracion-comisiones', $this->validPayload('2026-07', [
+                'delegations' => [
+                    'goals' => [
+                        'palma' => [
+                            'label' => 'Palma',
+                            'target_deliveries' => 22,
+                        ],
+                        'alicante' => [
+                            'label' => 'Alicante',
+                            'target_deliveries' => 35,
+                        ],
+                    ],
+                ],
+            ]))
+            ->assertRedirect('/informes/configuracion-comisiones?month=2026-07');
+
+        $this->withSession($session)
+            ->get('/informes/configuracion-comisiones?month=2026-08')
+            ->assertOk()
+            ->assertSee('value="22"', false)
+            ->assertSee('value="35"', false);
     }
 
     private function validPayload(string $month, array $overrides = []): array

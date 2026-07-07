@@ -41,7 +41,7 @@
             <div>
                 <div class="eyebrow">Administracion</div>
                 <h1>Coeficientes de comisiones</h1>
-                <p class="sub">Los cambios solo se pueden guardar sobre el mes abierto. Los meses cerrados se muestran en modo consulta y conservan su propia foto historica.</p>
+                <p class="sub">Solo el rol administrador puede editar coeficientes. El mes en curso permanece abierto y cualquier mes cerrado puede abrirse temporalmente para revision.</p>
             </div>
         </section>
 
@@ -76,7 +76,7 @@
             @if (! $isEditableMonth)
                 <div class="commission-settings-status-block">
                     <div class="notice commission-settings-inline-notice">
-                        El mes {{ $selectedMonthKey }} esta cerrado. Puedes revisar su configuracion historica, pero no modificarla.
+                        El mes {{ $selectedMonthKey }} esta cerrado. Puedes revisar su configuracion historica y, si lo necesitas, abrirlo temporalmente para editarlo.
                     </div>
 
                     @if ($canTemporarilyUnlockMonth)
@@ -84,7 +84,7 @@
                             <div class="small">
                                 {{ $isTemporarilyUnlocked
                                     ? 'Este mes esta abierto temporalmente para esta sesion. Guarda los cambios para que vuelva a cerrarse.'
-                                    : 'Puedes abrir temporalmente este mes para verificar calculos. Al guardar se volvera a cerrar automaticamente.' }}
+                                    : 'Puedes abrir temporalmente cualquier mes cerrado para verificar calculos. Al guardar se volvera a cerrar automaticamente.' }}
                             </div>
 
                             @if (! $isTemporarilyUnlocked)
@@ -265,7 +265,7 @@
                 <div class="panel-title">
                     <div>
                         <h2>Metas por delegacion</h2>
-                        <div class="small">Estas metas solo afectan al nuevo cuadro de delegaciones del informe de comisiones y se guardan por mes abierto.</div>
+                        <div class="small">Estas metas afectan al cuadro de delegaciones. Si el mes no tiene metas propias, hereda automaticamente las del mes anterior hasta que se guarde una configuracion nueva.</div>
                     </div>
                 </div>
 
@@ -301,7 +301,7 @@
 
             @if ($isEditableMonth)
                 <div class="report-user-form-actions">
-                    <button type="submit" class="main-tab active">Guardar coeficientes del mes abierto</button>
+                    <button type="submit" class="main-tab active">Guardar coeficientes del mes</button>
                 </div>
             @endif
         </form>
