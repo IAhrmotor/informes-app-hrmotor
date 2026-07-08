@@ -37,6 +37,10 @@ class CommercialCommissionFormulaSettingsController extends Controller
             'availableDelegations' => $this->formulaConfig->availableDelegations(
                 $this->formulaConfig->forMonth($selectedMonth)
             ),
+            'areaManagerDefinitions' => $this->formulaConfig->areaManagerDefinitions(),
+            'availableAreaManagerDelegations' => $this->formulaConfig->availableAreaManagerDelegations(
+                $this->formulaConfig->forMonth($selectedMonth)
+            ),
         ]);
     }
 
@@ -78,6 +82,21 @@ class CommercialCommissionFormulaSettingsController extends Controller
             'delegations.goals' => ['nullable', 'array'],
             'delegations.goals.*.label' => ['required', 'string', 'max:255'],
             'delegations.goals.*.target_deliveries' => ['nullable', 'integer', 'min:0'],
+            'area_manager.kpi_bases.deliveries' => ['nullable', 'numeric', 'min:0'],
+            'area_manager.kpi_bases.benefit' => ['nullable', 'numeric', 'min:0'],
+            'area_manager.kpi_bases.guarantee' => ['nullable', 'numeric', 'min:0'],
+            'area_manager.kpi_bases.purchases' => ['nullable', 'numeric', 'min:0'],
+            'area_manager.zone_keys' => ['nullable', 'array'],
+            'area_manager.zone_keys.*.min_percent' => ['nullable', 'numeric', 'min:0'],
+            'area_manager.zone_keys.*.multiplier' => ['nullable', 'numeric', 'min:0'],
+            'area_manager.assignments' => ['nullable', 'array'],
+            'area_manager.assignments.*.label' => ['required', 'string', 'max:255'],
+            'area_manager.assignments.*.manager_key' => ['nullable', 'string', Rule::in(array_column($this->formulaConfig->areaManagerDefinitions(), 'key'))],
+            'area_manager.assignments.*.active' => ['nullable'],
+            'area_manager.assignments.*.objectives.deliveries' => ['nullable', 'numeric', 'min:0'],
+            'area_manager.assignments.*.objectives.benefit' => ['nullable', 'numeric', 'min:0'],
+            'area_manager.assignments.*.objectives.guarantee' => ['nullable', 'numeric', 'min:0'],
+            'area_manager.assignments.*.objectives.purchases' => ['nullable', 'numeric', 'min:0'],
         ] + $this->productBracketRules('financing_product_brackets', 8) + $this->productBracketRules('guarantee_product_brackets', 6));
 
         $settings = [
@@ -104,6 +123,22 @@ class CommercialCommissionFormulaSettingsController extends Controller
             'guarantee_product_brackets' => $this->normalizeProductBrackets($data['guarantee_product_brackets']),
             'delegations' => [
                 'goals' => $this->normalizeDelegationGoals($data['delegations']['goals'] ?? []),
+            ],
+            'area_manager' => [
+                'kpi_bases' => [
+                    'deliveries' => (float) ($data['area_manager']['kpi_bases']['deliveries'] ?? 150),
+                    'benefit' => (float) ($data['area_manager']['kpi_bases']['benefit'] ?? 150),
+                    'guarantee' => (float) ($data['area_manager']['kpi_bases']['guarantee'] ?? 100),
+                    'purchases' => (float) ($data['area_manager']['kpi_bases']['purchases'] ?? 100),
+                ],
+                'zone_keys' => collect($data['area_manager']['zone_keys'] ?? [])
+                    ->map(fn (array $row) => [
+                        'min_percent' => (float) ($row['min_percent'] ?? 0),
+                        'multiplier' => (float) ($row['multiplier'] ?? 0),
+                    ])
+                    ->values()
+                    ->all(),
+                'assignments' => $data['area_manager']['assignments'] ?? [],
             ],
         ];
 

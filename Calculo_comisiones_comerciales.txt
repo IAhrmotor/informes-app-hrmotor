@@ -1,5 +1,5 @@
 CALCULO DE COMISIONES COMERCIALES
-Version: 2026-06-30
+Version: 2026-07-08
 
 0. Acceso y administracion
 
@@ -156,6 +156,7 @@ En la propia vista de Comisiones Comerciales:
 - tab Delegaciones: resumen por delegacion con metas, rentabilidad media, prima final y comision total
 - tab Call Center: resumen mensual y detalle auditable de captadores/agentes
 - tab Contact Center: resumen mensual y detalle auditable de citas, oportunidades, reservas y ventas por captador de cita
+- tab Area Manager: resumen mensual por manager y detalle auditable por delegacion/KPI
 - selector de columnas en el resumen
 - `Comision final` aparece al inicio
 - `Operaciones` ya no aparece en la tabla resumen
@@ -166,6 +167,7 @@ En la propia vista de Comisiones Comerciales:
   - `Delegaciones`
   - `Call Center`
   - `Contact Center`
+  - `Area Manager`
 
 8. Cuadro de delegaciones
 
@@ -430,3 +432,88 @@ En la propia vista de Comisiones Comerciales:
 - La base principal para `Contact Center` es la cita efectiva y su cruce posterior con oportunidades/ventas.
 - Si tras desplegar sigue saliendo poca actividad, lo primero a revisar no es la formula:
   - hay que resincronizar leads y opportunities con ventana suficiente para incluir citas del mes y del mes anterior.
+
+14. Bloque Area Manager integrado en Comisiones Comerciales
+
+- No tiene pagina independiente en el menu principal.
+- Se muestra como sexta pestana dentro de `/informes/comisiones-comerciales`.
+- La fuente real sale de `salesforce_opportunities`; los Excel/ODS solo se usan como referencia funcional y bootstrap inicial de objetivos.
+- Managers incluidos en esta primera fase:
+  - `David Baeza`
+  - `Nicolas Fernandez`
+  - `Kosta Plamenov`
+  - `Luis Lopez`
+- `Oscar` queda fuera de esta automatizacion.
+
+14.1 Configuracion mensual
+
+- Se gestiona desde `/informes/configuracion-comisiones`.
+- Nuevo bloque `Area Manager` editable solo por `admin` con:
+  - bases por KPI
+  - llaves de zona
+  - asignacion manager <-> delegacion
+  - objetivos por delegacion:
+    - `Entregas`
+    - `Beneficio`
+    - `Garantia Premium`
+    - `Compras`
+- Si un mes no tiene configuracion propia, hereda la ultima configuracion disponible.
+- Para no arrancar vacio, abril, mayo y junio de 2026 llevan bootstrap base desde los ficheros de objetivos facilitados.
+- Julio en adelante hereda automaticamente junio hasta que se guarde una foto mensual propia.
+
+14.2 KPIs reales usados
+
+- `Entregas`
+  - conteo de opportunities `Venta` y `Cambio`
+  - agrupadas por `delivery_store` con fallback a `owner_delegation`
+- `Beneficio`
+  - suma de `Beneficio_financiacion_comercial__c`
+  - agrupada sobre las mismas entregas del centro
+- `Garantia Premium`
+  - suma de `Garant_a_Total__c`
+  - agrupada sobre las mismas entregas del centro
+- `Compras`
+  - conteo de opportunities `Tasacion` y `Cambio`
+  - agrupadas por `owner_delegation` con fallback a `delivery_store`
+
+14.3 Regla de comision por delegacion y KPI
+
+- `cumplimiento_real = real / objetivo`
+- `cumplimiento_usado = porcentaje redondeado al entero mas cercano`
+- bases por defecto:
+  - `Entregas = 150 EUR`
+  - `Beneficio = 150 EUR`
+  - `Garantia Premium = 100 EUR`
+  - `Compras = 100 EUR`
+- si `cumplimiento_usado >= 85%`:
+  - `comision_pre_llave = base_kpi x cumplimiento_usado`
+- si `cumplimiento_usado < 85%`:
+  - `comision_pre_llave = 0`
+- no se capa al `100%`; si supera `100%`, paga proporcionalmente por encima.
+
+14.4 Llave de zona
+
+- Se calcula por manager y KPI con:
+  - `cumplimiento_zona = total_real_kpi_manager / total_objetivo_kpi_manager`
+- Se usa el porcentaje redondeado para decidir la llave.
+- Tabla editable actual por defecto:
+  - `>= 100% => 1,10`
+  - `91% - 99% => 1,00`
+  - `85% - 90% => 0,90`
+  - `< 85% => 0,80`
+- `comision_final_kpi = suma_pre_llave_kpi x llave_zona_kpi`
+
+14.5 Total manager
+
+- `total_automatico = comision_entregas + comision_beneficio + comision_garantia + comision_compras`
+- `ajuste_manual = 0` en esta primera fase
+- `total_final = total_automatico`
+
+14.6 Salida del front
+
+- Resumen mensual con una fila por manager.
+- Detalle auditable por manager con una fila por `delegacion + KPI`.
+- Incidencias visibles para:
+  - delegacion con datos reales pero sin manager asignado
+  - objetivo a cero
+  - configuracion incompleta

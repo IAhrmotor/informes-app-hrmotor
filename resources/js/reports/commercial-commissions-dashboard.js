@@ -56,11 +56,42 @@ function bindCommissionTabs() {
         panels.forEach((panel) => {
             panel.classList.toggle('is-hidden', panel.dataset.commissionTabPanel !== targetTab);
         });
+
+        window.requestAnimationFrame(() => {
+            if (targetTab === 'summary') {
+                syncCommissionSummaryScrollbar();
+            }
+
+            if (targetTab === 'delegations') {
+                syncCommissionDelegationScrollbar();
+                window.requestAnimationFrame(() => syncCommissionDelegationScrollbar());
+            }
+        });
     };
 
     triggers.forEach((trigger) => {
-        trigger.addEventListener('click', () => activate(trigger.dataset.commissionTabTrigger));
+        trigger.addEventListener('click', () => {
+            if (trigger.dataset.commissionTabCurrent === 'true') {
+                activate(trigger.dataset.commissionTabTrigger);
+                return;
+            }
+
+            const targetUrl = trigger.dataset.commissionTabUrl;
+
+            if (targetUrl) {
+                window.location.assign(targetUrl);
+                return;
+            }
+
+            activate(trigger.dataset.commissionTabTrigger);
+        });
     });
+
+    const currentTrigger = triggers.find((trigger) => trigger.dataset.commissionTabCurrent === 'true') || triggers[0];
+
+    if (currentTrigger) {
+        activate(currentTrigger.dataset.commissionTabTrigger);
+    }
 }
 
 function bindAgentBrowsers() {
@@ -640,7 +671,8 @@ function initHorizontalScroll(topId, spacerId, shellId, tableId, setSyncFn) {
     let syncingFromShell = false;
 
     const syncScrollbar = () => {
-        spacer.style.width = `${table.scrollWidth}px`;
+        const contentWidth = Math.max(table.scrollWidth, table.offsetWidth, shell.scrollWidth);
+        spacer.style.width = `${contentWidth}px`;
         topScroll.scrollLeft = shell.scrollLeft;
     };
 
@@ -674,6 +706,7 @@ function initHorizontalScroll(topId, spacerId, shellId, tableId, setSyncFn) {
         window.addEventListener('resize', syncScrollbar);
     }
 
+    window.addEventListener('load', syncScrollbar);
     syncScrollbar();
 }
 

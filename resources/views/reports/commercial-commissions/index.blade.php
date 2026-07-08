@@ -17,10 +17,18 @@
     </script>
 </head>
 @php
+    $activeCommissionTab = $activeCommissionTab ?? 'summary';
     $summaryRows = collect($dashboard['summary_rows'] ?? []);
     $delegationRows = collect($dashboard['delegation_rows'] ?? []);
     $callCenterSummaryRows = collect($callCenterDashboard['summary_rows'] ?? []);
     $contactCenterSummaryRows = collect($contactCenterDashboard['summary_rows'] ?? []);
+    $areaManagerSummaryRows = collect($areaManagerDashboard['summary_rows'] ?? []);
+    $summaryTabUrl = request()->fullUrlWithQuery(['tab' => 'summary']);
+    $detailTabUrl = request()->fullUrlWithQuery(['tab' => 'detail']);
+    $delegationsTabUrl = request()->fullUrlWithQuery(['tab' => 'delegations']);
+    $callCenterTabUrl = request()->fullUrlWithQuery(['tab' => 'call-center']);
+    $contactCenterTabUrl = request()->fullUrlWithQuery(['tab' => 'contact-center']);
+    $areaManagerTabUrl = request()->fullUrlWithQuery(['tab' => 'area-manager']);
     $stockLabel = 'Stock +'.(int) ($formulaSettings['stock']['days_threshold'] ?? 150);
     $bonusLabel = 'Bonus +'.(int) ($formulaSettings['bonus']['start_after_delivery'] ?? 15);
     $defaultCommercialId = $summaryRows->first()['commercial_id'] ?? null;
@@ -74,6 +82,7 @@
         <section class="tab-panel active">
             <section class="filters card commission-filters">
                 <form method="GET" class="commission-filter-form">
+                    <input type="hidden" name="tab" value="{{ $activeCommissionTab }}">
                     @if (! empty($callCenterDashboard['contract_from']))
                         <input type="hidden" name="call_center_contract_from" value="{{ $callCenterDashboard['contract_from'] }}">
                     @endif
@@ -193,10 +202,13 @@
                 || $delegationRows->isNotEmpty()
                 || $callCenterSummaryRows->isNotEmpty()
                 || $contactCenterSummaryRows->isNotEmpty()
+                || $areaManagerSummaryRows->isNotEmpty()
                 || ! empty($callCenterDashboard['issues'])
                 || ! empty($callCenterDashboard['warnings'])
                 || ! empty($contactCenterDashboard['issues'])
                 || ! empty($contactCenterDashboard['warnings'])
+                || ! empty($areaManagerDashboard['issues'])
+                || ! empty($areaManagerDashboard['warnings'])
             )
                 <section class="card panel">
                     <div class="panel-title">
@@ -207,14 +219,15 @@
                     </div>
 
                     <nav class="tabs-main commission-inner-tabs" aria-label="Vista de comisiones">
-                        <button type="button" class="main-tab active" data-commission-tab-trigger="summary">Resumen</button>
-                        <button type="button" class="main-tab" data-commission-tab-trigger="detail">Detalle por comercial</button>
-                        <button type="button" class="main-tab" data-commission-tab-trigger="delegations">Delegaciones</button>
-                        <button type="button" class="main-tab" data-commission-tab-trigger="call-center">Call Center</button>
-                        <button type="button" class="main-tab" data-commission-tab-trigger="contact-center">Contact Center</button>
+                        <a href="{{ $summaryTabUrl }}" class="main-tab{{ $activeCommissionTab === 'summary' ? ' active' : '' }}" data-commission-tab-trigger="summary" data-commission-tab-url="{{ $summaryTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'summary' ? 'true' : 'false' }}">Resumen</a>
+                        <a href="{{ $detailTabUrl }}" class="main-tab{{ $activeCommissionTab === 'detail' ? ' active' : '' }}" data-commission-tab-trigger="detail" data-commission-tab-url="{{ $detailTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'detail' ? 'true' : 'false' }}">Detalle por comercial</a>
+                        <a href="{{ $delegationsTabUrl }}" class="main-tab{{ $activeCommissionTab === 'delegations' ? ' active' : '' }}" data-commission-tab-trigger="delegations" data-commission-tab-url="{{ $delegationsTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'delegations' ? 'true' : 'false' }}">Delegaciones</a>
+                        <a href="{{ $callCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'call-center' ? ' active' : '' }}" data-commission-tab-trigger="call-center" data-commission-tab-url="{{ $callCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'call-center' ? 'true' : 'false' }}">Call Center</a>
+                        <a href="{{ $contactCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'contact-center' ? ' active' : '' }}" data-commission-tab-trigger="contact-center" data-commission-tab-url="{{ $contactCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'contact-center' ? 'true' : 'false' }}">Contact Center</a>
+                        <a href="{{ $areaManagerTabUrl }}" class="main-tab{{ $activeCommissionTab === 'area-manager' ? ' active' : '' }}" data-commission-tab-trigger="area-manager" data-commission-tab-url="{{ $areaManagerTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'area-manager' ? 'true' : 'false' }}">Area Manager</a>
                     </nav>
 
-                    <div data-commission-tab-panel="summary">
+                    <div @class(['is-hidden' => $activeCommissionTab !== 'summary']) data-commission-tab-panel="summary">
                         <section class="campaign-context-grid commission-context-grid">
                             <article class="card campaign-context-card">
                                 <span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Comerciales') }}">Comerciales</span>
@@ -342,7 +355,7 @@
                         </div>
                     </div>
 
-                    <div class="is-hidden" data-commission-tab-panel="delegations">
+                    <div @class(['is-hidden' => $activeCommissionTab !== 'delegations']) data-commission-tab-panel="delegations">
                         <section class="campaign-context-grid commission-context-grid">
                             <article class="card campaign-context-card">
                                 <span>Delegaciones</span>
@@ -467,7 +480,8 @@
                         </div>
                     </div>
 
-                    <div class="is-hidden" data-commission-tab-panel="detail">
+                    <div @class(['is-hidden' => $activeCommissionTab !== 'detail']) data-commission-tab-panel="detail">
+                        @if ($activeCommissionTab === 'detail')
                         <div class="commission-detail-shell" data-agent-browser>
                             <aside class="card commission-commercial-picker">
                                 <div class="filter-group">
@@ -705,9 +719,10 @@
                                 @endforeach
                             </section>
                         </div>
+                        @endif
                     </div>
 
-                    <div class="is-hidden" data-commission-tab-panel="call-center">
+                    <div @class(['is-hidden' => $activeCommissionTab !== 'call-center']) data-commission-tab-panel="call-center">
                         <section class="card panel">
                             <div class="panel-title compact">
                                 <div>
@@ -728,7 +743,7 @@
                         </section>
                     </div>
 
-                    <div class="is-hidden" data-commission-tab-panel="contact-center">
+                    <div @class(['is-hidden' => $activeCommissionTab !== 'contact-center']) data-commission-tab-panel="contact-center">
                         <section class="card panel">
                             <div class="panel-title compact">
                                 <div>
@@ -746,6 +761,27 @@
                             @endforeach
 
                             @include('reports.commercial-commissions.partials.contact-center-tab')
+                        </section>
+                    </div>
+
+                    <div @class(['is-hidden' => $activeCommissionTab !== 'area-manager']) data-commission-tab-panel="area-manager">
+                        <section class="card panel">
+                            <div class="panel-title compact">
+                                <div>
+                                    <h2>Comisiones Area Manager</h2>
+                                    <div class="small">KPIs por delegacion, llave de zona y detalle auditable por manager.</div>
+                                </div>
+                            </div>
+
+                            @foreach ($areaManagerDashboard['issues'] ?? [] as $issue)
+                                <div class="notice">{{ $issue }}</div>
+                            @endforeach
+
+                            @foreach ($areaManagerDashboard['warnings'] ?? [] as $warning)
+                                <div class="notice commission-warning">{{ $warning }}</div>
+                            @endforeach
+
+                            @include('reports.commercial-commissions.partials.area-manager-tab')
                         </section>
                     </div>
                 </section>

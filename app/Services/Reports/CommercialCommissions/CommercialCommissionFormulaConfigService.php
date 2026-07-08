@@ -11,6 +11,122 @@ use Illuminate\Support\Facades\Schema;
 
 class CommercialCommissionFormulaConfigService
 {
+    private const AREA_MANAGER_DEFINITIONS = [
+        'david-baeza' => 'David Baeza',
+        'nicolas-fernandez' => 'Nicolas Fernandez',
+        'kosta-plamenov' => 'Kosta Plamenov',
+        'luis-lopez' => 'Luis Lopez',
+    ];
+
+    private const AREA_MANAGER_BOOTSTRAP_ASSIGNMENTS = [
+        '2026-04' => [
+            'alicante' => ['label' => 'Alicante', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 35, 'benefit' => 33320, 'guarantee' => 11900, 'purchases' => 28]],
+            'murcia' => ['label' => 'Murcia', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 35, 'benefit' => 33320, 'guarantee' => 11900, 'purchases' => 16]],
+            'valencia' => ['label' => 'Valencia', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 30, 'benefit' => 31416, 'guarantee' => 10200, 'purchases' => 16]],
+            'paterna' => ['label' => 'Paterna', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 30, 'benefit' => 28560, 'guarantee' => 10200, 'purchases' => 27]],
+            'sedavi' => ['label' => 'Sedavi', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 30, 'benefit' => 28560, 'guarantee' => 12750, 'purchases' => 18]],
+            'castellon' => ['label' => 'Castellon', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 20, 'benefit' => 19040, 'guarantee' => 6800, 'purchases' => 10]],
+            'villareal' => ['label' => 'Villareal', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 25, 'benefit' => 26775, 'guarantee' => 8500, 'purchases' => 15]],
+            'elche' => ['label' => 'Elche', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 20, 'benefit' => 19040, 'guarantee' => 8500, 'purchases' => 12]],
+            'alcoy' => ['label' => 'Alcoy', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 20, 'benefit' => 22848, 'guarantee' => 10200, 'purchases' => 12]],
+            'bilbao' => ['label' => 'Bilbao', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 40, 'benefit' => 38080, 'guarantee' => 13600, 'purchases' => 24]],
+            'fontellas' => ['label' => 'Fontellas', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 30, 'benefit' => 28560, 'guarantee' => 10200, 'purchases' => 15]],
+            'pamplona' => ['label' => 'Pamplona', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 40, 'benefit' => 38080, 'guarantee' => 13600, 'purchases' => 20]],
+            'san-sebastian' => ['label' => 'San Sebastian', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 25, 'benefit' => 23800, 'guarantee' => 10625, 'purchases' => 15]],
+            'zaragoza' => ['label' => 'Zaragoza', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 45, 'benefit' => 42840, 'guarantee' => 15300, 'purchases' => 27]],
+            'gijon' => ['label' => 'Gijon', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 30, 'benefit' => 29988, 'guarantee' => 12750, 'purchases' => 18]],
+            'a-coruna' => ['label' => 'A Coruna', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 30, 'benefit' => 31416, 'guarantee' => 12750, 'purchases' => 18]],
+            'valladolid' => ['label' => 'Valladolid', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 30, 'benefit' => 28560, 'guarantee' => 12750, 'purchases' => 18]],
+            'badalona' => ['label' => 'Badalona', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 25, 'benefit' => 23800, 'guarantee' => 8500, 'purchases' => 18]],
+            'girona' => ['label' => 'Girona', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 30, 'benefit' => 28560, 'guarantee' => 10200, 'purchases' => 24]],
+            'lleida' => ['label' => 'Lleida', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 20, 'benefit' => 19040, 'guarantee' => 6800, 'purchases' => 12]],
+            'llica-de-valls' => ['label' => 'Llica de Valls', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 20, 'benefit' => 19040, 'guarantee' => 6800, 'purchases' => 16]],
+            'manresa' => ['label' => 'Manresa', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 22, 'benefit' => 20944, 'guarantee' => 7480, 'purchases' => 13]],
+            'sant-boi' => ['label' => 'Sant Boi', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 50, 'benefit' => 59500, 'guarantee' => 25500, 'purchases' => 30]],
+            'alcala-de-guadaira' => ['label' => 'Alcala de Guadaira', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 35, 'benefit' => 45815, 'guarantee' => 20825, 'purchases' => 21]],
+            'malaga' => ['label' => 'Malaga', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 28, 'benefit' => 29322, 'guarantee' => 14280, 'purchases' => 25]],
+            'malaga-centro' => ['label' => 'Malaga Centro', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 20, 'benefit' => 20944, 'guarantee' => 10200, 'purchases' => 12]],
+            'sevilla' => ['label' => 'Sevilla', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 40, 'benefit' => 42840, 'guarantee' => 20400, 'purchases' => 28]],
+            'palma' => ['label' => 'Palma', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 40, 'benefit' => 38080, 'guarantee' => 20400, 'purchases' => 30]],
+            'alcobendas' => ['label' => 'Alcobendas', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 25, 'benefit' => 23800, 'guarantee' => 10625, 'purchases' => 20]],
+            'rivas' => ['label' => 'Rivas', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 50, 'benefit' => 47600, 'guarantee' => 17000, 'purchases' => 30]],
+            'torrejon-de-ardoz' => ['label' => 'Torrejon de Ardoz', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 50, 'benefit' => 47600, 'guarantee' => 17000, 'purchases' => 30]],
+            'collado-villalba' => ['label' => 'Collado Villalba', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 28, 'benefit' => 29322, 'guarantee' => 14280, 'purchases' => 17]],
+            'dos-hermanas' => ['label' => 'Dos Hermanas', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 20, 'benefit' => 19040, 'guarantee' => 8500, 'purchases' => 12]],
+        ],
+        '2026-05' => [
+            'alicante' => ['label' => 'Alicante', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 35, 'benefit' => 33320, 'guarantee' => 11900, 'purchases' => 28]],
+            'murcia' => ['label' => 'Murcia', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 28, 'benefit' => 26656, 'guarantee' => 11900, 'purchases' => 16]],
+            'valencia' => ['label' => 'Valencia', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 30, 'benefit' => 31416, 'guarantee' => 10200, 'purchases' => 16]],
+            'paterna' => ['label' => 'Paterna', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 28, 'benefit' => 27989, 'guarantee' => 11900, 'purchases' => 27]],
+            'sedavi' => ['label' => 'Sedavi', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 30, 'benefit' => 28560, 'guarantee' => 12750, 'purchases' => 18]],
+            'castellon' => ['label' => 'Castellon', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 20, 'benefit' => 19040, 'guarantee' => 6800, 'purchases' => 10]],
+            'villareal' => ['label' => 'Villareal', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 25, 'benefit' => 26775, 'guarantee' => 8500, 'purchases' => 15]],
+            'elche' => ['label' => 'Elche', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 20, 'benefit' => 19040, 'guarantee' => 8500, 'purchases' => 12]],
+            'alcoy' => ['label' => 'Alcoy', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 20, 'benefit' => 19992, 'guarantee' => 8500, 'purchases' => 12]],
+            'bilbao' => ['label' => 'Bilbao', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 38, 'benefit' => 36176, 'guarantee' => 12920, 'purchases' => 24]],
+            'fontellas' => ['label' => 'Fontellas', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 28, 'benefit' => 26656, 'guarantee' => 11900, 'purchases' => 14]],
+            'pamplona' => ['label' => 'Pamplona', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 35, 'benefit' => 33320, 'guarantee' => 11900, 'purchases' => 18]],
+            'san-sebastian' => ['label' => 'San Sebastian', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 20, 'benefit' => 19040, 'guarantee' => 8500, 'purchases' => 12]],
+            'zaragoza' => ['label' => 'Zaragoza', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 45, 'benefit' => 42840, 'guarantee' => 15300, 'purchases' => 27]],
+            'gijon' => ['label' => 'Gijon', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 30, 'benefit' => 28560, 'guarantee' => 12750, 'purchases' => 18]],
+            'a-coruna' => ['label' => 'A Coruna', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 30, 'benefit' => 31416, 'guarantee' => 12750, 'purchases' => 18]],
+            'valladolid' => ['label' => 'Valladolid', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 28, 'benefit' => 26656, 'guarantee' => 11900, 'purchases' => 17]],
+            'badalona' => ['label' => 'Badalona', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 20, 'benefit' => 19040, 'guarantee' => 8500, 'purchases' => 15]],
+            'girona' => ['label' => 'Girona', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 25, 'benefit' => 29750, 'guarantee' => 10625, 'purchases' => 24]],
+            'lleida' => ['label' => 'Lleida', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 18, 'benefit' => 17136, 'guarantee' => 7650, 'purchases' => 12]],
+            'llica-de-valls' => ['label' => 'Llica de Valls', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 18, 'benefit' => 17136, 'guarantee' => 7650, 'purchases' => 14]],
+            'manresa' => ['label' => 'Manresa', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 22, 'benefit' => 20944, 'guarantee' => 7480, 'purchases' => 13]],
+            'sant-boi' => ['label' => 'Sant Boi', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 55, 'benefit' => 65450, 'guarantee' => 32725, 'purchases' => 39]],
+            'alcala-de-guadaira' => ['label' => 'Alcala de Guadaira', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 30, 'benefit' => 44268, 'guarantee' => 17850, 'purchases' => 18]],
+            'malaga' => ['label' => 'Malaga', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 30, 'benefit' => 33558, 'guarantee' => 15300, 'purchases' => 12]],
+            'malaga-centro' => ['label' => 'Malaga Centro', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 20, 'benefit' => 22848, 'guarantee' => 10200, 'purchases' => 22]],
+            'sevilla' => ['label' => 'Sevilla', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 38, 'benefit' => 43411, 'guarantee' => 15504, 'purchases' => 28]],
+            'palma' => ['label' => 'Palma', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 40, 'benefit' => 38080, 'guarantee' => 20400, 'purchases' => 30]],
+            'alcobendas' => ['label' => 'Alcobendas', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 25, 'benefit' => 23800, 'guarantee' => 10625, 'purchases' => 20]],
+            'rivas' => ['label' => 'Rivas', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 45, 'benefit' => 42840, 'guarantee' => 19125, 'purchases' => 27]],
+            'torrejon-de-ardoz' => ['label' => 'Torrejon de Ardoz', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 48, 'benefit' => 45696, 'guarantee' => 16320, 'purchases' => 30]],
+            'collado-villalba' => ['label' => 'Collado Villalba', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 25, 'benefit' => 26775, 'guarantee' => 10625, 'purchases' => 17]],
+            'dos-hermanas' => ['label' => 'Dos Hermanas', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 15, 'benefit' => 14280, 'guarantee' => 6375, 'purchases' => 9]],
+        ],
+        '2026-06' => [
+            'alicante' => ['label' => 'Alicante', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 35, 'benefit' => 33320, 'guarantee' => 11900, 'purchases' => 28]],
+            'murcia' => ['label' => 'Murcia', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 28, 'benefit' => 26656, 'guarantee' => 11900, 'purchases' => 16]],
+            'valencia' => ['label' => 'Valencia', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 30, 'benefit' => 31416, 'guarantee' => 10200, 'purchases' => 16]],
+            'paterna' => ['label' => 'Paterna', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 28, 'benefit' => 26656, 'guarantee' => 10200, 'purchases' => 27]],
+            'sedavi' => ['label' => 'Sedavi', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 30, 'benefit' => 28560, 'guarantee' => 10200, 'purchases' => 18]],
+            'castellon' => ['label' => 'Castellon', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 20, 'benefit' => 19040, 'guarantee' => 6800, 'purchases' => 10]],
+            'villareal' => ['label' => 'Villareal', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 28, 'benefit' => 27989, 'guarantee' => 9520, 'purchases' => 17]],
+            'elche' => ['label' => 'Elche', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 20, 'benefit' => 17612, 'guarantee' => 8500, 'purchases' => 12]],
+            'alcoy' => ['label' => 'Alcoy', 'manager_key' => 'nicolas-fernandez', 'objectives' => ['deliveries' => 18, 'benefit' => 17993, 'guarantee' => 7650, 'purchases' => 11]],
+            'bilbao' => ['label' => 'Bilbao', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 35, 'benefit' => 30821, 'guarantee' => 11900, 'purchases' => 24]],
+            'fontellas' => ['label' => 'Fontellas', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 30, 'benefit' => 28560, 'guarantee' => 12750, 'purchases' => 15]],
+            'pamplona' => ['label' => 'Pamplona', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 35, 'benefit' => 33320, 'guarantee' => 11900, 'purchases' => 18]],
+            'san-sebastian' => ['label' => 'San Sebastian', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 20, 'benefit' => 19040, 'guarantee' => 8500, 'purchases' => 12]],
+            'zaragoza' => ['label' => 'Zaragoza', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 35, 'benefit' => 33320, 'guarantee' => 11900, 'purchases' => 27]],
+            'gijon' => ['label' => 'Gijon', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 30, 'benefit' => 28560, 'guarantee' => 12750, 'purchases' => 18]],
+            'a-coruna' => ['label' => 'A Coruna', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 28, 'benefit' => 29322, 'guarantee' => 11900, 'purchases' => 17]],
+            'valladolid' => ['label' => 'Valladolid', 'manager_key' => 'kosta-plamenov', 'objectives' => ['deliveries' => 29, 'benefit' => 27608, 'guarantee' => 12325, 'purchases' => 17]],
+            'badalona' => ['label' => 'Badalona', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 18, 'benefit' => 17136, 'guarantee' => 7650, 'purchases' => 14]],
+            'girona' => ['label' => 'Girona', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 25, 'benefit' => 26775, 'guarantee' => 10625, 'purchases' => 24]],
+            'lleida' => ['label' => 'Lleida', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 18, 'benefit' => 17136, 'guarantee' => 7650, 'purchases' => 12]],
+            'llica-de-valls' => ['label' => 'Llica de Valls', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 18, 'benefit' => 17136, 'guarantee' => 7650, 'purchases' => 14]],
+            'manresa' => ['label' => 'Manresa', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 20, 'benefit' => 16660, 'guarantee' => 6800, 'purchases' => 12]],
+            'sant-boi' => ['label' => 'Sant Boi', 'manager_key' => 'luis-lopez', 'objectives' => ['deliveries' => 55, 'benefit' => 66759, 'guarantee' => 32725, 'purchases' => 39]],
+            'alcala-de-guadaira' => ['label' => 'Alcala de Guadaira', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 30, 'benefit' => 44268, 'guarantee' => 17850, 'purchases' => 18]],
+            'malaga' => ['label' => 'Malaga', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 30, 'benefit' => 33558, 'guarantee' => 15300, 'purchases' => 12]],
+            'malaga-centro' => ['label' => 'Malaga Centro', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 20, 'benefit' => 22848, 'guarantee' => 10200, 'purchases' => 22]],
+            'sevilla' => ['label' => 'Sevilla', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 35, 'benefit' => 39984, 'guarantee' => 14280, 'purchases' => 28]],
+            'palma' => ['label' => 'Palma', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 40, 'benefit' => 38080, 'guarantee' => 20400, 'purchases' => 30]],
+            'alcobendas' => ['label' => 'Alcobendas', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 25, 'benefit' => 23800, 'guarantee' => 10625, 'purchases' => 20]],
+            'rivas' => ['label' => 'Rivas', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 40, 'benefit' => 38080, 'guarantee' => 17000, 'purchases' => 24]],
+            'torrejon-de-ardoz' => ['label' => 'Torrejon de Ardoz', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 40, 'benefit' => 38080, 'guarantee' => 13600, 'purchases' => 30]],
+            'collado-villalba' => ['label' => 'Collado Villalba', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 25, 'benefit' => 26775, 'guarantee' => 10625, 'purchases' => 17]],
+            'dos-hermanas' => ['label' => 'Dos Hermanas', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 18, 'benefit' => 17136, 'guarantee' => 7650, 'purchases' => 11]],
+            'badajoz' => ['label' => 'Badajoz', 'manager_key' => 'david-baeza', 'objectives' => ['deliveries' => 15, 'benefit' => 14280, 'guarantee' => 6375, 'purchases' => 9]],
+        ],
+    ];
+
     private const EXCLUDED_NORMALIZED_DELEGATIONS = [
         'call fontellas',
         'general',
@@ -26,8 +142,12 @@ class CommercialCommissionFormulaConfigService
         'alcala de guadaira' => 'Alcalá de Guadaira',
         'castellon' => 'Castellón',
         'dos hermanas' => 'Dos Hermanas',
-        'torrejon' => 'Torrejón',
+        'torrejon' => 'Torrejón de Ardoz',
         'torrejon de ardoz' => 'Torrejón de Ardoz',
+        'torrejón' => 'Torrejón de Ardoz',
+        'torrejón de ardoz' => 'Torrejón de Ardoz',
+        'villalba' => 'Collado Villalba',
+        'collado villaba' => 'Collado Villalba',
         'mallorca' => 'Palma',
         'palma' => 'Palma',
         'palma de mallorca' => 'Palma',
@@ -152,6 +272,21 @@ class CommercialCommissionFormulaConfigService
                 'financed_amount_ratio_threshold' => 40.0,
                 'financed_amount_bonus_percent' => 0.10,
             ],
+            'area_manager' => [
+                'kpi_bases' => [
+                    'deliveries' => 150.0,
+                    'benefit' => 150.0,
+                    'guarantee' => 100.0,
+                    'purchases' => 100.0,
+                ],
+                'zone_keys' => [
+                    ['min_percent' => 100.0, 'multiplier' => 1.10],
+                    ['min_percent' => 91.0, 'multiplier' => 1.00],
+                    ['min_percent' => 85.0, 'multiplier' => 0.90],
+                    ['min_percent' => 0.0, 'multiplier' => 0.80],
+                ],
+                'assignments' => [],
+            ],
         ];
     }
 
@@ -194,6 +329,7 @@ class CommercialCommissionFormulaConfigService
         $monthKey = $selectedMonth->format('Y-m');
         $defaults = $this->defaults();
         $defaults['delegations']['goals'] = $this->inheritedDelegationGoals($selectedMonth);
+        $defaults['area_manager']['assignments'] = $this->inheritedAreaManagerAssignments($selectedMonth);
 
         if (! Schema::hasTable('commercial_commission_month_settings')) {
             return $defaults;
@@ -250,6 +386,43 @@ class CommercialCommissionFormulaConfigService
 
         foreach (($settings['delegations']['goals'] ?? []) as $goalKey => $goal) {
             $label = $this->normalizeDelegationLabel($goal['label'] ?? $goalKey);
+
+            if (! $this->shouldIncludeDelegationLabel($label)) {
+                continue;
+            }
+
+            $delegations[$this->delegationKey($label)] = $label;
+        }
+
+        return collect($delegations)
+            ->sortBy(fn (string $label) => Str::of($label)->ascii()->lower()->toString())
+            ->map(fn (string $label, string $key) => [
+                'key' => $key,
+                'label' => $label,
+            ])
+            ->values()
+            ->all();
+    }
+
+    public function areaManagerDefinitions(): array
+    {
+        return collect(self::AREA_MANAGER_DEFINITIONS)
+            ->map(fn (string $label, string $key) => [
+                'key' => $key,
+                'label' => $label,
+            ])
+            ->values()
+            ->all();
+    }
+
+    public function availableAreaManagerDelegations(array $settings = []): array
+    {
+        $delegations = collect($this->availableDelegations($settings))
+            ->pluck('label', 'key')
+            ->all();
+
+        foreach (($settings['area_manager']['assignments'] ?? []) as $assignmentKey => $assignment) {
+            $label = $this->normalizeDelegationLabel($assignment['label'] ?? $assignmentKey);
 
             if (! $this->shouldIncludeDelegationLabel($label)) {
                 continue;
@@ -392,6 +565,55 @@ class CommercialCommissionFormulaConfigService
 
         $settings['delegations']['goals'] = $goals;
 
+        $settings['area_manager']['kpi_bases'] = [
+            'deliveries' => max(0, (float) ($settings['area_manager']['kpi_bases']['deliveries'] ?? 150)),
+            'benefit' => max(0, (float) ($settings['area_manager']['kpi_bases']['benefit'] ?? 150)),
+            'guarantee' => max(0, (float) ($settings['area_manager']['kpi_bases']['guarantee'] ?? 100)),
+            'purchases' => max(0, (float) ($settings['area_manager']['kpi_bases']['purchases'] ?? 100)),
+        ];
+
+        $settings['area_manager']['zone_keys'] = collect($settings['area_manager']['zone_keys'] ?? [])
+            ->map(fn (array $bracket) => [
+                'min_percent' => max(0, (float) ($bracket['min_percent'] ?? 0)),
+                'multiplier' => max(0, (float) ($bracket['multiplier'] ?? 0)),
+            ])
+            ->sortByDesc('min_percent')
+            ->values()
+            ->all();
+
+        $assignments = [];
+
+        foreach (($settings['area_manager']['assignments'] ?? []) as $assignmentKey => $assignment) {
+            $label = $this->normalizeDelegationLabel($assignment['label'] ?? $assignmentKey);
+            $key = $this->delegationKey($label);
+
+            if ($key === '' || ! $this->shouldIncludeDelegationLabel($label)) {
+                continue;
+            }
+
+            $managerKey = (string) ($assignment['manager_key'] ?? '');
+
+            if ($managerKey !== '' && ! array_key_exists($managerKey, self::AREA_MANAGER_DEFINITIONS)) {
+                $managerKey = '';
+            }
+
+            $assignments[$key] = [
+                'label' => $label,
+                'manager_key' => $managerKey,
+                'active' => (bool) ($assignment['active'] ?? true),
+                'objectives' => [
+                    'deliveries' => max(0, (float) ($assignment['objectives']['deliveries'] ?? 0)),
+                    'benefit' => max(0, (float) ($assignment['objectives']['benefit'] ?? 0)),
+                    'guarantee' => max(0, (float) ($assignment['objectives']['guarantee'] ?? 0)),
+                    'purchases' => max(0, (float) ($assignment['objectives']['purchases'] ?? 0)),
+                ],
+            ];
+        }
+
+        $settings['area_manager']['assignments'] = collect($assignments)
+            ->sortBy(fn (array $assignment) => $assignment['label'])
+            ->all();
+
         return $settings;
     }
 
@@ -475,6 +697,49 @@ class CommercialCommissionFormulaConfigService
                         'goals' => $stored->settings['delegations']['goals'],
                     ],
                 ])['delegations']['goals'] ?? [];
+            }
+
+            $cursor = $cursor->subMonthNoOverflow()->startOfMonth();
+        }
+
+        return [];
+    }
+
+    private function inheritedAreaManagerAssignments(CarbonImmutable $selectedMonth): array
+    {
+        if (Schema::hasTable('commercial_commission_month_settings')) {
+            $cursor = $selectedMonth->subMonthNoOverflow()->startOfMonth();
+            $oldestMonth = CarbonImmutable::parse('2020-01-01')->startOfMonth();
+
+            while ($cursor->greaterThanOrEqualTo($oldestMonth)) {
+                $stored = CommercialCommissionMonthSetting::query()
+                    ->where('month', $cursor->format('Y-m'))
+                    ->first();
+
+                if (is_array($stored?->settings) && ! empty($stored->settings['area_manager']['assignments'])) {
+                    return $this->normalizeSettings([
+                        'area_manager' => [
+                            'assignments' => $stored->settings['area_manager']['assignments'],
+                        ],
+                    ])['area_manager']['assignments'] ?? [];
+                }
+
+                $cursor = $cursor->subMonthNoOverflow()->startOfMonth();
+            }
+        }
+
+        $cursor = $selectedMonth->startOfMonth();
+        $oldestMonth = CarbonImmutable::parse('2020-01-01')->startOfMonth();
+
+        while ($cursor->greaterThanOrEqualTo($oldestMonth)) {
+            $bootstrap = self::AREA_MANAGER_BOOTSTRAP_ASSIGNMENTS[$cursor->format('Y-m')] ?? null;
+
+            if (is_array($bootstrap) && $bootstrap !== []) {
+                return $this->normalizeSettings([
+                    'area_manager' => [
+                        'assignments' => $bootstrap,
+                    ],
+                ])['area_manager']['assignments'] ?? [];
             }
 
             $cursor = $cursor->subMonthNoOverflow()->startOfMonth();

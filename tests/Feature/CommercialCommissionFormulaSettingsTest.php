@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\ReportUser;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceUser;
+use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -341,6 +342,24 @@ class CommercialCommissionFormulaSettingsTest extends TestCase
             ->assertSee('value="35"', false);
     }
 
+    public function test_mes_sin_configuracion_hereda_objetivos_area_manager_del_mes_anterior_o_base(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-07 12:00:00'));
+
+        $settings = app(CommercialCommissionFormulaConfigService::class)->forMonth('2026-07');
+
+        $palma = $settings['area_manager']['assignments']['palma'] ?? null;
+        $badajoz = $settings['area_manager']['assignments']['badajoz'] ?? null;
+
+        $this->assertNotNull($palma);
+        $this->assertSame('david-baeza', $palma['manager_key']);
+        $this->assertSame(40.0, $palma['objectives']['deliveries']);
+        $this->assertSame(38080.0, $palma['objectives']['benefit']);
+
+        $this->assertNotNull($badajoz);
+        $this->assertSame(15.0, $badajoz['objectives']['deliveries']);
+    }
+
     private function validPayload(string $month, array $overrides = []): array
     {
         $payload = [
@@ -396,6 +415,21 @@ class CommercialCommissionFormulaSettingsTest extends TestCase
             ],
             'delegations' => [
                 'goals' => [],
+            ],
+            'area_manager' => [
+                'kpi_bases' => [
+                    'deliveries' => 150.0,
+                    'benefit' => 150.0,
+                    'guarantee' => 100.0,
+                    'purchases' => 100.0,
+                ],
+                'zone_keys' => [
+                    ['min_percent' => 100.0, 'multiplier' => 1.10],
+                    ['min_percent' => 91.0, 'multiplier' => 1.00],
+                    ['min_percent' => 85.0, 'multiplier' => 0.90],
+                    ['min_percent' => 0.0, 'multiplier' => 0.80],
+                ],
+                'assignments' => [],
             ],
         ];
 

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDelegationReviewsService;
+use App\Services\Reports\AreaManagerCommissions\AreaManagerCommissionDashboardService;
 use App\Models\ReportUser;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceReview;
@@ -108,6 +109,39 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->withSession($viewerSession)
             ->get('/informes/comisiones-comerciales')
             ->assertRedirect('/informes/leads');
+    }
+
+    public function test_dashboard_renderiza_pestana_area_manager(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'AM-ROUTE-1',
+            'name' => 'Bilbao route',
+            'owner_id' => '005-AM-ROUTE',
+            'owner_name' => 'Area Route',
+            'owner_is_active' => true,
+            'owner_delegation' => 'Bilbao',
+            'delivery_store' => 'Bilbao',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-10',
+            'beneficio_financiacion_comercial' => 100,
+            'garantia_total' => 50,
+        ]);
+
+        $adminSession = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => 'admin@hrmotor.com',
+        ];
+
+        $this->withSession($adminSession)
+            ->get('/informes/comisiones-comerciales?tab=area-manager&month=2026-05')
+            ->assertOk()
+            ->assertSee('Comisiones Area Manager')
+            ->assertSee('KPIs por delegacion');
     }
 
     public function test_dashboard_calcula_resumen_real_de_comisiones(): void
@@ -1239,7 +1273,7 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertSame(1, $rows->where('delegation_name', 'Alcalá de Guadaira')->count());
         $this->assertSame(1, $rows->where('delegation_name', 'Castellón')->count());
         $this->assertSame(1, $rows->where('delegation_name', 'Dos Hermanas')->count());
-        $this->assertSame(1, $rows->where('delegation_name', 'Torrejón')->count());
+        $this->assertSame(1, $rows->where('delegation_name', 'Torrejón de Ardoz')->count());
         $this->assertFalse($rows->pluck('delegation_name')->contains('Mallorca'));
         $this->assertFalse($rows->pluck('delegation_name')->contains('San Boi'));
         $this->assertFalse($rows->pluck('delegation_name')->contains('Sant_Boi'));
@@ -1250,6 +1284,7 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertFalse($rows->pluck('delegation_name')->contains('Castellon'));
         $this->assertFalse($rows->pluck('delegation_name')->contains('Dos hermanas'));
         $this->assertFalse($rows->pluck('delegation_name')->contains('Torrejon'));
+        $this->assertFalse($rows->pluck('delegation_name')->contains('Torrejón'));
 
         $this->assertSame(1, $rows->firstWhere('delegation_name', 'Palma')['target_deliveries']);
         $this->assertSame(1, $rows->firstWhere('delegation_name', 'Sant Boi')['target_deliveries']);
@@ -1351,6 +1386,133 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertSame(10, $bilbao['reviews_count']);
         $this->assertEquals(3.6, $bilbao['reviews_average_rating']);
         $this->assertEquals(0.0, $bilbao['reviews_commission_amount']);
+    }
+
+    public function test_dashboard_area_manager_calcula_kpis_llaves_y_totales_por_manager(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-02', [
+            'area_manager' => [
+                'kpi_bases' => [
+                    'deliveries' => 150,
+                    'benefit' => 150,
+                    'guarantee' => 100,
+                    'purchases' => 100,
+                ],
+                'zone_keys' => [
+                    ['min_percent' => 100, 'multiplier' => 1.10],
+                    ['min_percent' => 91, 'multiplier' => 1.00],
+                    ['min_percent' => 85, 'multiplier' => 0.90],
+                    ['min_percent' => 0, 'multiplier' => 0.80],
+                ],
+                'assignments' => [
+                    'bilbao' => [
+                        'label' => 'Bilbao',
+                        'manager_key' => 'kosta-plamenov',
+                        'active' => true,
+                        'objectives' => [
+                            'deliveries' => 10,
+                            'benefit' => 1000,
+                            'guarantee' => 500,
+                            'purchases' => 4,
+                        ],
+                    ],
+                    'pamplona' => [
+                        'label' => 'Pamplona',
+                        'manager_key' => 'kosta-plamenov',
+                        'active' => true,
+                        'objectives' => [
+                            'deliveries' => 10,
+                            'benefit' => 1000,
+                            'guarantee' => 500,
+                            'purchases' => 2,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        foreach (range(1, 10) as $index) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => 'AM-BIL-'.$index,
+                'name' => 'Bilbao '.$index,
+                'owner_id' => '005-AM',
+                'owner_name' => 'Area Comercial',
+                'owner_is_active' => true,
+                'owner_delegation' => 'Bilbao',
+                'delivery_store' => 'Bilbao',
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-02-10',
+                'beneficio_financiacion_comercial' => 100,
+                'garantia_total' => 50,
+            ]);
+        }
+
+        foreach (range(1, 8) as $index) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => 'AM-PAM-'.$index,
+                'name' => 'Pamplona '.$index,
+                'owner_id' => '005-AM',
+                'owner_name' => 'Area Comercial',
+                'owner_is_active' => true,
+                'owner_delegation' => 'Pamplona',
+                'delivery_store' => 'Pamplona',
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-02-11',
+                'beneficio_financiacion_comercial' => 100,
+                'garantia_total' => 50,
+            ]);
+        }
+
+        foreach (range(1, 4) as $index) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => 'AM-PUR-BIL-'.$index,
+                'name' => 'Compra Bilbao '.$index,
+                'owner_id' => '005-AM',
+                'owner_name' => 'Area Comercial',
+                'owner_is_active' => true,
+                'owner_delegation' => 'Bilbao',
+                'delivery_store' => 'Bilbao',
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Tasacion',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-02-15',
+            ]);
+        }
+
+        foreach (range(1, 2) as $index) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => 'AM-PUR-PAM-'.$index,
+                'name' => 'Compra Pamplona '.$index,
+                'owner_id' => '005-AM',
+                'owner_name' => 'Area Comercial',
+                'owner_is_active' => true,
+                'owner_delegation' => 'Pamplona',
+                'delivery_store' => 'Pamplona',
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Tasacion',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-02-16',
+            ]);
+        }
+
+        $payload = app(AreaManagerCommissionDashboardService::class)->build('2026-02');
+        $row = collect($payload['summary_rows'])->firstWhere('manager_key', 'kosta-plamenov');
+
+        $this->assertNotNull($row);
+        $this->assertSame(2, $row['delegations_count']);
+        $this->assertSame(20.0, $row['deliveries_objective']);
+        $this->assertSame(18.0, $row['deliveries_actual']);
+        $this->assertSame(90.0, $row['deliveries_zone_percent_used']);
+        $this->assertSame(0.9, $row['deliveries_zone_key']);
+        $this->assertEquals(135.0, $row['deliveries_commission']);
+        $this->assertEquals(135.0, $row['benefit_commission']);
+        $this->assertEquals(90.0, $row['guarantee_commission']);
+        $this->assertEquals(220.0, $row['purchases_commission']);
+        $this->assertEquals(580.0, $row['automatic_total']);
     }
 
     private function createCommercialUser(string $id, string $name, bool $isActive = true, string $profile = 'Compra/Venta'): void

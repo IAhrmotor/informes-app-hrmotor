@@ -299,6 +299,102 @@
                 </div>
             </section>
 
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Area Manager</h2>
+                        <div class="small">Bases por KPI, llaves de zona y objetivos editables por delegacion. Si un mes no tiene configuracion propia, hereda automaticamente la ultima disponible.</div>
+                    </div>
+                </div>
+
+                <div class="report-user-form-grid">
+                    <div class="filter-group">
+                        <label for="area_manager_base_deliveries">Base entregas</label>
+                        <input id="area_manager_base_deliveries" name="area_manager[kpi_bases][deliveries]" type="number" step="0.01" min="0" value="{{ old('area_manager.kpi_bases.deliveries', $settings['area_manager']['kpi_bases']['deliveries'] ?? 150) }}" @disabled(! $isEditableMonth)>
+                    </div>
+                    <div class="filter-group">
+                        <label for="area_manager_base_benefit">Base beneficio</label>
+                        <input id="area_manager_base_benefit" name="area_manager[kpi_bases][benefit]" type="number" step="0.01" min="0" value="{{ old('area_manager.kpi_bases.benefit', $settings['area_manager']['kpi_bases']['benefit'] ?? 150) }}" @disabled(! $isEditableMonth)>
+                    </div>
+                    <div class="filter-group">
+                        <label for="area_manager_base_guarantee">Base garantia premium</label>
+                        <input id="area_manager_base_guarantee" name="area_manager[kpi_bases][guarantee]" type="number" step="0.01" min="0" value="{{ old('area_manager.kpi_bases.guarantee', $settings['area_manager']['kpi_bases']['guarantee'] ?? 100) }}" @disabled(! $isEditableMonth)>
+                    </div>
+                    <div class="filter-group">
+                        <label for="area_manager_base_purchases">Base compras</label>
+                        <input id="area_manager_base_purchases" name="area_manager[kpi_bases][purchases]" type="number" step="0.01" min="0" value="{{ old('area_manager.kpi_bases.purchases', $settings['area_manager']['kpi_bases']['purchases'] ?? 100) }}" @disabled(! $isEditableMonth)>
+                    </div>
+                </div>
+
+                <div class="report-settings-brackets-grid">
+                    @foreach (($settings['area_manager']['zone_keys'] ?? []) as $index => $zoneKey)
+                        <article class="card report-access-card">
+                            <strong>Llave zona {{ $index + 1 }}</strong>
+                            <div class="filter-group">
+                                <label for="area_manager_zone_{{ $index }}_min">Cumplimiento minimo %</label>
+                                <input id="area_manager_zone_{{ $index }}_min" name="area_manager[zone_keys][{{ $index }}][min_percent]" type="number" step="0.01" min="0" value="{{ old("area_manager.zone_keys.$index.min_percent", $zoneKey['min_percent'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                            <div class="filter-group">
+                                <label for="area_manager_zone_{{ $index }}_multiplier">Multiplicador</label>
+                                <input id="area_manager_zone_{{ $index }}_multiplier" name="area_manager[zone_keys][{{ $index }}][multiplier]" type="number" step="0.01" min="0" value="{{ old("area_manager.zone_keys.$index.multiplier", $zoneKey['multiplier'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                        </article>
+                    @endforeach
+                </div>
+
+                <div class="report-settings-brackets-grid">
+                    @forelse ($availableAreaManagerDelegations as $delegation)
+                        @php
+                            $assignment = $settings['area_manager']['assignments'][$delegation['key']] ?? null;
+                            $objectives = $assignment['objectives'] ?? [];
+                        @endphp
+                        <article class="card report-access-card">
+                            <strong>{{ $delegation['label'] }}</strong>
+                            <input type="hidden" name="area_manager[assignments][{{ $delegation['key'] }}][label]" value="{{ $delegation['label'] }}">
+                            <div class="filter-group">
+                                <label for="area_manager_manager_{{ $delegation['key'] }}">Manager</label>
+                                <select id="area_manager_manager_{{ $delegation['key'] }}" name="area_manager[assignments][{{ $delegation['key'] }}][manager_key]" @disabled(! $isEditableMonth)>
+                                    <option value="">Sin asignar</option>
+                                    @foreach ($areaManagerDefinitions as $manager)
+                                        <option value="{{ $manager['key'] }}" @selected(old("area_manager.assignments.{$delegation['key']}.manager_key", $assignment['manager_key'] ?? '') === $manager['key'])>
+                                            {{ $manager['label'] }}
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <input type="hidden" name="area_manager[assignments][{{ $delegation['key'] }}][active]" value="0">
+                                <label class="switch-option">
+                                    <input type="checkbox" name="area_manager[assignments][{{ $delegation['key'] }}][active]" value="1" @checked(old("area_manager.assignments.{$delegation['key']}.active", $assignment['active'] ?? true)) @disabled(! $isEditableMonth)>
+                                    <span>Delegacion activa</span>
+                                </label>
+                            </div>
+                            <div class="filter-group">
+                                <label for="area_manager_deliveries_{{ $delegation['key'] }}">Objetivo entregas</label>
+                                <input id="area_manager_deliveries_{{ $delegation['key'] }}" name="area_manager[assignments][{{ $delegation['key'] }}][objectives][deliveries]" type="number" step="0.01" min="0" value="{{ old("area_manager.assignments.{$delegation['key']}.objectives.deliveries", $objectives['deliveries'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                            <div class="filter-group">
+                                <label for="area_manager_benefit_{{ $delegation['key'] }}">Objetivo beneficio</label>
+                                <input id="area_manager_benefit_{{ $delegation['key'] }}" name="area_manager[assignments][{{ $delegation['key'] }}][objectives][benefit]" type="number" step="0.01" min="0" value="{{ old("area_manager.assignments.{$delegation['key']}.objectives.benefit", $objectives['benefit'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                            <div class="filter-group">
+                                <label for="area_manager_guarantee_{{ $delegation['key'] }}">Objetivo garantia premium</label>
+                                <input id="area_manager_guarantee_{{ $delegation['key'] }}" name="area_manager[assignments][{{ $delegation['key'] }}][objectives][guarantee]" type="number" step="0.01" min="0" value="{{ old("area_manager.assignments.{$delegation['key']}.objectives.guarantee", $objectives['guarantee'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                            <div class="filter-group">
+                                <label for="area_manager_purchases_{{ $delegation['key'] }}">Objetivo compras</label>
+                                <input id="area_manager_purchases_{{ $delegation['key'] }}" name="area_manager[assignments][{{ $delegation['key'] }}][objectives][purchases]" type="number" step="0.01" min="0" value="{{ old("area_manager.assignments.{$delegation['key']}.objectives.purchases", $objectives['purchases'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                        </article>
+                    @empty
+                        <article class="card report-access-card">
+                            <strong>Sin delegaciones detectadas</strong>
+                            <div class="small">No hay delegaciones suficientes para configurar Area Manager todavia.</div>
+                        </article>
+                    @endforelse
+                </div>
+            </section>
+
             @if ($isEditableMonth)
                 <div class="report-user-form-actions">
                     <button type="submit" class="main-tab active">Guardar coeficientes del mes</button>

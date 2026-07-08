@@ -91,7 +91,12 @@ class CommercialCommissionDashboardService
     ) {
     }
 
-    public function build(?string $month): array
+    public function build(
+        ?string $month,
+        bool $includeSummaryRows = true,
+        bool $includeDelegationRows = true,
+        bool $includeDetails = true,
+    ): array
     {
         $selectedMonth = $this->resolveMonth($month);
         $periodStart = $selectedMonth->startOfMonth();
@@ -100,10 +105,10 @@ class CommercialCommissionDashboardService
         $blockingIssues = $this->blockingIssues();
         $diagnostics = $this->diagnostics($selectedMonth, $periodStart, $periodEnd, $blockingIssues, $formulaSettings);
         $warnings = $this->warnings($diagnostics);
-        $summaryRows = $blockingIssues === []
-            ? $this->buildSummaryRows($periodStart, $periodEnd, $formulaSettings)
+        $summaryRows = $blockingIssues === [] && $includeSummaryRows
+            ? $this->buildSummaryRows($periodStart, $periodEnd, $formulaSettings, $includeDetails)
             : [];
-        $delegationRows = $blockingIssues === []
+        $delegationRows = $blockingIssues === [] && $includeDelegationRows
             ? $this->buildDelegationRows($periodStart, $periodEnd, $formulaSettings)
             : [];
 
@@ -149,7 +154,12 @@ class CommercialCommissionDashboardService
         ];
     }
 
-    private function buildSummaryRows(CarbonImmutable $periodStart, CarbonImmutable $periodEnd, array $formulaSettings): array
+    private function buildSummaryRows(
+        CarbonImmutable $periodStart,
+        CarbonImmutable $periodEnd,
+        array $formulaSettings,
+        bool $includeDetails = true,
+    ): array
     {
         $monthlyOperations = $this->monthlyOpportunities($periodStart, $periodEnd)->get();
         $deliveries = $monthlyOperations->filter(fn (SalesforceOpportunity $row) => $this->isDelivery($row));
@@ -204,6 +214,7 @@ class CommercialCommissionDashboardService
             $formulaSettings,
             $userNames,
             $salesforceUsersById,
+            $includeDetails,
         ): array {
             /** @var Collection<int, SalesforceOpportunity> $ownerOperations */
             $ownerOperations = $operationsByOwner->get($userId, collect());
@@ -305,7 +316,7 @@ class CommercialCommissionDashboardService
 
             $finalCommission = round($primaAfterPenalties + $financingProductAmount + $guaranteeProductAmount, 2);
 
-            return [
+            $row = [
                 'commercial_id' => $userId,
                 'commercial_name' => $userNames[$userId] ?? $userId,
                 'deliveries_count' => $deliveriesCount,
@@ -341,6 +352,16 @@ class CommercialCommissionDashboardService
                 'guarantee_product_amount' => $guaranteeProductAmount,
                 'final_commission' => $finalCommission,
                 'details' => [
+                    'deliveries' => [],
+                    'purchases' => [],
+                    'shared' => [],
+                    'stock_150' => [],
+                    'reviews' => [],
+                ],
+            ];
+
+            if ($includeDetails) {
+                $row['details'] = [
                     'deliveries' => $ownerDeliveries
                         ->map(fn (SalesforceOpportunity $row) => [
                             'opportunity_id' => $row->salesforce_id,
@@ -381,8 +402,10 @@ class CommercialCommissionDashboardService
                             'opportunity_owner_name' => $row->opportunity_owner_name,
                             'review_owner_name' => $row->owner_name,
                         ])->values()->all(),
-                ],
-            ];
+                ];
+            }
+
+            return $row;
         })->sortByDesc('final_commission')->values()->all();
 
         return $rows;

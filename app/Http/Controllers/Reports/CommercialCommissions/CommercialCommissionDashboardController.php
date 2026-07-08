@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Reports\CommercialCommissions;
 
 use App\Http\Controllers\Controller;
+use App\Services\Reports\AreaManagerCommissions\AreaManagerCommissionDashboardService;
 use App\Services\Reports\CallCenterCommissions\CallCenterCommissionDashboardService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use App\Services\Reports\ContactCenterCommissions\ContactCenterCommissionDashboardService;
 use App\Support\ReportUserAccess;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 
 class CommercialCommissionDashboardController extends Controller
@@ -18,29 +20,53 @@ class CommercialCommissionDashboardController extends Controller
         CommercialCommissionFormulaConfigService $formulaConfig,
         CallCenterCommissionDashboardService $callCenterDashboard,
         ContactCenterCommissionDashboardService $contactCenterDashboard,
+        AreaManagerCommissionDashboardService $areaManagerDashboard,
     )
     {
         $selectedMonth = $request->query('month');
         $callCenterContractFrom = $request->query('call_center_contract_from');
         $callCenterContractTo = $request->query('call_center_contract_to');
+        $activeCommissionTab = $this->resolveActiveTab($request->query('tab'));
 
         if (! ReportUserAccess::canViewCommercialCommissions($request)) {
             return redirect()->route('reports.leads.index');
         }
 
-        $payload = $dashboard->build($selectedMonth);
+        $payload = $dashboard->build(
+            $selectedMonth,
+            includeSummaryRows: in_array($activeCommissionTab, ['summary', 'detail'], true),
+            includeDelegationRows: $activeCommissionTab === 'delegations',
+            includeDetails: $activeCommissionTab === 'detail',
+        );
+
+        $callCenterPayload = $activeCommissionTab === 'call-center'
+            ? $callCenterDashboard->build(
+                $payload['month'],
+                is_string($callCenterContractFrom) ? $callCenterContractFrom : null,
+                is_string($callCenterContractTo) ? $callCenterContractTo : null
+            )
+            : $this->emptyCallCenterDashboard(
+                $payload['month'],
+                $payload['month_label'],
+                is_string($callCenterContractFrom) ? $callCenterContractFrom : null,
+                is_string($callCenterContractTo) ? $callCenterContractTo : null
+            );
+        $contactCenterPayload = $activeCommissionTab === 'contact-center'
+            ? $contactCenterDashboard->build($payload['month'])
+            : $this->emptyContactCenterDashboard($payload['month'], $payload['month_label']);
+        $areaManagerPayload = $activeCommissionTab === 'area-manager'
+            ? $areaManagerDashboard->build($payload['month'])
+            : $this->emptyAreaManagerDashboard($payload['month'], $payload['month_label']);
 
         return view('reports.commercial-commissions.index', [
+            'activeCommissionTab' => $activeCommissionTab,
             'reportUserRole' => ReportUserAccess::role($request),
             'canSeeSyncDiagnostics' => ReportUserAccess::canSeeSyncDiagnostics($request),
             'selectedMonth' => $selectedMonth,
             'dashboard' => $payload,
-            'callCenterDashboard' => $callCenterDashboard->build(
-                $payload['month'],
-                is_string($callCenterContractFrom) ? $callCenterContractFrom : null,
-                is_string($callCenterContractTo) ? $callCenterContractTo : null
-            ),
-            'contactCenterDashboard' => $contactCenterDashboard->build($payload['month']),
+            'callCenterDashboard' => $callCenterPayload,
+            'contactCenterDashboard' => $contactCenterPayload,
+            'areaManagerDashboard' => $areaManagerPayload,
             'formulaSettings' => $formulaConfig->forMonth($payload['month']),
         ]);
     }
@@ -93,5 +119,58 @@ class CommercialCommissionDashboardController extends Controller
         }, $filename, [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
+    }
+
+    private function resolveActiveTab(mixed $value): string
+    {
+        $allowedTabs = ['summary', 'detail', 'delegations', 'call-center', 'contact-center', 'area-manager'];
+
+        return in_array($value, $allowedTabs, true) ? $value : 'summary';
+    }
+
+    private function emptyCallCenterDashboard(string $month, string $monthLabel, ?string $contractFrom, ?string $contractTo): array
+    {
+        return [
+            'ready' => false,
+            'month' => $month,
+            'month_label' => $monthLabel,
+            'contract_from' => $contractFrom,
+            'contract_to' => $contractTo,
+            'issues' => [],
+            'warnings' => [],
+            'diagnostics' => [],
+            'summary_rows' => [],
+        ];
+    }
+
+    private function emptyContactCenterDashboard(string $month, string $monthLabel): array
+    {
+        $monthStart = CarbonImmutable::createFromFormat('Y-m', $month)->startOfMonth();
+
+        return [
+            'ready' => false,
+            'month' => $month,
+            'month_label' => $monthLabel,
+            'closure_cutoff_date' => $monthStart->endOfMonth()->toDateString(),
+            'issues' => [],
+            'warnings' => [],
+            'diagnostics' => [],
+            'summary_rows' => [],
+            'global_incidents' => [],
+        ];
+    }
+
+    private function emptyAreaManagerDashboard(string $month, string $monthLabel): array
+    {
+        return [
+            'ready' => false,
+            'month' => $month,
+            'month_label' => $monthLabel,
+            'issues' => [],
+            'warnings' => [],
+            'diagnostics' => [],
+            'summary_rows' => [],
+            'global_incidents' => [],
+        ];
     }
 }

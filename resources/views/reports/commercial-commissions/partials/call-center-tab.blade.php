@@ -40,6 +40,7 @@
 
     <form method="GET" class="commission-filter-form call-center-filter-form">
         <input type="hidden" name="month" value="{{ $dashboard['month'] }}">
+        <input type="hidden" name="tab" value="call-center">
         <div class="filter-group">
             <label for="callCenterContractFrom">Fecha contrato desde</label>
             <input type="date" id="callCenterContractFrom" name="call_center_contract_from" value="{{ $callCenterDashboard['contract_from'] ?? '' }}">
