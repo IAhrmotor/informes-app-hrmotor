@@ -3,6 +3,7 @@
 namespace App\Services\Reports\AreaManagerCommissions;
 
 use App\Models\SalesforceOpportunity;
+use App\Models\SalesforceUser;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -15,6 +16,7 @@ class AreaManagerCommissionDashboardService
     private const OPPORTUNITY_COLUMNS = [
         'salesforce_id',
         'name',
+        'owner_id',
         'stage_name',
         'record_type_name',
         'owner_delegation',
@@ -53,11 +55,12 @@ class AreaManagerCommissionDashboardService
 
         $deliveryOperations = $this->monthlyDeliveryOperations($periodStart, $periodEnd)->get();
         $purchaseOperations = $this->monthlyPurchaseOperations($periodStart, $periodEnd)->get();
+        $ownerDelegations = $this->ownerDelegationsByOwnerId($deliveryOperations->merge($purchaseOperations));
         $assignmentMap = collect($settings['area_manager']['assignments'] ?? []);
         $managerDefinitions = collect($this->formulaConfig->areaManagerDefinitions())->keyBy('key');
 
-        $deliveryStats = $this->buildDeliveryStatsByDelegation($deliveryOperations);
-        $purchaseStats = $this->buildPurchaseStatsByDelegation($purchaseOperations);
+        $deliveryStats = $this->buildDeliveryStatsByDelegation($deliveryOperations, $ownerDelegations);
+        $purchaseStats = $this->buildPurchaseStatsByDelegation($purchaseOperations, $ownerDelegations);
         $allDelegationLabels = $this->delegationUniverse($assignmentMap, $deliveryStats, $purchaseStats);
         $delegationPayloads = $this->buildDelegationPayloads(
             $allDelegationLabels,
@@ -113,17 +116,14 @@ class AreaManagerCommissionDashboardService
         ];
     }
 
-    private function buildDeliveryStatsByDelegation(Collection $operations): Collection
+    private function buildDeliveryStatsByDelegation(Collection $operations, Collection $ownerDelegations): Collection
     {
         return $operations
-            ->map(function (SalesforceOpportunity $opportunity): array {
-                $delegation = $this->formulaConfig->deliveryDelegationLabel(
-                    $opportunity->delivery_store,
-                    $opportunity->owner_delegation
-                );
+            ->map(function (SalesforceOpportunity $opportunity) use ($ownerDelegations): array {
+                $delegation = $this->resolveAreaManagerDelegation($opportunity, $ownerDelegations);
 
                 return [
-                    'delegation' => $this->formulaConfig->normalizeDelegationLabel($delegation),
+                    'delegation' => $delegation,
                     'opportunity_id' => (string) $opportunity->salesforce_id,
                     'opportunity_name' => (string) $opportunity->name,
                     'record_type_name' => (string) $opportunity->record_type_name,
@@ -136,13 +136,11 @@ class AreaManagerCommissionDashboardService
             ->groupBy('delegation');
     }
 
-    private function buildPurchaseStatsByDelegation(Collection $operations): Collection
+    private function buildPurchaseStatsByDelegation(Collection $operations, Collection $ownerDelegations): Collection
     {
         return $operations
-            ->map(function (SalesforceOpportunity $opportunity): array {
-                $delegation = $this->formulaConfig->normalizeDelegationLabel(
-                    $opportunity->owner_delegation ?: $opportunity->delivery_store
-                );
+            ->map(function (SalesforceOpportunity $opportunity) use ($ownerDelegations): array {
+                $delegation = $this->resolveAreaManagerDelegation($opportunity, $ownerDelegations);
 
                 return [
                     'delegation' => $delegation,
@@ -278,7 +276,7 @@ class AreaManagerCommissionDashboardService
         foreach (['deliveries', 'benefit', 'guarantee', 'purchases'] as $kpi) {
             $objectiveTotal = round((float) $delegations->sum(fn (array $payload) => (float) ($payload['objectives'][$kpi] ?? 0)), 2);
             $actualTotal = round((float) $delegations->sum(fn (array $payload) => (float) ($payload['actuals'][$kpi] ?? 0)), 2);
-            $zonePercentRaw = $objectiveTotal > 0 ? round(($actualTotal / $objectiveTotal) * 100, 2) : null;
+            $zonePercentRaw = $this->averageCompliancePercent($delegations, $kpi);
             $zonePercentUsed = $zonePercentRaw !== null ? (float) round($zonePercentRaw) : null;
             $zoneMultiplier = $this->zoneMultiplier($zonePercentUsed, $zoneKeys);
             $preKeyTotal = round((float) $delegations->sum(
@@ -314,10 +312,7 @@ class AreaManagerCommissionDashboardService
                     'zone_percent_raw' => $kpiSummaries[$kpi]['zone_percent_raw'],
                     'zone_percent_used' => $kpiSummaries[$kpi]['zone_percent_used'],
                     'zone_multiplier' => $kpiSummaries[$kpi]['zone_multiplier'],
-                    'final_commission' => round(
-                        (float) data_get($delegation, "kpis.{$kpi}.pre_key_commission", 0) * $kpiSummaries[$kpi]['zone_multiplier'],
-                        2
-                    ),
+                    'final_commission' => null,
                     'reason' => (string) data_get($delegation, "kpis.{$kpi}.reason", ''),
                 ];
             }
@@ -365,6 +360,7 @@ class AreaManagerCommissionDashboardService
             'final_total' => $automaticTotal,
             'observations' => $managerIncidents === [] ? 'Sin incidencias' : 'Revisar incidencias',
             'review_state' => $managerIncidents === [] ? 'OK' : 'Revision',
+            'kpi_summaries' => $kpiSummaries,
             'detail_rows' => $detailRows,
             'operation_details' => $delegations->map(fn (array $payload) => [
                 'delegation_name' => $payload['delegation_name'],
@@ -384,7 +380,10 @@ class AreaManagerCommissionDashboardService
             ->whereDate('cv_signed_date', '<', $periodEnd->toDateString())
             ->whereRaw("LOWER(COALESCE(stage_name, '')) <> ?", ['cerrada perdida']);
 
-        $this->applyRecordTypeFilter($query, ['venta', 'cambio']);
+        $query->where(function (Builder $builder): void {
+            $this->applyRecordTypeFilter($builder, ['venta', 'cambio']);
+            $builder->orWhereRaw("LOWER(COALESCE(name, '')) LIKE ?", ['%facilitea%']);
+        });
 
         return $query;
     }
@@ -443,6 +442,94 @@ class AreaManagerCommissionDashboardService
             'purchases' => 'Compras',
             default => $kpi,
         };
+    }
+
+    private function normalizeAreaManagerOwnerDelegation(mixed $value): string
+    {
+        $normalized = $this->formulaConfig->normalizeDelegationLabel($value);
+
+        if ($normalized !== '') {
+            return $normalized;
+        }
+
+        $rawUpper = Str::upper((string) $value);
+
+        if (str_contains($rawUpper, 'LLI') && str_contains($rawUpper, 'VALL')) {
+            return 'Llica de Valls';
+        }
+
+        $comparable = Str::of((string) $value)
+            ->ascii()
+            ->lower()
+            ->replaceMatches('/[^a-z0-9]+/', ' ')
+            ->replaceMatches('/\s+/', ' ')
+            ->trim()
+            ->toString();
+
+        if (str_contains($comparable, 'vall') && preg_match('/\blli[a-z]*\b/', $comparable) === 1) {
+            return 'Llica de Valls';
+        }
+
+        return match ($comparable) {
+            'llica de vall', 'llica', 'llica de vall barcelona' => 'Llica de Valls',
+            default => '',
+        };
+    }
+
+    private function resolveAreaManagerDelegation(SalesforceOpportunity $opportunity, Collection $ownerDelegations): string
+    {
+        $ownerId = (string) ($opportunity->owner_id ?? '');
+        $ownerDelegation = $ownerId !== '' ? (string) ($ownerDelegations->get($ownerId) ?? '') : '';
+
+        if ($ownerDelegation !== '') {
+            return $ownerDelegation;
+        }
+
+        return $this->normalizeAreaManagerOwnerDelegation($opportunity->owner_delegation);
+    }
+
+    private function ownerDelegationsByOwnerId(Collection $operations): Collection
+    {
+        $ownerIds = $operations
+            ->pluck('owner_id')
+            ->filter(fn (mixed $ownerId): bool => is_string($ownerId) && trim($ownerId) !== '')
+            ->map(fn (string $ownerId): string => trim($ownerId))
+            ->unique()
+            ->values();
+
+        if ($ownerIds->isEmpty()) {
+            return collect();
+        }
+
+        return SalesforceUser::query()
+            ->whereIn('salesforce_id', $ownerIds->all())
+            ->get(['salesforce_id', 'user_delegation'])
+            ->mapWithKeys(fn (SalesforceUser $user): array => [
+                (string) $user->salesforce_id => $this->normalizeAreaManagerOwnerDelegation($user->user_delegation),
+            ]);
+    }
+
+    private function averageCompliancePercent(Collection $delegations, string $kpi): ?float
+    {
+        $values = $delegations
+            ->map(fn (array $payload): ?float => data_get($payload, "kpis.{$kpi}.compliance_percent_raw"))
+            ->filter(fn (mixed $value): bool => $value !== null)
+            ->map(fn (mixed $value): float => round((float) $value, 2))
+            ->values();
+
+        if ($values->isEmpty()) {
+            return null;
+        }
+
+        return round((float) $values->avg(), 2);
+    }
+
+    private function isFaciliteaOperation(SalesforceOpportunity $opportunity): bool
+    {
+        return str_contains(
+            Str::of((string) $opportunity->name)->lower()->toString(),
+            'facilitea'
+        );
     }
 
     private function resolveMonth(?string $month): CarbonImmutable

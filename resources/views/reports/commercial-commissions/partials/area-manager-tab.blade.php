@@ -28,10 +28,6 @@
         <strong>{{ number_format((int) ($areaManagerDiagnostics['delegations_count'] ?? 0), 0, ',', '.') }}</strong>
     </article>
     <article class="card campaign-context-card">
-        <span>Total automatico</span>
-        <strong>{{ number_format((float) $areaManagerSummaryRows->sum('automatic_total'), 2, ',', '.') }} EUR</strong>
-    </article>
-    <article class="card campaign-context-card">
         <span>Incidencias</span>
         <strong>{{ number_format($areaManagerGlobalIncidents->count(), 0, ',', '.') }}</strong>
     </article>
@@ -65,7 +61,7 @@
     </article>
 </section>
 
-<div class="table-shell call-center-summary-shell">
+<div class="table-shell call-center-summary-shell area-manager-summary-shell">
     <table data-sortable-table="area-manager-summary">
         <thead>
         <tr>
@@ -169,10 +165,6 @@
                             <strong>{{ $row['manager_name'] }}</strong>
                         </article>
                         <article class="card campaign-context-card">
-                            <span>Total automatico</span>
-                            <strong>{{ number_format((float) ($row['automatic_total'] ?? 0), 2, ',', '.') }} EUR</strong>
-                        </article>
-                        <article class="card campaign-context-card">
                             <span>Total final</span>
                             <strong>{{ number_format((float) ($row['final_total'] ?? 0), 2, ',', '.') }} EUR</strong>
                         </article>
@@ -182,59 +174,86 @@
                         </article>
                     </section>
 
-                    <div class="area-manager-kpi-grid">
+                    <nav class="tabs-main commission-detail-tabs" aria-label="Detalle Area Manager por KPI">
+                        @foreach ($areaManagerKpiSections as $kpiKey => $kpiSection)
+                            <button
+                                type="button"
+                                class="main-tab{{ $loop->first ? ' active' : '' }}"
+                                data-commercial-detail-tab-trigger="{{ $kpiKey }}"
+                            >
+                                {{ $kpiSection['label'] }}
+                            </button>
+                        @endforeach
+                    </nav>
+
+                    <div class="commission-detail-grid area-manager-kpi-tabs-shell">
                         @foreach ($areaManagerKpiSections as $kpiKey => $kpiSection)
                             @php
                                 $kpiRows = $detailRows->filter(fn (array $detail) => ($detail['kpi_key'] ?? null) === $kpiKey)->values();
                             @endphp
-                            <section class="card panel area-manager-kpi-panel">
-                                <div class="panel-title compact">
-                                    <div>
-                                        <h2>{{ $kpiSection['label'] }}</h2>
-                                        <div class="small">Detalle por delegacion para {{ \Illuminate\Support\Str::lower($kpiSection['label']) }}.</div>
+                            <div class="{{ $loop->first ? '' : 'is-hidden' }}" data-commercial-detail-tab-panel="{{ $kpiKey }}">
+                                <section class="card panel area-manager-kpi-panel">
+                                    <div class="panel-title compact">
+                                        <div>
+                                            <h2>{{ $kpiSection['label'] }}</h2>
+                                            <div class="small">Detalle por delegacion para {{ \Illuminate\Support\Str::lower($kpiSection['label']) }}.</div>
+                                        </div>
                                     </div>
-                                </div>
-                                <div class="table-shell area-manager-kpi-table-shell">
-                                    <table data-sortable-table="area-manager-detail-{{ $row['manager_key'] }}-{{ $kpiKey }}">
-                                        <thead>
-                                        <tr>
-                                            <th data-sortable="true">Delegacion</th>
-                                            <th class="num" data-sortable="true">Objetivo</th>
-                                            <th class="num" data-sortable="true">Real</th>
-                                            <th class="num" data-sortable="true">% real</th>
-                                            <th class="num" data-sortable="true">% usado</th>
-                                            <th class="num" data-sortable="true">Base KPI</th>
-                                            <th data-sortable="true">>=85%</th>
-                                            <th class="num" data-sortable="true">Com. pre llave</th>
-                                            <th class="num" data-sortable="true">% zona</th>
-                                            <th class="num" data-sortable="true">Com. final</th>
-                                            <th data-sortable="true">Motivo</th>
-                                        </tr>
-                                        </thead>
-                                        <tbody data-sort-body="area-manager-detail-{{ $row['manager_key'] }}-{{ $kpiKey }}">
-                                        @forelse ($kpiRows as $detail)
-                                            <tr>
-                                                <td>{{ $detail['delegation_name'] }}</td>
-                                                <td class="num">{{ $formatMetric($detail['objective'] ?? 0, $kpiSection['money']) }}</td>
-                                                <td class="num">{{ $formatMetric($detail['actual'] ?? 0, $kpiSection['money']) }}</td>
-                                                <td class="num">{{ $detail['compliance_percent_raw'] !== null ? number_format((float) $detail['compliance_percent_raw'], 2, ',', '.').'%' : '-' }}</td>
-                                                <td class="num">{{ $detail['compliance_percent_used'] !== null ? number_format((float) $detail['compliance_percent_used'], 0, ',', '.').'%' : '-' }}</td>
-                                                <td class="num">{{ number_format((float) ($detail['base_amount'] ?? 0), 2, ',', '.') }}</td>
-                                                <td>{{ ($detail['qualified'] ?? false) ? 'Si' : 'No' }}</td>
-                                                <td class="num">{{ number_format((float) ($detail['pre_key_commission'] ?? 0), 2, ',', '.') }}</td>
-                                                <td class="num">{{ $detail['zone_percent_raw'] !== null ? number_format((float) $detail['zone_percent_raw'], 2, ',', '.').'%' : '-' }}</td>
-                                                <td class="num"><strong>{{ number_format((float) ($detail['final_commission'] ?? 0), 2, ',', '.') }}</strong></td>
-                                                <td>{{ $detail['reason'] }}</td>
-                                            </tr>
-                                        @empty
-                                            <tr>
-                                                <td colspan="11">Sin delegaciones calculables para este KPI.</td>
-                                            </tr>
-                                        @endforelse
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </section>
+                                    <div class="area-manager-kpi-scroll-region" data-horizontal-scroll-region>
+                                        <div class="table-scrollbar-top" data-scroll-top aria-hidden="true">
+                                            <div class="table-scrollbar-spacer" data-scroll-spacer-top></div>
+                                        </div>
+                                        <div class="table-shell area-manager-kpi-table-shell" data-scroll-shell>
+                                            <table data-sortable-table="area-manager-detail-{{ $row['manager_key'] }}-{{ $kpiKey }}" data-scroll-table>
+                                                <thead>
+                                                <tr>
+                                                    <th data-sortable="true">Delegacion</th>
+                                                    <th class="num" data-sortable="true">Objetivo</th>
+                                                    <th class="num" data-sortable="true">Real</th>
+                                                    <th class="num" data-sortable="true">% real</th>
+                                                    <th class="num" data-sortable="true">Com. pre llave</th>
+                                                    <th class="num" data-sortable="true">Com. final</th>
+                                                </tr>
+                                                </thead>
+                                                <tbody data-sort-body="area-manager-detail-{{ $row['manager_key'] }}-{{ $kpiKey }}">
+                                                @forelse ($kpiRows as $detail)
+                                                    <tr @class([
+                                                        'area-manager-kpi-hit' => $detail['qualified'] ?? false,
+                                                    ])>
+                                                        <td>{{ $detail['delegation_name'] }}</td>
+                                                        <td class="num">{{ $formatMetric($detail['objective'] ?? 0, $kpiSection['money']) }}</td>
+                                                        <td class="num">{{ $formatMetric($detail['actual'] ?? 0, $kpiSection['money']) }}</td>
+                                                        <td class="num">{{ $detail['compliance_percent_raw'] !== null ? number_format((float) $detail['compliance_percent_raw'], 2, ',', '.').'%' : '-' }}</td>
+                                                        <td class="num">{{ number_format((float) ($detail['pre_key_commission'] ?? 0), 2, ',', '.') }}</td>
+                                                        <td class="num">-</td>
+                                                    </tr>
+                                                @empty
+                                                    <tr>
+                                                        <td colspan="6">Sin delegaciones calculables para este KPI.</td>
+                                                    </tr>
+                                                @endforelse
+                                                </tbody>
+                                                <tfoot>
+                                                @php
+                                                    $kpiSummary = $row['kpi_summaries'][$kpiKey] ?? [];
+                                                @endphp
+                                                <tr class="area-manager-kpi-totals">
+                                                    <td><strong>Totales</strong></td>
+                                                    <td class="num"><strong>{{ $formatMetric($kpiSummary['objective_total'] ?? 0, $kpiSection['money']) }}</strong></td>
+                                                    <td class="num"><strong>{{ $formatMetric($kpiSummary['actual_total'] ?? 0, $kpiSection['money']) }}</strong></td>
+                                                    <td class="num"><strong>{{ ($kpiSummary['zone_percent_raw'] ?? null) !== null ? number_format((float) $kpiSummary['zone_percent_raw'], 2, ',', '.').'%' : '-' }}</strong></td>
+                                                    <td class="num"><strong>{{ number_format((float) ($kpiSummary['pre_key_total'] ?? 0), 2, ',', '.') }}</strong></td>
+                                                    <td class="num"><strong>{{ number_format((float) ($kpiSummary['final_commission'] ?? 0), 2, ',', '.') }}</strong></td>
+                                                </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+                                        <div class="table-scrollbar-top table-scrollbar-bottom" data-scroll-bottom aria-hidden="true">
+                                            <div class="table-scrollbar-spacer" data-scroll-spacer-bottom></div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
                         @endforeach
                     </div>
 
@@ -246,7 +265,7 @@
                                     <div class="small">Casos sin objetivo o sin asignacion de manager.</div>
                                 </div>
                             </div>
-                            <div class="table-shell">
+                            <div class="table-shell area-manager-incidents-shell">
                                 <table data-sortable-table="area-manager-incidents-{{ $row['manager_key'] }}">
                                     <thead>
                                     <tr>
@@ -282,7 +301,7 @@
                 <div class="small">Delegaciones con datos reales sin configuracion completa.</div>
             </div>
         </div>
-        <div class="table-shell">
+        <div class="table-shell area-manager-global-incidents-shell">
             <table data-sortable-table="area-manager-global-incidents">
                 <thead>
                 <tr>

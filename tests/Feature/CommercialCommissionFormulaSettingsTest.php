@@ -170,6 +170,15 @@ class CommercialCommissionFormulaSettingsTest extends TestCase
         $this->assertSame(2, $row['deliveries_count']);
     }
 
+    public function test_normaliza_llica_de_vall_como_llica_de_valls_para_area_manager(): void
+    {
+        $service = app(CommercialCommissionFormulaConfigService::class);
+
+        $this->assertSame('Llica de Valls', $service->normalizeDelegationLabel('Lliça de Vall'));
+        $this->assertSame('Llica de Valls', $service->normalizeDelegationLabel('HR MOTOR LLIÇA DE VALL'));
+        $this->assertSame('Llica de Valls', $service->normalizeDelegationLabel('llica'));
+    }
+
     public function test_mes_cerrado_no_permita_guardar_coeficientes(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 12:00:00'));

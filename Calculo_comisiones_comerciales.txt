@@ -1,5 +1,5 @@
 CALCULO DE COMISIONES COMERCIALES
-Version: 2026-07-08
+Version: 2026-07-09
 
 0. Acceso y administracion
 
@@ -151,19 +151,18 @@ Comision final =
 
 En la propia vista de Comisiones Comerciales:
 
-- tab Resumen: totales y tabla por comercial
-- tab Detalle por comercial: buscar comercial y ver el detalle que alimenta el calculo
+- tab Comerciales: totales, tabla global por comercial y debajo el detalle auditable por comercial
 - tab Delegaciones: resumen por delegacion con metas, rentabilidad media, prima final y comision total
 - tab Call Center: resumen mensual y detalle auditable de captadores/agentes
 - tab Contact Center: resumen mensual y detalle auditable de citas, oportunidades, reservas y ventas por captador de cita
 - tab Area Manager: resumen mensual por manager y detalle auditable por delegacion/KPI
 - selector de columnas en el resumen
+- filtro de texto en la tabla superior de Comerciales por nombre o ID Salesforce
 - `Comision final` aparece al inicio
 - `Operaciones` ya no aparece en la tabla resumen
 - `Pen. resenas` y `Pen. financiacion` muestran importe monetario penalizado
 - orden actual de pestañas:
-  - `Resumen`
-  - `Detalle por comercial`
+  - `Comerciales`
   - `Delegaciones`
   - `Call Center`
   - `Contact Center`
@@ -436,7 +435,7 @@ En la propia vista de Comisiones Comerciales:
 14. Bloque Area Manager integrado en Comisiones Comerciales
 
 - No tiene pagina independiente en el menu principal.
-- Se muestra como sexta pestana dentro de `/informes/comisiones-comerciales`.
+- Se muestra como quinta pestana dentro de `/informes/comisiones-comerciales`.
 - La fuente real sale de `salesforce_opportunities`; los Excel/ODS solo se usan como referencia funcional y bootstrap inicial de objetivos.
 - Managers incluidos en esta primera fase:
   - `David Baeza`
@@ -465,16 +464,18 @@ En la propia vista de Comisiones Comerciales:
 
 - `Entregas`
   - conteo de opportunities `Venta` y `Cambio`
-  - agrupadas por `delivery_store` con fallback a `owner_delegation`
+  - agrupadas por `owner_delegation` normalizada del owner de la opportunity
 - `Beneficio`
   - suma de `Beneficio_financiacion_comercial__c`
-  - agrupada sobre las mismas entregas del centro
+  - agrupada sobre las mismas entregas del owner/delegacion
 - `Garantia Premium`
   - suma de `Garant_a_Total__c`
-  - agrupada sobre las mismas entregas del centro
+  - agrupada sobre las mismas entregas del owner/delegacion
 - `Compras`
   - conteo de opportunities `Tasacion` y `Cambio`
-  - agrupadas por `owner_delegation` con fallback a `delivery_store`
+  - agrupadas por `owner_delegation` normalizada del owner de la opportunity
+- Esta logica de `owner_delegation` aplica solo a `Area Manager`.
+- No modifica el cuadro de `Delegaciones`, que sigue contando por `delivery_store` / `Tienda_de_entrega__c`.
 
 14.3 Regla de comision por delegacion y KPI
 
@@ -512,7 +513,22 @@ En la propia vista de Comisiones Comerciales:
 14.6 Salida del front
 
 - Resumen mensual con una fila por manager.
-- Detalle auditable por manager con una fila por `delegacion + KPI`.
+- Detalle auditable por manager separado en pestanas por KPI:
+  - `Entregas`
+  - `Beneficio`
+  - `Garantia Premium`
+  - `Compras`
+- Cada tabla KPI:
+  - tiene scroll horizontal arriba y abajo
+  - resalta en verde las filas con `cumplimiento_usado >= 85%`
+  - ya no muestra `Motivo`, `% usado`, `Base KPI`, `% zona` ni la columna textual `>=85%`
+  - muestra al final una fila `Totales`
+    - `Objetivo` = suma
+    - `Real` = suma
+    - `% real` = promedio
+    - `Com. pre llave` = suma
+    - `Com. final` = suma pre-llave del KPI x llave del manager para ese KPI
+- `Lliça de Vall`, `Lliça de Valls`, `llica` y variantes se normalizan como `Llica de Valls`; ya no se excluyen del bloque Area Manager.
 - Incidencias visibles para:
   - delegacion con datos reales pero sin manager asignado
   - objetivo a cero

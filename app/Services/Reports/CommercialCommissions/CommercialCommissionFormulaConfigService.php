@@ -130,9 +130,6 @@ class CommercialCommissionFormulaConfigService
     private const EXCLUDED_NORMALIZED_DELEGATIONS = [
         'call fontellas',
         'general',
-        'llica de vall',
-        'llica',
-        'llica de vall barcelona',
     ];
 
     private const NORMALIZED_DELEGATION_ALIASES = [
@@ -159,6 +156,14 @@ class CommercialCommissionFormulaConfigService
         'villareal almassora' => 'Villareal',
         'almassora' => 'Villareal',
         'almasora' => 'Villareal',
+        'llica de vall' => 'Llica de Valls',
+        'llica' => 'Llica de Valls',
+        'llica de vall barcelona' => 'Llica de Valls',
+        'lliaa de vall' => 'Llica de Valls',
+        'lliaa de valls' => 'Llica de Valls',
+        'llica de valls' => 'Llica de Valls',
+        'llica de valls barcelona' => 'Llica de Valls',
+        'llica de valls bcn' => 'Llica de Valls',
         'malga' => 'Malaga',
         'malaga' => 'Malaga',
     ];

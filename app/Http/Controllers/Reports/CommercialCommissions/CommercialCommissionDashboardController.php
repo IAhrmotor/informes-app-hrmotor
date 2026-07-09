@@ -34,9 +34,9 @@ class CommercialCommissionDashboardController extends Controller
 
         $payload = $dashboard->build(
             $selectedMonth,
-            includeSummaryRows: in_array($activeCommissionTab, ['summary', 'detail'], true),
+            includeSummaryRows: $activeCommissionTab === 'summary',
             includeDelegationRows: $activeCommissionTab === 'delegations',
-            includeDetails: $activeCommissionTab === 'detail',
+            includeDetails: $activeCommissionTab === 'summary',
         );
 
         $callCenterPayload = $activeCommissionTab === 'call-center'
@@ -123,7 +123,11 @@ class CommercialCommissionDashboardController extends Controller
 
     private function resolveActiveTab(mixed $value): string
     {
-        $allowedTabs = ['summary', 'detail', 'delegations', 'call-center', 'contact-center', 'area-manager'];
+        if ($value === 'detail') {
+            return 'summary';
+        }
+
+        $allowedTabs = ['summary', 'delegations', 'call-center', 'contact-center', 'area-manager'];
 
         return in_array($value, $allowedTabs, true) ? $value : 'summary';
     }

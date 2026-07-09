@@ -76,8 +76,9 @@ class CallCenterCommissionDashboardTest extends TestCase
             ->assertDontSee('/informes/comisiones-call-center', false);
 
         $this->withSession($directorSession)
-            ->get('/informes/comisiones-comerciales')
+            ->get('/informes/comisiones-comerciales?month=2026-05')
             ->assertOk()
+            ->assertSee('Comerciales')
             ->assertSee('Detalle por comercial')
             ->assertSee('Delegaciones')
             ->assertSee('Call Center');
@@ -380,7 +381,7 @@ class CallCenterCommissionDashboardTest extends TestCase
         ];
 
         $this->withSession($session)
-            ->get('/informes/comisiones-comerciales?month=2026-05')
+            ->get('/informes/comisiones-comerciales?tab=call-center&month=2026-05')
             ->assertOk()
             ->assertDontSee('Diagnostico y resync')
             ->assertDontSee('salesforce:sync-tasaciones')

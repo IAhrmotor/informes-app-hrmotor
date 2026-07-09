@@ -1515,6 +1515,337 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(580.0, $row['automatic_total']);
     }
 
+    public function test_dashboard_delegaciones_incluye_oportunidades_facilitea_por_nombre_en_entregas(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-03', [
+            'delegations' => [
+                'goals' => [
+                    'bilbao' => [
+                        'label' => 'Bilbao',
+                        'target_deliveries' => 1,
+                    ],
+                ],
+            ],
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'FAC-DEL-1',
+            'name' => 'Operacion Facilitea Bilbao',
+            'owner_id' => '005-FAC',
+            'owner_name' => 'Facilitea Team',
+            'owner_is_active' => true,
+            'owner_delegation' => 'HR MOTOR BILBAO',
+            'delivery_store' => 'Bilbao',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Otro',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-03-10',
+            'beneficio_financiacion_comercial' => 100,
+            'garantia_total' => 50,
+            'vehicle_sale_price' => 12000,
+            'vehicle_purchase_price' => 10000,
+            'gestion_de_venta' => false,
+        ]);
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-03');
+        $delegation = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'Bilbao');
+
+        $this->assertNotNull($delegation);
+        $this->assertSame(1, $delegation['deliveries_count']);
+    }
+
+    public function test_dashboard_area_manager_imputa_entregas_y_compras_por_owner_delegation(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-04', [
+            'area_manager' => [
+                'assignments' => [
+                    'sant-boi' => [
+                        'label' => 'Sant Boi',
+                        'manager_key' => 'david-baeza',
+                        'active' => true,
+                        'objectives' => [
+                            'deliveries' => 1,
+                            'benefit' => 100,
+                            'guarantee' => 50,
+                            'purchases' => 1,
+                        ],
+                    ],
+                    'manresa' => [
+                        'label' => 'Manresa',
+                        'manager_key' => 'david-baeza',
+                        'active' => true,
+                        'objectives' => [
+                            'deliveries' => 1,
+                            'benefit' => 100,
+                            'guarantee' => 50,
+                            'purchases' => 1,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'AM-OWNER-DEL-1',
+            'name' => 'Entrega owner San Boi',
+            'owner_id' => '005-AM-SB',
+            'owner_name' => 'Area Comercial',
+            'owner_is_active' => true,
+            'owner_delegation' => 'San Boi',
+            'delivery_store' => 'Manresa',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-04-11',
+            'beneficio_financiacion_comercial' => 100,
+            'garantia_total' => 50,
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'AM-OWNER-PUR-1',
+            'name' => 'Compra owner San Boi',
+            'owner_id' => '005-AM-SB',
+            'owner_name' => 'Area Comercial',
+            'owner_is_active' => true,
+            'owner_delegation' => 'San Boi',
+            'delivery_store' => 'Manresa',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Tasacion',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-04-12',
+        ]);
+
+        $payload = app(AreaManagerCommissionDashboardService::class)->build('2026-04');
+        $row = collect($payload['summary_rows'])->firstWhere('manager_key', 'david-baeza');
+
+        $this->assertNotNull($row);
+
+        $sanBoiDeliveries = collect($row['detail_rows'] ?? [])
+            ->first(fn (array $detail) => $detail['delegation_name'] === 'Sant Boi' && $detail['kpi_key'] === 'deliveries');
+        $sanBoiPurchases = collect($row['detail_rows'] ?? [])
+            ->first(fn (array $detail) => $detail['delegation_name'] === 'Sant Boi' && $detail['kpi_key'] === 'purchases');
+        $manresaDeliveries = collect($row['detail_rows'] ?? [])
+            ->first(fn (array $detail) => $detail['delegation_name'] === 'Manresa' && $detail['kpi_key'] === 'deliveries');
+
+        $this->assertNotNull($sanBoiDeliveries);
+        $this->assertNotNull($sanBoiPurchases);
+        $this->assertNotNull($manresaDeliveries);
+        $this->assertSame(1.0, $sanBoiDeliveries['actual']);
+        $this->assertSame(1.0, $sanBoiPurchases['actual']);
+        $this->assertSame(0.0, $manresaDeliveries['actual']);
+    }
+
+    public function test_dashboard_area_manager_unifica_llica_de_valls_en_una_sola_delegacion(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-04', [
+            'area_manager' => [
+                'assignments' => [
+                    'llica-de-valls' => [
+                        'label' => 'Llica de Valls',
+                        'manager_key' => 'luis-lopez',
+                        'active' => true,
+                        'objectives' => [
+                            'deliveries' => 1,
+                            'benefit' => 100,
+                            'guarantee' => 50,
+                            'purchases' => 1,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'AM-LLICA-1',
+            'name' => 'Llica entrega',
+            'owner_id' => '005-AM-LLICA',
+            'owner_name' => 'Area Comercial',
+            'owner_is_active' => true,
+            'owner_delegation' => 'HR MOTOR LLIÇA DE VALLS',
+            'delivery_store' => 'Lliça de Valls',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-04-09',
+            'beneficio_financiacion_comercial' => 100,
+            'garantia_total' => 50,
+        ]);
+
+        $payload = app(AreaManagerCommissionDashboardService::class)->build('2026-04');
+        $row = collect($payload['summary_rows'])->firstWhere('manager_key', 'luis-lopez');
+
+        $this->assertNotNull($row);
+        $llicaRows = collect($row['detail_rows'] ?? [])
+            ->where('delegation_name', 'Llica de Valls')
+            ->where('kpi_key', 'deliveries')
+            ->values();
+
+        $this->assertSame(1, $llicaRows->count());
+        $this->assertSame(1.0, $llicaRows->first()['actual']);
+    }
+
+    public function test_dashboard_area_manager_recupera_owner_delegation_llica_de_vall_legacy(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-04', [
+            'area_manager' => [
+                'assignments' => [
+                    'llica-de-valls' => [
+                        'label' => 'Llica de Valls',
+                        'manager_key' => 'luis-lopez',
+                        'active' => true,
+                        'objectives' => [
+                            'deliveries' => 1,
+                            'benefit' => 100,
+                            'guarantee' => 50,
+                            'purchases' => 1,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'AM-LLICA-LEGACY-1',
+            'name' => 'Llica legacy entrega',
+            'owner_id' => '005-AM-LLICA-LEGACY',
+            'owner_name' => 'Area Comercial',
+            'owner_is_active' => true,
+            'owner_delegation' => 'Lliça de Vall',
+            'delivery_store' => 'Otra Delegacion',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-04-10',
+            'beneficio_financiacion_comercial' => 100,
+            'garantia_total' => 50,
+        ]);
+
+        $payload = app(AreaManagerCommissionDashboardService::class)->build('2026-04');
+        $row = collect($payload['summary_rows'])->firstWhere('manager_key', 'luis-lopez');
+
+        $this->assertNotNull($row);
+
+        $deliveriesRow = collect($row['detail_rows'] ?? [])
+            ->first(fn (array $detail) => $detail['delegation_name'] === 'Llica de Valls' && $detail['kpi_key'] === 'deliveries');
+
+        $this->assertNotNull($deliveriesRow);
+        $this->assertSame(1.0, $deliveriesRow['actual']);
+    }
+
+    public function helper_dashboard_area_manager_usa_user_delegation_del_owner_como_fallback_fixture(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-04', [
+            'area_manager' => [
+                'assignments' => [
+                    'llica-de-valls' => [
+                        'label' => 'Llica de Valls',
+                        'manager_key' => 'luis-lopez',
+                        'active' => true,
+                        'objectives' => [
+                            'deliveries' => 1,
+                            'benefit' => 100,
+                            'guarantee' => 50,
+                            'purchases' => 1,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        SalesforceUser::create([
+            'salesforce_id' => '005-AM-OWNER-USER',
+            'name' => 'Owner Llica',
+            'profile_name' => 'Compra/Venta',
+            'user_delegation' => 'HR MOTOR LLIÇA DE VALLS',
+            'is_active' => true,
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'AM-LLICA-OWNER-USER-1',
+            'name' => 'Entrega por delegacion de usuario',
+            'owner_id' => '005-AM-OWNER-USER',
+            'owner_name' => 'Owner Llica',
+            'owner_is_active' => true,
+            'owner_delegation' => '',
+            'delivery_store' => 'Otra Delegacion',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-04-10',
+            'beneficio_financiacion_comercial' => 100,
+            'garantia_total' => 50,
+        ]);
+
+        $payload = app(AreaManagerCommissionDashboardService::class)->build('2026-04');
+        $row = collect($payload['summary_rows'])->firstWhere('manager_key', 'luis-lopez');
+
+        $this->assertNotNull($row);
+
+        $deliveriesRow = collect($row['detail_rows'] ?? [])
+            ->first(fn (array $detail) => $detail['delegation_name'] === 'Llica de Valls' && $detail['kpi_key'] === 'deliveries');
+
+        $this->assertNotNull($deliveriesRow);
+        $this->assertSame(1.0, $deliveriesRow['actual']);
+    }
+
+    public function helper_dashboard_area_manager_usa_user_delegation_del_owner_como_fallback_ascii(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-04', [
+            'area_manager' => [
+                'assignments' => [
+                    'llica-de-valls' => [
+                        'label' => 'Llica de Valls',
+                        'manager_key' => 'luis-lopez',
+                        'active' => true,
+                        'objectives' => [
+                            'deliveries' => 1,
+                            'benefit' => 100,
+                            'guarantee' => 50,
+                            'purchases' => 1,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        SalesforceUser::create([
+            'salesforce_id' => '005-AM-OWNER-USER-ASCII',
+            'name' => 'Owner Llica ASCII',
+            'profile_name' => 'Compra/Venta',
+            'user_delegation' => 'HR MOTOR LLICA DE VALLS',
+            'is_active' => true,
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'AM-LLICA-OWNER-USER-ASCII-1',
+            'name' => 'Entrega por delegacion de usuario ASCII',
+            'owner_id' => '005-AM-OWNER-USER-ASCII',
+            'owner_name' => 'Owner Llica ASCII',
+            'owner_is_active' => true,
+            'owner_delegation' => '',
+            'delivery_store' => 'Otra Delegacion',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-04-10',
+            'beneficio_financiacion_comercial' => 100,
+            'garantia_total' => 50,
+        ]);
+
+        $payload = app(AreaManagerCommissionDashboardService::class)->build('2026-04');
+        $row = collect($payload['summary_rows'])->firstWhere('manager_key', 'luis-lopez');
+
+        $this->assertNotNull($row);
+
+        $deliveriesRow = collect($row['detail_rows'] ?? [])
+            ->first(fn (array $detail) => $detail['delegation_name'] === 'Llica de Valls' && $detail['kpi_key'] === 'deliveries');
+
+        $this->assertNotNull($deliveriesRow);
+        $this->assertSame(1.0, $deliveriesRow['actual']);
+    }
+
     private function createCommercialUser(string $id, string $name, bool $isActive = true, string $profile = 'Compra/Venta'): void
     {
         SalesforceUser::create([

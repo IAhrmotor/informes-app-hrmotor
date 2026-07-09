@@ -24,7 +24,6 @@
     $contactCenterSummaryRows = collect($contactCenterDashboard['summary_rows'] ?? []);
     $areaManagerSummaryRows = collect($areaManagerDashboard['summary_rows'] ?? []);
     $summaryTabUrl = request()->fullUrlWithQuery(['tab' => 'summary']);
-    $detailTabUrl = request()->fullUrlWithQuery(['tab' => 'detail']);
     $delegationsTabUrl = request()->fullUrlWithQuery(['tab' => 'delegations']);
     $callCenterTabUrl = request()->fullUrlWithQuery(['tab' => 'call-center']);
     $contactCenterTabUrl = request()->fullUrlWithQuery(['tab' => 'contact-center']);
@@ -213,14 +212,13 @@
                 <section class="card panel">
                     <div class="panel-title">
                         <div>
-                            <h2>Resumen de comisiones</h2>
+                            <h2>Comerciales</h2>
                             <div class="small">La financiacion se calcula sobre Venta + Cambio + Tasacion y las compras solo se liquidan al propietario de la compra cuando ese vehiculo se vende.</div>
                         </div>
                     </div>
 
                     <nav class="tabs-main commission-inner-tabs" aria-label="Vista de comisiones">
-                        <a href="{{ $summaryTabUrl }}" class="main-tab{{ $activeCommissionTab === 'summary' ? ' active' : '' }}" data-commission-tab-trigger="summary" data-commission-tab-url="{{ $summaryTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'summary' ? 'true' : 'false' }}">Resumen</a>
-                        <a href="{{ $detailTabUrl }}" class="main-tab{{ $activeCommissionTab === 'detail' ? ' active' : '' }}" data-commission-tab-trigger="detail" data-commission-tab-url="{{ $detailTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'detail' ? 'true' : 'false' }}">Detalle por comercial</a>
+                        <a href="{{ $summaryTabUrl }}" class="main-tab{{ $activeCommissionTab === 'summary' ? ' active' : '' }}" data-commission-tab-trigger="summary" data-commission-tab-url="{{ $summaryTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'summary' ? 'true' : 'false' }}">Comerciales</a>
                         <a href="{{ $delegationsTabUrl }}" class="main-tab{{ $activeCommissionTab === 'delegations' ? ' active' : '' }}" data-commission-tab-trigger="delegations" data-commission-tab-url="{{ $delegationsTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'delegations' ? 'true' : 'false' }}">Delegaciones</a>
                         <a href="{{ $callCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'call-center' ? ' active' : '' }}" data-commission-tab-trigger="call-center" data-commission-tab-url="{{ $callCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'call-center' ? 'true' : 'false' }}">Call Center</a>
                         <a href="{{ $contactCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'contact-center' ? ' active' : '' }}" data-commission-tab-trigger="contact-center" data-commission-tab-url="{{ $contactCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'contact-center' ? 'true' : 'false' }}">Contact Center</a>
@@ -287,8 +285,20 @@
                         </section>
 
                         <div class="commission-summary-toolbar">
-                            <div class="small">
-                                Resumen limitado a perfiles Salesforce <strong>Compra/Venta</strong> y <strong>Comerciales Partner Community</strong>.
+                            <div class="commission-summary-toolbar-copy">
+                                <div class="small">
+                                    Resumen limitado a perfiles Salesforce <strong>Compra/Venta</strong> y <strong>Comerciales Partner Community</strong>.
+                                </div>
+                                <div class="filter-group commission-summary-filter-group">
+                                    <label for="commissionSummarySearch">Filtrar comercial</label>
+                                    <input
+                                        type="search"
+                                        id="commissionSummarySearch"
+                                        placeholder="Nombre o ID de Salesforce"
+                                        autocomplete="off"
+                                        data-commercial-summary-search-input
+                                    >
+                                </div>
                             </div>
                             <div class="columns-menu">
                                 <button type="button" class="filter-reset" id="commissionSummaryColumnsButton">Columnas</button>
@@ -327,7 +337,7 @@
                                     </thead>
                                     <tbody data-sort-body="commission-summary">
                                     @foreach ($summaryRows as $row)
-                                        <tr>
+                                        <tr data-commercial-summary-row data-commercial-summary-search="{{ \Illuminate\Support\Str::lower(\Illuminate\Support\Str::ascii($row['commercial_name'].' '.$row['commercial_id'])) }}">
                                             <td data-column="commercial_name">{{ $row['commercial_name'] }}</td>
                                             <td class="num" data-column="final_commission" data-sort-value="{{ $row['final_commission'] }}"><strong>{{ number_format($row['final_commission'], 2, ',', '.') }}</strong></td>
                                         <td class="num" data-column="deliveries_count" data-sort-value="{{ $row['deliveries_count'] }}">{{ number_format($row['deliveries_count'], 0, ',', '.') }}</td>
@@ -353,6 +363,7 @@
                                 </table>
                             </div>
                         </div>
+
                     </div>
 
                     <div @class(['is-hidden' => $activeCommissionTab !== 'delegations']) data-commission-tab-panel="delegations">
@@ -480,8 +491,14 @@
                         </div>
                     </div>
 
-                    <div @class(['is-hidden' => $activeCommissionTab !== 'detail']) data-commission-tab-panel="detail">
-                        @if ($activeCommissionTab === 'detail')
+                    <div @class(['is-hidden' => $activeCommissionTab !== 'summary']) data-commission-tab-panel="summary">
+                        @if ($activeCommissionTab === 'summary')
+                        <section class="panel-title compact commission-commercial-detail-header">
+                            <div>
+                                <h2>Detalle por comercial</h2>
+                                <div class="small">Selecciona un comercial para auditar entregas, compras, compartidas, stock y resenas debajo del resumen global.</div>
+                            </div>
+                        </section>
                         <div class="commission-detail-shell" data-agent-browser>
                             <aside class="card commission-commercial-picker">
                                 <div class="filter-group">

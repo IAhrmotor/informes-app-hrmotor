@@ -413,14 +413,12 @@ class CommercialCommissionDashboardService
 
     private function buildDelegationRows(CarbonImmutable $periodStart, CarbonImmutable $periodEnd, array $formulaSettings): array
     {
-        $deliveries = $this->monthlyOpportunities(
+        $deliveries = $this->monthlyDelegationDeliveryOpportunities(
             $periodStart,
-            $periodEnd,
-            requireActiveOwner: false,
-            applySaleManagementFilter: false
+            $periodEnd
         )
             ->get()
-            ->filter(fn (SalesforceOpportunity $row) => $this->isDelivery($row))
+            ->filter(fn (SalesforceOpportunity $row) => $this->countsAsDelegationDelivery($row))
             ->filter(fn (SalesforceOpportunity $row) => $this->formulaConfig->shouldIncludeDelegationLabel(
                 $this->deliveryDelegation($row)
             ));
@@ -667,6 +665,25 @@ class CommercialCommissionDashboardService
         return $query;
     }
 
+    private function monthlyDelegationDeliveryOpportunities(
+        CarbonImmutable $periodStart,
+        CarbonImmutable $periodEnd
+    ): Builder {
+        $query = SalesforceOpportunity::query()
+            ->select(self::OPPORTUNITY_COLUMNS)
+            ->where('cv_signed', true)
+            ->whereDate('cv_signed_date', '>=', $periodStart->toDateString())
+            ->whereDate('cv_signed_date', '<', $periodEnd->toDateString())
+            ->whereRaw('LOWER(COALESCE(stage_name, \'\')) <> ?', ['cerrada perdida']);
+
+        $query->where(function (Builder $builder): void {
+            $this->applyRecordTypeFilter($builder, ['venta', 'cambio']);
+            $builder->orWhereRaw("LOWER(COALESCE(name, '')) LIKE ?", ['%facilitea%']);
+        });
+
+        return $query;
+    }
+
     private function monthlyReviews(CarbonImmutable $periodStart, CarbonImmutable $periodEnd): Builder
     {
         return SalesforceReview::query()
@@ -890,6 +907,19 @@ class CommercialCommissionDashboardService
     private function isDelivery(SalesforceOpportunity $row): bool
     {
         return in_array($this->normalizeRecordType($row->record_type_name), ['venta', 'cambio'], true);
+    }
+
+    private function isFaciliteaOpportunity(SalesforceOpportunity $row): bool
+    {
+        return str_contains(
+            Str::of((string) $row->name)->lower()->toString(),
+            'facilitea'
+        );
+    }
+
+    private function countsAsDelegationDelivery(SalesforceOpportunity $row): bool
+    {
+        return $this->isDelivery($row) || $this->isFaciliteaOpportunity($row);
     }
 
     private function purchaseCandidates(Collection $plates, Collection $vehicleInterestIds, Collection $normalizedPlates): Collection

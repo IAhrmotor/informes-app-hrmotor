@@ -32,11 +32,13 @@ document.addEventListener('DOMContentLoaded', () => {
     bindCommissionTabs();
     bindCallCenterBrowser();
     bindAgentBrowsers();
+    bindCommercialSummarySearch();
     bindCommissionDetailTabs();
     bindSortableTables();
     initCommissionSummaryColumns();
     initCommissionSummaryHorizontalScroll();
     initCommissionDelegationHorizontalScroll();
+    initHorizontalScrollRegions();
     bindKpiTooltips();
 });
 
@@ -66,6 +68,8 @@ function bindCommissionTabs() {
                 syncCommissionDelegationScrollbar();
                 window.requestAnimationFrame(() => syncCommissionDelegationScrollbar());
             }
+
+            syncHorizontalScrollRegions();
         });
     };
 
@@ -98,6 +102,27 @@ function bindAgentBrowsers() {
     document.querySelectorAll('[data-agent-browser]').forEach((browser) => {
         bindAgentBrowser(browser);
     });
+}
+
+function bindCommercialSummarySearch() {
+    const input = document.querySelector('[data-commercial-summary-search-input]');
+    const rows = [...document.querySelectorAll('[data-commercial-summary-row]')];
+
+    if (!input || !rows.length) {
+        return;
+    }
+
+    const filterRows = () => {
+        const term = (input.value || '').trim().toLowerCase();
+
+        rows.forEach((row) => {
+            const haystack = row.dataset.commercialSummarySearch || '';
+            row.classList.toggle('is-hidden', term !== '' && !haystack.includes(term));
+        });
+    };
+
+    input.addEventListener('input', filterRows);
+    filterRows();
 }
 
 function bindCallCenterBrowser() {
@@ -469,6 +494,8 @@ function bindCommissionDetailTabs() {
             detailPanels.forEach((detailPanel) => {
                 detailPanel.classList.toggle('is-hidden', detailPanel.dataset.commercialDetailTabPanel !== targetTab);
             });
+
+            window.requestAnimationFrame(() => syncHorizontalScrollRegions());
         };
 
         triggers.forEach((trigger) => {
@@ -478,6 +505,95 @@ function bindCommissionDetailTabs() {
         });
 
         activate(triggers[0].dataset.commercialDetailTabTrigger);
+    });
+}
+
+function initHorizontalScrollRegions() {
+    document.querySelectorAll('[data-horizontal-scroll-region]').forEach((region) => {
+        initHorizontalScrollRegion(region);
+    });
+}
+
+function initHorizontalScrollRegion(region) {
+    if (!region || region.dataset.horizontalScrollReady === 'true') {
+        return;
+    }
+
+    const topScroll = region.querySelector('[data-scroll-top]');
+    const bottomScroll = region.querySelector('[data-scroll-bottom]');
+    const topSpacer = region.querySelector('[data-scroll-spacer-top]');
+    const bottomSpacer = region.querySelector('[data-scroll-spacer-bottom]');
+    const shell = region.querySelector('[data-scroll-shell]');
+    const table = region.querySelector('[data-scroll-table]');
+
+    if (!topScroll || !bottomScroll || !topSpacer || !bottomSpacer || !shell || !table) {
+        return;
+    }
+
+    let syncing = false;
+
+    const syncScrollbar = () => {
+        const contentWidth = Math.max(table.scrollWidth, table.offsetWidth, shell.scrollWidth);
+        topSpacer.style.width = `${contentWidth}px`;
+        bottomSpacer.style.width = `${contentWidth}px`;
+
+        if (syncing) {
+            return;
+        }
+
+        syncing = true;
+        topScroll.scrollLeft = shell.scrollLeft;
+        bottomScroll.scrollLeft = shell.scrollLeft;
+        syncing = false;
+    };
+
+    const syncShellFromProxy = (proxy) => {
+        proxy.addEventListener('scroll', () => {
+            if (syncing) {
+                return;
+            }
+
+            syncing = true;
+            shell.scrollLeft = proxy.scrollLeft;
+            topScroll.scrollLeft = proxy.scrollLeft;
+            bottomScroll.scrollLeft = proxy.scrollLeft;
+            syncing = false;
+        });
+    };
+
+    syncShellFromProxy(topScroll);
+    syncShellFromProxy(bottomScroll);
+
+    shell.addEventListener('scroll', () => {
+        if (syncing) {
+            return;
+        }
+
+        syncing = true;
+        topScroll.scrollLeft = shell.scrollLeft;
+        bottomScroll.scrollLeft = shell.scrollLeft;
+        syncing = false;
+    });
+
+    if (typeof ResizeObserver === 'function') {
+        const resizeObserver = new ResizeObserver(() => syncScrollbar());
+        resizeObserver.observe(table);
+        resizeObserver.observe(shell);
+        region._horizontalResizeObserver = resizeObserver;
+    } else {
+        window.addEventListener('resize', syncScrollbar);
+    }
+
+    region.dataset.horizontalScrollReady = 'true';
+    region._syncHorizontalScroll = syncScrollbar;
+    window.requestAnimationFrame(syncScrollbar);
+}
+
+function syncHorizontalScrollRegions() {
+    document.querySelectorAll('[data-horizontal-scroll-region]').forEach((region) => {
+        if (typeof region._syncHorizontalScroll === 'function') {
+            region._syncHorizontalScroll();
+        }
     });
 }
 

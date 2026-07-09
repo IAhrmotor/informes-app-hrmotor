@@ -3250,6 +3250,21 @@ th.num {
     margin-bottom: 16px;
 }
 
+.commercial-commissions-report .commission-summary-toolbar-copy {
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.commercial-commissions-report .commission-summary-filter-group {
+    max-width: 360px;
+}
+
+.commercial-commissions-report .commission-commercial-detail-header {
+    margin: 22px 0 16px;
+}
+
 .commercial-commissions-report .table-shell {
     overflow: auto;
     border: 1px solid rgba(31, 41, 68, .10);
@@ -3284,6 +3299,10 @@ th.num {
 
 .commercial-commissions-report .table-scrollbar-spacer {
     height: 1px;
+}
+
+.commercial-commissions-report .table-scrollbar-bottom {
+    margin-top: 8px;
 }
 
 .commercial-commissions-report .table-shell table {
@@ -3599,6 +3618,10 @@ th.num {
         align-items: stretch;
     }
 
+    .commercial-commissions-report .commission-summary-filter-group {
+        max-width: none;
+    }
+
     .commercial-commissions-report .commission-commercial-picker {
         position: static;
     }
@@ -3794,18 +3817,53 @@ th.num {
     min-width: 0;
 }
 
+.commercial-commissions-report .area-manager-summary-shell {
+    height: 460px;
+}
+
+.commercial-commissions-report .area-manager-kpi-tabs-shell > div,
+.commercial-commissions-report .area-manager-kpi-tabs-shell .table-shell {
+    min-width: 0;
+    width: 100%;
+}
+
 .commercial-commissions-report .area-manager-kpi-panel,
 .commercial-commissions-report .area-manager-kpi-table-shell {
     min-width: 0;
 }
 
+.commercial-commissions-report .area-manager-kpi-scroll-region {
+    min-width: 0;
+}
+
 .commercial-commissions-report .area-manager-kpi-table-shell {
     width: 100%;
-    height: 420px;
+    height: 760px;
 }
 
 .commercial-commissions-report .area-manager-kpi-table-shell table {
     min-width: 960px;
+}
+
+.commercial-commissions-report .area-manager-kpi-hit td {
+    background: rgba(22, 163, 74, .10);
+    color: #17803d;
+}
+
+.commercial-commissions-report .area-manager-kpi-hit td strong {
+    color: #17803d;
+}
+
+.commercial-commissions-report .area-manager-kpi-totals td {
+    position: sticky;
+    bottom: 0;
+    background: #fff;
+    box-shadow: 0 -1px 0 rgba(31, 41, 68, .08);
+}
+
+.commercial-commissions-report .area-manager-incidents-shell,
+.commercial-commissions-report .area-manager-global-incidents-shell {
+    height: 360px;
 }
 
 .commercial-commissions-report .contact-center-global-incidents-panel {
