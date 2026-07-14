@@ -84,26 +84,45 @@ function bindTabs() {
 }
 
 function bindLeadCommercialTabs() {
-    const triggers = [...document.querySelectorAll('[data-lead-commercial-tab-trigger]')];
-    const panels = [...document.querySelectorAll('[data-lead-commercial-tab-panel]')];
+    const root = document.getElementById('panel-comerciales');
+
+    if (!root) {
+        return;
+    }
+
+    const triggers = [...root.querySelectorAll('[data-lead-commercial-tab-trigger]')];
+    const panels = [...root.querySelectorAll('[data-lead-commercial-tab-panel]')];
 
     if (!triggers.length || !panels.length) {
         return;
     }
 
     const activate = (targetTab) => {
+        const targetPanel = panels.find((panel) => panel.dataset.leadCommercialTabPanel === targetTab);
+
+        if (!targetPanel) {
+            return;
+        }
+
         triggers.forEach((trigger) => {
             trigger.classList.toggle('active', trigger.dataset.leadCommercialTabTrigger === targetTab);
         });
         panels.forEach((panel) => {
-            panel.classList.toggle('is-hidden', panel.dataset.leadCommercialTabPanel !== targetTab);
+            const isActive = panel.dataset.leadCommercialTabPanel === targetTab;
+
+            panel.classList.toggle('active', isActive);
+            panel.classList.toggle('is-hidden', !isActive);
+            panel.toggleAttribute('hidden', !isActive);
         });
     };
 
     activate('commercials');
 
     triggers.forEach((trigger) => {
-        trigger.addEventListener('click', () => activate(trigger.dataset.leadCommercialTabTrigger));
+        trigger.addEventListener('click', (event) => {
+            event.preventDefault();
+            activate(trigger.dataset.leadCommercialTabTrigger);
+        });
     });
 }
 
