@@ -166,36 +166,38 @@
         </section>
 
         <section id="panel-comerciales" class="tab-panel">
-            <section class="filters card">
-                <div class="filter-group">
-                    <label for="commercialPanelsOrder">Orden de cuadros</label>
-                    <select id="commercialPanelsOrder">
-                        <option value="zones,delegations,commercials">Zonas, Delegaciones, Comerciales</option>
-                        <option value="commercials,delegations,zones">Comerciales, Delegaciones, Zonas</option>
-                        <option value="delegations,zones,commercials">Delegaciones, Zonas, Comerciales</option>
-                    </select>
-                </div>
-            </section>
+            <nav class="tabs-main" aria-label="Cuadros de comerciales, delegaciones y zonas">
+                <button type="button" class="main-tab active" data-lead-commercial-tab-trigger="commercials">Comerciales</button>
+                <button type="button" class="main-tab" data-lead-commercial-tab-trigger="delegations">Delegaciones</button>
+                <button type="button" class="main-tab" data-lead-commercial-tab-trigger="zones">Zonas</button>
+            </nav>
 
             <div id="commercialPanels">
-            <section class="card panel" data-commercial-section="zones">
+            <section class="card panel is-hidden" data-commercial-section="zones" data-lead-commercial-tab-panel="zones">
                 <div class="panel-title">
                     <div>
                         <h2>Zonas</h2>
                         <div class="small">Agrupado por zona comercial del usuario atribuido</div>
                     </div>
+                    <div class="columns-menu">
+                        <button type="button" class="filter-reset" id="leadCommercialZoneColumnsButton">Añadir/Quitar columna</button>
+                        <div class="columns-popover card is-hidden" id="leadCommercialZoneColumnsPopover"></div>
+                    </div>
                 </div>
                 <div class="table-wrap">
-                    <table>
+                    <table id="leadCommercialZonesTable">
                         <thead>
                         <tr>
-                            <th>Zona</th>
-                            <th class="num">Leads totales</th>
-                            <th class="num">Convertidos</th>
-                            <th class="num">Descartados</th>
-                            <th class="num">Potenciales</th>
-                            <th class="num">Potenciales sin trabajar</th>
-                            <th class="num">Gestionados</th>
+                            <th data-column="zone">Zona</th>
+                            <th class="num" data-column="leads_totales">Leads totales</th>
+                            <th class="num" data-column="convertidos">Convertidos</th>
+                            <th class="num is-hidden" data-column="conversion_pct">% convertidos</th>
+                            <th class="num" data-column="descartados">Descartados</th>
+                            <th class="num is-hidden" data-column="descarte_pct">% descartados</th>
+                            <th class="num" data-column="potenciales">Potenciales</th>
+                            <th class="num" data-column="potenciales_sin_trabajar">Potenciales sin trabajar</th>
+                            <th class="num" data-column="gestionados">Gestionados</th>
+                            <th class="num is-hidden" data-column="gestionados_pct">% gestionados</th>
                         </tr>
                         </thead>
                         <tbody id="commercialZoneRows"></tbody>
@@ -203,25 +205,32 @@
                 </div>
             </section>
 
-            <section class="card panel" data-commercial-section="delegations">
+            <section class="card panel is-hidden" data-commercial-section="delegations" data-lead-commercial-tab-panel="delegations">
                 <div class="panel-title">
                     <div>
                         <h2>Delegaciones</h2>
                         <div class="small">Agrupado por delegacion comercial del usuario atribuido</div>
                     </div>
+                    <div class="columns-menu">
+                        <button type="button" class="filter-reset" id="leadCommercialDelegationColumnsButton">Añadir/Quitar columna</button>
+                        <div class="columns-popover card is-hidden" id="leadCommercialDelegationColumnsPopover"></div>
+                    </div>
                 </div>
                 <div class="table-wrap">
-                    <table>
+                    <table id="leadCommercialDelegationsTable">
                         <thead>
                         <tr>
-                            <th>Delegacion comercial</th>
-                            <th>Zona</th>
-                            <th class="num">Leads totales</th>
-                            <th class="num">Convertidos</th>
-                            <th class="num">Descartados</th>
-                            <th class="num">Potenciales</th>
-                            <th class="num">Potenciales sin trabajar</th>
-                            <th class="num">Gestionados</th>
+                            <th data-column="commercial_delegation">Delegacion comercial</th>
+                            <th data-column="zone">Zona</th>
+                            <th class="num" data-column="leads_totales">Leads totales</th>
+                            <th class="num" data-column="convertidos">Convertidos</th>
+                            <th class="num is-hidden" data-column="conversion_pct">% convertidos</th>
+                            <th class="num" data-column="descartados">Descartados</th>
+                            <th class="num is-hidden" data-column="descarte_pct">% descartados</th>
+                            <th class="num" data-column="potenciales">Potenciales</th>
+                            <th class="num" data-column="potenciales_sin_trabajar">Potenciales sin trabajar</th>
+                            <th class="num" data-column="gestionados">Gestionados</th>
+                            <th class="num is-hidden" data-column="gestionados_pct">% gestionados</th>
                         </tr>
                         </thead>
                         <tbody id="commercialDelegationRows"></tbody>
@@ -229,11 +238,21 @@
                 </div>
             </section>
 
-            <section class="card panel" data-commercial-section="commercials">
+            <section class="card panel" data-commercial-section="commercials" data-lead-commercial-tab-panel="commercials">
                 <div class="panel-title">
                     <div>
                         <h2>Comerciales</h2>
                         <div class="small">Solo usuarios activos con perfiles comerciales permitidos</div>
+                    </div>
+                    <div class="columns-menu">
+                        <button type="button" class="filter-reset" id="leadCommercialColumnsButton">Añadir/Quitar columna</button>
+                        <div class="columns-popover card is-hidden" id="leadCommercialColumnsPopover"></div>
+                    </div>
+                </div>
+                <div class="filters card compact-filters">
+                    <div class="filter-group">
+                        <label for="leadCommercialSearch">Buscar comercial</label>
+                        <input id="leadCommercialSearch" type="search" placeholder="Filtrar por nombre o ID Salesforce">
                     </div>
                 </div>
                 <div class="table-wrap">
@@ -245,10 +264,13 @@
                             <th data-column="zone">Zona</th>
                             <th class="num" data-column="leads_totales">Leads totales</th>
                             <th class="num" data-column="convertidos">Convertidos</th>
+                            <th class="num is-hidden" data-column="conversion_pct">% convertidos</th>
                             <th class="num" data-column="descartados">Descartados</th>
+                            <th class="num is-hidden" data-column="descarte_pct">% descartados</th>
                             <th class="num" data-column="potenciales">Potenciales</th>
                             <th class="num" data-column="potenciales_sin_trabajar">Potenciales sin trabajar</th>
                             <th class="num" data-column="gestionados">Gestionados</th>
+                            <th class="num is-hidden" data-column="gestionados_pct">% gestionados</th>
                         </tr>
                         </thead>
                         <tbody id="commercialRows"></tbody>

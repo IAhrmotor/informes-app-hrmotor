@@ -23,7 +23,14 @@ class DashboardUiPhaseOneTest extends TestCase
         $response->assertSee('Exposición');
         $response->assertSee('Comerciales/Delegaciones/Zonas');
         $response->assertSee('Delegaciones por reparto de leads');
-        $response->assertSee('Orden de cuadros');
+        $response->assertSee('Buscar comercial');
+        $response->assertSee('Añadir/Quitar columna');
+        $response->assertSee('data-lead-commercial-tab-trigger="commercials"', false);
+        $response->assertSee('data-lead-commercial-tab-trigger="delegations"', false);
+        $response->assertSee('data-lead-commercial-tab-trigger="zones"', false);
+        $response->assertSee('% convertidos');
+        $response->assertSee('% descartados');
+        $response->assertSee('% gestionados');
         $response->assertDontSee('id="channel"', false);
         $response->assertDontSee('id="status"', false);
         $response->assertDontSee('leadGroup');
@@ -51,7 +58,11 @@ class DashboardUiPhaseOneTest extends TestCase
         $this->assertStringContainsString('parseSortableValue', $js);
         $this->assertStringContainsString("'leadType'", $js);
         $this->assertStringContainsString("lead_type", $js);
-        $this->assertStringContainsString('formatCountPercent', $js);
+        $this->assertStringContainsString('bindLeadCommercialTabs', $js);
+        $this->assertStringContainsString('bindLeadCommercialSearch', $js);
+        $this->assertStringContainsString('applyCommercialSearchFilter', $js);
+        $this->assertStringContainsString('leadCommercialZoneColumns', $js);
+        $this->assertStringContainsString('leadCommercialDelegationColumns', $js);
         $this->assertStringContainsString('data-sort-value', $js);
         $this->assertStringNotContainsString("'leadGroup'", $js);
         $this->assertStringNotContainsString("'channel'", $js);

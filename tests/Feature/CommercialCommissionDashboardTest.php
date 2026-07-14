@@ -141,7 +141,150 @@ class CommercialCommissionDashboardTest extends TestCase
             ->get('/informes/comisiones-comerciales?tab=area-manager&month=2026-05')
             ->assertOk()
             ->assertSee('Comisiones Area Manager')
-            ->assertSee('KPIs por delegacion');
+            ->assertSee('KPIs por delegacion')
+            ->assertSee('Comisión Oscar');
+    }
+
+    public function test_dashboard_renderiza_pestana_financieros(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'FIN-ROUTE-1',
+            'name' => 'Financiera route',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'opportunity_record_type_formula' => 'Venta',
+            'owner_delegation' => 'Bilbao',
+            'financial_zone' => 'Zona Cristina',
+            'opo_for_importe_total' => 10000,
+            'importe_financiado' => 5000,
+            'financial_commission' => 900,
+            'financial_discount' => 90,
+            'garantia_total' => 400,
+            'interest_rate' => '6,99%',
+            'cv_signed_date' => '2026-05-10',
+        ]);
+
+        $adminSession = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => 'admin@hrmotor.com',
+        ];
+
+        $this->withSession($adminSession)
+            ->get('/informes/comisiones-comerciales?tab=financials&month=2026-05')
+            ->assertOk()
+            ->assertSee('Comisiones Financieros')
+            ->assertSee('Total comision')
+            ->assertSee('Bloque 1');
+    }
+
+    public function test_dashboard_financieros_calcula_comision_por_zona(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-05', [
+            'financials' => [
+                'financed_percentage_brackets' => [
+                    ['min_percent' => 47.0001, 'incentive' => 0.0125],
+                    ['min_percent' => 44.1, 'incentive' => 0.0100],
+                    ['min_percent' => 42.1, 'incentive' => 0.0075],
+                    ['min_percent' => 40.1, 'incentive' => 0.0050],
+                    ['min_percent' => 39.1, 'incentive' => 0.0040],
+                    ['min_percent' => 38.0, 'incentive' => 0.0020],
+                    ['min_percent' => 0.0, 'incentive' => 0.0010],
+                ],
+                'profitability_brackets' => [
+                    ['min_percent' => 16.6, 'incentive' => 0.0075],
+                    ['min_percent' => 15.6, 'incentive' => 0.0050],
+                    ['min_percent' => 14.5, 'incentive' => 0.0040],
+                    ['min_percent' => 14.0, 'incentive' => 0.0020],
+                    ['min_percent' => 0.0, 'incentive' => 0.0],
+                ],
+                'guarantee_percentage_brackets' => [
+                    ['min_percent' => 7.0, 'incentive' => 0.0050],
+                    ['min_percent' => 6.0, 'incentive' => 0.0030],
+                    ['min_percent' => 5.0, 'incentive' => 0.0020],
+                    ['min_percent' => 0.0, 'incentive' => 0.0],
+                ],
+                'excluded_interest_rates' => ['3,99%', '4,99%', '5,99%'],
+            ],
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'FIN-1',
+            'name' => 'Financiera 1',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'opportunity_record_type_formula' => 'Venta',
+            'owner_delegation' => 'Bilbao',
+            'financial_zone' => 'Zona Cristina',
+            'opo_for_importe_total' => 100000,
+            'importe_financiado' => 50000,
+            'financial_commission' => 10000,
+            'financial_discount' => 1000,
+            'garantia_total' => 3000,
+            'interest_rate' => '6,99%',
+            'cv_signed_date' => '2026-05-12',
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'FIN-2',
+            'name' => 'Financiera 2',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Cambio',
+            'opportunity_record_type_formula' => 'Cambio',
+            'owner_delegation' => 'Bilbao',
+            'financial_zone' => 'Zona Cristina',
+            'opo_for_importe_total' => 50000,
+            'importe_financiado' => 25000,
+            'financial_commission' => 5000,
+            'financial_discount' => 500,
+            'garantia_total' => 2000,
+            'interest_rate' => '4,99%',
+            'cv_signed_date' => '2026-05-14',
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'FIN-3',
+            'name' => 'Sin zona',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'opportunity_record_type_formula' => 'Venta',
+            'owner_delegation' => 'General',
+            'financial_zone' => 'Sin Zona',
+            'opo_for_importe_total' => 10000,
+            'importe_financiado' => 1000,
+            'financial_commission' => 100,
+            'financial_discount' => 0,
+            'garantia_total' => 0,
+            'interest_rate' => '6,99%',
+            'cv_signed_date' => '2026-05-14',
+        ]);
+
+        $payload = app(\App\Services\Reports\FinancialCommissions\FinancialCommissionDashboardService::class)
+            ->build('2026-05');
+
+        $this->assertTrue($payload['ready']);
+        $this->assertSame(2, $payload['diagnostics']['eligible_operations_count']);
+        $this->assertSame(1, $payload['diagnostics']['profitability_excluded_operations_count']);
+
+        $zone = collect($payload['summary_rows'])->firstWhere('zone_name', 'Zona Cristina');
+
+        $this->assertNotNull($zone);
+        $this->assertSame(2, $zone['operations_count']);
+        $this->assertEqualsWithDelta(150000.0, $zone['amount_total'], 0.01);
+        $this->assertEqualsWithDelta(75000.0, $zone['amount_financed'], 0.01);
+        $this->assertEqualsWithDelta(50.0, $zone['financed_percentage'], 0.01);
+        $this->assertEqualsWithDelta(13500.0, $zone['net_commission'], 0.01);
+        $this->assertEqualsWithDelta(0.0125, $zone['financed_incentive'], 0.0001);
+        $this->assertEqualsWithDelta(168.75, $zone['block_1_commission'], 0.01);
+        $this->assertEqualsWithDelta(18.0, $zone['profitability_percentage'], 0.01);
+        $this->assertEqualsWithDelta(0.0075, $zone['profitability_incentive'], 0.0001);
+        $this->assertEqualsWithDelta(67.5, $zone['block_2_commission'], 0.01);
+        $this->assertEqualsWithDelta(6.67, $zone['guarantee_percentage'], 0.01);
+        $this->assertEqualsWithDelta(0.0030, $zone['guarantee_incentive'], 0.0001);
+        $this->assertEqualsWithDelta(15.0, $zone['block_3_commission'], 0.01);
+        $this->assertEqualsWithDelta(251.25, $zone['final_commission'], 0.01);
     }
 
     public function test_dashboard_calcula_resumen_real_de_comisiones(): void

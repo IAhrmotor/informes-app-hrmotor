@@ -97,6 +97,17 @@ class CommercialCommissionFormulaSettingsController extends Controller
             'area_manager.assignments.*.objectives.benefit' => ['nullable', 'numeric', 'min:0'],
             'area_manager.assignments.*.objectives.guarantee' => ['nullable', 'numeric', 'min:0'],
             'area_manager.assignments.*.objectives.purchases' => ['nullable', 'numeric', 'min:0'],
+            'financials.financed_percentage_brackets' => ['nullable', 'array'],
+            'financials.financed_percentage_brackets.*.min_percent' => ['nullable', 'numeric', 'min:0'],
+            'financials.financed_percentage_brackets.*.incentive' => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'financials.profitability_brackets' => ['nullable', 'array'],
+            'financials.profitability_brackets.*.min_percent' => ['nullable', 'numeric', 'min:0'],
+            'financials.profitability_brackets.*.incentive' => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'financials.guarantee_percentage_brackets' => ['nullable', 'array'],
+            'financials.guarantee_percentage_brackets.*.min_percent' => ['nullable', 'numeric', 'min:0'],
+            'financials.guarantee_percentage_brackets.*.incentive' => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'financials.excluded_interest_rates' => ['nullable', 'array'],
+            'financials.excluded_interest_rates.*' => ['nullable', 'string', 'max:50'],
         ] + $this->productBracketRules('financing_product_brackets', 8) + $this->productBracketRules('guarantee_product_brackets', 6));
 
         $settings = [
@@ -139,6 +150,22 @@ class CommercialCommissionFormulaSettingsController extends Controller
                     ->values()
                     ->all(),
                 'assignments' => $data['area_manager']['assignments'] ?? [],
+            ],
+            'financials' => [
+                'financed_percentage_brackets' => $this->normalizeFinancialBrackets(
+                    $data['financials']['financed_percentage_brackets'] ?? []
+                ),
+                'profitability_brackets' => $this->normalizeFinancialBrackets(
+                    $data['financials']['profitability_brackets'] ?? []
+                ),
+                'guarantee_percentage_brackets' => $this->normalizeFinancialBrackets(
+                    $data['financials']['guarantee_percentage_brackets'] ?? []
+                ),
+                'excluded_interest_rates' => collect($data['financials']['excluded_interest_rates'] ?? [])
+                    ->map(fn (mixed $value) => trim((string) $value))
+                    ->filter()
+                    ->values()
+                    ->all(),
             ],
         ];
 
@@ -225,6 +252,18 @@ class CommercialCommissionFormulaSettingsController extends Controller
                 ];
             })
             ->sortBy(fn (array $goal) => $goal['label'])
+            ->all();
+    }
+
+    private function normalizeFinancialBrackets(array $brackets): array
+    {
+        return collect($brackets)
+            ->map(fn (array $bracket) => [
+                'min_percent' => (float) ($bracket['min_percent'] ?? 0),
+                'incentive' => (float) ($bracket['incentive'] ?? 0),
+            ])
+            ->sortByDesc('min_percent')
+            ->values()
             ->all();
     }
 }

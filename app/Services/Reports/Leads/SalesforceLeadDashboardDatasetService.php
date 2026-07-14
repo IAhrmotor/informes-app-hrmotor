@@ -574,6 +574,7 @@ class SalesforceLeadDashboardDatasetService
     private function addGroup(array &$groups, string $key, string $label, array $extra, array $lead): void
     {
         $groups[$key] ??= [
+            'key' => $key,
             'label' => $label,
             'extra' => $extra,
             'bucket' => $this->emptyBucket(),
@@ -588,10 +589,12 @@ class SalesforceLeadDashboardDatasetService
 
         foreach ($groups as $group) {
             $rows[] = array_merge($group['extra'], $this->finalizeBucket($group['bucket']), [
+                'group_key' => $group['key'],
                 $labelKey => $group['label'],
                 'nombre' => $group['label'],
                 'comercial' => $group['label'],
                 'delegacion' => $group['label'],
+                'commercial_id' => $labelKey === 'comercial' ? $group['key'] : null,
             ]);
         }
 

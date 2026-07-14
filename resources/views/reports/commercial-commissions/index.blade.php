@@ -23,11 +23,13 @@
     $callCenterSummaryRows = collect($callCenterDashboard['summary_rows'] ?? []);
     $contactCenterSummaryRows = collect($contactCenterDashboard['summary_rows'] ?? []);
     $areaManagerSummaryRows = collect($areaManagerDashboard['summary_rows'] ?? []);
+    $financialSummaryRows = collect($financialDashboard['summary_rows'] ?? []);
     $summaryTabUrl = request()->fullUrlWithQuery(['tab' => 'summary']);
     $delegationsTabUrl = request()->fullUrlWithQuery(['tab' => 'delegations']);
     $callCenterTabUrl = request()->fullUrlWithQuery(['tab' => 'call-center']);
     $contactCenterTabUrl = request()->fullUrlWithQuery(['tab' => 'contact-center']);
     $areaManagerTabUrl = request()->fullUrlWithQuery(['tab' => 'area-manager']);
+    $financialsTabUrl = request()->fullUrlWithQuery(['tab' => 'financials']);
     $stockLabel = 'Stock +'.(int) ($formulaSettings['stock']['days_threshold'] ?? 150);
     $bonusLabel = 'Bonus +'.(int) ($formulaSettings['bonus']['start_after_delivery'] ?? 15);
     $defaultCommercialId = $summaryRows->first()['commercial_id'] ?? null;
@@ -202,12 +204,15 @@
                 || $callCenterSummaryRows->isNotEmpty()
                 || $contactCenterSummaryRows->isNotEmpty()
                 || $areaManagerSummaryRows->isNotEmpty()
+                || $financialSummaryRows->isNotEmpty()
                 || ! empty($callCenterDashboard['issues'])
                 || ! empty($callCenterDashboard['warnings'])
                 || ! empty($contactCenterDashboard['issues'])
                 || ! empty($contactCenterDashboard['warnings'])
                 || ! empty($areaManagerDashboard['issues'])
                 || ! empty($areaManagerDashboard['warnings'])
+                || ! empty($financialDashboard['issues'])
+                || ! empty($financialDashboard['warnings'])
             )
                 <section class="card panel">
                     <div class="panel-title">
@@ -223,6 +228,7 @@
                         <a href="{{ $callCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'call-center' ? ' active' : '' }}" data-commission-tab-trigger="call-center" data-commission-tab-url="{{ $callCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'call-center' ? 'true' : 'false' }}">Call Center</a>
                         <a href="{{ $contactCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'contact-center' ? ' active' : '' }}" data-commission-tab-trigger="contact-center" data-commission-tab-url="{{ $contactCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'contact-center' ? 'true' : 'false' }}">Contact Center</a>
                         <a href="{{ $areaManagerTabUrl }}" class="main-tab{{ $activeCommissionTab === 'area-manager' ? ' active' : '' }}" data-commission-tab-trigger="area-manager" data-commission-tab-url="{{ $areaManagerTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'area-manager' ? 'true' : 'false' }}">Area Manager</a>
+                        <a href="{{ $financialsTabUrl }}" class="main-tab{{ $activeCommissionTab === 'financials' ? ' active' : '' }}" data-commission-tab-trigger="financials" data-commission-tab-url="{{ $financialsTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'financials' ? 'true' : 'false' }}">Financieros</a>
                     </nav>
 
                     <div @class(['is-hidden' => $activeCommissionTab !== 'summary']) data-commission-tab-panel="summary">
@@ -799,6 +805,27 @@
                             @endforeach
 
                             @include('reports.commercial-commissions.partials.area-manager-tab')
+                        </section>
+                    </div>
+
+                    <div @class(['is-hidden' => $activeCommissionTab !== 'financials']) data-commission-tab-panel="financials">
+                        <section class="card panel">
+                            <div class="panel-title compact">
+                                <div>
+                                    <h2>Comisiones Financieros</h2>
+                                    <div class="small">Agrupacion por `zona_financiera__c`, con fallback a la delegacion del propietario si aun no se ha resincronizado ese campo.</div>
+                                </div>
+                            </div>
+
+                            @foreach ($financialDashboard['issues'] ?? [] as $issue)
+                                <div class="notice">{{ $issue }}</div>
+                            @endforeach
+
+                            @foreach ($financialDashboard['warnings'] ?? [] as $warning)
+                                <div class="notice commission-warning">{{ $warning }}</div>
+                            @endforeach
+
+                            @include('reports.commercial-commissions.partials.financial-tab')
                         </section>
                     </div>
                 </section>

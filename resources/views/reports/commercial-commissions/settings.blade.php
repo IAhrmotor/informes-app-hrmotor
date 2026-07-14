@@ -395,6 +395,73 @@
                 </div>
             </section>
 
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Financieros</h2>
+                        <div class="small">Tramos configurables por periodo para % financiado, rentabilidad y % garantias premium.</div>
+                    </div>
+                </div>
+
+                <div class="report-settings-brackets-grid">
+                    <article class="card report-access-card">
+                        <strong>% financiado</strong>
+                        <div class="small">Se aplica sobre la comision neta = Comision financiera - Descuento financiero.</div>
+                        @foreach (($settings['financials']['financed_percentage_brackets'] ?? []) as $index => $bracket)
+                            <div class="filter-group">
+                                <label for="financials_financed_{{ $index }}_min">Min % tramo {{ $index + 1 }}</label>
+                                <input id="financials_financed_{{ $index }}_min" name="financials[financed_percentage_brackets][{{ $index }}][min_percent]" type="number" step="0.0001" min="0" value="{{ old("financials.financed_percentage_brackets.$index.min_percent", $bracket['min_percent'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                            <div class="filter-group">
+                                <label for="financials_financed_{{ $index }}_incentive">Incentivo tramo {{ $index + 1 }}</label>
+                                <input id="financials_financed_{{ $index }}_incentive" name="financials[financed_percentage_brackets][{{ $index }}][incentive]" type="number" step="0.0001" min="0" max="1" value="{{ old("financials.financed_percentage_brackets.$index.incentive", $bracket['incentive'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                        @endforeach
+                    </article>
+
+                    <article class="card report-access-card">
+                        <strong>Rentabilidad</strong>
+                        <div class="small">Solo cuentan operaciones con tipo de interes informado y distinto de los excluidos.</div>
+                        @foreach (($settings['financials']['profitability_brackets'] ?? []) as $index => $bracket)
+                            <div class="filter-group">
+                                <label for="financials_profitability_{{ $index }}_min">Min % tramo {{ $index + 1 }}</label>
+                                <input id="financials_profitability_{{ $index }}_min" name="financials[profitability_brackets][{{ $index }}][min_percent]" type="number" step="0.0001" min="0" value="{{ old("financials.profitability_brackets.$index.min_percent", $bracket['min_percent'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                            <div class="filter-group">
+                                <label for="financials_profitability_{{ $index }}_incentive">Incentivo tramo {{ $index + 1 }}</label>
+                                <input id="financials_profitability_{{ $index }}_incentive" name="financials[profitability_brackets][{{ $index }}][incentive]" type="number" step="0.0001" min="0" max="1" value="{{ old("financials.profitability_brackets.$index.incentive", $bracket['incentive'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                        @endforeach
+                    </article>
+
+                    <article class="card report-access-card">
+                        <strong>% garantias premium</strong>
+                        <div class="small">Se aplica sobre la suma de `Garant_a_Total__c` de la zona.</div>
+                        @foreach (($settings['financials']['guarantee_percentage_brackets'] ?? []) as $index => $bracket)
+                            <div class="filter-group">
+                                <label for="financials_guarantee_{{ $index }}_min">Min % tramo {{ $index + 1 }}</label>
+                                <input id="financials_guarantee_{{ $index }}_min" name="financials[guarantee_percentage_brackets][{{ $index }}][min_percent]" type="number" step="0.0001" min="0" value="{{ old("financials.guarantee_percentage_brackets.$index.min_percent", $bracket['min_percent'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                            <div class="filter-group">
+                                <label for="financials_guarantee_{{ $index }}_incentive">Incentivo tramo {{ $index + 1 }}</label>
+                                <input id="financials_guarantee_{{ $index }}_incentive" name="financials[guarantee_percentage_brackets][{{ $index }}][incentive]" type="number" step="0.0001" min="0" max="1" value="{{ old("financials.guarantee_percentage_brackets.$index.incentive", $bracket['incentive'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                        @endforeach
+                    </article>
+
+                    <article class="card report-access-card">
+                        <strong>Tipos excluidos en rentabilidad</strong>
+                        <div class="small">Si coinciden con `Inter_s_elegido__c`, la operacion sale del bloque 2.</div>
+                        @foreach (($settings['financials']['excluded_interest_rates'] ?? []) as $index => $interestRate)
+                            <div class="filter-group">
+                                <label for="financials_interest_excluded_{{ $index }}">Tipo {{ $index + 1 }}</label>
+                                <input id="financials_interest_excluded_{{ $index }}" name="financials[excluded_interest_rates][{{ $index }}]" type="text" value="{{ old("financials.excluded_interest_rates.$index", $interestRate) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                        @endforeach
+                    </article>
+                </div>
+            </section>
+
             @if ($isEditableMonth)
                 <div class="report-user-form-actions">
                     <button type="submit" class="main-tab active">Guardar coeficientes del mes</button>

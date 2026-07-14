@@ -3,6 +3,7 @@
     $areaManagerActiveRow = $areaManagerSummaryRows->first();
     $areaManagerDiagnostics = $areaManagerDashboard['diagnostics'] ?? [];
     $areaManagerGlobalIncidents = collect($areaManagerDashboard['global_incidents'] ?? []);
+    $areaManagerOscarCommission = (float) $areaManagerSummaryRows->sum('final_total') * 0.40;
     $areaManagerKpiSections = [
         'deliveries' => ['label' => 'Entregas', 'money' => false],
         'benefit' => ['label' => 'Beneficio', 'money' => true],
@@ -28,8 +29,8 @@
         <strong>{{ number_format((int) ($areaManagerDiagnostics['delegations_count'] ?? 0), 0, ',', '.') }}</strong>
     </article>
     <article class="card campaign-context-card">
-        <span>Incidencias</span>
-        <strong>{{ number_format($areaManagerGlobalIncidents->count(), 0, ',', '.') }}</strong>
+        <span>Comisión Oscar</span>
+        <strong>{{ number_format($areaManagerOscarCommission, 2, ',', '.') }} EUR</strong>
     </article>
 </section>
 
@@ -66,6 +67,7 @@
         <thead>
         <tr>
             <th data-sortable="true">Manager</th>
+            <th class="num" data-sortable="true">Total final</th>
             <th class="num" data-sortable="true">Delegaciones</th>
             <th class="num" data-sortable="true">Obj. entregas</th>
             <th class="num" data-sortable="true">Real entregas</th>
@@ -83,14 +85,13 @@
             <th class="num" data-sortable="true">Real compras</th>
             <th class="num" data-sortable="true">% compras zona</th>
             <th class="num" data-sortable="true">Com. compras</th>
-            <th class="num" data-sortable="true">Total automatico</th>
-            <th class="num" data-sortable="true">Total final</th>
         </tr>
         </thead>
         <tbody data-sort-body="area-manager-summary">
         @forelse ($areaManagerSummaryRows as $row)
             <tr>
                 <td>{{ $row['manager_name'] }}</td>
+                <td class="num"><strong>{{ number_format((float) ($row['final_total'] ?? 0), 2, ',', '.') }}</strong></td>
                 <td class="num">{{ number_format((int) ($row['delegations_count'] ?? 0), 0, ',', '.') }}</td>
                 <td class="num">{{ $formatMetric($row['deliveries_objective'] ?? 0) }}</td>
                 <td class="num">{{ $formatMetric($row['deliveries_actual'] ?? 0) }}</td>
@@ -108,11 +109,9 @@
                 <td class="num">{{ $formatMetric($row['purchases_actual'] ?? 0) }}</td>
                 <td class="num">{{ number_format((float) ($row['purchases_zone_percent'] ?? 0), 2, ',', '.') }}%</td>
                 <td class="num">{{ number_format((float) ($row['purchases_commission'] ?? 0), 2, ',', '.') }}</td>
-                <td class="num"><strong>{{ number_format((float) ($row['automatic_total'] ?? 0), 2, ',', '.') }}</strong></td>
-                <td class="num"><strong>{{ number_format((float) ($row['final_total'] ?? 0), 2, ',', '.') }}</strong></td>
             </tr>
         @empty
-            <tr><td colspan="20">Sin managers calculables para este mes.</td></tr>
+            <tr><td colspan="19">Sin managers calculables para este mes.</td></tr>
         @endforelse
         </tbody>
     </table>

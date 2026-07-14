@@ -1,5 +1,5 @@
 CALCULO DE COMISIONES COMERCIALES
-Version: 2026-07-09
+Version: 2026-07-14
 
 0. Acceso y administracion
 
@@ -156,6 +156,7 @@ En la propia vista de Comisiones Comerciales:
 - tab Call Center: resumen mensual y detalle auditable de captadores/agentes
 - tab Contact Center: resumen mensual y detalle auditable de citas, oportunidades, reservas y ventas por captador de cita
 - tab Area Manager: resumen mensual por manager y detalle auditable por delegacion/KPI
+- tab Financieros: resumen mensual por zona financiera con los 3 bloques configurables por periodo
 - selector de columnas en el resumen
 - filtro de texto en la tabla superior de Comerciales por nombre o ID Salesforce
 - `Comision final` aparece al inicio
@@ -239,6 +240,7 @@ En la propia vista de Comisiones Comerciales:
     - si el endpoint falla o devuelve error, el dashboard no rompe
     - la delegacion queda con `reviews_count = 0` y `average_rating = null`
   - el cache del endpoint se invalido con una nueva version de clave y ahora refresca cada `15` minutos por defecto
+  - el cache actual usa clave versionada `v3`
   - no existe comando de sync para estas resenas de delegacion porque se leen en vivo desde el endpoint interno
   - si necesitas forzar refresco inmediato en entorno desplegado:
     - `php artisan optimize:clear`
@@ -257,6 +259,81 @@ En la propia vista de Comisiones Comerciales:
 - la edicion de coeficientes y metas solo la puede hacer `admin`
 
 10. Coeficientes por mes
+
+- Se editan en `/informes/configuracion-comisiones`.
+- El mes en curso queda abierto.
+- Un mes cerrado se puede abrir temporalmente y al guardar vuelve a cerrarse.
+- Junio y meses siguientes heredan metas del mes anterior si no tienen configuracion propia.
+- Ahora tambien incluyen tablas de `Financieros` por periodo para:
+  - `% financiado`
+  - `Rentabilidad`
+  - `% garantias premium`
+
+11. Financieros
+
+- Pestana nueva: `Financieros`.
+- Fuente base: `salesforce_opportunities`.
+- Filtro de periodo:
+  - `cv_signed_date` local, que viene de `Opportunity.Fecha_firma_contrato__c`
+- Tipos incluidos:
+  - `Tipo_de_registro_oportunidad__c = Venta`
+  - `Tipo_de_registro_oportunidad__c = Cambio`
+- Exclusiones:
+  - `zona_financiera__c = Sin Zona`
+  - `GENERAL`
+  - `StageName = Cerrada perdida`
+- La agrupacion principal se hace por:
+  - `Opportunity.zona_financiera__c`
+- Si ese campo aun no se ha resincronizado en local, hay fallback por `Owner.USR_SEL_Delegacion__c` para no dejar la zona vacia.
+
+A. Campos usados
+
+- `Fecha_firma_contrato__c`
+- `OPO_FOR_Importe_total__c`
+- `Importe_financiado__c`
+- `Comisi_n_Financiera__c`
+- `OPO_DIV_Descuento_financiera__c`
+- `Garant_a_Total__c`
+- `Inter_s_elegido__c`
+- `zona_financiera__c`
+- `Tipo_de_registro_oportunidad__c`
+
+B. Bloque 1: % financiado
+
+- Formula:
+  - `% financiado = SUM(Importe_financiado__c) / SUM(OPO_FOR_Importe_total__c)`
+- `Comision neta = SUM(Comisi_n_Financiera__c) - SUM(OPO_DIV_Descuento_financiera__c)`
+- `Comision bloque 1 = Comision neta x incentivo del tramo`
+
+C. Bloque 2: Rentabilidad
+
+- Primero se excluyen operaciones donde `Inter_s_elegido__c`:
+  - esta vacio
+  - `3,99%`
+  - `4,99%`
+  - `5,99%`
+- Sobre las operaciones validas:
+  - `Beneficio financiero valido = SUM(Comisi_n_Financiera__c) - SUM(OPO_DIV_Descuento_financiera__c)`
+  - `Rentabilidad = Beneficio financiero valido / SUM(Importe_financiado__c)`
+- `Comision bloque 2 = Beneficio financiero valido x incentivo del tramo`
+
+D. Bloque 3: Garantias premium
+
+- Formula:
+  - `% garantias = SUM(Garant_a_Total__c) / SUM(Importe_financiado__c)`
+- `Comision bloque 3 = SUM(Garant_a_Total__c) x incentivo del tramo`
+
+E. Total financiero
+
+- `Comision financiero = Bloque 1 + Bloque 2 + Bloque 3`
+
+F. Configuracion por periodo
+
+- Los tramos se guardan por mes en `commercial_commission_month_settings`.
+- Para que el informe funcione en local o produccion tras desplegar esta parte:
+  - ejecutar `php artisan migrate`
+  - resincronizar oportunidades:
+    - `php artisan salesforce:sync-opportunities --days=120`
 
 - el mes en curso permanece abierto y editable hasta que cambie el mes natural
 - cualquier mes cerrado puede abrirse temporalmente desde la pantalla de coeficientes

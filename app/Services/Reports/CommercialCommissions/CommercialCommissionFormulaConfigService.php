@@ -185,21 +185,25 @@ class CommercialCommissionFormulaConfigService
         'girona' => 'HR Motor || Girona',
         'lleida' => 'HR Motor || Lleida',
         'llica de vall' => 'HR Motor || Lliçà de Vall',
+        'llica de valls' => 'HR Motor || Lliçà de Vall',
         'malaga' => 'HR Motor || Málaga',
         'malaga centro' => 'HR Motor || Málaga Centro',
         'manresa' => 'HR Motor || Manresa',
         'murcia' => 'HR Motor || Murcia',
         'palma' => 'HR Motor || Palma de Mallorca',
         'pamplona' => 'HR Motor || Pamplona',
+        'rivas' => 'HR Motor || Rivas - Vaciamadrid',
         'rivas vaciamadrid' => 'HR Motor || Rivas - Vaciamadrid',
         'san sebastian' => 'HR Motor || San Sebastián',
         'sant boi' => 'HR Motor || Sant Boi de Llobregat',
         'sedavi' => 'HR Motor || Sedaví',
+        'sevilla' => 'HR Motor || Sevilla Centro',
         'sevilla centro' => 'HR Motor || Sevilla Centro',
         'torrejon de ardoz' => 'HR Motor || Torrejón de Ardoz',
         'fontellas' => 'HR Motor || Tudela-Fontellas',
         'tudela fontellas' => 'HR Motor || Tudela-Fontellas',
         'valencia' => 'HR Motor || València',
+        'paterna' => 'HR Motor || Valencia Paterna',
         'valencia paterna' => 'HR Motor || Valencia Paterna',
         'valladolid' => 'HR Motor || Valladolid',
         'villareal' => 'HR Motor || Villarreal',
@@ -291,6 +295,35 @@ class CommercialCommissionFormulaConfigService
                     ['min_percent' => 0.0, 'multiplier' => 0.80],
                 ],
                 'assignments' => [],
+            ],
+            'financials' => [
+                'financed_percentage_brackets' => [
+                    ['min_percent' => 47.0001, 'incentive' => 0.0125],
+                    ['min_percent' => 44.1, 'incentive' => 0.0100],
+                    ['min_percent' => 42.1, 'incentive' => 0.0075],
+                    ['min_percent' => 40.1, 'incentive' => 0.0050],
+                    ['min_percent' => 39.1, 'incentive' => 0.0040],
+                    ['min_percent' => 38.0, 'incentive' => 0.0020],
+                    ['min_percent' => 0.0, 'incentive' => 0.0010],
+                ],
+                'profitability_brackets' => [
+                    ['min_percent' => 16.6, 'incentive' => 0.0075],
+                    ['min_percent' => 15.6, 'incentive' => 0.0050],
+                    ['min_percent' => 14.5, 'incentive' => 0.0040],
+                    ['min_percent' => 14.0, 'incentive' => 0.0020],
+                    ['min_percent' => 0.0, 'incentive' => 0.0],
+                ],
+                'guarantee_percentage_brackets' => [
+                    ['min_percent' => 7.0, 'incentive' => 0.0050],
+                    ['min_percent' => 6.0, 'incentive' => 0.0030],
+                    ['min_percent' => 5.0, 'incentive' => 0.0020],
+                    ['min_percent' => 0.0, 'incentive' => 0.0],
+                ],
+                'excluded_interest_rates' => [
+                    '3,99%',
+                    '4,99%',
+                    '5,99%',
+                ],
             ],
         ];
     }
@@ -619,6 +652,25 @@ class CommercialCommissionFormulaConfigService
             ->sortBy(fn (array $assignment) => $assignment['label'])
             ->all();
 
+        $financialDefaults = $this->defaults()['financials'];
+        $settings['financials']['financed_percentage_brackets'] = $this->normalizeFinancialBrackets(
+            $settings['financials']['financed_percentage_brackets'] ?? [],
+            $financialDefaults['financed_percentage_brackets']
+        );
+        $settings['financials']['profitability_brackets'] = $this->normalizeFinancialBrackets(
+            $settings['financials']['profitability_brackets'] ?? [],
+            $financialDefaults['profitability_brackets']
+        );
+        $settings['financials']['guarantee_percentage_brackets'] = $this->normalizeFinancialBrackets(
+            $settings['financials']['guarantee_percentage_brackets'] ?? [],
+            $financialDefaults['guarantee_percentage_brackets']
+        );
+        $settings['financials']['excluded_interest_rates'] = collect($settings['financials']['excluded_interest_rates'] ?? [])
+            ->map(fn (mixed $value) => trim((string) $value))
+            ->filter()
+            ->values()
+            ->all();
+
         return $settings;
     }
 
@@ -751,5 +803,19 @@ class CommercialCommissionFormulaConfigService
         }
 
         return [];
+    }
+
+    private function normalizeFinancialBrackets(array $brackets, array $defaults): array
+    {
+        $normalized = collect($brackets)
+            ->map(fn (array $row) => [
+                'min_percent' => max(0, (float) ($row['min_percent'] ?? 0)),
+                'incentive' => max(0, (float) ($row['incentive'] ?? 0)),
+            ])
+            ->sortByDesc('min_percent')
+            ->values()
+            ->all();
+
+        return $normalized === [] ? $defaults : $normalized;
     }
 }

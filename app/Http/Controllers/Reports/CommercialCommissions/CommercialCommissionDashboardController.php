@@ -8,6 +8,7 @@ use App\Services\Reports\CallCenterCommissions\CallCenterCommissionDashboardServ
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use App\Services\Reports\ContactCenterCommissions\ContactCenterCommissionDashboardService;
+use App\Services\Reports\FinancialCommissions\FinancialCommissionDashboardService;
 use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -21,6 +22,7 @@ class CommercialCommissionDashboardController extends Controller
         CallCenterCommissionDashboardService $callCenterDashboard,
         ContactCenterCommissionDashboardService $contactCenterDashboard,
         AreaManagerCommissionDashboardService $areaManagerDashboard,
+        FinancialCommissionDashboardService $financialDashboard,
     )
     {
         $selectedMonth = $request->query('month');
@@ -57,6 +59,9 @@ class CommercialCommissionDashboardController extends Controller
         $areaManagerPayload = $activeCommissionTab === 'area-manager'
             ? $areaManagerDashboard->build($payload['month'])
             : $this->emptyAreaManagerDashboard($payload['month'], $payload['month_label']);
+        $financialPayload = $activeCommissionTab === 'financials'
+            ? $financialDashboard->build($payload['month'])
+            : $this->emptyFinancialDashboard($payload['month'], $payload['month_label']);
 
         return view('reports.commercial-commissions.index', [
             'activeCommissionTab' => $activeCommissionTab,
@@ -67,6 +72,7 @@ class CommercialCommissionDashboardController extends Controller
             'callCenterDashboard' => $callCenterPayload,
             'contactCenterDashboard' => $contactCenterPayload,
             'areaManagerDashboard' => $areaManagerPayload,
+            'financialDashboard' => $financialPayload,
             'formulaSettings' => $formulaConfig->forMonth($payload['month']),
         ]);
     }
@@ -127,7 +133,7 @@ class CommercialCommissionDashboardController extends Controller
             return 'summary';
         }
 
-        $allowedTabs = ['summary', 'delegations', 'call-center', 'contact-center', 'area-manager'];
+        $allowedTabs = ['summary', 'delegations', 'call-center', 'contact-center', 'area-manager', 'financials'];
 
         return in_array($value, $allowedTabs, true) ? $value : 'summary';
     }
@@ -175,6 +181,19 @@ class CommercialCommissionDashboardController extends Controller
             'diagnostics' => [],
             'summary_rows' => [],
             'global_incidents' => [],
+        ];
+    }
+
+    private function emptyFinancialDashboard(string $month, string $monthLabel): array
+    {
+        return [
+            'ready' => false,
+            'month' => $month,
+            'month_label' => $monthLabel,
+            'issues' => [],
+            'warnings' => [],
+            'diagnostics' => [],
+            'summary_rows' => [],
         ];
     }
 }

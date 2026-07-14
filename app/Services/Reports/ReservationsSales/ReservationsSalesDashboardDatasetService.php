@@ -397,7 +397,7 @@ class ReservationsSalesDashboardDatasetService
 
     private function addGroup(array &$groups, string $key, string $label, array $extra, array $row): void
     {
-        $groups[$key] ??= ['label' => $label, 'extra' => $extra, 'bucket' => $this->emptyBucket()];
+        $groups[$key] ??= ['key' => $key, 'label' => $label, 'extra' => $extra, 'bucket' => $this->emptyBucket()];
         $this->addToBucket($groups[$key]['bucket'], $row);
     }
 
@@ -407,10 +407,12 @@ class ReservationsSalesDashboardDatasetService
 
         foreach ($groups as $group) {
             $rows[] = array_merge($group['extra'], $group['bucket'], [
+                'group_key' => $group['key'],
                 $labelKey => $group['label'],
                 'nombre' => $group['label'],
                 'comercial' => $group['label'],
                 'delegacion' => $group['label'],
+                'commercial_id' => $labelKey === 'comercial' ? $group['key'] : null,
             ]);
         }
 

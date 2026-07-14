@@ -104,7 +104,7 @@ class CommercialCommissionDelegationReviewsService
 
     private function cacheKey(string $monthParam, string $delegationLabel): string
     {
-        return 'commercial-commissions:delegation-reviews:v2:'.$monthParam.':'.$this->formulaConfig->delegationKey($delegationLabel);
+        return 'commercial-commissions:delegation-reviews:v3:'.$monthParam.':'.$this->formulaConfig->delegationKey($delegationLabel);
     }
 
     private function cacheTtlForMonth(CarbonImmutable $month): \DateTimeInterface

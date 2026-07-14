@@ -291,6 +291,12 @@ h2 {
     margin-bottom: 16px;
 }
 
+.compact-filters {
+    grid-template-columns: minmax(0, 420px);
+    padding: 16px;
+    margin-bottom: 14px;
+}
+
 .filter-group {
     display: flex;
     flex-direction: column;

@@ -209,6 +209,12 @@
                         <div class="columns-popover card is-hidden" id="reservationsCommercialColumnsPopover"></div>
                     </div>
                 </div>
+                <div class="filters card compact-filters">
+                    <div class="filter-group">
+                        <label for="reservationsCommercialSearch">Buscar comercial</label>
+                        <input id="reservationsCommercialSearch" type="search" placeholder="Filtrar por nombre o ID Salesforce">
+                    </div>
+                </div>
                 <div class="table-wrap">
                     <table id="reservationsCommercialTable">
                         <thead>

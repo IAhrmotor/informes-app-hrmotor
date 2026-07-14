@@ -24,6 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindResetFilters();
     bindTableSorting();
     initReservationsCommercialColumns();
+    bindReservationsCommercialSearch();
     toggleCustomPeriods();
     await reloadAllData();
 });
@@ -245,9 +246,12 @@ function renderCommercials(rows) {
         [(row) => formatPercent(row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas_pct, false, 'oportunidades_caidas_pct'],
         [(row) => formatCountPercent(row.cv_firmados, row.cv_firmados_pct), true, (row) => row.cv_firmados, true, 'cv_firmados'],
         [(row) => formatPercent(row.cv_firmados_pct), true, (row) => row.cv_firmados_pct, false, 'cv_firmados_pct'],
-    ], 'No hay datos de comerciales para los filtros seleccionados.');
+    ], 'No hay datos de comerciales para los filtros seleccionados.', (row) => ({
+        'data-search': `${row.comercial || ''} ${row.commercial_id || row.group_key || ''}`.trim(),
+    }));
 
     applyReservationsCommercialColumnVisibility();
+    applyReservationsCommercialSearchFilter();
 }
 
 function renderPortals(rows) {
@@ -260,7 +264,7 @@ function renderPortals(rows) {
     ], 'No hay datos de portales para los filtros seleccionados.');
 }
 
-function renderRows(rootId, rows, columns, emptyMessage) {
+function renderRows(rootId, rows, columns, emptyMessage, rowMeta = null) {
     const root = document.getElementById(rootId);
     root.innerHTML = '';
 
@@ -280,7 +284,13 @@ function renderRows(rootId, rows, columns, emptyMessage) {
             return `<td${className}${sortValue}${columnAttr}>${content}</td>`;
         }).join('');
 
-        root.insertAdjacentHTML('beforeend', `<tr>${cells}</tr>`);
+        const attrs = rowMeta ? rowMeta(row) : {};
+        const attrString = Object.entries(attrs)
+            .filter(([, value]) => value !== null && value !== undefined && value !== '')
+            .map(([key, value]) => ` ${escapeHtml(key)}="${escapeHtml(value)}"`)
+            .join('');
+
+        root.insertAdjacentHTML('beforeend', `<tr${attrString}>${cells}</tr>`);
     });
 
     applyStoredSort(root);
@@ -356,6 +366,21 @@ function renderReservationsCommercialColumnsPopover() {
 function applyReservationsCommercialColumnVisibility() {
     document.querySelectorAll('#reservationsCommercialTable [data-column]').forEach((cell) => {
         cell.classList.toggle('is-hidden', !reservationsCommercialVisibleColumns.includes(cell.dataset.column));
+    });
+}
+
+function bindReservationsCommercialSearch() {
+    document.getElementById('reservationsCommercialSearch')?.addEventListener('input', applyReservationsCommercialSearchFilter);
+}
+
+function applyReservationsCommercialSearchFilter() {
+    const term = String(document.getElementById('reservationsCommercialSearch')?.value || '')
+        .trim()
+        .toLocaleLowerCase('es');
+
+    document.querySelectorAll('#commercialRows tr').forEach((row) => {
+        const haystack = String(row.dataset.search || '').toLocaleLowerCase('es');
+        row.classList.toggle('is-hidden', term !== '' && !haystack.includes(term));
     });
 }
 

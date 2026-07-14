@@ -7,38 +7,103 @@ const leadCommercialColumnDefinitions = [
     { key: 'zone', label: 'Zona', alwaysVisible: true },
     { key: 'leads_totales', label: 'Leads totales', alwaysVisible: true },
     { key: 'convertidos', label: 'Convertidos', alwaysVisible: true },
+    { key: 'conversion_pct', label: '% convertidos' },
     { key: 'descartados', label: 'Descartados', alwaysVisible: true },
+    { key: 'descarte_pct', label: '% descartados' },
     { key: 'potenciales', label: 'Potenciales', alwaysVisible: true },
     { key: 'potenciales_sin_trabajar', label: 'Potenciales sin trabajar', alwaysVisible: true },
     { key: 'gestionados', label: 'Gestionados', alwaysVisible: true },
+    { key: 'gestionados_pct', label: '% gestionados' },
+];
+const leadCommercialZoneColumnsStorageKey = 'leadCommercialZoneColumns';
+const leadCommercialZoneColumnDefinitions = [
+    { key: 'zone', label: 'Zona', alwaysVisible: true },
+    { key: 'leads_totales', label: 'Leads totales', alwaysVisible: true },
+    { key: 'convertidos', label: 'Convertidos', alwaysVisible: true },
+    { key: 'conversion_pct', label: '% convertidos' },
+    { key: 'descartados', label: 'Descartados', alwaysVisible: true },
+    { key: 'descarte_pct', label: '% descartados' },
+    { key: 'potenciales', label: 'Potenciales', alwaysVisible: true },
+    { key: 'potenciales_sin_trabajar', label: 'Potenciales sin trabajar', alwaysVisible: true },
+    { key: 'gestionados', label: 'Gestionados', alwaysVisible: true },
+    { key: 'gestionados_pct', label: '% gestionados' },
+];
+const leadCommercialDelegationColumnsStorageKey = 'leadCommercialDelegationColumns';
+const leadCommercialDelegationColumnDefinitions = [
+    { key: 'commercial_delegation', label: 'Delegacion comercial', alwaysVisible: true },
+    { key: 'zone', label: 'Zona', alwaysVisible: true },
+    { key: 'leads_totales', label: 'Leads totales', alwaysVisible: true },
+    { key: 'convertidos', label: 'Convertidos', alwaysVisible: true },
+    { key: 'conversion_pct', label: '% convertidos' },
+    { key: 'descartados', label: 'Descartados', alwaysVisible: true },
+    { key: 'descarte_pct', label: '% descartados' },
+    { key: 'potenciales', label: 'Potenciales', alwaysVisible: true },
+    { key: 'potenciales_sin_trabajar', label: 'Potenciales sin trabajar', alwaysVisible: true },
+    { key: 'gestionados', label: 'Gestionados', alwaysVisible: true },
+    { key: 'gestionados_pct', label: '% gestionados' },
 ];
 let leadCommercialVisibleColumns = loadVisibleColumns(
     leadCommercialColumnsStorageKey,
     leadCommercialColumnDefinitions
+);
+let leadCommercialZoneVisibleColumns = loadVisibleColumns(
+    leadCommercialZoneColumnsStorageKey,
+    leadCommercialZoneColumnDefinitions
+);
+let leadCommercialDelegationVisibleColumns = loadVisibleColumns(
+    leadCommercialDelegationColumnsStorageKey,
+    leadCommercialDelegationColumnDefinitions
 );
 
 document.addEventListener('DOMContentLoaded', async () => {
     bindTabs();
     bindFilters();
     bindResetFilters();
-    bindCommercialPanelOrder();
     bindTableSorting();
+    bindLeadCommercialTabs();
     initLeadCommercialColumns();
+    initLeadCommercialZoneColumns();
+    initLeadCommercialDelegationColumns();
+    bindLeadCommercialSearch();
     toggleCustomPeriods();
     await reloadAllData();
 });
 
 function bindTabs() {
-    document.querySelectorAll('.main-tab').forEach((button) => {
+    document.querySelectorAll('.main-tab[data-panel]').forEach((button) => {
         button.addEventListener('click', () => {
             const panelId = button.dataset.panel;
 
-            document.querySelectorAll('.main-tab').forEach((item) => item.classList.remove('active'));
+            document.querySelectorAll('.main-tab[data-panel]').forEach((item) => item.classList.remove('active'));
             document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.remove('active'));
 
             button.classList.add('active');
             document.getElementById(panelId)?.classList.add('active');
         });
+    });
+}
+
+function bindLeadCommercialTabs() {
+    const triggers = [...document.querySelectorAll('[data-lead-commercial-tab-trigger]')];
+    const panels = [...document.querySelectorAll('[data-lead-commercial-tab-panel]')];
+
+    if (!triggers.length || !panels.length) {
+        return;
+    }
+
+    const activate = (targetTab) => {
+        triggers.forEach((trigger) => {
+            trigger.classList.toggle('active', trigger.dataset.leadCommercialTabTrigger === targetTab);
+        });
+        panels.forEach((panel) => {
+            panel.classList.toggle('is-hidden', panel.dataset.leadCommercialTabPanel !== targetTab);
+        });
+    };
+
+    activate('commercials');
+
+    triggers.forEach((trigger) => {
+        trigger.addEventListener('click', () => activate(trigger.dataset.leadCommercialTabTrigger));
     });
 }
 
@@ -92,35 +157,6 @@ function bindFilters() {
 
             await reloadAllData();
         });
-    });
-}
-
-function bindCommercialPanelOrder() {
-    const select = document.getElementById('commercialPanelsOrder');
-    const storedOrder = localStorage.getItem('commercialPanelsOrder');
-
-    if (select && storedOrder && [...select.options].some((option) => option.value === storedOrder)) {
-        select.value = storedOrder;
-    }
-
-    applyCommercialPanelOrder();
-
-    select?.addEventListener('change', () => {
-        localStorage.setItem('commercialPanelsOrder', select.value);
-        applyCommercialPanelOrder();
-    });
-}
-
-function applyCommercialPanelOrder() {
-    const container = document.getElementById('commercialPanels');
-    const order = document.getElementById('commercialPanelsOrder')?.value || 'zones,delegations,commercials';
-
-    order.split(',').forEach((key) => {
-        const panel = container?.querySelector(`[data-commercial-section="${key}"]`);
-
-        if (panel) {
-            container.appendChild(panel);
-        }
     });
 }
 
@@ -256,39 +292,55 @@ function renderCommercials(rows) {
         [(row) => row.commercial_delegation || '-', false, null, false, 'commercial_delegation'],
         [(row) => row.zone || '-', false, null, false, 'zone'],
         [(row) => formatNumber(row.leads_totales), true, (row) => row.leads_totales, false, 'leads_totales'],
-        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true, 'convertidos'],
-        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true, 'descartados'],
+        [(row) => formatNumber(row.convertidos), true, (row) => row.convertidos, false, 'convertidos'],
+        [(row) => formatPercent(row.conversion_pct), true, (row) => row.conversion_pct, false, 'conversion_pct'],
+        [(row) => formatNumber(row.descartados), true, (row) => row.descartados, false, 'descartados'],
+        [(row) => formatPercent(row.descarte_pct), true, (row) => row.descarte_pct, false, 'descarte_pct'],
         [(row) => formatNumber(row.potenciales), true, (row) => row.potenciales, false, 'potenciales'],
         [(row) => formatNumber(row.potenciales_sin_trabajar), true, (row) => row.potenciales_sin_trabajar, false, 'potenciales_sin_trabajar'],
-        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true, 'gestionados'],
-    ], 'No hay datos de comerciales para los filtros seleccionados.');
+        [(row) => formatNumber(row.gestionados), true, (row) => row.gestionados, false, 'gestionados'],
+        [(row) => formatPercent(row.gestionados_pct), true, (row) => row.gestionados_pct, false, 'gestionados_pct'],
+    ], 'No hay datos de comerciales para los filtros seleccionados.', (row) => ({
+        'data-search': `${row.comercial || ''} ${row.commercial_id || row.group_key || ''}`.trim(),
+    }));
 
     applyLeadCommercialColumnVisibility();
+    applyCommercialSearchFilter();
 }
 
 function renderCommercialZones(rows) {
     renderRows('commercialZoneRows', rows, [
-        [(row) => row.zone || '-'],
-        [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
-        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
-        [(row) => formatNumber(row.potenciales), true],
-        [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
+        [(row) => row.zone || '-', false, null, false, 'zone'],
+        [(row) => formatNumber(row.leads_totales), true, (row) => row.leads_totales, false, 'leads_totales'],
+        [(row) => formatNumber(row.convertidos), true, (row) => row.convertidos, false, 'convertidos'],
+        [(row) => formatPercent(row.conversion_pct), true, (row) => row.conversion_pct, false, 'conversion_pct'],
+        [(row) => formatNumber(row.descartados), true, (row) => row.descartados, false, 'descartados'],
+        [(row) => formatPercent(row.descarte_pct), true, (row) => row.descarte_pct, false, 'descarte_pct'],
+        [(row) => formatNumber(row.potenciales), true, (row) => row.potenciales, false, 'potenciales'],
+        [(row) => formatNumber(row.potenciales_sin_trabajar), true, (row) => row.potenciales_sin_trabajar, false, 'potenciales_sin_trabajar'],
+        [(row) => formatNumber(row.gestionados), true, (row) => row.gestionados, false, 'gestionados'],
+        [(row) => formatPercent(row.gestionados_pct), true, (row) => row.gestionados_pct, false, 'gestionados_pct'],
     ], 'No hay datos de zonas para los filtros seleccionados.');
+
+    applyLeadCommercialZoneColumnVisibility();
 }
 
 function renderCommercialDelegations(rows) {
     renderRows('commercialDelegationRows', rows, [
-        [(row) => row.commercial_delegation],
-        [(row) => row.zone || '-'],
-        [(row) => formatNumber(row.leads_totales), true],
-        [(row) => formatCountPercent(row.convertidos, row.conversion_pct), true, (row) => row.convertidos, true],
-        [(row) => formatCountPercent(row.descartados, row.descarte_pct), true, (row) => row.descartados, true],
-        [(row) => formatNumber(row.potenciales), true],
-        [(row) => formatNumber(row.potenciales_sin_trabajar), true],
-        [(row) => formatCountPercent(row.gestionados, row.gestionados_pct), true, (row) => row.gestionados, true],
+        [(row) => row.commercial_delegation, false, null, false, 'commercial_delegation'],
+        [(row) => row.zone || '-', false, null, false, 'zone'],
+        [(row) => formatNumber(row.leads_totales), true, (row) => row.leads_totales, false, 'leads_totales'],
+        [(row) => formatNumber(row.convertidos), true, (row) => row.convertidos, false, 'convertidos'],
+        [(row) => formatPercent(row.conversion_pct), true, (row) => row.conversion_pct, false, 'conversion_pct'],
+        [(row) => formatNumber(row.descartados), true, (row) => row.descartados, false, 'descartados'],
+        [(row) => formatPercent(row.descarte_pct), true, (row) => row.descarte_pct, false, 'descarte_pct'],
+        [(row) => formatNumber(row.potenciales), true, (row) => row.potenciales, false, 'potenciales'],
+        [(row) => formatNumber(row.potenciales_sin_trabajar), true, (row) => row.potenciales_sin_trabajar, false, 'potenciales_sin_trabajar'],
+        [(row) => formatNumber(row.gestionados), true, (row) => row.gestionados, false, 'gestionados'],
+        [(row) => formatPercent(row.gestionados_pct), true, (row) => row.gestionados_pct, false, 'gestionados_pct'],
     ], 'No hay datos de delegaciones comerciales para los filtros seleccionados.');
+
+    applyLeadCommercialDelegationColumnVisibility();
 }
 
 function renderDelegations(rows) {
@@ -314,7 +366,7 @@ function renderPortals(rows) {
     ], 'No hay datos de portales para los filtros seleccionados.');
 }
 
-function renderRows(rootId, rows, columns, emptyMessage) {
+function renderRows(rootId, rows, columns, emptyMessage, rowMeta = null) {
     const root = document.getElementById(rootId);
     root.innerHTML = '';
 
@@ -334,22 +386,96 @@ function renderRows(rootId, rows, columns, emptyMessage) {
             return `<td${className}${sortValue}${columnAttr}>${content}</td>`;
         }).join('');
 
-        root.insertAdjacentHTML('beforeend', `<tr>${cells}</tr>`);
+        const attrs = rowMeta ? rowMeta(row) : {};
+        const attrString = Object.entries(attrs)
+            .filter(([, value]) => value !== null && value !== undefined && value !== '')
+            .map(([key, value]) => ` ${escapeHtml(key)}="${escapeHtml(value)}"`)
+            .join('');
+
+        root.insertAdjacentHTML('beforeend', `<tr${attrString}>${cells}</tr>`);
     });
 
     applyStoredSort(root);
 }
 
 function initLeadCommercialColumns() {
-    const button = document.getElementById('leadCommercialColumnsButton');
-    const popover = document.getElementById('leadCommercialColumnsPopover');
+    initColumnToggleMenu({
+        buttonId: 'leadCommercialColumnsButton',
+        popoverId: 'leadCommercialColumnsPopover',
+        storageKey: leadCommercialColumnsStorageKey,
+        definitions: leadCommercialColumnDefinitions,
+        getVisible: () => leadCommercialVisibleColumns,
+        setVisible: (value) => {
+            leadCommercialVisibleColumns = value;
+        },
+        applyVisibility: applyLeadCommercialColumnVisibility,
+    });
+}
+
+function initLeadCommercialZoneColumns() {
+    initColumnToggleMenu({
+        buttonId: 'leadCommercialZoneColumnsButton',
+        popoverId: 'leadCommercialZoneColumnsPopover',
+        storageKey: leadCommercialZoneColumnsStorageKey,
+        definitions: leadCommercialZoneColumnDefinitions,
+        getVisible: () => leadCommercialZoneVisibleColumns,
+        setVisible: (value) => {
+            leadCommercialZoneVisibleColumns = value;
+        },
+        applyVisibility: applyLeadCommercialZoneColumnVisibility,
+    });
+}
+
+function initLeadCommercialDelegationColumns() {
+    initColumnToggleMenu({
+        buttonId: 'leadCommercialDelegationColumnsButton',
+        popoverId: 'leadCommercialDelegationColumnsPopover',
+        storageKey: leadCommercialDelegationColumnsStorageKey,
+        definitions: leadCommercialDelegationColumnDefinitions,
+        getVisible: () => leadCommercialDelegationVisibleColumns,
+        setVisible: (value) => {
+            leadCommercialDelegationVisibleColumns = value;
+        },
+        applyVisibility: applyLeadCommercialDelegationColumnVisibility,
+    });
+}
+
+function applyLeadCommercialColumnVisibility() {
+    document.querySelectorAll('#leadCommercialTable [data-column]').forEach((cell) => {
+        cell.classList.toggle('is-hidden', !leadCommercialVisibleColumns.includes(cell.dataset.column));
+    });
+}
+
+function applyLeadCommercialZoneColumnVisibility() {
+    document.querySelectorAll('#leadCommercialZonesTable [data-column]').forEach((cell) => {
+        cell.classList.toggle('is-hidden', !leadCommercialZoneVisibleColumns.includes(cell.dataset.column));
+    });
+}
+
+function applyLeadCommercialDelegationColumnVisibility() {
+    document.querySelectorAll('#leadCommercialDelegationsTable [data-column]').forEach((cell) => {
+        cell.classList.toggle('is-hidden', !leadCommercialDelegationVisibleColumns.includes(cell.dataset.column));
+    });
+}
+
+function initColumnToggleMenu({
+    buttonId,
+    popoverId,
+    storageKey,
+    definitions,
+    getVisible,
+    setVisible,
+    applyVisibility,
+}) {
+    const button = document.getElementById(buttonId);
+    const popover = document.getElementById(popoverId);
 
     if (!button || !popover) {
         return;
     }
 
-    renderLeadCommercialColumnsPopover();
-    applyLeadCommercialColumnVisibility();
+    renderColumnTogglePopover(popover, definitions, getVisible());
+    applyVisibility();
 
     button.addEventListener('click', () => {
         popover.classList.toggle('is-hidden');
@@ -362,7 +488,7 @@ function initLeadCommercialColumns() {
             return;
         }
 
-        const visible = new Set(leadCommercialVisibleColumns);
+        const visible = new Set(getVisible());
         const key = input.dataset.columnToggle;
 
         if (input.checked) {
@@ -371,12 +497,13 @@ function initLeadCommercialColumns() {
             visible.delete(key);
         }
 
-        leadCommercialVisibleColumns = leadCommercialColumnDefinitions
+        const nextVisible = definitions
             .filter((column) => column.alwaysVisible || visible.has(column.key))
             .map((column) => column.key);
 
-        localStorage.setItem(leadCommercialColumnsStorageKey, JSON.stringify(leadCommercialVisibleColumns));
-        applyLeadCommercialColumnVisibility();
+        setVisible(nextVisible);
+        localStorage.setItem(storageKey, JSON.stringify(nextVisible));
+        applyVisibility();
     });
 
     document.addEventListener('click', (event) => {
@@ -386,27 +513,34 @@ function initLeadCommercialColumns() {
     });
 }
 
-function renderLeadCommercialColumnsPopover() {
-    const root = document.getElementById('leadCommercialColumnsPopover');
-
+function renderColumnTogglePopover(root, definitions, visibleColumns) {
     if (!root) {
         return;
     }
 
-    root.innerHTML = leadCommercialColumnDefinitions
+    root.innerHTML = definitions
         .filter((column) => !column.alwaysVisible)
         .map((column) => `
             <label class="column-option switch-option">
-                <input type="checkbox" data-column-toggle="${escapeHtml(column.key)}" ${leadCommercialVisibleColumns.includes(column.key) ? 'checked' : ''}>
+                <input type="checkbox" data-column-toggle="${escapeHtml(column.key)}" ${visibleColumns.includes(column.key) ? 'checked' : ''}>
                 <span>${escapeHtml(column.label)}</span>
             </label>
         `)
         .join('');
 }
 
-function applyLeadCommercialColumnVisibility() {
-    document.querySelectorAll('#leadCommercialTable [data-column]').forEach((cell) => {
-        cell.classList.toggle('is-hidden', !leadCommercialVisibleColumns.includes(cell.dataset.column));
+function bindLeadCommercialSearch() {
+    document.getElementById('leadCommercialSearch')?.addEventListener('input', applyCommercialSearchFilter);
+}
+
+function applyCommercialSearchFilter() {
+    const term = String(document.getElementById('leadCommercialSearch')?.value || '')
+        .trim()
+        .toLocaleLowerCase('es');
+
+    document.querySelectorAll('#commercialRows tr').forEach((row) => {
+        const haystack = String(row.dataset.search || '').toLocaleLowerCase('es');
+        row.classList.toggle('is-hidden', term !== '' && !haystack.includes(term));
     });
 }
 
