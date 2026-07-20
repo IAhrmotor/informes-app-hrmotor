@@ -440,7 +440,7 @@ class CommercialCommissionDashboardTest extends TestCase
                 'stage_name' => 'Contrato',
                 'record_type_name' => $index === 7 ? 'Cambio' : 'Venta',
                 'cv_signed' => true,
-                'cv_signed_date' => '2026-06-0'.$index,
+                'cv_signed_date' => '2026-05-0'.$index,
                 'opo_for_importe_total' => 10000,
                 'importe_financiado' => 5000,
                 'garantia_total' => 350,
@@ -458,7 +458,7 @@ class CommercialCommissionDashboardTest extends TestCase
                 'stage_name' => 'Contrato',
                 'record_type_name' => 'Tasacion',
                 'cv_signed' => true,
-                'cv_signed_date' => '2026-06-1'.$index,
+                'cv_signed_date' => '2026-05-1'.$index,
                 'opo_for_importe_total' => 10000,
                 'importe_financiado' => 0,
                 'garantia_total' => 350,
@@ -467,10 +467,10 @@ class CommercialCommissionDashboardTest extends TestCase
         }
 
         foreach ([
-            ['id' => 'REV-C-1', 'opportunity_id' => 'DELIVERY-1', 'opportunity_name' => 'Entrega 1', 'date' => '2026-06-20 10:00:00'],
-            ['id' => 'REV-C-2', 'opportunity_id' => 'DELIVERY-1', 'opportunity_name' => 'Entrega 1', 'date' => '2026-06-20 11:00:00'],
-            ['id' => 'REV-C-3', 'opportunity_id' => 'DELIVERY-2', 'opportunity_name' => 'Entrega 2', 'date' => '2026-06-21 10:00:00'],
-            ['id' => 'REV-C-4', 'opportunity_id' => 'APPRAISAL-1', 'opportunity_name' => 'Tasacion 1', 'date' => '2026-06-22 10:00:00'],
+            ['id' => 'REV-C-1', 'opportunity_id' => 'DELIVERY-1', 'opportunity_name' => 'Entrega 1', 'date' => '2026-05-20 10:00:00'],
+            ['id' => 'REV-C-2', 'opportunity_id' => 'DELIVERY-1', 'opportunity_name' => 'Entrega 1', 'date' => '2026-05-20 11:00:00'],
+            ['id' => 'REV-C-3', 'opportunity_id' => 'DELIVERY-2', 'opportunity_name' => 'Entrega 2', 'date' => '2026-05-21 10:00:00'],
+            ['id' => 'REV-C-4', 'opportunity_id' => 'APPRAISAL-1', 'opportunity_name' => 'Tasacion 1', 'date' => '2026-05-22 10:00:00'],
         ] as $index => $review) {
             SalesforceReview::create([
                 'salesforce_id' => $review['id'],
@@ -482,11 +482,11 @@ class CommercialCommissionDashboardTest extends TestCase
                 'opportunity_owner_id' => '005-C',
                 'opportunity_owner_name' => 'Comercial C',
                 'opportunity_record_type_name' => str_contains($review['opportunity_id'], 'APPRAISAL') ? 'Tasacion' : 'Venta',
-                'opportunity_cv_signed_date' => '2026-06-20',
+                'opportunity_cv_signed_date' => '2026-05-20',
             ]);
         }
 
-        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-05');
         $commercial = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-C');
 
         $this->assertSame(7, $commercial['deliveries_count']);
@@ -627,14 +627,14 @@ class CommercialCommissionDashboardTest extends TestCase
             'stage_name' => 'Contrato',
             'record_type_name' => 'Venta',
             'cv_signed' => true,
-            'cv_signed_date' => '2026-08-05',
+            'cv_signed_date' => '2026-05-25',
             'opo_for_importe_total' => 12000,
             'importe_financiado' => 6000,
             'gestion_de_venta' => false,
             'vehicle_plate' => '4444AAA',
         ]);
 
-        $payload = app(CommercialCommissionDashboardService::class)->build('2026-08');
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-05');
 
         $tasador = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-T');
         $vendedor = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-S');
@@ -686,7 +686,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'stage_name' => 'Contrato',
             'record_type_name' => 'Venta',
             'cv_signed' => true,
-            'cv_signed_date' => '2026-06-10',
+            'cv_signed_date' => '2026-05-25',
             'opo_for_importe_total' => 15000,
             'importe_financiado' => 7000,
             'gestion_de_venta' => false,
@@ -694,7 +694,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'vehicle_plate' => '9999BBB',
         ]);
 
-        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-05');
 
         $tasador = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-T2');
         $vendedor = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-S2');
@@ -744,14 +744,14 @@ class CommercialCommissionDashboardTest extends TestCase
             'stage_name' => 'Contrato',
             'record_type_name' => 'Venta',
             'cv_signed' => true,
-            'cv_signed_date' => '2026-06-12',
+            'cv_signed_date' => '2026-05-20',
             'opo_for_importe_total' => 16000,
             'importe_financiado' => 8000,
             'gestion_de_venta' => false,
             'vehicle_plate' => '7777CCC',
         ]);
 
-        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-05');
 
         $comprador = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-I1');
         $vendedor = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-V1');
@@ -799,14 +799,14 @@ class CommercialCommissionDashboardTest extends TestCase
             'stage_name' => 'Contrato',
             'record_type_name' => 'Venta',
             'cv_signed' => true,
-            'cv_signed_date' => '2026-06-10',
+            'cv_signed_date' => '2026-05-20',
             'opo_for_importe_total' => 15000,
             'importe_financiado' => 7000,
             'gestion_de_venta' => false,
             'vehicle_plate' => '9978MBZ',
         ]);
 
-        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-05');
 
         $comprador = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-P1');
         $vendedor = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-P2');
@@ -834,7 +834,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'stage_name' => 'Contrato',
             'record_type_name' => 'Venta',
             'cv_signed' => true,
-            'cv_signed_date' => '2026-06-10',
+            'cv_signed_date' => '2026-05-25',
             'opo_for_importe_total' => 18000,
             'importe_financiado' => 5000,
             'gestion_de_venta' => false,
@@ -851,7 +851,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'garantia_total' => 500,
         ]);
 
-        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-05');
 
         $comprador = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-BD1');
         $vendedor = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-SD1');
@@ -1987,6 +1987,117 @@ class CommercialCommissionDashboardTest extends TestCase
 
         $this->assertNotNull($deliveriesRow);
         $this->assertSame(1.0, $deliveriesRow['actual']);
+    }
+
+    public function test_desde_junio_comercial_cobra_operaciones_del_mes_sin_rentabilidad_historica(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-MONTHLY', 'Comercial Mensual');
+
+        foreach ([
+            ['id' => 'MONTHLY-SALE', 'type' => 'Venta'],
+            ['id' => 'MONTHLY-APPRAISAL', 'type' => 'Tasacion'],
+            ['id' => 'MONTHLY-CHANGE', 'type' => 'Cambio'],
+        ] as $index => $operation) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $operation['id'],
+                'name' => $operation['type'].' junio',
+                'owner_id' => '005-MONTHLY',
+                'owner_name' => 'Comercial Mensual',
+                'owner_is_active' => true,
+                'stage_name' => 'Contrato',
+                'record_type_name' => $operation['type'],
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-0'.($index + 1),
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        $row = collect(app(CommercialCommissionDashboardService::class)->build('2026-06')['summary_rows'])
+            ->firstWhere('commercial_id', '005-MONTHLY');
+
+        $this->assertNotNull($row);
+        $this->assertFalse($row['is_appraiser']);
+        $this->assertSame(1, $row['sales_count']);
+        $this->assertSame(1, $row['appraisals_count']);
+        $this->assertSame(1, $row['changes_count']);
+        $this->assertEquals(60.0, $row['sales_amount']);
+        $this->assertEquals(60.0, $row['appraisals_amount']);
+        $this->assertEquals(85.0, $row['changes_amount']);
+        $this->assertEquals(145.0, $row['purchases_amount']);
+        $this->assertEquals(205.0, $row['operations_commission_amount']);
+        $this->assertSame('Cambio 85 EUR', collect($row['details']['operations'])->firstWhere('opportunity_id', 'MONTHLY-CHANGE')['reason']);
+    }
+
+    public function test_desde_junio_tasador_aplica_escalado_financiacion_y_rapidez(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        SalesforceUser::create([
+            'salesforce_id' => '005-APPRAISER',
+            'name' => 'Tasador Junio',
+            'profile_name' => 'Standard User',
+            'is_active' => true,
+            'commission_appraiser' => true,
+        ]);
+
+        foreach (range(1, 12) as $index) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => 'APPRAISER-PURCHASE-'.$index,
+                'name' => 'Compra tasador '.$index,
+                'owner_id' => '005-APPRAISER',
+                'owner_name' => 'Tasador Junio',
+                'owner_is_active' => true,
+                'stage_name' => 'Contrato',
+                'record_type_name' => $index === 12 ? 'Cambio' : 'Tasacion',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-01',
+                'gestion_de_venta' => false,
+                'vehicle_plate' => 'TAS'.str_pad((string) $index, 3, '0', STR_PAD_LEFT),
+            ]);
+        }
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'APPRAISER-SALE-JUNE',
+            'name' => 'Venta tasador junio',
+            'owner_id' => '005-APPRAISER',
+            'owner_name' => 'Tasador Junio',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-10',
+            'gestion_de_venta' => false,
+            'beneficio_financiacion_comercial' => 1000,
+            'vehicle_plate' => 'VENTA001',
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'APPRAISER-SALE-SPEED',
+            'name' => 'Venta posterior tasador',
+            'owner_id' => '005-OTHER',
+            'owner_name' => 'Otro comercial',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-20',
+            'gestion_de_venta' => false,
+            'vehicle_plate' => 'TAS001',
+        ]);
+
+        $row = collect(app(CommercialCommissionDashboardService::class)->build('2026-06')['summary_rows'])
+            ->firstWhere('commercial_id', '005-APPRAISER');
+
+        $this->assertNotNull($row);
+        $this->assertTrue($row['is_appraiser']);
+        $this->assertSame(12, $row['appraiser_purchase_count']);
+        $this->assertSame('11-15 compras', $row['appraiser_purchase_tier']);
+        $this->assertEquals(60.0, $row['appraiser_purchase_rate']);
+        $this->assertEquals(720.0, $row['purchases_amount']);
+        $this->assertEquals(60.0, $row['sales_amount']);
+        $this->assertEquals(30.0, $row['appraiser_financing_commission']);
+        $this->assertEquals(20.0, $row['appraiser_speed_under_30_amount']);
+        $this->assertEquals(830.0, $row['final_commission']);
     }
 
     private function createCommercialUser(string $id, string $name, bool $isActive = true, string $profile = 'Compra/Venta'): void

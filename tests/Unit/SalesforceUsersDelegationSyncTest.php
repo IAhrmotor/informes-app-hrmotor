@@ -27,6 +27,7 @@ class SalesforceUsersDelegationSyncTest extends TestCase
                     'Name' => 'Comercial Madrid',
                     'Profile' => ['Name' => 'Compra/Venta'],
                     'USR_SEL_Delegacion__c' => 'HR MOTOR MADRID',
+                    'Comision_Tasador__c' => true,
                     'IsActive' => true,
                 ]];
             }
@@ -40,5 +41,6 @@ class SalesforceUsersDelegationSyncTest extends TestCase
             'user_delegation' => 'HR MOTOR MADRID',
         ]);
         $this->assertSame('HR MOTOR MADRID', SalesforceUser::first()->user_delegation);
+        $this->assertTrue(SalesforceUser::first()->commission_appraiser);
     }
 }

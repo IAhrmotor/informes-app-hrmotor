@@ -13,6 +13,8 @@ use Illuminate\Support\Str;
 
 class CommercialCommissionDashboardService
 {
+    private const MONTHLY_PURCHASE_COMMISSION_START = '2026-06-01';
+
     private const PURCHASE_DATE_CUTOFF = '2026-05-01';
 
     private const ALLOWED_PURCHASE_SOURCES = [
@@ -59,6 +61,8 @@ class CommercialCommissionDashboardService
         'gestion_de_venta',
         'opo_div_descuento',
         'vehicle_interest_id',
+        'appraised_vehicle_id',
+        'appraised_vehicle_plate',
         'vehicle_sale_price',
         'vehicle_purchase_price',
         'vehicle_purchase_source',
@@ -102,7 +106,7 @@ class CommercialCommissionDashboardService
         $periodStart = $selectedMonth->startOfMonth();
         $periodEnd = $periodStart->addMonth();
         $formulaSettings = $this->formulaConfig->forMonth($selectedMonth);
-        $blockingIssues = $this->blockingIssues();
+        $blockingIssues = $this->blockingIssues($selectedMonth);
         $diagnostics = $this->diagnostics($selectedMonth, $periodStart, $periodEnd, $blockingIssues, $formulaSettings);
         $warnings = $this->warnings($diagnostics);
         $summaryRows = $blockingIssues === [] && $includeSummaryRows
@@ -131,7 +135,7 @@ class CommercialCommissionDashboardService
             : CarbonImmutable::createFromFormat('Y-m', (string) $month)->startOfMonth();
         $periodStart = $selectedMonth->startOfMonth();
         $periodEnd = $periodStart->addMonth();
-        $blockingIssues = $this->blockingIssues();
+        $blockingIssues = $this->blockingIssues($selectedMonth);
 
         if ($blockingIssues !== []) {
             return null;
@@ -155,6 +159,20 @@ class CommercialCommissionDashboardService
     }
 
     private function buildSummaryRows(
+        CarbonImmutable $periodStart,
+        CarbonImmutable $periodEnd,
+        array $formulaSettings,
+        bool $includeDetails = true,
+    ): array
+    {
+        if ($this->usesMonthlyPurchaseCommission($periodStart)) {
+            return $this->buildMonthlyOperationSummaryRows($periodStart, $periodEnd, $formulaSettings, $includeDetails);
+        }
+
+        return $this->buildLegacySummaryRows($periodStart, $periodEnd, $formulaSettings, $includeDetails);
+    }
+
+    private function buildLegacySummaryRows(
         CarbonImmutable $periodStart,
         CarbonImmutable $periodEnd,
         array $formulaSettings,
@@ -409,6 +427,591 @@ class CommercialCommissionDashboardService
         })->sortByDesc('final_commission')->values()->all();
 
         return $rows;
+    }
+
+    /**
+     * Since June 2026 purchases are paid in the month they are signed. The
+     * legacy vehicle-sale rentability flow remains available for prior months.
+     */
+    private function buildMonthlyOperationSummaryRows(
+        CarbonImmutable $periodStart,
+        CarbonImmutable $periodEnd,
+        array $formulaSettings,
+        bool $includeDetails,
+    ): array {
+        $monthlyOperations = $this->monthlyOpportunities($periodStart, $periodEnd)->get();
+        $operationsByOwner = $monthlyOperations->groupBy(fn (SalesforceOpportunity $row) => (string) $row->owner_id);
+        $reviewsByOwner = $this->monthlyReviews($periodStart, $periodEnd)
+            ->get()
+            ->groupBy(fn (SalesforceReview $review) => (string) $review->opportunity_owner_id);
+        $salesforceUsersById = $this->salesforceUsersById();
+        $userNames = [];
+
+        foreach ($monthlyOperations as $operation) {
+            if (filled($operation->owner_id)) {
+                $userNames[(string) $operation->owner_id] = $operation->owner_name ?: $operation->owner_id;
+            }
+
+            if ($this->isSale($operation) && filled($operation->shared_delivery_id)) {
+                $userNames[(string) $operation->shared_delivery_id] = $operation->shared_delivery_name ?: $operation->shared_delivery_id;
+            }
+        }
+
+        $sharedSalesByCoowner = $monthlyOperations
+            ->filter(fn (SalesforceOpportunity $row) => $this->isSale($row) && filled($row->shared_delivery_id))
+            ->groupBy(fn (SalesforceOpportunity $row) => (string) $row->shared_delivery_id);
+        $appraiserPurchases = $monthlyOperations
+            ->filter(function (SalesforceOpportunity $row) use ($salesforceUsersById): bool {
+                $owner = $salesforceUsersById->get((string) $row->owner_id);
+
+                return $owner?->commission_appraiser === true && $this->isPurchaseOperation($row);
+            })
+            ->values();
+        $appraiserSpeedByOwner = collect($this->resolveAppraiserSpeedDetails($appraiserPurchases))
+            ->groupBy('owner_id');
+
+        $userIds = collect()
+            ->merge($operationsByOwner->keys())
+            ->merge($sharedSalesByCoowner->keys())
+            ->filter()
+            ->unique()
+            ->filter(function (string $userId) use ($userNames, $salesforceUsersById): bool {
+                return $this->isEligibleCommercialUser(
+                    $userId,
+                    $userNames[$userId] ?? null,
+                    $salesforceUsersById->get($userId)
+                );
+            })
+            ->values();
+
+        return $userIds->map(function (string $userId) use (
+            $operationsByOwner,
+            $reviewsByOwner,
+            $sharedSalesByCoowner,
+            $appraiserSpeedByOwner,
+            $formulaSettings,
+            $userNames,
+            $salesforceUsersById,
+            $includeDetails,
+        ): array {
+            /** @var Collection<int, SalesforceOpportunity> $ownerOperations */
+            $ownerOperations = $operationsByOwner->get($userId, collect())->values();
+            $salesforceUser = $salesforceUsersById->get($userId);
+
+            if ($salesforceUser?->commission_appraiser === true) {
+                return $this->buildAppraiserMonthlySummaryRow(
+                    $userId,
+                    $userNames[$userId] ?? $userId,
+                    $ownerOperations,
+                    collect($appraiserSpeedByOwner->get($userId, collect()))->values(),
+                    $includeDetails,
+                );
+            }
+
+            return $this->buildCommercialMonthlySummaryRow(
+                $userId,
+                $userNames[$userId] ?? $userId,
+                $salesforceUser,
+                $ownerOperations,
+                $reviewsByOwner->get($userId, collect())->values(),
+                $sharedSalesByCoowner->get($userId, collect())->values(),
+                $formulaSettings,
+                $includeDetails,
+            );
+        })->sortByDesc('final_commission')->values()->all();
+    }
+
+    private function buildCommercialMonthlySummaryRow(
+        string $userId,
+        string $userName,
+        ?SalesforceUser $salesforceUser,
+        Collection $ownerOperations,
+        Collection $ownerReviews,
+        Collection $sharedSales,
+        array $formulaSettings,
+        bool $includeDetails,
+    ): array {
+        $operationDetails = $ownerOperations
+            ->map(fn (SalesforceOpportunity $operation) => $this->commercialOperationDetail($operation, $formulaSettings))
+            ->filter()
+            ->values();
+        $salesDetails = $operationDetails->where('type', 'sale')->values();
+        $appraisalDetails = $operationDetails->where('type', 'appraisal')->values();
+        $changeDetails = $operationDetails->where('type', 'change')->values();
+        $ownerDeliveries = $ownerOperations->filter(fn (SalesforceOpportunity $row) => $this->isDelivery($row))->values();
+        $ownerStockDeliveries = $ownerDeliveries
+            ->filter(fn (SalesforceOpportunity $row) => $this->isStock150Delivery($row, $formulaSettings))
+            ->values();
+
+        $salesAmount = round((float) $salesDetails->sum('commission_amount'), 2);
+        $appraisalsAmount = round((float) $appraisalDetails->sum('commission_amount'), 2);
+        $changesAmount = round((float) $changeDetails->sum('commission_amount'), 2);
+        $purchasesAmount = round($appraisalsAmount + $changesAmount, 2);
+        $sharedAmount = round($sharedSales->count() * (float) $formulaSettings['sales']['shared_secondary_delivery_amount'], 2);
+        $discountTotal = round((float) $ownerOperations->sum(
+            fn (SalesforceOpportunity $row) => max(0, (float) ($row->opo_div_descuento ?? 0))
+        ), 2);
+        $discountPenaltyAmount = round($discountTotal * 0.05, 2);
+        $stock150Amount = round($ownerStockDeliveries->count() * (float) $formulaSettings['stock']['amount'], 2);
+        $bonus15Amount = round(
+            max($ownerDeliveries->count() - (int) $formulaSettings['bonus']['start_after_delivery'], 0)
+            * (float) $formulaSettings['bonus']['amount_per_delivery'],
+            2
+        );
+        $salesBaseBeforeBracket = round(
+            $salesAmount + $sharedAmount - $discountPenaltyAmount + $stock150Amount + $bonus15Amount,
+            2
+        );
+        $primaTotal = round($salesBaseBeforeBracket + $purchasesAmount, 2);
+        [$deliveryBracketLabel, $deliveryBracketPercent] = $this->deliveryBracket(
+            $ownerDeliveries->count(),
+            $salesforceUser?->profile_name,
+            $formulaSettings,
+        );
+
+        // Tasaciones and cambios are paid even when the delivery bracket is not reached.
+        $primaAdjusted = round(($salesBaseBeforeBracket * $deliveryBracketPercent) + $purchasesAmount, 2);
+        $guaranteeTotal = round((float) $ownerOperations->sum(
+            fn (SalesforceOpportunity $row) => max(0, (float) ($row->garantia_total ?? 0))
+        ), 2);
+        $guaranteePenalty = $guaranteeTotal < (float) $formulaSettings['penalties']['guarantee_total_threshold'] && $primaAdjusted > 0
+            ? round($primaAdjusted * (float) $formulaSettings['penalties']['guarantee_percent'], 2)
+            : 0.0;
+        $reviewsPercentage = $ownerOperations->isNotEmpty()
+            ? round(($ownerReviews->count() / $ownerOperations->count()) * 100, 2)
+            : 0.0;
+        $reviewsPenalty = $this->reviewsPenalty($primaAdjusted, $reviewsPercentage, $formulaSettings);
+        $financedAmount = round((float) $ownerOperations->sum(fn (SalesforceOpportunity $row) => max(0, (float) ($row->importe_financiado ?? 0))), 2);
+        $totalVehicleAmount = round((float) $ownerOperations->sum(fn (SalesforceOpportunity $row) => max(0, (float) ($row->opo_for_importe_total ?: $row->amount ?: 0))), 2);
+        $financingPercentage = $totalVehicleAmount > 0 ? round(($financedAmount / $totalVehicleAmount) * 100, 2) : 0.0;
+        $financingPenalty = $primaAdjusted > 0
+            && $totalVehicleAmount > 0
+            && $financingPercentage < (float) $formulaSettings['penalties']['financing_percentage_threshold']
+            ? round($primaAdjusted * (float) $formulaSettings['penalties']['financing_percent'], 2)
+            : 0.0;
+        $totalPenalties = round($guaranteePenalty + $reviewsPenalty + $financingPenalty, 2);
+        $primaAfterPenalties = round(max($primaAdjusted - $totalPenalties, 0), 2);
+        $financingBenefitTotal = round((float) $ownerOperations->sum(fn (SalesforceOpportunity $row) => max(0, (float) ($row->beneficio_financiacion_comercial ?? 0))), 2);
+        $financingProductPercent = $this->financingProductPercent($financingBenefitTotal, $formulaSettings);
+        $financingProductAmount = round($financingBenefitTotal * $financingProductPercent, 2);
+        $guaranteeProductPercent = $this->guaranteeProductPercent($guaranteeTotal, $formulaSettings);
+        $guaranteeProductAmount = round($guaranteeTotal * $guaranteeProductPercent, 2);
+
+        return [
+            ...$this->emptyCommissionRow($userId, $userName, false),
+            'deliveries_count' => $ownerDeliveries->count(),
+            'operations_count' => $ownerOperations->count(),
+            'sales_count' => $salesDetails->count(),
+            'sales_amount' => $salesAmount,
+            'appraisals_count' => $appraisalDetails->count(),
+            'appraisals_amount' => $appraisalsAmount,
+            'changes_count' => $changeDetails->count(),
+            'changes_amount' => $changesAmount,
+            'operations_commission_amount' => round((float) $operationDetails->sum('commission_amount'), 2),
+            'purchases_amount' => $purchasesAmount,
+            'shared_count' => $sharedSales->count(),
+            'shared_amount' => $sharedAmount,
+            'discount_total' => $discountTotal,
+            'discount_penalty_amount' => $discountPenaltyAmount,
+            'stock_150_count' => $ownerStockDeliveries->count(),
+            'stock_150_amount' => $stock150Amount,
+            'bonus_15_amount' => $bonus15Amount,
+            'prima_total' => $primaTotal,
+            'delivery_bracket_label' => $deliveryBracketLabel,
+            'delivery_bracket_percent' => round($deliveryBracketPercent * 100, 2),
+            'prima_adjusted' => $primaAdjusted,
+            'guarantee_total' => $guaranteeTotal,
+            'guarantee_penalty' => $guaranteePenalty,
+            'reviews_count' => $ownerReviews->count(),
+            'reviews_percentage' => $reviewsPercentage,
+            'reviews_penalty' => $reviewsPenalty,
+            'financed_amount' => $financedAmount,
+            'total_vehicle_amount' => $totalVehicleAmount,
+            'financing_percentage' => $financingPercentage,
+            'financing_penalty' => $financingPenalty,
+            'total_penalties' => $totalPenalties,
+            'prima_after_penalties' => $primaAfterPenalties,
+            'financing_benefit_total' => $financingBenefitTotal,
+            'financing_product_percent' => round($financingProductPercent * 100, 2),
+            'financing_product_amount' => $financingProductAmount,
+            'guarantee_product_percent' => round($guaranteeProductPercent * 100, 2),
+            'guarantee_product_amount' => $guaranteeProductAmount,
+            'final_commission' => round($primaAfterPenalties + $financingProductAmount + $guaranteeProductAmount, 2),
+            'details' => $includeDetails ? [
+                'operations' => $operationDetails->all(),
+                'purchases' => $appraisalDetails->merge($changeDetails)->values()->all(),
+                'shared' => $sharedSales->map(fn (SalesforceOpportunity $row) => $this->sharedCommissionDetail($row, $formulaSettings))->values()->all(),
+                'stock_150' => $ownerStockDeliveries->map(fn (SalesforceOpportunity $row) => $this->stockCommissionDetail($row, $formulaSettings))->values()->all(),
+                'reviews' => $this->reviewCommissionDetails($ownerReviews),
+                'appraiser_sales' => [],
+                'appraiser_financing' => [],
+                'appraiser_speed' => [],
+            ] : $this->emptyCommissionDetails(),
+        ];
+    }
+
+    private function buildAppraiserMonthlySummaryRow(
+        string $userId,
+        string $userName,
+        Collection $ownerOperations,
+        Collection $speedDetails,
+        bool $includeDetails,
+    ): array {
+        $purchases = $ownerOperations->filter(fn (SalesforceOpportunity $row) => $this->isPurchaseOperation($row))->values();
+        $sales = $ownerOperations->filter(fn (SalesforceOpportunity $row) => $this->isSale($row))->values();
+        $purchaseRate = $this->appraiserPurchaseRate($purchases->count());
+        $purchasesAmount = round($purchases->count() * $purchaseRate, 2);
+        $salesAmount = round($sales->count() * 60, 2);
+        $financingBenefitTotal = round((float) $ownerOperations->sum(fn (SalesforceOpportunity $row) => (float) ($row->beneficio_financiacion_comercial ?? 0)), 2);
+        $financingCommissionAmount = round($financingBenefitTotal * 0.03, 2);
+        $speedUnder30Amount = round((float) $speedDetails->where('incentive_band', '<30')->sum('commission_amount'), 2);
+        $speed30To60Amount = round((float) $speedDetails->where('incentive_band', '30-60')->sum('commission_amount'), 2);
+        $speedAmount = round($speedUnder30Amount + $speed30To60Amount, 2);
+        $tierLabel = $this->appraiserPurchaseTierLabel($purchases->count());
+
+        return [
+            ...$this->emptyCommissionRow($userId, $userName, true),
+            'deliveries_count' => $sales->count(),
+            'operations_count' => $ownerOperations->count(),
+            'sales_count' => $sales->count(),
+            'sales_amount' => $salesAmount,
+            'appraisals_count' => $purchases->filter(fn (SalesforceOpportunity $row) => $this->isAppraisal($row))->count(),
+            'changes_count' => $purchases->filter(fn (SalesforceOpportunity $row) => $this->isChange($row))->count(),
+            'purchases_amount' => $purchasesAmount,
+            'operations_commission_amount' => round($purchasesAmount + $salesAmount, 2),
+            'appraiser_purchase_count' => $purchases->count(),
+            'appraiser_purchase_rate' => $purchaseRate,
+            'appraiser_purchase_tier' => $tierLabel,
+            'appraiser_financing_commission' => $financingCommissionAmount,
+            'appraiser_speed_under_30_amount' => $speedUnder30Amount,
+            'appraiser_speed_30_to_60_amount' => $speed30To60Amount,
+            'appraiser_speed_amount' => $speedAmount,
+            'prima_total' => round($purchasesAmount + $salesAmount, 2),
+            'prima_adjusted' => round($purchasesAmount + $salesAmount, 2),
+            'prima_after_penalties' => round($purchasesAmount + $salesAmount, 2),
+            'financing_benefit_total' => $financingBenefitTotal,
+            'final_commission' => round($purchasesAmount + $salesAmount + $financingCommissionAmount + $speedAmount, 2),
+            'details' => $includeDetails ? [
+                'operations' => [],
+                'purchases' => $purchases->map(fn (SalesforceOpportunity $row) => $this->appraiserPurchaseDetail($row, $tierLabel, $purchaseRate))->values()->all(),
+                'shared' => [],
+                'stock_150' => [],
+                'reviews' => [],
+                'appraiser_sales' => $sales->map(fn (SalesforceOpportunity $row) => $this->appraiserSaleDetail($row))->values()->all(),
+                'appraiser_financing' => $ownerOperations->map(fn (SalesforceOpportunity $row) => $this->appraiserFinancingDetail($row))->values()->all(),
+                'appraiser_speed' => $speedDetails->all(),
+            ] : $this->emptyCommissionDetails(),
+        ];
+    }
+
+    private function emptyCommissionRow(string $userId, string $userName, bool $isAppraiser): array
+    {
+        return [
+            'commercial_id' => $userId,
+            'commercial_name' => $userName,
+            'is_appraiser' => $isAppraiser,
+            'commission_mode' => $isAppraiser ? 'Tasador' : 'Comercial',
+            'deliveries_count' => 0,
+            'operations_count' => 0,
+            'sales_count' => 0,
+            'sales_amount' => 0.0,
+            'appraisals_count' => 0,
+            'appraisals_amount' => 0.0,
+            'changes_count' => 0,
+            'changes_amount' => 0.0,
+            'operations_commission_amount' => 0.0,
+            'purchases_amount' => 0.0,
+            'shared_count' => 0,
+            'shared_amount' => 0.0,
+            'discount_total' => 0.0,
+            'discount_penalty_amount' => 0.0,
+            'stock_150_count' => 0,
+            'stock_150_amount' => 0.0,
+            'bonus_15_amount' => 0.0,
+            'prima_total' => 0.0,
+            'delivery_bracket_label' => $isAppraiser ? 'No aplica' : '0-0',
+            'delivery_bracket_percent' => $isAppraiser ? 100.0 : 0.0,
+            'prima_adjusted' => 0.0,
+            'guarantee_total' => 0.0,
+            'guarantee_penalty' => 0.0,
+            'reviews_count' => 0,
+            'reviews_percentage' => 0.0,
+            'reviews_penalty' => 0.0,
+            'financed_amount' => 0.0,
+            'total_vehicle_amount' => 0.0,
+            'financing_percentage' => 0.0,
+            'financing_penalty' => 0.0,
+            'total_penalties' => 0.0,
+            'prima_after_penalties' => 0.0,
+            'financing_benefit_total' => 0.0,
+            'financing_product_percent' => 0.0,
+            'financing_product_amount' => 0.0,
+            'guarantee_product_percent' => 0.0,
+            'guarantee_product_amount' => 0.0,
+            'appraiser_purchase_count' => 0,
+            'appraiser_purchase_rate' => 0.0,
+            'appraiser_purchase_tier' => $isAppraiser ? '0-7 compras' : null,
+            'appraiser_financing_commission' => 0.0,
+            'appraiser_speed_under_30_amount' => 0.0,
+            'appraiser_speed_30_to_60_amount' => 0.0,
+            'appraiser_speed_amount' => 0.0,
+            'final_commission' => 0.0,
+        ];
+    }
+
+    private function emptyCommissionDetails(): array
+    {
+        return [
+            'operations' => [],
+            'purchases' => [],
+            'shared' => [],
+            'stock_150' => [],
+            'reviews' => [],
+            'appraiser_sales' => [],
+            'appraiser_financing' => [],
+            'appraiser_speed' => [],
+        ];
+    }
+
+    private function commercialOperationDetail(SalesforceOpportunity $operation, array $formulaSettings): ?array
+    {
+        if ($this->isSale($operation)) {
+            $shared = filled($operation->shared_delivery_id);
+            $amount = $shared
+                ? (float) $formulaSettings['sales']['shared_owner_delivery_amount']
+                : 60.0;
+
+            return $this->operationCommissionDetail($operation, 'sale', $amount, $shared ? 'Venta compartida' : 'Venta 60 EUR');
+        }
+
+        if ($this->isAppraisal($operation)) {
+            return $this->operationCommissionDetail($operation, 'appraisal', 60.0, 'Tasacion 60 EUR');
+        }
+
+        if ($this->isChange($operation)) {
+            return $this->operationCommissionDetail($operation, 'change', 85.0, 'Cambio 85 EUR');
+        }
+
+        return null;
+    }
+
+    private function operationCommissionDetail(SalesforceOpportunity $operation, string $type, float $amount, string $reason): array
+    {
+        return [
+            'opportunity_id' => $operation->salesforce_id,
+            'opportunity_name' => $operation->name,
+            'record_type_name' => $operation->record_type_name,
+            'cv_signed_date' => optional($operation->cv_signed_date)->toDateString(),
+            'vehicle_plate' => $operation->vehicle_plate,
+            'type' => $type,
+            'reason' => $reason,
+            'commission_amount' => round($amount, 2),
+        ];
+    }
+
+    private function sharedCommissionDetail(SalesforceOpportunity $operation, array $formulaSettings): array
+    {
+        return [
+            'opportunity_id' => $operation->salesforce_id,
+            'opportunity_name' => $operation->name,
+            'owner_name' => $operation->owner_name,
+            'shared_delivery_name' => $operation->shared_delivery_name,
+            'cv_signed_date' => optional($operation->cv_signed_date)->toDateString(),
+            'amount' => (float) $formulaSettings['sales']['shared_secondary_delivery_amount'],
+        ];
+    }
+
+    private function stockCommissionDetail(SalesforceOpportunity $operation, array $formulaSettings): array
+    {
+        return [
+            'opportunity_id' => $operation->salesforce_id,
+            'opportunity_name' => $operation->name,
+            'vehicle_plate' => $operation->vehicle_plate,
+            'vehicle_entry_date' => optional($operation->vehicle_entry_date)->toDateString(),
+            'cv_signed_date' => optional($operation->cv_signed_date)->toDateString(),
+            'vehicle_days_in_stock' => $this->stockDaysForOpportunity($operation) ?? 0,
+            'amount' => (float) $formulaSettings['stock']['amount'],
+        ];
+    }
+
+    private function reviewCommissionDetails(Collection $reviews): array
+    {
+        return $reviews->map(fn (SalesforceReview $review) => [
+            'review_id' => $review->salesforce_id,
+            'created_date' => optional($review->created_date)->toDateTimeString(),
+            'opportunity_id' => $review->opportunity_salesforce_id,
+            'opportunity_name' => $review->opportunity_name,
+            'opportunity_owner_name' => $review->opportunity_owner_name,
+            'review_owner_name' => $review->owner_name,
+        ])->values()->all();
+    }
+
+    private function appraiserPurchaseRate(int $purchases): float
+    {
+        return match (true) {
+            $purchases <= 7 => 0.0,
+            $purchases <= 10 => 30.0,
+            $purchases <= 15 => 60.0,
+            $purchases <= 20 => 65.0,
+            $purchases <= 25 => 70.0,
+            $purchases <= 30 => 75.0,
+            $purchases <= 35 => 80.0,
+            default => 85.0,
+        };
+    }
+
+    private function appraiserPurchaseTierLabel(int $purchases): string
+    {
+        return match (true) {
+            $purchases <= 7 => '0-7 compras',
+            $purchases <= 10 => '8-10 compras',
+            $purchases <= 15 => '11-15 compras',
+            $purchases <= 20 => '16-20 compras',
+            $purchases <= 25 => '21-25 compras',
+            $purchases <= 30 => '26-30 compras',
+            $purchases <= 35 => '31-35 compras',
+            default => '>35 compras',
+        };
+    }
+
+    private function appraiserPurchaseDetail(SalesforceOpportunity $operation, string $tierLabel, float $rate): array
+    {
+        return [
+            ...$this->operationCommissionDetail($operation, $this->isChange($operation) ? 'change' : 'appraisal', $rate, 'Compra tasador'),
+            'tier_label' => $tierLabel,
+            'rate_per_operation' => $rate,
+        ];
+    }
+
+    private function appraiserSaleDetail(SalesforceOpportunity $operation): array
+    {
+        return $this->operationCommissionDetail($operation, 'sale', 60.0, 'Venta tasador 60 EUR');
+    }
+
+    private function appraiserFinancingDetail(SalesforceOpportunity $operation): array
+    {
+        $benefit = (float) ($operation->beneficio_financiacion_comercial ?? 0);
+
+        return [
+            'opportunity_id' => $operation->salesforce_id,
+            'opportunity_name' => $operation->name,
+            'cv_signed_date' => optional($operation->cv_signed_date)->toDateString(),
+            'financing_benefit' => round($benefit, 2),
+            'commission_amount' => round($benefit * 0.03, 2),
+        ];
+    }
+
+    private function resolveAppraiserSpeedDetails(Collection $purchases): array
+    {
+        if ($purchases->isEmpty()) {
+            return [];
+        }
+
+        $sales = $this->salesForPurchasedVehicles($purchases);
+        $details = [];
+
+        foreach ($purchases as $purchase) {
+            $purchaseDate = $purchase->cv_signed_date ? CarbonImmutable::parse($purchase->cv_signed_date)->startOfDay() : null;
+
+            if ($purchaseDate === null) {
+                continue;
+            }
+
+            /** @var SalesforceOpportunity|null $sale */
+            $sale = $sales
+                ->filter(function (SalesforceOpportunity $candidate) use ($purchase, $purchaseDate): bool {
+                    if (! $candidate->cv_signed_date || ! $this->sameVehicle($purchase, $candidate)) {
+                        return false;
+                    }
+
+                    return CarbonImmutable::parse($candidate->cv_signed_date)->startOfDay()->greaterThan($purchaseDate);
+                })
+                ->sortBy(fn (SalesforceOpportunity $candidate) => optional($candidate->cv_signed_date)?->toDateString() ?? '')
+                ->first();
+            $saleDate = $sale?->cv_signed_date ? CarbonImmutable::parse($sale->cv_signed_date)->startOfDay() : null;
+            $days = $saleDate ? $purchaseDate->diffInDays($saleDate) : null;
+            $band = $days === null ? 'No vendida' : ($days < 30 ? '<30' : ($days <= 60 ? '30-60' : '>60'));
+            $amount = $band === '<30' ? 20.0 : ($band === '30-60' ? 10.0 : 0.0);
+
+            $details[] = [
+                'owner_id' => (string) $purchase->owner_id,
+                'vehicle_plate' => $this->purchaseVehiclePlate($purchase),
+                'purchase_opportunity_id' => $purchase->salesforce_id,
+                'purchase_opportunity_name' => $purchase->name,
+                'purchase_date' => $purchaseDate->toDateString(),
+                'sale_opportunity_id' => $sale?->salesforce_id,
+                'sale_opportunity_name' => $sale?->name,
+                'sale_date' => $saleDate?->toDateString(),
+                'days_to_sale' => $days,
+                'incentive_band' => $band,
+                'commission_amount' => $amount,
+            ];
+        }
+
+        return $details;
+    }
+
+    private function salesForPurchasedVehicles(Collection $purchases): Collection
+    {
+        $vehicleIds = $purchases->map(fn (SalesforceOpportunity $row) => $this->purchaseVehicleId($row))->filter()->unique()->values();
+        $plates = $purchases->map(fn (SalesforceOpportunity $row) => $this->purchaseVehiclePlate($row))->filter()->unique()->values();
+        $normalizedPlates = $plates->map(fn ($plate) => $this->normalizePlate($plate))->filter()->unique()->values();
+
+        if ($vehicleIds->isEmpty() && $plates->isEmpty() && $normalizedPlates->isEmpty()) {
+            return collect();
+        }
+
+        $query = SalesforceOpportunity::query()
+            ->select(self::OPPORTUNITY_COLUMNS)
+            ->where('cv_signed', true)
+            ->whereRaw('LOWER(COALESCE(stage_name, \'\')) <> ?', ['cerrada perdida']);
+        $this->applyRecordTypeFilter($query, ['venta']);
+        $query->where(function (Builder $builder) use ($vehicleIds, $plates, $normalizedPlates): void {
+            $hasCondition = false;
+
+            if ($vehicleIds->isNotEmpty()) {
+                $builder->whereIn('vehicle_interest_id', $vehicleIds->all());
+                $hasCondition = true;
+            }
+
+            if ($plates->isNotEmpty()) {
+                $builder->{$hasCondition ? 'orWhereIn' : 'whereIn'}('vehicle_plate', $plates->all());
+                $hasCondition = true;
+            }
+
+            if ($normalizedPlates->isNotEmpty()) {
+                $builder->{$hasCondition ? 'orWhereRaw' : 'whereRaw'}(
+                    $this->normalizedVehiclePlateSql().' IN ('.$this->sqlPlaceholders($normalizedPlates->count()).')',
+                    $normalizedPlates->all(),
+                );
+            }
+        });
+
+        return $query->get();
+    }
+
+    private function sameVehicle(SalesforceOpportunity $purchase, SalesforceOpportunity $sale): bool
+    {
+        $purchaseVehicleId = $this->purchaseVehicleId($purchase);
+
+        if ($purchaseVehicleId !== '' && $purchaseVehicleId === (string) $sale->vehicle_interest_id) {
+            return true;
+        }
+
+        $purchasePlate = $this->normalizePlate($this->purchaseVehiclePlate($purchase));
+        $salePlate = $this->normalizePlate($sale->vehicle_plate);
+
+        return $purchasePlate !== '' && $purchasePlate === $salePlate;
+    }
+
+    private function purchaseVehicleId(SalesforceOpportunity $purchase): string
+    {
+        return (string) ($purchase->appraised_vehicle_id ?: $purchase->vehicle_interest_id ?: '');
+    }
+
+    private function purchaseVehiclePlate(SalesforceOpportunity $purchase): string
+    {
+        return (string) ($purchase->appraised_vehicle_plate ?: $purchase->vehicle_plate ?: '');
     }
 
     private function buildDelegationRows(CarbonImmutable $periodStart, CarbonImmutable $periodEnd, array $formulaSettings): array
@@ -692,7 +1295,7 @@ class CommercialCommissionDashboardService
             ->where('created_date', '<', $periodEnd->utc()->toDateTimeString());
     }
 
-    private function blockingIssues(): array
+    private function blockingIssues(?CarbonImmutable $selectedMonth = null): array
     {
         $issues = [];
 
@@ -740,7 +1343,13 @@ class CommercialCommissionDashboardService
         if (! Schema::hasTable('salesforce_users')) {
             $issues[] = 'La tabla local salesforce_users no existe todavia. Ejecuta las migraciones pendientes.';
         } else {
-            foreach (['salesforce_id', 'name', 'is_active'] as $column) {
+            $userColumns = ['salesforce_id', 'name', 'is_active'];
+
+            if ($selectedMonth !== null && $this->usesMonthlyPurchaseCommission($selectedMonth)) {
+                $userColumns[] = 'commission_appraiser';
+            }
+
+            foreach ($userColumns as $column) {
                 if (! Schema::hasColumn('salesforce_users', $column)) {
                     $issues[] = "Falta la columna local salesforce_users.{$column}. Ejecuta las migraciones pendientes.";
                 }
@@ -765,6 +1374,8 @@ class CommercialCommissionDashboardService
         }
 
         if (
+            ! ($diagnostics['monthly_operation_purchase_logic'] ?? false)
+            &&
             ($diagnostics['sales_count'] ?? 0) > 0
             && ($diagnostics['sales_with_product_buyer_count'] ?? 0) === 0
             && ($diagnostics['historical_purchase_candidates_count'] ?? 0) === 0
@@ -796,6 +1407,7 @@ class CommercialCommissionDashboardService
             'sales_with_product_buyer_count' => 0,
             'historical_purchase_candidates_count' => 0,
             'matched_purchase_commissions_count' => 0,
+            'monthly_operation_purchase_logic' => $this->usesMonthlyPurchaseCommission($periodStart),
         ];
 
         if ($issues !== []) {
@@ -803,6 +1415,38 @@ class CommercialCommissionDashboardService
         }
 
         $baseQuery = $this->monthlyOpportunities($periodStart, $periodEnd);
+
+        if ($this->usesMonthlyPurchaseCommission($periodStart)) {
+            $monthlyOperations = (clone $baseQuery)->get();
+            $salesforceUsersById = $this->salesforceUsersById();
+            $eligibleCommercialIds = $monthlyOperations
+                ->filter(fn (SalesforceOpportunity $row) => filled($row->owner_id))
+                ->filter(fn (SalesforceOpportunity $row) => $this->isEligibleCommercialUser(
+                    (string) $row->owner_id,
+                    $row->owner_name,
+                    $salesforceUsersById->get((string) $row->owner_id),
+                ))
+                ->pluck('owner_id')
+                ->unique();
+
+            return [
+                ...$base,
+                'opportunities_total' => $monthlyOperations->count(),
+                'sales_count' => $monthlyOperations->filter(fn (SalesforceOpportunity $row) => $this->isDelivery($row))->count(),
+                'purchases_count' => $monthlyOperations->filter(fn (SalesforceOpportunity $row) => $this->isPurchaseOperation($row))->count(),
+                'operations_count' => $monthlyOperations->count(),
+                'shared_sales_count' => $monthlyOperations
+                    ->filter(fn (SalesforceOpportunity $row) => $this->isSale($row) && filled($row->shared_delivery_id))
+                    ->count(),
+                'stock_150_count' => $monthlyOperations
+                    ->filter(fn (SalesforceOpportunity $row) => $this->isStock150Delivery($row, $formulaSettings))
+                    ->count(),
+                'reviews_count' => $this->monthlyReviews($periodStart, $periodEnd)->count(),
+                'commercials_count' => $eligibleCommercialIds->count(),
+                'synced_users_count' => SalesforceUser::query()->where('is_active', true)->count(),
+            ];
+        }
+
         $salesQuery = $this->queryWithRecordTypes(clone $baseQuery, ['venta', 'cambio']);
         $purchasesQuery = $this->queryWithRecordTypes(clone $baseQuery, ['tasacion', 'cambio']);
         $monthlyDeliveries = (clone $salesQuery)->get();
@@ -906,7 +1550,27 @@ class CommercialCommissionDashboardService
 
     private function isDelivery(SalesforceOpportunity $row): bool
     {
-        return in_array($this->normalizeRecordType($row->record_type_name), ['venta', 'cambio'], true);
+        return $this->isSale($row) || $this->isChange($row);
+    }
+
+    private function isSale(SalesforceOpportunity $row): bool
+    {
+        return $this->normalizeRecordType($row->record_type_name) === 'venta';
+    }
+
+    private function isChange(SalesforceOpportunity $row): bool
+    {
+        return $this->normalizeRecordType($row->record_type_name) === 'cambio';
+    }
+
+    private function isAppraisal(SalesforceOpportunity $row): bool
+    {
+        return str_starts_with($this->normalizeRecordType($row->record_type_name), 'tas');
+    }
+
+    private function isPurchaseOperation(SalesforceOpportunity $row): bool
+    {
+        return $this->isAppraisal($row) || $this->isChange($row);
     }
 
     private function isFaciliteaOpportunity(SalesforceOpportunity $row): bool
@@ -1076,7 +1740,7 @@ class CommercialCommissionDashboardService
     private function salesforceUsersById(): Collection
     {
         return SalesforceUser::query()
-            ->get(['salesforce_id', 'name', 'profile_name', 'is_active'])
+            ->get(['salesforce_id', 'name', 'profile_name', 'is_active', 'commission_appraiser'])
             ->filter(fn (SalesforceUser $user) => filled($user->salesforce_id))
             ->keyBy(fn (SalesforceUser $user) => (string) $user->salesforce_id);
     }
@@ -1101,7 +1765,13 @@ class CommercialCommissionDashboardService
             return false;
         }
 
-        return in_array((string) $salesforceUser->profile_name, self::COMMERCIAL_PROFILES, true);
+        return $salesforceUser->commission_appraiser === true
+            || in_array((string) $salesforceUser->profile_name, self::COMMERCIAL_PROFILES, true);
+    }
+
+    private function usesMonthlyPurchaseCommission(CarbonImmutable $periodStart): bool
+    {
+        return $periodStart->greaterThanOrEqualTo(CarbonImmutable::parse(self::MONTHLY_PURCHASE_COMMISSION_START)->startOfDay());
     }
 
     private function normalizeUserName(?string $value): string

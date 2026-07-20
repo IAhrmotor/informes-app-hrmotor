@@ -30,6 +30,7 @@ class SalesforceMonthlyUsersSyncService
                     'profile_name' => data_get($record, 'Profile.Name'),
                     'user_delegation' => data_get($record, 'USR_SEL_Delegacion__c'),
                     'is_active' => (bool) data_get($record, 'IsActive', true),
+                    'commission_appraiser' => (bool) data_get($record, 'Comision_Tasador__c', false),
                     'raw_payload' => $record,
                 ]
             );
@@ -52,6 +53,7 @@ SELECT
     Name,
     Profile.Name,
     USR_SEL_Delegacion__c,
+    Comision_Tasador__c,
     IsActive
 FROM User
 WHERE
@@ -59,6 +61,7 @@ WHERE
     AND (
         Profile.Name = 'Comerciales Partner Community'
         OR Profile.Name = 'Compra/Venta'
+        OR Comision_Tasador__c = true
     )
 SOQL;
     }

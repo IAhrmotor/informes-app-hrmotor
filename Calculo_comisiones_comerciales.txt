@@ -1,5 +1,5 @@
 CALCULO DE COMISIONES COMERCIALES
-Version: 2026-07-14
+Version: 2026-07-20
 
 0. Acceso y administracion
 
@@ -23,50 +23,56 @@ Solo se usan oportunidades de Salesforce que cumplan:
 En el resumen visible del informe solo se muestran:
 
 - comerciales o tasadores reales
-- con venta/cambio del mes o con compra liquidada en el mes
-- una compartida sola no genera fila propia si ese usuario no tiene venta/cambio o compra liquidada
+- con alguna operacion firmada en el mes; hasta mayo tambien puede aparecer por compra historica liquidada
+- una compartida sola no genera fila propia si ese usuario no tiene operacion propia del mes
 - el usuario debe existir en `salesforce_users`
 - el perfil Salesforce permitido debe ser:
   - `Compra/Venta`
   - `Comerciales Partner Community`
+- un usuario con `User.Comision_Tasador__c = true` tambien entra aunque su perfil sea distinto, siempre que este activo
 
 No se listan usuarios tecnicos ni usuarios sincronizados sin actividad.
 
 2. Conceptos que suman
 
-A. Ventas / Cambios
-- Cada entrega de tipo Venta o Cambio suma 60 EUR.
-- Si la entrega es compartida, el owner no cobra 60 EUR: cobra 30 EUR.
+A. Comerciales normales desde junio de 2026
+- Se identifican con `User.Comision_Tasador__c = false`.
+- Se pagan operaciones firmadas dentro del propio mes, sin rentabilidad de compra historica:
+  - Venta: `60 EUR`.
+  - Tasacion: `60 EUR`.
+  - Cambio: `85 EUR` total, una unica vez; no se duplica como venta y compra.
+- Las tasaciones y cambios se cobran aunque no se alcance el minimo de entregas del tramo.
+- Las ventas compartidas mantienen el reparto anterior de `30 EUR` para owner y `30 EUR` para el comercial compartido.
 
-B. Compras
-- Se busca una compra previa de Tasacion o Cambio.
-- Solo se liquida si `Procedencia_de_compra__c` del `Product2` asociado viene como `Cambio` o `Compra directa`.
-- Ademas, la fecha de compra del `Product2` (`PRO_FEC_Fecha_compra__c`) debe ser mayor al 1 de mayo de 2026.
-- El cruce intenta primero `vehicle_interest_id` y despues la matricula normalizada.
-- La matricula se normaliza para tolerar espacios y guiones.
-- La compra se liquida principalmente desde la venta del mes, usando el comprador del `Product2` asociado.
-- Si no viene comprador en `Product2`, se intenta enlazar una compra historica local como fallback.
-- La comision de compra se asigna al `Comprador_oportunidad__c` del `Product2` asociado.
-- Si `Comprador_oportunidad__c` viene vacio, el fallback es el owner de la opportunity historica.
-- La rentabilidad de compra se calcula con:
-  `Product2.PRO_DIV_Precio_de_venta__c`
-  - `Product2.PRO_DIV_Precio_de_compra__c`
-  - `Opportunity.OPO_DIV_Descuento__c` de la venta final
-  + `Opportunity.Beneficio_financiacion_comercial__c` de la venta final
-  + `Opportunity.Garant_a_Total__c` de la venta final
-- La comision de compra es:
-  rentabilidad_compra x 1.8%
+B. Tasadores desde junio de 2026
+- Se identifican exclusivamente con `User.Comision_Tasador__c = true`.
+- Compras del mes = Tasacion + Cambio. El tramo se aplica a todas las compras del mes, no es progresivo:
+  - 0 a 7: `0 EUR/op`.
+  - 8 a 10: `30 EUR/op`.
+  - 11 a 15: `60 EUR/op`.
+  - 16 a 20: `65 EUR/op`.
+  - 21 a 25: `70 EUR/op`.
+  - 26 a 30: `75 EUR/op`.
+  - 31 a 35: `80 EUR/op`.
+  - mas de 35: `85 EUR/op`.
+- Venta de tasador: `60 EUR` por operacion.
+- Financiacion de tasador: `SUM(Beneficio_financiacion_comercial__c) x 3%`.
+- Rapidez de venta de cada compra: `<30 dias = 20 EUR`, `30 a 60 dias = 10 EUR`, `>60 dias o sin venta = 0 EUR`.
+- Para rapidez se cruza primero el Product2/vehiculo relacionado y despues la matricula normalizada entre compra y venta posterior.
 
-C. Compartidas
+C. Regla historica hasta mayo de 2026
+- Solo para meses anteriores a junio de 2026 se conserva la liquidacion historica de compra al vender el vehiculo: rentabilidad de compra x `1,8%`.
+
+D. Compartidas
 - Si la oportunidad tiene copropietario en `Entrega_Compartida__c`, la entrega compartida reparte 30 EUR para el owner y 30 EUR para el comercial compartido.
 
-D. Stock +150
+E. Stock +150
 - Si la venta tiene al menos 150 dias entre:
   `Opportunity.Fecha_firma_contrato__c`
   - `Product2.PRO_FEC_Fecha_entrada__c`
   suma 10 EUR.
 
-E. Bonus +15
+F. Bonus +15
 - A partir de la entrega numero 16, cada entrega extra suma 30 EUR.
 
 3. Conceptos que restan
@@ -94,7 +100,7 @@ D. Penalizacion por financiacion
 
 4. Tramo de entregas
 
-La prima total no se cobra completa siempre. Antes se ajusta por tramo:
+La parte de ventas, compartidas, descuento, stock y bonus se ajusta por tramo. Desde junio, las compras de comercial (Tasacion/Cambio) no se reducen por tramo.
 
 - Para perfil Salesforce `Compra/Venta`, el tramo aplicado es siempre 100%.
 - Para perfil Salesforce `Comerciales Partner Community`, si aplica la tabla normal de tramos.
@@ -128,16 +134,27 @@ B. Producto garantias
 
 6. Formula resumida
 
-Prima total =
+Comercial normal desde junio:
+
+Prima base de tramo =
   ventas
-  + compras
   + compartidas
   - descuento 5%
   + stock +150
   + bonus +15
 
 Prima ajustada =
-  prima total x tramo de entregas
+  (prima base de tramo x tramo de entregas)
+  + tasaciones del mes
+  + cambios del mes
+
+Tasador desde junio:
+
+Comision final =
+  compras por tramo mensual
+  + ventas x 60 EUR
+  + beneficio financiacion x 3%
+  + incentivo rapidez
 
 Prima neta =
   max(prima ajustada - penalizaciones, 0)

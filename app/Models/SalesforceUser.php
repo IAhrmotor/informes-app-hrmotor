@@ -12,11 +12,13 @@ class SalesforceUser extends Model
         'profile_name',
         'user_delegation',
         'is_active',
+        'commission_appraiser',
         'raw_payload',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'commission_appraiser' => 'boolean',
         'raw_payload' => 'array',
     ];
 }

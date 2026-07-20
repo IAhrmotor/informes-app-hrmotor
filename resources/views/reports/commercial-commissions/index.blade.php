@@ -63,9 +63,9 @@
         'Prima ajustada' => 'Formula: prima total x tramo de entregas.',
         'Penalizaciones' => 'Suma de penalizacion por garantias, penalizacion por resenas y penalizacion por financiacion.',
         'Entregas' => 'Conteo de oportunidades de tipo Venta y Cambio del mes. Cada entrega no compartida suma '.number_format((float) ($formulaSettings['sales']['solo_delivery_amount'] ?? 60), 2, ',', '.').' EUR.',
-        'Compras liquidadas' => 'Compras historicas enlazadas a una venta del mes. Se atribuyen al Comprador_oportunidad__c del Product2 y la formula es: precio_venta - precio_compra - descuento + beneficio_financiacion + garantia. Sobre ese resultado se aplica el '.number_format(((float) ($formulaSettings['purchases']['commission_percent'] ?? 0.018)) * 100, 2, ',', '.').'%.',
+        'Compras liquidadas' => 'Hasta mayo de 2026 son compras historicas liquidadas cuando se vende el vehiculo. Desde junio de 2026: comercial cobra Tasacion 60 EUR y Cambio 85 EUR en el mes; tasador cobra Tasacion + Cambio por tramo mensual.',
         'Compartidas' => 'La entrega compartida reparte '.number_format((float) ($formulaSettings['sales']['shared_owner_delivery_amount'] ?? 30), 2, ',', '.').' EUR para owner y '.number_format((float) ($formulaSettings['sales']['shared_secondary_delivery_amount'] ?? 30), 2, ',', '.').' EUR para el comercial compartido.',
-        'Ventas' => 'Importe calculado con entregas normales a '.number_format((float) ($formulaSettings['sales']['solo_delivery_amount'] ?? 60), 2, ',', '.').' EUR y entregas compartidas owner a '.number_format((float) ($formulaSettings['sales']['shared_owner_delivery_amount'] ?? 30), 2, ',', '.').' EUR.',
+        'Ventas' => 'Desde junio de 2026: Venta 60 EUR, Tasacion 60 EUR y Cambio 85 EUR para comerciales. El tasador cobra sus ventas a 60 EUR y sus compras por tramo mensual.',
         'Stock label' => 'Suma de '.number_format((float) ($formulaSettings['stock']['amount'] ?? 10), 2, ',', '.').' EUR por cada entrega con dias de stock >= '.number_format((float) ($formulaSettings['stock']['days_threshold'] ?? 150), 0, ',', '.').'.',
         'Bonus label' => 'Suma de '.number_format((float) ($formulaSettings['bonus']['amount_per_delivery'] ?? 30), 2, ',', '.').' EUR por cada entrega por encima de la numero '.number_format((float) ($formulaSettings['bonus']['start_after_delivery'] ?? 15), 0, ',', '.').'.',
         'Prima total' => 'Formula: ventas + compras + compartidas - descuento 5% + '.$stockLabel.' + '.$bonusLabel.'.',
@@ -320,11 +320,21 @@
                                 <table id="commissionSummaryTable" data-sortable-table="commission-summary">
                                     <thead>
                                     <tr>
-                                        <th data-sortable="true" data-column="commercial_name">Comercial</th>
-                                        <th class="num" data-sortable="true" data-column="final_commission">Comision final</th>
+                                    <th data-sortable="true" data-column="commercial_name">Comercial</th>
+                                    <th data-sortable="true" data-column="commission_mode">Tipo</th>
+                                    <th class="num" data-sortable="true" data-column="final_commission">Comision final</th>
                                     <th class="num" data-sortable="true" data-column="deliveries_count">Entregas</th>
+                                    <th class="num" data-sortable="true" data-column="sales_count">N ventas</th>
                                     <th class="num" data-sortable="true" data-column="sales_amount">Ventas</th>
+                                    <th class="num" data-sortable="true" data-column="appraisals_count">N tasaciones</th>
+                                    <th class="num" data-sortable="true" data-column="appraisals_amount">Tasaciones</th>
+                                    <th class="num" data-sortable="true" data-column="changes_count">N cambios</th>
+                                    <th class="num" data-sortable="true" data-column="changes_amount">Cambios</th>
                                     <th class="num" data-sortable="true" data-column="purchases_amount">Compras</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="appraiser_purchase_tier">Tramo tasador</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="appraiser_purchase_rate">EUR/compra tasador</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="appraiser_financing_commission">Financiacion tasador 3%</th>
+                                    <th class="num is-hidden" data-sortable="true" data-column="appraiser_speed_amount">Incentivo rapidez tasador</th>
                                     <th class="num" data-sortable="true" data-column="shared_amount">Compartidas</th>
                                     <th class="num is-hidden" data-sortable="true" data-column="discount_penalty_amount">Descuento 5%</th>
                                     <th class="num is-hidden" data-sortable="true" data-column="stock_150_amount">{{ $stockLabel }}</th>
@@ -345,10 +355,20 @@
                                     @foreach ($summaryRows as $row)
                                         <tr data-commercial-summary-row data-commercial-summary-search="{{ \Illuminate\Support\Str::lower(\Illuminate\Support\Str::ascii($row['commercial_name'].' '.$row['commercial_id'])) }}">
                                             <td data-column="commercial_name">{{ $row['commercial_name'] }}</td>
+                                            <td data-column="commission_mode">{{ $row['commission_mode'] ?? 'Comercial' }}</td>
                                             <td class="num" data-column="final_commission" data-sort-value="{{ $row['final_commission'] }}"><strong>{{ number_format($row['final_commission'], 2, ',', '.') }}</strong></td>
                                         <td class="num" data-column="deliveries_count" data-sort-value="{{ $row['deliveries_count'] }}">{{ number_format($row['deliveries_count'], 0, ',', '.') }}</td>
+                                        <td class="num" data-column="sales_count" data-sort-value="{{ $row['sales_count'] ?? 0 }}">{{ number_format($row['sales_count'] ?? $row['deliveries_count'], 0, ',', '.') }}</td>
                                         <td class="num" data-column="sales_amount" data-sort-value="{{ $row['sales_amount'] }}">{{ number_format($row['sales_amount'], 2, ',', '.') }}</td>
+                                        <td class="num" data-column="appraisals_count" data-sort-value="{{ $row['appraisals_count'] ?? 0 }}">{{ number_format($row['appraisals_count'] ?? 0, 0, ',', '.') }}</td>
+                                        <td class="num" data-column="appraisals_amount" data-sort-value="{{ $row['appraisals_amount'] ?? 0 }}">{{ number_format($row['appraisals_amount'] ?? 0, 2, ',', '.') }}</td>
+                                        <td class="num" data-column="changes_count" data-sort-value="{{ $row['changes_count'] ?? 0 }}">{{ number_format($row['changes_count'] ?? 0, 0, ',', '.') }}</td>
+                                        <td class="num" data-column="changes_amount" data-sort-value="{{ $row['changes_amount'] ?? 0 }}">{{ number_format($row['changes_amount'] ?? 0, 2, ',', '.') }}</td>
                                         <td class="num" data-column="purchases_amount" data-sort-value="{{ $row['purchases_amount'] }}">{{ number_format($row['purchases_amount'], 2, ',', '.') }}</td>
+                                        <td class="num is-hidden" data-column="appraiser_purchase_tier">{{ $row['appraiser_purchase_tier'] ?? '-' }}</td>
+                                        <td class="num is-hidden" data-column="appraiser_purchase_rate" data-sort-value="{{ $row['appraiser_purchase_rate'] ?? 0 }}">{{ number_format($row['appraiser_purchase_rate'] ?? 0, 2, ',', '.') }}</td>
+                                        <td class="num is-hidden" data-column="appraiser_financing_commission" data-sort-value="{{ $row['appraiser_financing_commission'] ?? 0 }}">{{ number_format($row['appraiser_financing_commission'] ?? 0, 2, ',', '.') }}</td>
+                                        <td class="num is-hidden" data-column="appraiser_speed_amount" data-sort-value="{{ $row['appraiser_speed_amount'] ?? 0 }}">{{ number_format($row['appraiser_speed_amount'] ?? 0, 2, ',', '.') }}</td>
                                         <td class="num" data-column="shared_amount" data-sort-value="{{ $row['shared_amount'] }}">{{ number_format($row['shared_amount'], 2, ',', '.') }}</td>
                                             <td class="num is-hidden" data-column="discount_penalty_amount" data-sort-value="{{ $row['discount_penalty_amount'] }}">{{ number_format($row['discount_penalty_amount'], 2, ',', '.') }}</td>
                                         <td class="num is-hidden" data-column="stock_150_amount" data-sort-value="{{ $row['stock_150_amount'] }}">{{ number_format($row['stock_150_amount'], 2, ',', '.') }}</td>
@@ -544,11 +564,18 @@
 
                                 @foreach ($summaryRows as $row)
                                     @php
-                                        $deliveriesDetails = $row['details']['deliveries'] ?? [];
+                                        $isMonthlyOperationCommission = array_key_exists('commission_mode', $row);
+                                        $isAppraiserCommission = (bool) ($row['is_appraiser'] ?? false);
+                                        $deliveriesDetails = $isMonthlyOperationCommission
+                                            ? ($row['details']['operations'] ?? [])
+                                            : ($row['details']['deliveries'] ?? []);
                                         $purchasesDetails = $row['details']['purchases'] ?? [];
                                         $sharedDetails = $row['details']['shared'] ?? [];
                                         $stockDetails = $row['details']['stock_150'] ?? [];
                                         $reviewsDetails = $row['details']['reviews'] ?? [];
+                                        $appraiserSalesDetails = $row['details']['appraiser_sales'] ?? [];
+                                        $appraiserFinancingDetails = $row['details']['appraiser_financing'] ?? [];
+                                        $appraiserSpeedDetails = $row['details']['appraiser_speed'] ?? [];
                                     @endphp
                                     <article
                                         class="commission-commercial-panel{{ $row['commercial_id'] === $defaultCommercialId ? ' is-active' : ' is-hidden' }}"
@@ -581,16 +608,114 @@
                                                 </article>
                                             </div>
                                             <nav class="tabs-main commission-detail-tabs" aria-label="Detalle del comercial">
-                                                <button type="button" class="main-tab active" data-commercial-detail-tab-trigger="deliveries">Entregas</button>
-                                                <button type="button" class="main-tab" data-commercial-detail-tab-trigger="purchases">Compras cobradas</button>
-                                                <button type="button" class="main-tab" data-commercial-detail-tab-trigger="shared">Compartidas</button>
-                                                <button type="button" class="main-tab" data-commercial-detail-tab-trigger="stock">{{ $stockLabel }}</button>
-                                                <button type="button" class="main-tab" data-commercial-detail-tab-trigger="reviews">Resenas</button>
+                                                @if ($isAppraiserCommission)
+                                                    <button type="button" class="main-tab active" data-commercial-detail-tab-trigger="purchases">Compras tasador</button>
+                                                    <button type="button" class="main-tab" data-commercial-detail-tab-trigger="appraiser-sales">Ventas tasador</button>
+                                                    <button type="button" class="main-tab" data-commercial-detail-tab-trigger="appraiser-financing">Financiacion 3%</button>
+                                                    <button type="button" class="main-tab" data-commercial-detail-tab-trigger="appraiser-speed">Rapidez venta</button>
+                                                @else
+                                                    <button type="button" class="main-tab active" data-commercial-detail-tab-trigger="deliveries">{{ $isMonthlyOperationCommission ? 'Operaciones' : 'Entregas' }}</button>
+                                                    <button type="button" class="main-tab" data-commercial-detail-tab-trigger="purchases">{{ $isMonthlyOperationCommission ? 'Tasaciones y cambios' : 'Compras cobradas' }}</button>
+                                                    <button type="button" class="main-tab" data-commercial-detail-tab-trigger="shared">Compartidas</button>
+                                                    <button type="button" class="main-tab" data-commercial-detail-tab-trigger="stock">{{ $stockLabel }}</button>
+                                                    <button type="button" class="main-tab" data-commercial-detail-tab-trigger="reviews">Resenas</button>
+                                                @endif
                                             </nav>
                                         </section>
 
                                         <section class="commission-detail-grid">
-                                            <div class="table-shell" data-commercial-detail-tab-panel="deliveries">
+                                            @if ($isMonthlyOperationCommission && ! $isAppraiserCommission)
+                                                <div class="table-shell" data-commercial-detail-tab-panel="operations">
+                                                    <table data-sortable-table="operations-{{ $row['commercial_id'] }}">
+                                                        <thead>
+                                                        <tr><th colspan="7">Operaciones del mes</th></tr>
+                                                        <tr><th data-sortable="true">ID</th><th data-sortable="true">Oportunidad</th><th data-sortable="true">Tipo</th><th data-sortable="true">Fecha</th><th data-sortable="true">Matricula</th><th data-sortable="true">Motivo</th><th class="num" data-sortable="true">Comision</th></tr>
+                                                        </thead>
+                                                        <tbody data-sort-body="operations-{{ $row['commercial_id'] }}">
+                                                        @forelse ($deliveriesDetails as $detail)
+                                                            <tr><td>{{ $detail['opportunity_id'] }}</td><td>{{ $detail['opportunity_name'] }}</td><td>{{ $detail['record_type_name'] }}</td><td>{{ $detail['cv_signed_date'] }}</td><td>{{ $detail['vehicle_plate'] ?: '-' }}</td><td>{{ $detail['reason'] }}</td><td class="num">{{ number_format($detail['commission_amount'], 2, ',', '.') }}</td></tr>
+                                                        @empty
+                                                            <tr><td colspan="7">Sin operaciones comisionables.</td></tr>
+                                                        @endforelse
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                                <div class="table-shell is-hidden" data-commercial-detail-tab-panel="purchases">
+                                                    <table data-sortable-table="monthly-purchases-{{ $row['commercial_id'] }}">
+                                                        <thead>
+                                                        <tr><th colspan="7">Tasaciones y cambios del mes</th></tr>
+                                                        <tr><th data-sortable="true">ID</th><th data-sortable="true">Oportunidad</th><th data-sortable="true">Tipo</th><th data-sortable="true">Fecha</th><th data-sortable="true">Matricula</th><th data-sortable="true">Motivo</th><th class="num" data-sortable="true">Comision</th></tr>
+                                                        </thead>
+                                                        <tbody data-sort-body="monthly-purchases-{{ $row['commercial_id'] }}">
+                                                        @forelse ($purchasesDetails as $detail)
+                                                            <tr><td>{{ $detail['opportunity_id'] }}</td><td>{{ $detail['opportunity_name'] }}</td><td>{{ $detail['record_type_name'] }}</td><td>{{ $detail['cv_signed_date'] }}</td><td>{{ $detail['vehicle_plate'] ?: '-' }}</td><td>{{ $detail['reason'] }}</td><td class="num">{{ number_format($detail['commission_amount'], 2, ',', '.') }}</td></tr>
+                                                        @empty
+                                                            <tr><td colspan="7">Sin tasaciones ni cambios comisionables.</td></tr>
+                                                        @endforelse
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            @endif
+
+                                            @if ($isAppraiserCommission)
+                                                <div class="table-shell" data-commercial-detail-tab-panel="purchases">
+                                                    <table data-sortable-table="appraiser-purchases-{{ $row['commercial_id'] }}">
+                                                        <thead>
+                                                        <tr><th colspan="8">Compras tasador</th></tr>
+                                                        <tr><th data-sortable="true">ID</th><th data-sortable="true">Oportunidad</th><th data-sortable="true">Tipo</th><th data-sortable="true">Fecha compra</th><th data-sortable="true">Matricula</th><th data-sortable="true">Tramo</th><th class="num" data-sortable="true">EUR/op.</th><th class="num" data-sortable="true">Comision</th></tr>
+                                                        </thead>
+                                                        <tbody data-sort-body="appraiser-purchases-{{ $row['commercial_id'] }}">
+                                                        @forelse ($purchasesDetails as $detail)
+                                                            <tr><td>{{ $detail['opportunity_id'] }}</td><td>{{ $detail['opportunity_name'] }}</td><td>{{ $detail['record_type_name'] }}</td><td>{{ $detail['cv_signed_date'] }}</td><td>{{ $detail['vehicle_plate'] ?: '-' }}</td><td>{{ $detail['tier_label'] }}</td><td class="num">{{ number_format($detail['rate_per_operation'], 2, ',', '.') }}</td><td class="num">{{ number_format($detail['commission_amount'], 2, ',', '.') }}</td></tr>
+                                                        @empty
+                                                            <tr><td colspan="8">Sin compras tasador en el mes.</td></tr>
+                                                        @endforelse
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                                <div class="table-shell is-hidden" data-commercial-detail-tab-panel="appraiser-sales">
+                                                    <table data-sortable-table="appraiser-sales-{{ $row['commercial_id'] }}">
+                                                        <thead><tr><th colspan="6">Ventas tasador</th></tr><tr><th data-sortable="true">ID</th><th data-sortable="true">Oportunidad</th><th data-sortable="true">Fecha</th><th data-sortable="true">Matricula</th><th data-sortable="true">Motivo</th><th class="num" data-sortable="true">Comision</th></tr></thead>
+                                                        <tbody data-sort-body="appraiser-sales-{{ $row['commercial_id'] }}">
+                                                        @forelse ($appraiserSalesDetails as $detail)
+                                                            <tr><td>{{ $detail['opportunity_id'] }}</td><td>{{ $detail['opportunity_name'] }}</td><td>{{ $detail['cv_signed_date'] }}</td><td>{{ $detail['vehicle_plate'] ?: '-' }}</td><td>{{ $detail['reason'] }}</td><td class="num">{{ number_format($detail['commission_amount'], 2, ',', '.') }}</td></tr>
+                                                        @empty
+                                                            <tr><td colspan="6">Sin ventas tasador en el mes.</td></tr>
+                                                        @endforelse
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                                <div class="table-shell is-hidden" data-commercial-detail-tab-panel="appraiser-financing">
+                                                    <table data-sortable-table="appraiser-financing-{{ $row['commercial_id'] }}">
+                                                        <thead><tr><th colspan="5">Financiacion tasador al 3%</th></tr><tr><th data-sortable="true">ID</th><th data-sortable="true">Oportunidad</th><th data-sortable="true">Fecha</th><th class="num" data-sortable="true">Beneficio</th><th class="num" data-sortable="true">Comision 3%</th></tr></thead>
+                                                        <tbody data-sort-body="appraiser-financing-{{ $row['commercial_id'] }}">
+                                                        @forelse ($appraiserFinancingDetails as $detail)
+                                                            <tr><td>{{ $detail['opportunity_id'] }}</td><td>{{ $detail['opportunity_name'] }}</td><td>{{ $detail['cv_signed_date'] }}</td><td class="num">{{ number_format($detail['financing_benefit'], 2, ',', '.') }}</td><td class="num">{{ number_format($detail['commission_amount'], 2, ',', '.') }}</td></tr>
+                                                        @empty
+                                                            <tr><td colspan="5">Sin financiacion comisionable.</td></tr>
+                                                        @endforelse
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                                <div class="table-shell is-hidden" data-commercial-detail-tab-panel="appraiser-speed">
+                                                    <table data-sortable-table="appraiser-speed-{{ $row['commercial_id'] }}">
+                                                        <thead><tr><th colspan="8">Incentivo rapidez de venta</th></tr><tr><th data-sortable="true">Matricula</th><th data-sortable="true">Compra</th><th data-sortable="true">Fecha compra</th><th data-sortable="true">Venta posterior</th><th data-sortable="true">Fecha venta</th><th class="num" data-sortable="true">Dias</th><th data-sortable="true">Tramo</th><th class="num" data-sortable="true">Incentivo</th></tr></thead>
+                                                        <tbody data-sort-body="appraiser-speed-{{ $row['commercial_id'] }}">
+                                                        @forelse ($appraiserSpeedDetails as $detail)
+                                                            <tr><td>{{ $detail['vehicle_plate'] ?: '-' }}</td><td>{{ $detail['purchase_opportunity_name'] }}</td><td>{{ $detail['purchase_date'] }}</td><td>{{ $detail['sale_opportunity_name'] ?: '-' }}</td><td>{{ $detail['sale_date'] ?: '-' }}</td><td class="num">{{ $detail['days_to_sale'] ?? '-' }}</td><td>{{ $detail['incentive_band'] }}</td><td class="num">{{ number_format($detail['commission_amount'], 2, ',', '.') }}</td></tr>
+                                                        @empty
+                                                            <tr><td colspan="8">Sin compras para auditar rapidez.</td></tr>
+                                                        @endforelse
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            @endif
+
+                                            <div @class(['table-shell', 'is-hidden' => $isMonthlyOperationCommission]) data-commercial-detail-tab-panel="{{ $isMonthlyOperationCommission ? 'legacy-deliveries' : 'deliveries' }}">
                                                 <table data-sortable-table="deliveries-{{ $row['commercial_id'] }}">
                                                     <thead>
                                                     <tr><th colspan="6">Entregas · {{ number_format(count($deliveriesDetails), 0, ',', '.') }}</th></tr>
@@ -620,7 +745,7 @@
                                                 </table>
                                             </div>
 
-                                            <div class="table-shell is-hidden" data-commercial-detail-tab-panel="purchases">
+                                            <div @class(['table-shell', 'is-hidden' => $isMonthlyOperationCommission]) data-commercial-detail-tab-panel="{{ $isMonthlyOperationCommission ? 'legacy-purchases' : 'purchases' }}">
                                                 <table data-sortable-table="purchases-{{ $row['commercial_id'] }}">
                                                     <thead>
                                                     <tr><th colspan="7">Compras cobradas este mes · {{ number_format(count($purchasesDetails), 0, ',', '.') }}</th></tr>

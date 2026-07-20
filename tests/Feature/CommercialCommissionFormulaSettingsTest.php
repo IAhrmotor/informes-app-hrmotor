@@ -38,7 +38,7 @@ class CommercialCommissionFormulaSettingsTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_admin_puede_guardar_coeficientes_del_mes_abierto_y_el_calculo_los_aplica(): void
+    public function test_admin_puede_guardar_coeficientes_del_mes_abierto_y_el_calculo_aplica_stock_sin_alterar_operacion_fija(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 12:00:00'));
         config()->set('services.informes_auth.enabled', true);
@@ -94,7 +94,7 @@ class CommercialCommissionFormulaSettingsTest extends TestCase
         $row = collect($payload['summary_rows'])->firstWhere('commercial_id', '005-CFG');
 
         $this->assertNotNull($row);
-        $this->assertEquals(100.0, $row['sales_amount']);
+        $this->assertEquals(60.0, $row['sales_amount']);
         $this->assertEquals(25.0, $row['stock_150_amount']);
     }
 

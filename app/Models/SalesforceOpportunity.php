@@ -43,6 +43,8 @@ class SalesforceOpportunity extends Model
         'informe_rentabilidad',
         'rentabilidad_financiera',
         'vehicle_interest_id',
+        'appraised_vehicle_id',
+        'appraised_vehicle_plate',
         'vehicle_sale_price',
         'vehicle_purchase_price',
         'vehicle_purchase_source',
