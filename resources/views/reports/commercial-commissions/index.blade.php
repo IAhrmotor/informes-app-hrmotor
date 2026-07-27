@@ -739,20 +739,21 @@
                                             <div class="table-shell is-hidden" data-commercial-detail-tab-panel="financing-cancellations">
                                                 <table data-sortable-table="financing-cancellations-{{ $row['commercial_id'] }}">
                                                     <thead>
-                                                    <tr><th colspan="4">Cancelaciones anticipadas de financiacion</th></tr>
-                                                    <tr><th>Comercial</th><th>ID Salesforce</th><th>Hoja</th><th class="num">Fila</th><th class="num">Penalizacion</th></tr>
+                                                    <tr><th colspan="6">Cancelaciones anticipadas de financiacion</th></tr>
+                                                    <tr><th>Comercial</th><th>Email</th><th>ID Salesforce</th><th>Hoja</th><th class="num">Fila</th><th class="num">Penalizacion</th></tr>
                                                     </thead>
                                                     <tbody data-sort-body="financing-cancellations-{{ $row['commercial_id'] }}">
                                                     @forelse ($financingCancellationDetails as $detail)
                                                         <tr>
                                                             <td>{{ $detail['commercial_name'] }}</td>
+                                                            <td>{{ $detail['commercial_email'] }}</td>
                                                             <td>{{ $detail['commercial_id'] }}</td>
                                                             <td>{{ $detail['source_sheet'] ?: '-' }}</td>
                                                             <td class="num">{{ $detail['source_row'] ?: '-' }}</td>
                                                             <td class="num commission-penalty-text">{{ number_format($detail['amount'], 2, ',', '.') }}</td>
                                                         </tr>
                                                     @empty
-                                                        <tr><td colspan="4">Sin cancelaciones anticipadas cargadas para este comercial.</td></tr>
+                                                        <tr><td colspan="6">Sin cancelaciones anticipadas cargadas para este comercial.</td></tr>
                                                     @endforelse
                                                     </tbody>
                                                 </table>

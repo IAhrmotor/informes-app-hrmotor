@@ -39,9 +39,9 @@ class CommercialFinancingPenaltyService
         $unmatchedRows = [];
 
         foreach ($penalties as $penalty) {
-            $user = filled($penalty->salesforce_user_id)
-                ? $usersById->get((string) $penalty->salesforce_user_id)
-                : $usersByEmail->get($this->emailKey($penalty->commercial_email));
+            $user = filled($penalty->commercial_email)
+                ? $usersByEmail->get($this->emailKey($penalty->commercial_email))
+                : $usersById->get((string) $penalty->salesforce_user_id);
 
             if (! $user instanceof SalesforceUser) {
                 $unmatchedRows[] = [

@@ -66,11 +66,11 @@ class CommercialFinancingPenaltyImportController extends Controller
                 ->values(),
             'unmatchedPenalties' => $activePenalties
                 ->filter(function (CommercialFinancingPenalty $penalty) use ($salesforceUserIds, $salesforceEmails): bool {
-                    if (filled($penalty->salesforce_user_id)) {
-                        return ! $salesforceUserIds->has((string) $penalty->salesforce_user_id);
+                    if (filled($penalty->commercial_email)) {
+                        return ! $salesforceEmails->has(Str::lower(trim((string) $penalty->commercial_email)));
                     }
 
-                    return ! $salesforceEmails->has(Str::lower(trim((string) $penalty->commercial_email)));
+                    return ! $salesforceUserIds->has((string) $penalty->salesforce_user_id);
                 })
                 ->sortByDesc('created_at')
                 ->take(20)

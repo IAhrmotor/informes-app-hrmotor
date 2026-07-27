@@ -727,3 +727,11 @@ php artisan optimize:clear
 - No se filtra por owner activo ni por `Gestion de venta` en el volumen de Delegaciones.
 - La asignacion de la entrega se hace por `Tienda_de_entrega__c` normalizada; se excluyen etiquetas no operativas como `General`, `Sin Zona` y `Call Fontellas`.
 - Boton disponible en Delegaciones: `Descargar CSV de auditoria de entregas`. El fichero usa la misma seleccion y expone Opportunity, fecha de firma, tipo, stage, motivo de inclusion, owner, tienda de entrega-compra, delegacion calculada, gestion de venta, cuenta y vehiculo.
+
+## 20. Penalizaciones por email comercial
+
+- El formato operativo de penalizaciones pasa a usar como obligatorios `Mes comision`, `Email comercial` y `descontar comercial 4%`.
+- `Nombre comercial` e `ID Salesforce` son opcionales y solo se conservan como datos de auditoria.
+- El match se hace por correo normalizado contra `salesforce_users.email`, sincronizado desde `User.Email` de Salesforce; el ID Salesforce resuelto se guarda junto a la penalizacion para trazabilidad.
+- Los archivos antiguos que solo tengan ID y nombre se mantienen como compatibilidad, pero Cristina debe usar el formato por email.
+- Tras desplegar, ejecutar `php artisan migrate --force` y `php artisan salesforce:sync-monthly-commercial --days=120 -vvv` para poblar los correos locales.

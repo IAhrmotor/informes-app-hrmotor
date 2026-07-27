@@ -6,16 +6,16 @@ const file = await FileBlob.load(inputPath);
 const workbook = await SpreadsheetFile.importXlsx(file);
 const inspection = await workbook.inspect({
     kind: "table",
-    range: "Penalizaciones!A1:E10",
+    range: "Penalizaciones!A1:F10",
     include: "values,formulas",
     tableMaxRows: 10,
-    tableMaxCols: 5,
+    tableMaxCols: 6,
 });
 console.log(inspection.ndjson);
 
 const preview = await workbook.render({
     sheetName: "Penalizaciones",
-    range: "A1:E33",
+    range: "A1:F33",
     scale: 1,
     format: "png",
 });

@@ -19,7 +19,7 @@ class CommercialFinancingPenaltyImportService
         'amount' => ['descontarcomercial4', 'descontaracomercial4'],
     ];
 
-    private const IDENTITY_COLUMNS = [
+    private const OPTIONAL_IDENTITY_COLUMNS = [
         'commercial_id' => ['idcomercial', 'idsalesforce', 'idsalesforcecomercial', 'salesforceid'],
         'commercial_name' => ['nombrecomercial', 'nombre'],
     ];
@@ -95,9 +95,9 @@ class CommercialFinancingPenaltyImportService
                 CommercialFinancingPenalty::query()->create([
                     'import_id' => $import->id,
                     'commission_month' => $row['commission_month'],
-                    'commercial_email' => $salesforceUser?->email ?? $row['commercial_email'],
+                    'commercial_email' => $row['commercial_email'] ?? $salesforceUser?->email,
                     'commercial_name' => $row['commercial_name'] ?? $salesforceUser?->name,
-                    'salesforce_user_id' => $row['commercial_salesforce_id'] ?? $salesforceUser?->salesforce_id,
+                    'salesforce_user_id' => $salesforceUser?->salesforce_id ?? $row['commercial_salesforce_id'],
                     'amount' => $row['amount'],
                     'source_sheet' => $row['source_sheet'],
                     'source_row' => $row['source_row'],
@@ -117,13 +117,13 @@ class CommercialFinancingPenaltyImportService
 
     private function matchedUser(array $row, $usersById, $usersByEmail): ?SalesforceUser
     {
-        $commercialId = trim((string) ($row['commercial_salesforce_id'] ?? ''));
+        $email = $this->emailKey($row['commercial_email'] ?? null);
 
-        if ($commercialId !== '') {
-            return $usersById->get($commercialId);
+        if ($email !== '') {
+            return $usersByEmail->get($email);
         }
 
-        return $usersByEmail->get($this->emailKey($row['commercial_email'] ?? null));
+        return $usersById->get(trim((string) ($row['commercial_salesforce_id'] ?? '')));
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -152,7 +152,7 @@ class CommercialFinancingPenaltyImportService
                 $commercialName = $commercialNameColumn !== null
                     ? trim((string) ($row[$commercialNameColumn] ?? ''))
                     : '';
-                $email = $header['mode'] === 'email'
+                $email = $header['columns']['email'] !== null
                     ? trim((string) ($row[$header['columns']['email']] ?? ''))
                     : '';
                 $monthValue = $row[$header['columns']['month']] ?? null;
@@ -164,14 +164,6 @@ class CommercialFinancingPenaltyImportService
 
                 $month = $this->parseMonth($monthValue);
                 $amount = $this->parseAmount($amountValue);
-
-                if ($header['mode'] === 'identity' && $commercialId === '') {
-                    $errors[] = "{$sheet['name']} fila {$sourceRow}: ID comercial obligatorio.";
-                }
-
-                if ($header['mode'] === 'identity' && $commercialName === '') {
-                    $errors[] = "{$sheet['name']} fila {$sourceRow}: Nombre comercial obligatorio.";
-                }
 
                 if ($header['mode'] === 'email' && ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
                     $errors[] = "{$sheet['name']} fila {$sourceRow}: Email comercial no valido.";
@@ -189,9 +181,9 @@ class CommercialFinancingPenaltyImportService
                     break 2;
                 }
 
-                $validIdentity = $header['mode'] === 'identity'
-                    ? $commercialId !== '' && $commercialName !== ''
-                    : filter_var($email, FILTER_VALIDATE_EMAIL);
+                $validIdentity = $header['mode'] === 'email'
+                    ? filter_var($email, FILTER_VALIDATE_EMAIL)
+                    : $commercialId !== '' && $commercialName !== '';
 
                 if ($month === null || $amount === null || ! $validIdentity) {
                     continue;
@@ -218,7 +210,7 @@ class CommercialFinancingPenaltyImportService
         }
 
         if (! $foundHeader) {
-            throw new CommercialFinancingPenaltyImportException('Faltan las columnas requeridas: Mes comision, Nombre comercial, ID comercial y descontar comercial 4%.');
+            throw new CommercialFinancingPenaltyImportException('Faltan las columnas requeridas: Mes comision, Email comercial y descontar comercial 4%.');
         }
 
         if ($errors !== []) {
@@ -254,7 +246,7 @@ class CommercialFinancingPenaltyImportService
             }
 
             $identityColumns = [];
-            foreach (self::IDENTITY_COLUMNS as $field => $headers) {
+            foreach (self::OPTIONAL_IDENTITY_COLUMNS as $field => $headers) {
                 foreach ($headers as $header) {
                     if (array_key_exists($header, $normalized)) {
                         $identityColumns[$field] = $normalized[$header];
@@ -263,22 +255,26 @@ class CommercialFinancingPenaltyImportService
                 }
             }
 
-            if (count($identityColumns) === count(self::IDENTITY_COLUMNS)) {
-                return [
-                    'row_index' => $rowIndex,
-                    'mode' => 'identity',
-                    'columns' => array_merge($baseColumns, $identityColumns),
-                ];
-            }
-
             foreach (self::LEGACY_EMAIL_COLUMNS as $header) {
                 if (array_key_exists($header, $normalized)) {
                     return [
                         'row_index' => $rowIndex,
                         'mode' => 'email',
-                        'columns' => array_merge($baseColumns, ['email' => $normalized[$header], 'commercial_id' => null, 'commercial_name' => null]),
+                        'columns' => array_merge($baseColumns, [
+                            'email' => $normalized[$header],
+                            'commercial_id' => $identityColumns['commercial_id'] ?? null,
+                            'commercial_name' => $identityColumns['commercial_name'] ?? null,
+                        ]),
                     ];
                 }
+            }
+
+            if (count($identityColumns) === count(self::OPTIONAL_IDENTITY_COLUMNS)) {
+                return [
+                    'row_index' => $rowIndex,
+                    'mode' => 'identity',
+                    'columns' => array_merge($baseColumns, $identityColumns, ['email' => null]),
+                ];
             }
         }
 
