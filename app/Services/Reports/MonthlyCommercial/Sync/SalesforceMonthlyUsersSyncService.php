@@ -27,6 +27,7 @@ class SalesforceMonthlyUsersSyncService
                 ['salesforce_id' => data_get($record, 'Id')],
                 [
                     'name' => data_get($record, 'Name'),
+                    'email' => data_get($record, 'Email'),
                     'profile_name' => data_get($record, 'Profile.Name'),
                     'user_delegation' => data_get($record, 'USR_SEL_Delegacion__c'),
                     'is_active' => (bool) data_get($record, 'IsActive', true),
@@ -51,6 +52,7 @@ class SalesforceMonthlyUsersSyncService
 SELECT
     Id,
     Name,
+    Email,
     Profile.Name,
     USR_SEL_Delegacion__c,
     Comision_Tasador__c,

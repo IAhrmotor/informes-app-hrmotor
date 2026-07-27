@@ -4,6 +4,7 @@
         ['key' => 'users', 'label' => 'Usuarios', 'route' => 'reports.users.index'],
         ['key' => 'access-settings', 'label' => 'Permisos informes', 'route' => 'reports.access-settings.index'],
         ['key' => 'commission-settings', 'label' => 'Coeficientes comisiones', 'route' => 'reports.commission-settings.index'],
+        ['key' => 'commission-penalties', 'label' => 'Penalizaciones financieras', 'route' => 'reports.commission-penalties.index'],
     ];
 @endphp
 

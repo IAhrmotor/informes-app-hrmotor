@@ -10,6 +10,7 @@ use App\Http\Controllers\Reports\Campaigns\CampaignDashboardController;
 use App\Http\Controllers\Reports\Campaigns\CampaignDashboardDataController;
 use App\Http\Controllers\Reports\CommercialCommissions\CommercialCommissionDashboardController;
 use App\Http\Controllers\Reports\CommercialCommissions\CommercialCommissionFormulaSettingsController;
+use App\Http\Controllers\Reports\CommercialCommissions\CommercialFinancingPenaltyImportController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
 use App\Http\Controllers\Reports\Settings\ReportAccessManagementController;
@@ -133,5 +134,12 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/', [CommercialCommissionFormulaSettingsController::class, 'index'])->name('index');
             Route::post('/unlock', [CommercialCommissionFormulaSettingsController::class, 'unlock'])->name('unlock');
             Route::put('/', [CommercialCommissionFormulaSettingsController::class, 'update'])->name('update');
+        });
+
+    Route::prefix('informes/penalizaciones-financiacion')
+        ->name('reports.commission-penalties.')
+        ->group(function () {
+            Route::get('/', [CommercialFinancingPenaltyImportController::class, 'index'])->name('index');
+            Route::post('/', [CommercialFinancingPenaltyImportController::class, 'store'])->name('store');
         });
 });

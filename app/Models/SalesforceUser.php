@@ -9,6 +9,7 @@ class SalesforceUser extends Model
     protected $fillable = [
         'salesforce_id',
         'name',
+        'email',
         'profile_name',
         'user_delegation',
         'is_active',

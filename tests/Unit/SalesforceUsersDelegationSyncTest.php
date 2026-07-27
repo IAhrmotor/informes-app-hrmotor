@@ -25,6 +25,7 @@ class SalesforceUsersDelegationSyncTest extends TestCase
                 return [[
                     'Id' => '005-commercial',
                     'Name' => 'Comercial Madrid',
+                    'Email' => 'comercial.madrid@hrmotor.com',
                     'Profile' => ['Name' => 'Compra/Venta'],
                     'USR_SEL_Delegacion__c' => 'HR MOTOR MADRID',
                     'Comision_Tasador__c' => true,
@@ -41,6 +42,7 @@ class SalesforceUsersDelegationSyncTest extends TestCase
             'user_delegation' => 'HR MOTOR MADRID',
         ]);
         $this->assertSame('HR MOTOR MADRID', SalesforceUser::first()->user_delegation);
+        $this->assertSame('comercial.madrid@hrmotor.com', SalesforceUser::first()->email);
         $this->assertTrue(SalesforceUser::first()->commission_appraiser);
     }
 }

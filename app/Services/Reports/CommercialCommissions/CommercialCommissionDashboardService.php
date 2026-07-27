@@ -89,9 +89,16 @@ class CommercialCommissionDashboardService
         'opportunity_cv_signed_date',
     ];
 
+    /** @var array<string, Collection<int, SalesforceOpportunity>> */
+    private array $purchaseCandidatesCache = [];
+
+    /** @var array<string, array<int, array<string, mixed>>> */
+    private array $purchaseCommissionDetailsCache = [];
+
     public function __construct(
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
         private readonly CommercialCommissionDelegationReviewsService $delegationReviews,
+        private readonly CommercialFinancingPenaltyService $financingPenalties,
     ) {
     }
 
@@ -108,9 +115,15 @@ class CommercialCommissionDashboardService
         $formulaSettings = $this->formulaConfig->forMonth($selectedMonth);
         $blockingIssues = $this->blockingIssues($selectedMonth);
         $diagnostics = $this->diagnostics($selectedMonth, $periodStart, $periodEnd, $blockingIssues, $formulaSettings);
+        $financingPenaltyLedger = $this->financingPenalties->forMonth($selectedMonth);
         $warnings = $this->warnings($diagnostics);
+
+        if (($financingPenaltyLedger['unmatched_rows'] ?? []) !== []) {
+            $warnings[] = 'Hay '.count($financingPenaltyLedger['unmatched_rows']).' penalizaciones de cancelacion sin match por email con Salesforce. No se han aplicado.';
+        }
+
         $summaryRows = $blockingIssues === [] && $includeSummaryRows
-            ? $this->buildSummaryRows($periodStart, $periodEnd, $formulaSettings, $includeDetails)
+            ? $this->buildSummaryRows($periodStart, $periodEnd, $formulaSettings, $financingPenaltyLedger, $includeDetails)
             : [];
         $delegationRows = $blockingIssues === [] && $includeDelegationRows
             ? $this->buildDelegationRows($periodStart, $periodEnd, $formulaSettings)
@@ -142,7 +155,12 @@ class CommercialCommissionDashboardService
         }
 
         $formulaSettings = $this->formulaConfig->forMonth($selectedMonth);
-        $row = collect($this->buildSummaryRows($periodStart, $periodEnd, $formulaSettings))
+        $row = collect($this->buildSummaryRows(
+            $periodStart,
+            $periodEnd,
+            $formulaSettings,
+            $this->financingPenalties->forMonth($selectedMonth),
+        ))
             ->firstWhere('commercial_id', $commercialId);
 
         if (! is_array($row)) {
@@ -162,20 +180,22 @@ class CommercialCommissionDashboardService
         CarbonImmutable $periodStart,
         CarbonImmutable $periodEnd,
         array $formulaSettings,
+        array $financingPenaltyLedger,
         bool $includeDetails = true,
     ): array
     {
         if ($this->usesMonthlyPurchaseCommission($periodStart)) {
-            return $this->buildMonthlyOperationSummaryRows($periodStart, $periodEnd, $formulaSettings, $includeDetails);
+            return $this->buildMonthlyOperationSummaryRows($periodStart, $periodEnd, $formulaSettings, $financingPenaltyLedger, $includeDetails);
         }
 
-        return $this->buildLegacySummaryRows($periodStart, $periodEnd, $formulaSettings, $includeDetails);
+        return $this->buildLegacySummaryRows($periodStart, $periodEnd, $formulaSettings, $financingPenaltyLedger, $includeDetails);
     }
 
     private function buildLegacySummaryRows(
         CarbonImmutable $periodStart,
         CarbonImmutable $periodEnd,
         array $formulaSettings,
+        array $financingPenaltyLedger,
         bool $includeDetails = true,
     ): array
     {
@@ -187,6 +207,8 @@ class CommercialCommissionDashboardService
             ->groupBy(fn (SalesforceReview $review) => (string) $review->opportunity_owner_id);
         $purchaseDetails = $this->resolvePurchaseCommissionDetails($deliveries, $formulaSettings);
         $purchaseDetailsByOwner = collect($purchaseDetails)->groupBy('purchase_owner_id');
+        $financingPenaltyAmounts = $financingPenaltyLedger['amounts_by_user_id'] ?? [];
+        $financingPenaltyDetails = $financingPenaltyLedger['details_by_user_id'] ?? [];
         $sharedDeliveriesByCoowner = $deliveries
             ->filter(fn (SalesforceOpportunity $row) => filled($row->shared_delivery_id))
             ->groupBy(fn (SalesforceOpportunity $row) => (string) $row->shared_delivery_id);
@@ -210,9 +232,14 @@ class CommercialCommissionDashboardService
             }
         }
 
+        foreach (array_keys($financingPenaltyAmounts) as $userId) {
+            $userNames[$userId] = $salesforceUsersById->get($userId)?->name ?? $userId;
+        }
+
         $userIds = collect()
             ->merge($operationsByOwner->keys())
             ->merge($purchaseDetailsByOwner->keys())
+            ->merge(array_keys($financingPenaltyAmounts))
             ->filter()
             ->unique()
             ->filter(function (string $userId) use ($userNames, $salesforceUsersById): bool {
@@ -232,6 +259,8 @@ class CommercialCommissionDashboardService
             $formulaSettings,
             $userNames,
             $salesforceUsersById,
+            $financingPenaltyAmounts,
+            $financingPenaltyDetails,
             $includeDetails,
         ): array {
             /** @var Collection<int, SalesforceOpportunity> $ownerOperations */
@@ -246,6 +275,7 @@ class CommercialCommissionDashboardService
             $ownerStockDeliveries = $ownerDeliveries
                 ->filter(fn (SalesforceOpportunity $row) => $this->isStock150Delivery($row, $formulaSettings))
                 ->values();
+            $financingCancellationPenaltyAmount = (float) ($financingPenaltyAmounts[$userId] ?? 0);
 
             $deliveriesCount = $ownerDeliveries->count();
             $operationsCount = $ownerOperations->count();
@@ -332,7 +362,7 @@ class CommercialCommissionDashboardService
             $guaranteeProductPercent = $this->guaranteeProductPercent($guaranteeTotal, $formulaSettings);
             $guaranteeProductAmount = round($guaranteeTotal * $guaranteeProductPercent, 2);
 
-            $finalCommission = round($primaAfterPenalties + $financingProductAmount + $guaranteeProductAmount, 2);
+            $finalCommission = round($primaAfterPenalties + $financingProductAmount + $guaranteeProductAmount + $financingCancellationPenaltyAmount, 2);
 
             $row = [
                 'commercial_id' => $userId,
@@ -361,6 +391,7 @@ class CommercialCommissionDashboardService
                 'total_vehicle_amount' => $totalVehicleAmount,
                 'financing_percentage' => $financingPercentage,
                 'financing_penalty' => $financingPenalty,
+                'financing_cancellation_penalty_amount' => $financingCancellationPenaltyAmount,
                 'total_penalties' => $totalPenalties,
                 'prima_after_penalties' => $primaAfterPenalties,
                 'financing_benefit_total' => $financingBenefitTotal,
@@ -375,6 +406,7 @@ class CommercialCommissionDashboardService
                     'shared' => [],
                     'stock_150' => [],
                     'reviews' => [],
+                    'financing_cancellations' => [],
                 ],
             ];
 
@@ -420,6 +452,7 @@ class CommercialCommissionDashboardService
                             'opportunity_owner_name' => $row->opportunity_owner_name,
                             'review_owner_name' => $row->owner_name,
                         ])->values()->all(),
+                    'financing_cancellations' => $financingPenaltyDetails[$userId] ?? [],
                 ];
             }
 
@@ -437,6 +470,7 @@ class CommercialCommissionDashboardService
         CarbonImmutable $periodStart,
         CarbonImmutable $periodEnd,
         array $formulaSettings,
+        array $financingPenaltyLedger,
         bool $includeDetails,
     ): array {
         $monthlyOperations = $this->monthlyOpportunities($periodStart, $periodEnd)->get();
@@ -445,6 +479,8 @@ class CommercialCommissionDashboardService
             ->get()
             ->groupBy(fn (SalesforceReview $review) => (string) $review->opportunity_owner_id);
         $salesforceUsersById = $this->salesforceUsersById();
+        $financingPenaltyAmounts = $financingPenaltyLedger['amounts_by_user_id'] ?? [];
+        $financingPenaltyDetails = $financingPenaltyLedger['details_by_user_id'] ?? [];
         $userNames = [];
 
         foreach ($monthlyOperations as $operation) {
@@ -455,6 +491,10 @@ class CommercialCommissionDashboardService
             if ($this->isSale($operation) && filled($operation->shared_delivery_id)) {
                 $userNames[(string) $operation->shared_delivery_id] = $operation->shared_delivery_name ?: $operation->shared_delivery_id;
             }
+        }
+
+        foreach (array_keys($financingPenaltyAmounts) as $userId) {
+            $userNames[$userId] = $salesforceUsersById->get($userId)?->name ?? $userId;
         }
 
         $sharedSalesByCoowner = $monthlyOperations
@@ -473,6 +513,7 @@ class CommercialCommissionDashboardService
         $userIds = collect()
             ->merge($operationsByOwner->keys())
             ->merge($sharedSalesByCoowner->keys())
+            ->merge(array_keys($financingPenaltyAmounts))
             ->filter()
             ->unique()
             ->filter(function (string $userId) use ($userNames, $salesforceUsersById): bool {
@@ -492,6 +533,8 @@ class CommercialCommissionDashboardService
             $formulaSettings,
             $userNames,
             $salesforceUsersById,
+            $financingPenaltyAmounts,
+            $financingPenaltyDetails,
             $includeDetails,
         ): array {
             /** @var Collection<int, SalesforceOpportunity> $ownerOperations */
@@ -504,6 +547,8 @@ class CommercialCommissionDashboardService
                     $userNames[$userId] ?? $userId,
                     $ownerOperations,
                     collect($appraiserSpeedByOwner->get($userId, collect()))->values(),
+                    (float) ($financingPenaltyAmounts[$userId] ?? 0),
+                    $financingPenaltyDetails[$userId] ?? [],
                     $includeDetails,
                 );
             }
@@ -516,6 +561,8 @@ class CommercialCommissionDashboardService
                 $reviewsByOwner->get($userId, collect())->values(),
                 $sharedSalesByCoowner->get($userId, collect())->values(),
                 $formulaSettings,
+                (float) ($financingPenaltyAmounts[$userId] ?? 0),
+                $financingPenaltyDetails[$userId] ?? [],
                 $includeDetails,
             );
         })->sortByDesc('final_commission')->values()->all();
@@ -529,6 +576,8 @@ class CommercialCommissionDashboardService
         Collection $ownerReviews,
         Collection $sharedSales,
         array $formulaSettings,
+        float $financingCancellationPenaltyAmount,
+        array $financingCancellationDetails,
         bool $includeDetails,
     ): array {
         $operationDetails = $ownerOperations
@@ -629,6 +678,7 @@ class CommercialCommissionDashboardService
             'total_vehicle_amount' => $totalVehicleAmount,
             'financing_percentage' => $financingPercentage,
             'financing_penalty' => $financingPenalty,
+            'financing_cancellation_penalty_amount' => $financingCancellationPenaltyAmount,
             'total_penalties' => $totalPenalties,
             'prima_after_penalties' => $primaAfterPenalties,
             'financing_benefit_total' => $financingBenefitTotal,
@@ -636,13 +686,14 @@ class CommercialCommissionDashboardService
             'financing_product_amount' => $financingProductAmount,
             'guarantee_product_percent' => round($guaranteeProductPercent * 100, 2),
             'guarantee_product_amount' => $guaranteeProductAmount,
-            'final_commission' => round($primaAfterPenalties + $financingProductAmount + $guaranteeProductAmount, 2),
+            'final_commission' => round($primaAfterPenalties + $financingProductAmount + $guaranteeProductAmount + $financingCancellationPenaltyAmount, 2),
             'details' => $includeDetails ? [
                 'operations' => $operationDetails->all(),
                 'purchases' => $appraisalDetails->merge($changeDetails)->values()->all(),
                 'shared' => $sharedSales->map(fn (SalesforceOpportunity $row) => $this->sharedCommissionDetail($row, $formulaSettings))->values()->all(),
                 'stock_150' => $ownerStockDeliveries->map(fn (SalesforceOpportunity $row) => $this->stockCommissionDetail($row, $formulaSettings))->values()->all(),
                 'reviews' => $this->reviewCommissionDetails($ownerReviews),
+                'financing_cancellations' => $financingCancellationDetails,
                 'appraiser_sales' => [],
                 'appraiser_financing' => [],
                 'appraiser_speed' => [],
@@ -655,6 +706,8 @@ class CommercialCommissionDashboardService
         string $userName,
         Collection $ownerOperations,
         Collection $speedDetails,
+        float $financingCancellationPenaltyAmount,
+        array $financingCancellationDetails,
         bool $includeDetails,
     ): array {
         $purchases = $ownerOperations->filter(fn (SalesforceOpportunity $row) => $this->isPurchaseOperation($row))->values();
@@ -689,14 +742,16 @@ class CommercialCommissionDashboardService
             'prima_total' => round($purchasesAmount + $salesAmount, 2),
             'prima_adjusted' => round($purchasesAmount + $salesAmount, 2),
             'prima_after_penalties' => round($purchasesAmount + $salesAmount, 2),
+            'financing_cancellation_penalty_amount' => $financingCancellationPenaltyAmount,
             'financing_benefit_total' => $financingBenefitTotal,
-            'final_commission' => round($purchasesAmount + $salesAmount + $financingCommissionAmount + $speedAmount, 2),
+            'final_commission' => round($purchasesAmount + $salesAmount + $financingCommissionAmount + $speedAmount + $financingCancellationPenaltyAmount, 2),
             'details' => $includeDetails ? [
                 'operations' => [],
                 'purchases' => $purchases->map(fn (SalesforceOpportunity $row) => $this->appraiserPurchaseDetail($row, $tierLabel, $purchaseRate))->values()->all(),
                 'shared' => [],
                 'stock_150' => [],
                 'reviews' => [],
+                'financing_cancellations' => $financingCancellationDetails,
                 'appraiser_sales' => $sales->map(fn (SalesforceOpportunity $row) => $this->appraiserSaleDetail($row))->values()->all(),
                 'appraiser_financing' => $ownerOperations->map(fn (SalesforceOpportunity $row) => $this->appraiserFinancingDetail($row))->values()->all(),
                 'appraiser_speed' => $speedDetails->all(),
@@ -741,6 +796,7 @@ class CommercialCommissionDashboardService
             'total_vehicle_amount' => 0.0,
             'financing_percentage' => 0.0,
             'financing_penalty' => 0.0,
+            'financing_cancellation_penalty_amount' => 0.0,
             'total_penalties' => 0.0,
             'prima_after_penalties' => 0.0,
             'financing_benefit_total' => 0.0,
@@ -767,6 +823,7 @@ class CommercialCommissionDashboardService
             'shared' => [],
             'stock_150' => [],
             'reviews' => [],
+            'financing_cancellations' => [],
             'appraiser_sales' => [],
             'appraiser_financing' => [],
             'appraiser_speed' => [],
@@ -1143,6 +1200,12 @@ class CommercialCommissionDashboardService
             return [];
         }
 
+        $cacheKey = $this->purchaseDetailsCacheKey($monthlyDeliveries, $formulaSettings);
+
+        if (array_key_exists($cacheKey, $this->purchaseCommissionDetailsCache)) {
+            return $this->purchaseCommissionDetailsCache[$cacheKey];
+        }
+
         $plates = $monthlyDeliveries->pluck('vehicle_plate')->filter()->unique()->values();
         $vehicleInterestIds = $monthlyDeliveries->pluck('vehicle_interest_id')->filter()->unique()->values();
         $normalizedPlates = $monthlyDeliveries
@@ -1238,7 +1301,7 @@ class CommercialCommissionDashboardService
             ];
         }
 
-        return $details;
+        return $this->purchaseCommissionDetailsCache[$cacheKey] = $details;
     }
 
     private function monthlyOpportunities(
@@ -1592,6 +1655,12 @@ class CommercialCommissionDashboardService
             return collect();
         }
 
+        $cacheKey = $this->purchaseCandidatesCacheKey($plates, $vehicleInterestIds, $normalizedPlates);
+
+        if (array_key_exists($cacheKey, $this->purchaseCandidatesCache)) {
+            return $this->purchaseCandidatesCache[$cacheKey];
+        }
+
         $query = SalesforceOpportunity::query()
             ->select(self::OPPORTUNITY_COLUMNS)
             ->where('cv_signed', true)
@@ -1619,7 +1688,29 @@ class CommercialCommissionDashboardService
 
         $this->applyRecordTypeFilter($query, ['tasacion', 'cambio']);
 
-        return $query->get();
+        return $this->purchaseCandidatesCache[$cacheKey] = $query->get();
+    }
+
+    private function purchaseDetailsCacheKey(Collection $monthlyDeliveries, array $formulaSettings): string
+    {
+        return hash('sha256', implode('|', [
+            $monthlyDeliveries
+                ->pluck('salesforce_id')
+                ->filter()
+                ->map(fn (mixed $id): string => (string) $id)
+                ->sort()
+                ->implode(','),
+            (string) data_get($formulaSettings, 'purchases.commission_percent', 0),
+        ]));
+    }
+
+    private function purchaseCandidatesCacheKey(Collection $plates, Collection $vehicleInterestIds, Collection $normalizedPlates): string
+    {
+        return hash('sha256', implode('|', [
+            $plates->map(fn (mixed $plate): string => (string) $plate)->sort()->implode(','),
+            $vehicleInterestIds->map(fn (mixed $id): string => (string) $id)->sort()->implode(','),
+            $normalizedPlates->map(fn (mixed $plate): string => (string) $plate)->sort()->implode(','),
+        ]));
     }
 
     private function normalizeRecordType(?string $value): string

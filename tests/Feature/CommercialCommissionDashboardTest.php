@@ -77,6 +77,39 @@ class CommercialCommissionDashboardTest extends TestCase
             ->assertDontSee('Diagnostico de datos base');
     }
 
+    public function test_dashboard_renderiza_el_detalle_mensual_de_junio_sin_tablas_historicas(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        SalesforceUser::create([
+            'salesforce_id' => '005-MONTHLY-DETAIL',
+            'name' => 'Comercial Mensual',
+            'profile_name' => 'Compra/Venta',
+            'is_active' => true,
+        ]);
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'OPP-MONTHLY-DETAIL',
+            'name' => 'Venta mensual',
+            'owner_id' => '005-MONTHLY-DETAIL',
+            'owner_name' => 'Comercial Mensual',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-10',
+        ]);
+
+        $this->withSession([
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_DIRECTOR,
+            'report_user_email' => 'director@hrmotor.com',
+        ])
+            ->get('/informes/comisiones-comerciales?month=2026-06')
+            ->assertOk()
+            ->assertSee('Operaciones del mes')
+            ->assertSee('Venta mensual');
+    }
+
     public function test_area_manager_y_viewer_no_autorizados_no_ven_la_tab_ni_pueden_entrar(): void
     {
         config()->set('services.informes_auth.enabled', true);

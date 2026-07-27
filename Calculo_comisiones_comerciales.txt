@@ -627,3 +627,36 @@ F. Configuracion por periodo
   - delegacion con datos reales pero sin manager asignado
   - objetivo a cero
   - configuracion incompleta
+
+## 15. Penalizaciones por cancelaciones anticipadas de financiacion
+
+- Se cargan desde Administracion > `Penalizaciones financieras`.
+- La carga esta restringida actualmente al rol `Administrador` y queda preparada como permiso centralizado para ampliarlo a otro rol si negocio lo decide.
+- El archivo debe ser `.xlsx` e incluir las columnas:
+  - `Mes comision`
+  - `Email comercial`
+  - `descontar comercial 4%`
+- Se aceptan variaciones de mayusculas, acentos y el encabezado `descontar a comercial 4%`.
+- El email es la unica clave de match. No se usa nombre, matricula ni fecha de cancelacion para calcular la penalizacion.
+- Cada fila se guarda como importe negativo. Si el Excel trae un importe positivo, se interpreta igualmente como descuento y se muestra negativo.
+- Varias filas del mismo email y mes se suman.
+- Una nueva carga sustituye las penalizaciones activas de los meses contenidos en ese fichero. Las importaciones previas quedan conservadas en historial, pero desactivadas para no duplicar importes.
+- Las filas sin email Salesforce coincidente se mantienen como incidencia y no se aplican hasta corregir el email o resincronizar usuarios.
+- El informe de Comerciales muestra la columna `Pen. cancelacion fin.` y la resta directamente de `Comision final` para comerciales y tasadores.
+- El detalle individual incorpora la pestana `Cancelaciones financiacion` con email, hoja, fila e importe importado.
+
+### Datos y despliegue
+
+- Nuevas migraciones:
+  - `2026_07_27_100000_add_email_to_salesforce_users_table.php`
+  - `2026_07_27_101000_create_commercial_financing_penalty_imports_table.php`
+  - `2026_07_27_102000_create_commercial_financing_penalties_table.php`
+- El sync de usuarios Salesforce incorpora `User.Email`; despues de desplegar ejecutar:
+
+```bash
+php artisan migrate --force
+php artisan salesforce:sync-monthly-commercial --days=120 -vvv
+php artisan salesforce:sync-opportunities --days=120 -vvv
+```
+
+- El Excel historico `CANCELACIONES ANTICIPADAS.xlsx` se uso como referencia de estructura, pero no se puede importar hasta anadir `Mes comision` y `Email comercial` en cada fila.

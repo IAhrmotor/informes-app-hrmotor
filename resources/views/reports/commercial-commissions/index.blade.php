@@ -345,6 +345,7 @@
                                     <th class="num" data-sortable="true" data-column="reviews_penalty">Pen. resenas</th>
                                     <th class="num is-hidden" data-sortable="true" data-column="reviews_percentage">% resenas</th>
                                     <th class="num" data-sortable="true" data-column="financing_penalty">Pen. financiacion</th>
+                                    <th class="num" data-sortable="true" data-column="financing_cancellation_penalty_amount">Pen. cancelacion fin.</th>
                                     <th class="num is-hidden" data-sortable="true" data-column="financing_percentage">% financiacion</th>
                                     <th class="num" data-sortable="true" data-column="total_penalties">Penalizaciones</th>
                                     <th class="num is-hidden" data-sortable="true" data-column="financing_product_amount">Prod. financiacion</th>
@@ -379,6 +380,7 @@
                                         <td class="num commission-penalty-text" data-column="reviews_penalty" data-sort-value="{{ $row['reviews_penalty'] }}">{{ number_format($row['reviews_penalty'], 2, ',', '.') }}</td>
                                         <td class="num is-hidden" data-column="reviews_percentage" data-sort-value="{{ $row['reviews_percentage'] }}">{{ number_format($row['reviews_percentage'], 2, ',', '.') }}%</td>
                                         <td class="num commission-penalty-text" data-column="financing_penalty" data-sort-value="{{ $row['financing_penalty'] }}">{{ number_format($row['financing_penalty'], 2, ',', '.') }}</td>
+                                        <td class="num commission-penalty-text" data-column="financing_cancellation_penalty_amount" data-sort-value="{{ $row['financing_cancellation_penalty_amount'] ?? 0 }}">{{ number_format($row['financing_cancellation_penalty_amount'] ?? 0, 2, ',', '.') }}</td>
                                         <td class="num is-hidden" data-column="financing_percentage" data-sort-value="{{ $row['financing_percentage'] }}">{{ number_format($row['financing_percentage'], 2, ',', '.') }}%</td>
                                         <td class="num commission-penalty-text" data-column="total_penalties" data-sort-value="{{ $row['total_penalties'] }}">{{ number_format($row['total_penalties'], 2, ',', '.') }}</td>
                                         <td class="num is-hidden" data-column="financing_product_amount" data-sort-value="{{ $row['financing_product_amount'] }}">{{ number_format($row['financing_product_amount'], 2, ',', '.') }}</td>
@@ -573,6 +575,7 @@
                                         $sharedDetails = $row['details']['shared'] ?? [];
                                         $stockDetails = $row['details']['stock_150'] ?? [];
                                         $reviewsDetails = $row['details']['reviews'] ?? [];
+                                        $financingCancellationDetails = $row['details']['financing_cancellations'] ?? [];
                                         $appraiserSalesDetails = $row['details']['appraiser_sales'] ?? [];
                                         $appraiserFinancingDetails = $row['details']['appraiser_financing'] ?? [];
                                         $appraiserSpeedDetails = $row['details']['appraiser_speed'] ?? [];
@@ -603,6 +606,10 @@
                                                     <strong class="commission-penalty-text">{{ number_format($row['total_penalties'], 2, ',', '.') }} EUR</strong>
                                                 </article>
                                                 <article class="card campaign-context-card">
+                                                    <span>Pen. cancelacion fin.</span>
+                                                    <strong class="commission-penalty-text">{{ number_format($row['financing_cancellation_penalty_amount'] ?? 0, 2, ',', '.') }} EUR</strong>
+                                                </article>
+                                                <article class="card campaign-context-card">
                                                     <span>Prod. financiacion</span>
                                                     <strong>{{ number_format($row['financing_product_amount'], 2, ',', '.') }} EUR</strong>
                                                 </article>
@@ -620,6 +627,7 @@
                                                     <button type="button" class="main-tab" data-commercial-detail-tab-trigger="stock">{{ $stockLabel }}</button>
                                                     <button type="button" class="main-tab" data-commercial-detail-tab-trigger="reviews">Resenas</button>
                                                 @endif
+                                                <button type="button" class="main-tab" data-commercial-detail-tab-trigger="financing-cancellations">Cancelaciones financiacion</button>
                                             </nav>
                                         </section>
 
@@ -715,7 +723,29 @@
                                                 </div>
                                             @endif
 
-                                            <div @class(['table-shell', 'is-hidden' => $isMonthlyOperationCommission]) data-commercial-detail-tab-panel="{{ $isMonthlyOperationCommission ? 'legacy-deliveries' : 'deliveries' }}">
+                                            <div class="table-shell is-hidden" data-commercial-detail-tab-panel="financing-cancellations">
+                                                <table data-sortable-table="financing-cancellations-{{ $row['commercial_id'] }}">
+                                                    <thead>
+                                                    <tr><th colspan="4">Cancelaciones anticipadas de financiacion</th></tr>
+                                                    <tr><th>Email comercial</th><th>Hoja</th><th class="num">Fila</th><th class="num">Penalizacion</th></tr>
+                                                    </thead>
+                                                    <tbody data-sort-body="financing-cancellations-{{ $row['commercial_id'] }}">
+                                                    @forelse ($financingCancellationDetails as $detail)
+                                                        <tr>
+                                                            <td>{{ $detail['commercial_email'] }}</td>
+                                                            <td>{{ $detail['source_sheet'] ?: '-' }}</td>
+                                                            <td class="num">{{ $detail['source_row'] ?: '-' }}</td>
+                                                            <td class="num commission-penalty-text">{{ number_format($detail['amount'], 2, ',', '.') }}</td>
+                                                        </tr>
+                                                    @empty
+                                                        <tr><td colspan="4">Sin cancelaciones anticipadas cargadas para este comercial.</td></tr>
+                                                    @endforelse
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            @if (! $isMonthlyOperationCommission)
+                                            <div class="table-shell" data-commercial-detail-tab-panel="deliveries">
                                                 <table data-sortable-table="deliveries-{{ $row['commercial_id'] }}">
                                                     <thead>
                                                     <tr><th colspan="6">Entregas · {{ number_format(count($deliveriesDetails), 0, ',', '.') }}</th></tr>
@@ -745,7 +775,7 @@
                                                 </table>
                                             </div>
 
-                                            <div @class(['table-shell', 'is-hidden' => $isMonthlyOperationCommission]) data-commercial-detail-tab-panel="{{ $isMonthlyOperationCommission ? 'legacy-purchases' : 'purchases' }}">
+                                            <div class="table-shell is-hidden" data-commercial-detail-tab-panel="purchases">
                                                 <table data-sortable-table="purchases-{{ $row['commercial_id'] }}">
                                                     <thead>
                                                     <tr><th colspan="7">Compras cobradas este mes · {{ number_format(count($purchasesDetails), 0, ',', '.') }}</th></tr>
@@ -776,6 +806,7 @@
                                                     </tbody>
                                                 </table>
                                             </div>
+                                            @endif
 
                                             <div class="table-shell is-hidden" data-commercial-detail-tab-panel="shared">
                                                 <table data-sortable-table="shared-{{ $row['commercial_id'] }}">
