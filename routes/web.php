@@ -109,6 +109,7 @@ Route::middleware('reports.auth')->group(function () {
         ->group(function () {
             Route::get('/', [CommercialCommissionDashboardController::class, 'index'])->name('index');
             Route::get('/export/call-center-missing-captador.csv', [CommercialCommissionDashboardController::class, 'exportCallCenterMissingCaptadorCsv'])->name('export.call-center-missing-captador');
+            Route::get('/export/delegation-deliveries.csv', [CommercialCommissionDashboardController::class, 'exportDelegationDeliveriesCsv'])->name('export.delegation-deliveries');
         });
 
     Route::prefix('informes/usuarios')

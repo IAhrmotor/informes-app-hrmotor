@@ -106,6 +106,7 @@ class CommercialCommissionDashboardTest extends TestCase
         ])
             ->get('/informes/comisiones-comerciales?month=2026-06')
             ->assertOk()
+            ->assertSee('Datos actualizados:')
             ->assertSee('Operaciones del mes')
             ->assertSee('Venta mensual');
     }
@@ -318,6 +319,42 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEqualsWithDelta(0.0030, $zone['guarantee_incentive'], 0.0001);
         $this->assertEqualsWithDelta(15.0, $zone['block_3_commission'], 0.01);
         $this->assertEqualsWithDelta(251.25, $zone['final_commission'], 0.01);
+    }
+
+    public function test_dashboard_financieros_aplica_regla_especial_configurable_a_nuria_e_irene_desde_junio(): void
+    {
+        foreach ([
+            ['id' => 'FIN-NURIA', 'zone' => 'Zona Nuria', 'commission' => 19219.76],
+            ['id' => 'FIN-IRENE', 'zone' => 'Zona Irene', 'commission' => 53029.32],
+        ] as $operation) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $operation['id'],
+                'name' => $operation['zone'],
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'opportunity_record_type_formula' => 'Venta',
+                'financial_zone' => $operation['zone'],
+                'opo_for_importe_total' => 100000,
+                'importe_financiado' => 50000,
+                'financial_commission' => $operation['commission'],
+                'financial_discount' => 0,
+                'garantia_total' => 0,
+                'interest_rate' => null,
+                'cv_signed_date' => '2026-06-15',
+            ]);
+        }
+
+        $payload = app(\App\Services\Reports\FinancialCommissions\FinancialCommissionDashboardService::class)
+            ->build('2026-06');
+
+        $nuria = collect($payload['summary_rows'])->firstWhere('zone_name', 'Zona Nuria');
+        $irene = collect($payload['summary_rows'])->firstWhere('zone_name', 'Zona Irene');
+
+        $this->assertEqualsWithDelta(0.005, $nuria['special_zone_percent'], 0.0001);
+        $this->assertEqualsWithDelta(96.10, $nuria['final_commission'], 0.01);
+        $this->assertEqualsWithDelta(265.15, $irene['final_commission'], 0.01);
+        $this->assertSame(0.0, $nuria['block_1_commission']);
+        $this->assertSame('Tipo de interes vacio', $payload['detail_rows'][0]['profitability_reason']);
     }
 
     public function test_dashboard_calcula_resumen_real_de_comisiones(): void
@@ -1193,6 +1230,60 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(7.0, $delegation['financing_profitability_percentage']);
     }
 
+    public function test_auditoria_de_entregas_delegaciones_exporta_la_misma_logica_del_cuadro(): void
+    {
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'AUDIT-SALE',
+            'name' => 'Venta Zaragoza',
+            'owner_id' => '005-AUDIT',
+            'owner_name' => 'Owner Zaragoza',
+            'owner_is_active' => false,
+            'owner_delegation' => 'HR MOTOR BILBAO',
+            'report_owner_delegation' => 'HR MOTOR BILBAO',
+            'delivery_store' => 'HR MOTOR ZARAGOZA',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-10',
+            'gestion_de_venta' => true,
+            'vehicle_plate' => '0001AUD',
+        ]);
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'AUDIT-FACILITEA',
+            'name' => 'Operacion Facilitea Zaragoza',
+            'owner_id' => '005-AUDIT',
+            'owner_name' => 'Owner Zaragoza',
+            'owner_is_active' => true,
+            'owner_delegation' => 'General',
+            'delivery_store' => 'HR MOTOR ZARAGOZA',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Tasacion',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-12',
+        ]);
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'AUDIT-EXCLUDED',
+            'name' => 'Tasacion normal Zaragoza',
+            'owner_id' => '005-AUDIT',
+            'owner_name' => 'Owner Zaragoza',
+            'owner_delegation' => 'HR MOTOR ZARAGOZA',
+            'delivery_store' => 'HR MOTOR ZARAGOZA',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Tasacion',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-13',
+        ]);
+
+        $audit = app(CommercialCommissionDashboardService::class)->delegationDeliveriesAudit('2026-06');
+
+        $this->assertTrue($audit['ready']);
+        $this->assertCount(2, $audit['rows']);
+        $this->assertSame('Zaragoza', $audit['rows'][0]['delegation_calculated']);
+        $this->assertSame('Venta', $audit['rows'][0]['inclusion_reason']);
+        $this->assertSame('Facilitea por nombre', $audit['rows'][1]['inclusion_reason']);
+        $this->assertTrue($audit['rows'][1]['is_facilitea']);
+    }
+
     public function test_dashboard_delegaciones_calcula_kpis_financieros_desde_owner_delegation_normalizada(): void
     {
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
@@ -1730,6 +1821,100 @@ class CommercialCommissionDashboardTest extends TestCase
 
         $this->assertNotNull($delegation);
         $this->assertSame(1, $delegation['deliveries_count']);
+    }
+
+    public function test_dashboard_delegaciones_asigna_facilitea_general_a_tienda_entrega_y_calcula_porcentaje_financiado(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-06', [
+            'delegations' => [
+                'goals' => [
+                    'zaragoza' => [
+                        'label' => 'Zaragoza',
+                        'target_deliveries' => 3,
+                    ],
+                ],
+            ],
+        ]);
+
+        foreach ([
+            ['id' => 'ZAR-REG-1', 'name' => 'Venta Zaragoza', 'record_type' => 'Venta', 'owner_delegation' => 'Zaragoza', 'report_owner_delegation' => 'Zaragoza', 'delivery_store' => 'Zaragoza', 'financed' => 450, 'total' => 1000],
+            ['id' => 'ZAR-FAC-1', 'name' => 'FACILITEA Zaragoza 1', 'record_type' => 'Otro', 'owner_delegation' => 'General', 'report_owner_delegation' => 'CAPTADOR U ONLINE', 'delivery_store' => 'HR MOTOR ZARAGOZA', 'financed' => 120, 'total' => 200],
+            ['id' => 'ZAR-FAC-2', 'name' => 'FACILITEA Zaragoza 2', 'record_type' => 'Otro', 'owner_delegation' => 'Sin Zona', 'report_owner_delegation' => 'CAPTADOR U ONLINE', 'delivery_store' => 'HR MOTOR ZARAGOZA', 'financed' => 120, 'total' => 200],
+        ] as $operation) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $operation['id'],
+                'name' => $operation['name'],
+                'owner_id' => '005-ZAR',
+                'owner_name' => 'Equipo Facilitea',
+                'owner_is_active' => true,
+                'owner_delegation' => $operation['owner_delegation'],
+                'report_owner_delegation' => $operation['report_owner_delegation'],
+                'delivery_store' => $operation['delivery_store'],
+                'stage_name' => 'Contrato',
+                'record_type_name' => $operation['record_type'],
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-10',
+                'importe_financiado' => $operation['financed'],
+                'opo_for_importe_total' => $operation['total'],
+            ]);
+        }
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $zaragoza = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'Zaragoza');
+
+        $this->assertNotNull($zaragoza);
+        $this->assertSame(3, $zaragoza['deliveries_count']);
+        $this->assertEquals(45.0, $zaragoza['financed_amount_percentage']);
+        $this->assertEquals(10.0, $zaragoza['financed_amount_bonus_percent']);
+    }
+
+    public function test_dashboard_area_manager_asigna_facilitea_general_a_tienda_entrega(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-06', [
+            'area_manager' => [
+                'assignments' => [
+                    'badajoz' => [
+                        'label' => 'Badajoz',
+                        'manager_key' => 'david-baeza',
+                        'active' => true,
+                        'objectives' => [
+                            'deliveries' => 2,
+                            'benefit' => 100,
+                            'guarantee' => 50,
+                            'purchases' => 0,
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        foreach ([
+            ['id' => 'DAV-DEL-1', 'name' => 'Venta Badajoz', 'record_type' => 'Venta'],
+            ['id' => 'DAV-FAC-1', 'name' => 'FACILITEA Badajoz', 'record_type' => 'Otro'],
+        ] as $operation) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $operation['id'],
+                'name' => $operation['name'],
+                'owner_id' => '005-GENERAL',
+                'owner_name' => 'General',
+                'owner_is_active' => true,
+                'owner_delegation' => 'General',
+                'delivery_store' => 'HR MOTOR BADAJOZ',
+                'stage_name' => 'Contrato',
+                'record_type_name' => $operation['record_type'],
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-12',
+                'beneficio_financiacion_comercial' => 100,
+                'garantia_total' => 50,
+            ]);
+        }
+
+        $payload = app(AreaManagerCommissionDashboardService::class)->build('2026-06');
+        $david = collect($payload['summary_rows'])->firstWhere('manager_key', 'david-baeza');
+
+        $this->assertNotNull($david);
+        $this->assertSame(1.0, $david['deliveries_actual']);
+        $this->assertSame(0.0, $david['purchases_actual']);
     }
 
     public function test_dashboard_area_manager_imputa_entregas_y_compras_por_owner_delegation(): void

@@ -130,6 +130,8 @@ class CommercialCommissionFormulaConfigService
     private const EXCLUDED_NORMALIZED_DELEGATIONS = [
         'call fontellas',
         'general',
+        'sin zona',
+        'sin delegacion',
     ];
 
     private const NORMALIZED_DELEGATION_ALIASES = [
@@ -311,6 +313,7 @@ class CommercialCommissionFormulaConfigService
                     ['min_percent' => 15.6, 'incentive' => 0.0050],
                     ['min_percent' => 14.5, 'incentive' => 0.0040],
                     ['min_percent' => 14.0, 'incentive' => 0.0020],
+                    ['min_percent' => 13.0, 'incentive' => 0.0010],
                     ['min_percent' => 0.0, 'incentive' => 0.0],
                 ],
                 'guarantee_percentage_brackets' => [
@@ -368,6 +371,12 @@ class CommercialCommissionFormulaConfigService
         $defaults = $this->defaults();
         $defaults['delegations']['goals'] = $this->inheritedDelegationGoals($selectedMonth);
         $defaults['area_manager']['assignments'] = $this->inheritedAreaManagerAssignments($selectedMonth);
+        $defaults['financials']['special_zone_net_commission_percentages'] = $selectedMonth->greaterThanOrEqualTo(
+            CarbonImmutable::parse('2026-06-01')
+        ) ? [
+            ['zone_name' => 'Zona Nuria', 'percent' => 0.005],
+            ['zone_name' => 'Zona Irene', 'percent' => 0.005],
+        ] : [];
 
         if (! Schema::hasTable('commercial_commission_month_settings')) {
             return $defaults;
@@ -670,6 +679,14 @@ class CommercialCommissionFormulaConfigService
             ->filter()
             ->values()
             ->all();
+        $settings['financials']['special_zone_net_commission_percentages'] = collect($settings['financials']['special_zone_net_commission_percentages'] ?? [])
+            ->map(fn (array $row): array => [
+                'zone_name' => trim((string) ($row['zone_name'] ?? '')),
+                'percent' => max(0, min(1, (float) ($row['percent'] ?? 0))),
+            ])
+            ->filter(fn (array $row): bool => $row['zone_name'] !== '')
+            ->values()
+            ->all();
 
         return $settings;
     }
@@ -815,6 +832,16 @@ class CommercialCommissionFormulaConfigService
             ->sortByDesc('min_percent')
             ->values()
             ->all();
+
+        // Preserve the newly confirmed 13%-13.99% profitability band in
+        // configurations saved before the band existed.
+        if (
+            collect($defaults)->contains(fn (array $row): bool => (float) ($row['min_percent'] ?? -1) === 13.0)
+            && ! collect($normalized)->contains(fn (array $row): bool => (float) ($row['min_percent'] ?? -1) === 13.0)
+        ) {
+            $normalized[] = ['min_percent' => 13.0, 'incentive' => 0.0010];
+            $normalized = collect($normalized)->sortByDesc('min_percent')->values()->all();
+        }
 
         return $normalized === [] ? $defaults : $normalized;
     }

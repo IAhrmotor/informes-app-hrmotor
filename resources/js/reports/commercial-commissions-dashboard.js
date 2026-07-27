@@ -28,6 +28,7 @@ const commissionSummaryColumnDefinitions = [
     { key: 'reviews_penalty', label: 'Pen. resenas', alwaysVisible: true },
     { key: 'reviews_percentage', label: '% resenas' },
     { key: 'financing_penalty', label: 'Pen. financiacion', alwaysVisible: true },
+    { key: 'financing_cancellation_penalty_amount', label: 'Pen. cancelacion fin.', alwaysVisible: true },
     { key: 'financing_percentage', label: '% financiacion' },
     { key: 'total_penalties', label: 'Penalizaciones', alwaysVisible: true },
     { key: 'financing_product_amount', label: 'Prod. financiacion' },

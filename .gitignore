@@ -28,4 +28,5 @@ Thumbs.db
 /storage/app/imports/*
 *.diff
 *.zip
-Handoff.md
+/outputs/penalizaciones-financiacion-plantilla/node_modules
+/Handoff.md

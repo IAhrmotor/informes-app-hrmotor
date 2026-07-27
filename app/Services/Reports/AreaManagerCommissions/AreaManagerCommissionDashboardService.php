@@ -481,11 +481,23 @@ class AreaManagerCommissionDashboardService
         $ownerId = (string) ($opportunity->owner_id ?? '');
         $ownerDelegation = $ownerId !== '' ? (string) ($ownerDelegations->get($ownerId) ?? '') : '';
 
+        if ($ownerDelegation === '') {
+            $ownerDelegation = $this->normalizeAreaManagerOwnerDelegation($opportunity->owner_delegation);
+        }
+
+        // Facilitea owned by General/Sin zona belongs to the actual delivery store.
+        if (
+            $this->isFaciliteaOperation($opportunity)
+            && ! $this->formulaConfig->shouldIncludeDelegationLabel($ownerDelegation)
+        ) {
+            return $this->formulaConfig->deliveryDelegationLabel($opportunity->delivery_store);
+        }
+
         if ($ownerDelegation !== '') {
             return $ownerDelegation;
         }
 
-        return $this->normalizeAreaManagerOwnerDelegation($opportunity->owner_delegation);
+        return '';
     }
 
     private function ownerDelegationsByOwnerId(Collection $operations): Collection

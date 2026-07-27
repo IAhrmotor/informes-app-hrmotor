@@ -14,11 +14,17 @@ use Illuminate\Support\Str;
 
 class CommercialFinancingPenaltyImportService
 {
-    private const REQUIRED_COLUMNS = [
-        'email' => ['emailcomercial', 'email'],
+    private const BASE_COLUMNS = [
         'month' => ['mescomision', 'mes'],
         'amount' => ['descontarcomercial4', 'descontaracomercial4'],
     ];
+
+    private const IDENTITY_COLUMNS = [
+        'commercial_id' => ['idcomercial', 'idsalesforce', 'idsalesforcecomercial', 'salesforceid'],
+        'commercial_name' => ['nombrecomercial', 'nombre'],
+    ];
+
+    private const LEGACY_EMAIL_COLUMNS = ['emailcomercial', 'email'];
 
     public function __construct(
         private readonly XlsxWorkbookReader $reader,
@@ -34,15 +40,28 @@ class CommercialFinancingPenaltyImportService
             throw new CommercialFinancingPenaltyImportException('No se encontraron filas de penalizacion con las columnas requeridas.');
         }
 
-        $emails = collect($rows)->pluck('commercial_email')->unique()->values();
-        $usersByEmail = SalesforceUser::query()
-            ->whereIn('email', $emails)
-            ->get(['salesforce_id', 'email'])
+        $commercialIds = collect($rows)->pluck('commercial_salesforce_id')->filter()->unique()->values();
+        $emails = collect($rows)->pluck('commercial_email')->filter()->unique()->values();
+        $users = SalesforceUser::query()
+            ->where(function ($query) use ($commercialIds, $emails): void {
+                if ($commercialIds->isNotEmpty()) {
+                    $query->whereIn('salesforce_id', $commercialIds);
+                }
+
+                if ($emails->isNotEmpty()) {
+                    $method = $commercialIds->isNotEmpty() ? 'orWhereIn' : 'whereIn';
+                    $query->{$method}('email', $emails);
+                }
+            })
+            ->get(['salesforce_id', 'name', 'email']);
+        $usersById = $users->keyBy(fn (SalesforceUser $user): string => (string) $user->salesforce_id);
+        $usersByEmail = $users
+            ->filter(fn (SalesforceUser $user): bool => filled($user->email))
             ->keyBy(fn (SalesforceUser $user): string => $this->emailKey($user->email));
         $months = collect($rows)->pluck('commission_month')->unique()->sort()->values()->all();
         $storedPath = $file->store('commission-penalties');
 
-        $import = DB::transaction(function () use ($file, $storedPath, $uploadedByReportUserId, $rows, $usersByEmail, $months): CommercialFinancingPenaltyImport {
+        $import = DB::transaction(function () use ($file, $storedPath, $uploadedByReportUserId, $rows, $usersById, $usersByEmail, $months): CommercialFinancingPenaltyImport {
             // A newer file is the source of truth for each period it contains.
             CommercialFinancingPenalty::query()
                 ->where('is_active', true)
@@ -58,7 +77,7 @@ class CommercialFinancingPenaltyImportService
                 ]);
 
             $unmatchedRows = collect($rows)
-                ->filter(fn (array $row): bool => ! $usersByEmail->has($this->emailKey($row['commercial_email'])))
+                ->filter(fn (array $row): bool => $this->matchedUser($row, $usersById, $usersByEmail) === null)
                 ->count();
             $import = CommercialFinancingPenaltyImport::query()->create([
                 'uploaded_by_report_user_id' => $uploadedByReportUserId,
@@ -71,13 +90,14 @@ class CommercialFinancingPenaltyImportService
             ]);
 
             foreach ($rows as $row) {
-                $salesforceUser = $usersByEmail->get($this->emailKey($row['commercial_email']));
+                $salesforceUser = $this->matchedUser($row, $usersById, $usersByEmail);
 
                 CommercialFinancingPenalty::query()->create([
                     'import_id' => $import->id,
                     'commission_month' => $row['commission_month'],
-                    'commercial_email' => $row['commercial_email'],
-                    'salesforce_user_id' => $salesforceUser?->salesforce_id,
+                    'commercial_email' => $salesforceUser?->email ?? $row['commercial_email'],
+                    'commercial_name' => $row['commercial_name'] ?? $salesforceUser?->name,
+                    'salesforce_user_id' => $row['commercial_salesforce_id'] ?? $salesforceUser?->salesforce_id,
                     'amount' => $row['amount'],
                     'source_sheet' => $row['source_sheet'],
                     'source_row' => $row['source_row'],
@@ -93,6 +113,17 @@ class CommercialFinancingPenaltyImportService
             'import' => $import,
             'months' => $months,
         ];
+    }
+
+    private function matchedUser(array $row, $usersById, $usersByEmail): ?SalesforceUser
+    {
+        $commercialId = trim((string) ($row['commercial_salesforce_id'] ?? ''));
+
+        if ($commercialId !== '') {
+            return $usersById->get($commercialId);
+        }
+
+        return $usersByEmail->get($this->emailKey($row['commercial_email'] ?? null));
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -113,18 +144,36 @@ class CommercialFinancingPenaltyImportService
 
             foreach (array_slice($sheet['rows'], $header['row_index'] + 1) as $relativeIndex => $row) {
                 $sourceRow = (int) ($row['__row_number'] ?? ($header['row_index'] + $relativeIndex + 2));
-                $email = trim((string) ($row[$header['columns']['email']] ?? ''));
+                $commercialIdColumn = $header['columns']['commercial_id'];
+                $commercialNameColumn = $header['columns']['commercial_name'];
+                $commercialId = $commercialIdColumn !== null
+                    ? trim((string) ($row[$commercialIdColumn] ?? ''))
+                    : '';
+                $commercialName = $commercialNameColumn !== null
+                    ? trim((string) ($row[$commercialNameColumn] ?? ''))
+                    : '';
+                $email = $header['mode'] === 'email'
+                    ? trim((string) ($row[$header['columns']['email']] ?? ''))
+                    : '';
                 $monthValue = $row[$header['columns']['month']] ?? null;
                 $amountValue = $row[$header['columns']['amount']] ?? null;
 
-                if ($email === '' && blank($monthValue) && blank($amountValue)) {
+                if ($commercialId === '' && $commercialName === '' && $email === '' && blank($monthValue) && blank($amountValue)) {
                     continue;
                 }
 
                 $month = $this->parseMonth($monthValue);
                 $amount = $this->parseAmount($amountValue);
 
-                if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                if ($header['mode'] === 'identity' && $commercialId === '') {
+                    $errors[] = "{$sheet['name']} fila {$sourceRow}: ID comercial obligatorio.";
+                }
+
+                if ($header['mode'] === 'identity' && $commercialName === '') {
+                    $errors[] = "{$sheet['name']} fila {$sourceRow}: Nombre comercial obligatorio.";
+                }
+
+                if ($header['mode'] === 'email' && ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
                     $errors[] = "{$sheet['name']} fila {$sourceRow}: Email comercial no valido.";
                 }
 
@@ -140,18 +189,26 @@ class CommercialFinancingPenaltyImportService
                     break 2;
                 }
 
-                if ($month === null || $amount === null || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $validIdentity = $header['mode'] === 'identity'
+                    ? $commercialId !== '' && $commercialName !== ''
+                    : filter_var($email, FILTER_VALIDATE_EMAIL);
+
+                if ($month === null || $amount === null || ! $validIdentity) {
                     continue;
                 }
 
                 $rows[] = [
                     'commission_month' => $month->toDateString(),
-                    'commercial_email' => Str::lower($email),
+                    'commercial_salesforce_id' => $commercialId !== '' ? $commercialId : null,
+                    'commercial_name' => $commercialName !== '' ? $commercialName : null,
+                    'commercial_email' => $email !== '' ? Str::lower($email) : null,
                     // A positive input is also a discount; keep one negative sign in all cases.
                     'amount' => round(-abs($amount), 2),
                     'source_sheet' => $sheet['name'],
                     'source_row' => $sourceRow,
                     'raw_values' => [
+                        'id_comercial' => $commercialId,
+                        'nombre_comercial' => $commercialName,
                         'email_comercial' => $email,
                         'mes_comision' => $monthValue,
                         'descontar_comercial_4' => $amountValue,
@@ -161,7 +218,7 @@ class CommercialFinancingPenaltyImportService
         }
 
         if (! $foundHeader) {
-            throw new CommercialFinancingPenaltyImportException('Faltan las columnas requeridas: Mes comision, Email comercial y descontar comercial 4%.');
+            throw new CommercialFinancingPenaltyImportException('Faltan las columnas requeridas: Mes comision, Nombre comercial, ID comercial y descontar comercial 4%.');
         }
 
         if ($errors !== []) {
@@ -181,19 +238,47 @@ class CommercialFinancingPenaltyImportService
                 $normalized[$this->headerKey($value)] = $column;
             }
 
-            $columns = [];
+            $baseColumns = [];
 
-            foreach (self::REQUIRED_COLUMNS as $field => $headers) {
+            foreach (self::BASE_COLUMNS as $field => $headers) {
                 foreach ($headers as $header) {
                     if (array_key_exists($header, $normalized)) {
-                        $columns[$field] = $normalized[$header];
+                        $baseColumns[$field] = $normalized[$header];
                         break;
                     }
                 }
             }
 
-            if (count($columns) === count(self::REQUIRED_COLUMNS)) {
-                return ['row_index' => $rowIndex, 'columns' => $columns];
+            if (count($baseColumns) !== count(self::BASE_COLUMNS)) {
+                continue;
+            }
+
+            $identityColumns = [];
+            foreach (self::IDENTITY_COLUMNS as $field => $headers) {
+                foreach ($headers as $header) {
+                    if (array_key_exists($header, $normalized)) {
+                        $identityColumns[$field] = $normalized[$header];
+                        break;
+                    }
+                }
+            }
+
+            if (count($identityColumns) === count(self::IDENTITY_COLUMNS)) {
+                return [
+                    'row_index' => $rowIndex,
+                    'mode' => 'identity',
+                    'columns' => array_merge($baseColumns, $identityColumns),
+                ];
+            }
+
+            foreach (self::LEGACY_EMAIL_COLUMNS as $header) {
+                if (array_key_exists($header, $normalized)) {
+                    return [
+                        'row_index' => $rowIndex,
+                        'mode' => 'email',
+                        'columns' => array_merge($baseColumns, ['email' => $normalized[$header], 'commercial_id' => null, 'commercial_name' => null]),
+                    ];
+                }
             }
         }
 

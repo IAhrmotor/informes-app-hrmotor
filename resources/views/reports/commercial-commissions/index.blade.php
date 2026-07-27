@@ -30,6 +30,9 @@
     $contactCenterTabUrl = request()->fullUrlWithQuery(['tab' => 'contact-center']);
     $areaManagerTabUrl = request()->fullUrlWithQuery(['tab' => 'area-manager']);
     $financialsTabUrl = request()->fullUrlWithQuery(['tab' => 'financials']);
+    $delegationDeliveriesAuditUrl = route('reports.commercial-commissions.export.delegation-deliveries', [
+        'month' => $dashboard['month'] ?? null,
+    ]);
     $stockLabel = 'Stock +'.(int) ($formulaSettings['stock']['days_threshold'] ?? 150);
     $bonusLabel = 'Bonus +'.(int) ($formulaSettings['bonus']['start_after_delivery'] ?? 15);
     $defaultCommercialId = $summaryRows->first()['commercial_id'] ?? null;
@@ -77,7 +80,13 @@
 @endphp
 <body class="campaigns-report commercial-commissions-report">
 <div class="wrap">
-    @include('reports.partials.report-header', ['currentReport' => 'commercial-commissions', 'subtitle' => 'Comisiones mensuales'])
+    @include('reports.partials.report-header', [
+        'currentReport' => 'commercial-commissions',
+        'subtitle' => 'Comisiones mensuales',
+        'updatedBadgeText' => ! empty($dashboard['last_updated_label'])
+            ? 'Datos actualizados: '.$dashboard['last_updated_label']
+            : 'Datos actualizados: pendiente',
+    ])
 
     <main>
         <section class="tab-panel active">
@@ -430,7 +439,11 @@
                         </section>
 
                         <div class="small commission-delegation-note">
-                            La prima final de delegacion se calcula como <strong>rentabilidad total x % sobre objetivo</strong> cuando la delegacion alcanza al menos el 85% del objetivo. La comision fija de reseñas se aplica antes de los bonus porcentuales.
+                            Entregas: oportunidades con contrato CV firmado y fecha de firma en el mes, no cerradas perdidas, de tipo Venta o Cambio; tambien se incluye cualquier oportunidad cuyo nombre contenga Facilitea. La delegacion se obtiene de Tienda de entrega-compra.
+                        </div>
+
+                        <div class="filter-actions commission-filter-actions">
+                            <a class="main-tab" href="{{ $delegationDeliveriesAuditUrl }}">Descargar CSV de auditoria de entregas</a>
                         </div>
 
                         <div class="commission-delegation-table-wrap">
@@ -727,12 +740,13 @@
                                                 <table data-sortable-table="financing-cancellations-{{ $row['commercial_id'] }}">
                                                     <thead>
                                                     <tr><th colspan="4">Cancelaciones anticipadas de financiacion</th></tr>
-                                                    <tr><th>Email comercial</th><th>Hoja</th><th class="num">Fila</th><th class="num">Penalizacion</th></tr>
+                                                    <tr><th>Comercial</th><th>ID Salesforce</th><th>Hoja</th><th class="num">Fila</th><th class="num">Penalizacion</th></tr>
                                                     </thead>
                                                     <tbody data-sort-body="financing-cancellations-{{ $row['commercial_id'] }}">
                                                     @forelse ($financingCancellationDetails as $detail)
                                                         <tr>
-                                                            <td>{{ $detail['commercial_email'] }}</td>
+                                                            <td>{{ $detail['commercial_name'] }}</td>
+                                                            <td>{{ $detail['commercial_id'] }}</td>
                                                             <td>{{ $detail['source_sheet'] ?: '-' }}</td>
                                                             <td class="num">{{ $detail['source_row'] ?: '-' }}</td>
                                                             <td class="num commission-penalty-text">{{ number_format($detail['amount'], 2, ',', '.') }}</td>

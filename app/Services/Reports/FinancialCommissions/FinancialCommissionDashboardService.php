@@ -135,23 +135,40 @@ class FinancialCommissionDashboardService
         $excludedByZone = $prepared
             ->groupBy('zone_name')
             ->map(fn (Collection $rows): int => $rows->where('profitability_eligible', false)->count());
+        $operationsWithoutInterestRate = $prepared->where('missing_interest_rate', true)->count();
+        $profitabilityEligibleOperations = $prepared->where('profitability_eligible', true)->count();
+        $warnings = $prepared->isNotEmpty() && $profitabilityEligibleOperations === 0 && $operationsWithoutInterestRate > 0
+            ? [
+                sprintf(
+                    '%d operaciones del periodo llegan sin Inter_s_elegido__c. El bloque 2 queda a cero hasta que Salesforce exponga o sincronice ese campo.',
+                    $operationsWithoutInterestRate
+                ),
+            ]
+            : [];
 
         return [
             'ready' => true,
             'month' => $selectedMonth->format('Y-m'),
             'month_label' => $selectedMonth->translatedFormat('F Y'),
             'issues' => [],
-            'warnings' => [],
+            'warnings' => $warnings,
             'diagnostics' => [
                 'zones_count' => count($summaryRows),
                 'eligible_operations_count' => $prepared->count(),
-                'profitability_eligible_operations_count' => $prepared->where('profitability_eligible', true)->count(),
+                'profitability_eligible_operations_count' => $profitabilityEligibleOperations,
                 'profitability_excluded_operations_count' => $prepared->where('profitability_eligible', false)->count(),
-                'operations_without_interest_rate' => $prepared->where('missing_interest_rate', true)->count(),
+                'operations_without_interest_rate' => $operationsWithoutInterestRate,
                 'operations_with_excluded_interest_rate' => $prepared->where('excluded_interest_rate', true)->count(),
                 'excluded_by_zone' => $excludedByZone->all(),
             ],
             'summary_rows' => $summaryRows,
+            'detail_rows' => $prepared
+                ->sortBy([
+                    ['zone_name', 'asc'],
+                    ['opportunity_name', 'asc'],
+                ])
+                ->values()
+                ->all(),
         ];
     }
 
@@ -167,6 +184,8 @@ class FinancialCommissionDashboardService
 
         return [
             'zone_name' => $zoneName,
+            'opportunity_id' => (string) $opportunity->salesforce_id,
+            'opportunity_name' => (string) $opportunity->name,
             'amount_total' => round((float) ($opportunity->opo_for_importe_total ?? 0), 2),
             'amount_financed' => round((float) ($opportunity->importe_financiado ?? 0), 2),
             'financial_commission' => round((float) ($opportunity->financial_commission ?? 0), 2),
@@ -176,6 +195,9 @@ class FinancialCommissionDashboardService
             'profitability_eligible' => $normalizedInterestRate !== '' && ! $excludedInterestRate,
             'missing_interest_rate' => $interestRate === '',
             'excluded_interest_rate' => $excludedInterestRate,
+            'profitability_reason' => $interestRate === ''
+                ? 'Tipo de interes vacio'
+                : ($excludedInterestRate ? 'Tipo de interes excluido' : 'Incluida'),
         ];
     }
 
@@ -220,7 +242,14 @@ class FinancialCommissionDashboardService
         $block1Commission = round($netCommission * $financedIncentive, 2);
         $block2Commission = round($validFinancialBenefit * $profitabilityIncentive, 2);
         $block3Commission = round($premiumGuaranteeTotal * $guaranteeIncentive, 2);
-        $finalCommission = round($block1Commission + $block2Commission + $block3Commission, 2);
+        $specialZonePercent = $this->specialZoneNetCommissionPercent($zoneName, $settings);
+        $specialZoneCommission = $specialZonePercent > 0
+            ? round($netCommission * $specialZonePercent, 2)
+            : 0.0;
+        $usesSpecialZoneRule = $specialZonePercent > 0;
+        $finalCommission = $usesSpecialZoneRule
+            ? $specialZoneCommission
+            : round($block1Commission + $block2Commission + $block3Commission, 2);
 
         return [
             'zone_name' => $zoneName,
@@ -234,17 +263,34 @@ class FinancialCommissionDashboardService
             'financial_discount_total' => $financialDiscountTotal,
             'net_commission' => $netCommission,
             'financed_incentive' => $financedIncentive,
-            'block_1_commission' => $block1Commission,
+            'block_1_commission' => $usesSpecialZoneRule ? 0.0 : $block1Commission,
             'valid_financial_benefit' => $validFinancialBenefit,
             'profitability_percentage' => $profitabilityPercentage,
             'profitability_incentive' => $profitabilityIncentive,
-            'block_2_commission' => $block2Commission,
+            'block_2_commission' => $usesSpecialZoneRule ? 0.0 : $block2Commission,
             'premium_guarantee_total' => $premiumGuaranteeTotal,
             'guarantee_percentage' => $guaranteePercentage,
             'guarantee_incentive' => $guaranteeIncentive,
-            'block_3_commission' => $block3Commission,
+            'block_3_commission' => $usesSpecialZoneRule ? 0.0 : $block3Commission,
+            'special_zone_percent' => $specialZonePercent,
+            'special_zone_commission' => $specialZoneCommission,
             'final_commission' => $finalCommission,
         ];
+    }
+
+    private function specialZoneNetCommissionPercent(string $zoneName, array $settings): float
+    {
+        $target = Str::of($zoneName)->lower()->squish()->toString();
+
+        foreach ($settings['special_zone_net_commission_percentages'] ?? [] as $override) {
+            $configuredZone = Str::of((string) ($override['zone_name'] ?? ''))->lower()->squish()->toString();
+
+            if ($configuredZone === $target) {
+                return max(0, min(1, (float) ($override['percent'] ?? 0)));
+            }
+        }
+
+        return 0.0;
     }
 
     private function resolveIncentive(float $percentage, array $brackets): float

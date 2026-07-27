@@ -51,6 +51,7 @@ class CommercialCommissionDashboardService
         'owner_name',
         'owner_is_active',
         'owner_delegation',
+        'report_owner_delegation',
         'delivery_store',
         'account_name',
         'shared_delivery_id',
@@ -74,6 +75,7 @@ class CommercialCommissionDashboardService
         'vehicle_days_in_stock',
         'cv_signed',
         'cv_signed_date',
+        'raw_payload',
     ];
 
     private const REVIEW_COLUMNS = [
@@ -133,11 +135,86 @@ class CommercialCommissionDashboardService
             'ready' => $blockingIssues === [],
             'month' => $selectedMonth->format('Y-m'),
             'month_label' => $selectedMonth->translatedFormat('F Y'),
+            'last_updated_label' => $this->lastUpdatedLabel(),
             'issues' => $blockingIssues,
             'warnings' => $warnings,
             'diagnostics' => $diagnostics,
             'summary_rows' => $summaryRows,
             'delegation_rows' => $delegationRows,
+        ];
+    }
+
+    /**
+     * Returns the exact opportunity set used as delivery volume for the
+     * Delegaciones tab, so it can be reconciled with Salesforce reports.
+     */
+    public function delegationDeliveriesAudit(?string $month): array
+    {
+        $selectedMonth = $this->resolveMonth($month);
+        $periodStart = $selectedMonth->startOfMonth();
+        $periodEnd = $periodStart->addMonth();
+        $issues = $this->blockingIssues($selectedMonth);
+
+        if ($issues !== []) {
+            return [
+                'ready' => false,
+                'month' => $selectedMonth->format('Y-m'),
+                'issues' => $issues,
+                'rows' => [],
+            ];
+        }
+
+        $rows = $this->monthlyDelegationDeliveryOpportunities($periodStart, $periodEnd)
+            ->get()
+            ->filter(fn (SalesforceOpportunity $row) => $this->countsAsDelegationDelivery($row))
+            ->filter(fn (SalesforceOpportunity $row) => $this->formulaConfig->shouldIncludeDelegationLabel(
+                $this->deliveryDelegation($row)
+            ))
+            ->map(function (SalesforceOpportunity $row): array {
+                $isFacilitea = $this->isFaciliteaOpportunity($row);
+                $inclusionReason = $this->isSale($row)
+                    ? 'Venta'
+                    : ($this->isChange($row) ? 'Cambio' : 'Facilitea por nombre');
+
+                if ($isFacilitea && $this->isDelivery($row)) {
+                    $inclusionReason .= ' + Facilitea (cuenta una vez)';
+                }
+
+                return [
+                    'opportunity_id' => (string) $row->salesforce_id,
+                    'opportunity_name' => (string) $row->name,
+                    'contract_signed_date' => $row->cv_signed_date?->toDateString() ?? '',
+                    'record_type_name' => (string) $row->record_type_name,
+                    'stage_name' => (string) $row->stage_name,
+                    'cv_signed' => (bool) $row->cv_signed,
+                    'inclusion_reason' => $inclusionReason,
+                    'is_facilitea' => $isFacilitea,
+                    'owner_id' => (string) $row->owner_id,
+                    'owner_name' => (string) $row->owner_name,
+                    'owner_is_active' => (bool) $row->owner_is_active,
+                    'owner_delegation' => (string) $row->owner_delegation,
+                    'report_owner_delegation' => (string) $row->report_owner_delegation,
+                    'delivery_store' => (string) $row->delivery_store,
+                    'delegation_calculated' => $this->delegationLabel($this->deliveryDelegation($row)),
+                    'sale_management' => $row->gestion_de_venta,
+                    'account_name' => (string) $row->account_name,
+                    'vehicle_plate' => (string) $row->vehicle_plate,
+                    'vehicle_interest_id' => (string) $row->vehicle_interest_id,
+                ];
+            })
+            ->sortBy([
+                ['delegation_calculated', 'asc'],
+                ['contract_signed_date', 'asc'],
+                ['opportunity_id', 'asc'],
+            ])
+            ->values()
+            ->all();
+
+        return [
+            'ready' => true,
+            'month' => $selectedMonth->format('Y-m'),
+            'issues' => [],
+            'rows' => $rows,
         ];
     }
 
@@ -1959,6 +2036,15 @@ class CommercialCommissionDashboardService
         return CarbonImmutable::now()->subMonthNoOverflow()->startOfMonth();
     }
 
+    private function lastUpdatedLabel(): ?string
+    {
+        $updatedAt = SalesforceOpportunity::query()->max('updated_at');
+
+        return $updatedAt
+            ? CarbonImmutable::parse($updatedAt)->format('d/m/Y H:i')
+            : null;
+    }
+
     private function delegationLabel(?string $value): string
     {
         $label = trim((string) $value);
@@ -1976,13 +2062,15 @@ class CommercialCommissionDashboardService
 
     private function financialDelegation(SalesforceOpportunity $row): string
     {
-        $ownerDelegation = $this->formulaConfig->normalizeDelegationLabel($row->owner_delegation);
+        // Match the Salesforce "Analisis por zonas" report: this formula field can
+        // differ from the Owner's current delegation. Raw payload keeps old rows
+        // compatible until the next Salesforce synchronization populates the column.
+        $reportDelegation = $row->report_owner_delegation
+            ?: data_get($row->raw_payload, 'Delegacion_del_propietario__c');
 
-        if ($ownerDelegation !== '') {
-            return $ownerDelegation;
-        }
-
-        return $this->deliveryDelegation($row);
+        return $this->formulaConfig->normalizeDelegationLabel(
+            $reportDelegation ?: $row->owner_delegation
+        );
     }
 
     private function delegationGoal(Collection $configuredGoals, string $delegationLabel): array

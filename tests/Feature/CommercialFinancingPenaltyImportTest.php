@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\CommercialFinancingPenalty;
 use App\Models\CommercialFinancingPenaltyImport;
+use App\Models\ReportUser;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceUser;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
@@ -20,7 +21,7 @@ class CommercialFinancingPenaltyImportTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_importa_por_email_mes_y_sustituye_el_mes_previamente_cargado(): void
+    public function test_importa_por_id_mes_y_sustituye_el_mes_previamente_cargado(): void
     {
         SalesforceUser::create([
             'salesforce_id' => '005-COMMERCIAL',
@@ -32,9 +33,9 @@ class CommercialFinancingPenaltyImportTest extends TestCase
 
         $importer = app(CommercialFinancingPenaltyImportService::class);
         $importer->import($this->xlsxUpload([
-            ['Mes comision', 'Email comercial', 'descontar comercial 4%'],
-            ['2026-06', 'comercial@hrmotor.com', '100,50'],
-            ['Junio 2026', 'comercial@hrmotor.com', -200],
+            ['Mes comision', 'Nombre comercial', 'ID comercial', 'descontar comercial 4%'],
+            ['2026-06', 'Comercial Uno', '005-COMMERCIAL', '100,50'],
+            ['Junio 2026', 'Comercial Uno', '005-COMMERCIAL', -200],
         ]), null);
 
         $ledger = app(CommercialFinancingPenaltyService::class)->forMonth(CarbonImmutable::parse('2026-06-01'));
@@ -42,8 +43,8 @@ class CommercialFinancingPenaltyImportTest extends TestCase
         $this->assertDatabaseCount('commercial_financing_penalties', 2);
 
         $importer->import($this->xlsxUpload([
-            ['Mes comision', 'Email comercial', 'descontar a comercial 4%'],
-            ['2026-06-01', 'comercial@hrmotor.com', 50],
+            ['Mes comision', 'Nombre comercial', 'ID Salesforce', 'descontar a comercial 4%'],
+            ['2026-06-01', 'Comercial Uno', '005-COMMERCIAL', 50],
         ]), null);
 
         $ledger = app(CommercialFinancingPenaltyService::class)->forMonth(CarbonImmutable::parse('2026-06-01'));
@@ -52,13 +53,13 @@ class CommercialFinancingPenaltyImportTest extends TestCase
         $this->assertSame(2, CommercialFinancingPenalty::query()->where('is_active', false)->count());
     }
 
-    public function test_rechaza_archivo_sin_email_comercial(): void
+    public function test_rechaza_archivo_sin_id_comercial(): void
     {
         $this->expectException(CommercialFinancingPenaltyImportException::class);
 
         app(CommercialFinancingPenaltyImportService::class)->import($this->xlsxUpload([
-            ['Mes comision', 'descontar comercial 4%'],
-            ['2026-06', 100],
+            ['Mes comision', 'Nombre comercial', 'descontar comercial 4%'],
+            ['2026-06', 'Comercial Uno', 100],
         ]), null);
     }
 
@@ -94,6 +95,8 @@ class CommercialFinancingPenaltyImportTest extends TestCase
             'import_id' => $import->id,
             'commission_month' => '2026-06-01',
             'commercial_email' => 'tasador@hrmotor.com',
+            'commercial_name' => 'Tasador Penalizado',
+            'salesforce_user_id' => '005-APPRAISER-PENALTY',
             'amount' => -200,
             'is_active' => true,
         ]);
@@ -104,6 +107,35 @@ class CommercialFinancingPenaltyImportTest extends TestCase
         $this->assertNotNull($row);
         $this->assertEquals(-200.0, $row['financing_cancellation_penalty_amount']);
         $this->assertEquals(-140.0, $row['final_commission']);
+    }
+
+    public function test_admin_puede_abrir_penalizaciones_con_filas_sin_match(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        $import = CommercialFinancingPenaltyImport::create([
+            'original_filename' => 'penalizaciones.xlsx',
+            'rows_read' => 1,
+            'rows_imported' => 1,
+            'commission_months' => ['2026-06-01'],
+        ]);
+        CommercialFinancingPenalty::create([
+            'import_id' => $import->id,
+            'commission_month' => '2026-06-01',
+            'commercial_name' => 'Sin match',
+            'salesforce_user_id' => '005-SIN-MATCH',
+            'amount' => -50,
+            'is_active' => true,
+        ]);
+
+        $this->withSession([
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => 'admin@hrmotor.com',
+        ])
+            ->get('/informes/penalizaciones-financiacion')
+            ->assertOk()
+            ->assertSee('005-SIN-MATCH');
     }
 
     /** @param array<int, array<int, mixed>> $rows */

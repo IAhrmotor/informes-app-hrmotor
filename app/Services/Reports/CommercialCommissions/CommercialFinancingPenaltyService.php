@@ -23,23 +23,30 @@ class CommercialFinancingPenaltyService
         $penalties = CommercialFinancingPenalty::query()
             ->where('is_active', true)
             ->whereDate('commission_month', $month->toDateString())
-            ->orderBy('commercial_email')
+            ->orderBy('salesforce_user_id')
             ->orderBy('source_sheet')
             ->orderBy('source_row')
             ->get();
-        $usersByEmail = SalesforceUser::query()
-            ->whereNotNull('email')
-            ->get(['salesforce_id', 'name', 'email'])
+        $users = SalesforceUser::query()
+            ->get(['salesforce_id', 'name', 'email']);
+        $usersById = $users
+            ->keyBy(fn (SalesforceUser $user): string => (string) $user->salesforce_id);
+        $usersByEmail = $users
+            ->filter(fn (SalesforceUser $user): bool => filled($user->email))
             ->keyBy(fn (SalesforceUser $user): string => $this->emailKey($user->email));
         $amountsByUserId = [];
         $detailsByUserId = [];
         $unmatchedRows = [];
 
         foreach ($penalties as $penalty) {
-            $user = $usersByEmail->get($this->emailKey($penalty->commercial_email));
+            $user = filled($penalty->salesforce_user_id)
+                ? $usersById->get((string) $penalty->salesforce_user_id)
+                : $usersByEmail->get($this->emailKey($penalty->commercial_email));
 
             if (! $user instanceof SalesforceUser) {
                 $unmatchedRows[] = [
+                    'salesforce_user_id' => $penalty->salesforce_user_id,
+                    'commercial_name' => $penalty->commercial_name,
                     'email' => $penalty->commercial_email,
                     'amount' => (float) $penalty->amount,
                     'source_sheet' => $penalty->source_sheet,
@@ -52,8 +59,9 @@ class CommercialFinancingPenaltyService
             $amount = (float) $penalty->amount;
             $amountsByUserId[$userId] = round(($amountsByUserId[$userId] ?? 0) + $amount, 2);
             $detailsByUserId[$userId][] = [
+                'commercial_id' => $penalty->salesforce_user_id,
                 'commercial_email' => $penalty->commercial_email,
-                'commercial_name' => $user->name,
+                'commercial_name' => $penalty->commercial_name ?: $user->name,
                 'amount' => $amount,
                 'source_sheet' => $penalty->source_sheet,
                 'source_row' => $penalty->source_row,

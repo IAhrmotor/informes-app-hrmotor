@@ -18,7 +18,7 @@
             <div>
                 <div class="eyebrow">Administracion</div>
                 <h1>Penalizaciones financieras</h1>
-                <p class="sub">Carga el Excel mensual de cancelaciones anticipadas. El importe se descuenta tal como lo indique Cristina, agrupado por mes y email del comercial.</p>
+                <p class="sub">Carga el Excel mensual de cancelaciones anticipadas. El importe se descuenta tal como lo indique Cristina, agrupado por mes e ID Salesforce del comercial.</p>
             </div>
         </section>
 
@@ -40,7 +40,7 @@
             <div class="panel-title">
                 <div>
                     <h2>Subir Excel</h2>
-                    <div class="small">Formato obligatorio: <strong>Mes comision</strong>, <strong>Email comercial</strong> y <strong>descontar comercial 4%</strong>. Se admiten variaciones de mayusculas, acentos y el texto “a comercial”.</div>
+                    <div class="small">Formato obligatorio: <strong>Mes comision</strong>, <strong>Nombre comercial</strong>, <strong>ID comercial</strong> y <strong>descontar comercial 4%</strong>. El ID Salesforce es la clave de aplicacion.</div>
                 </div>
             </div>
 
@@ -87,23 +87,24 @@
             <div class="panel-title">
                 <div>
                     <h2>Filas sin match Salesforce</h2>
-                    <div class="small">No se aplican hasta que el email coincida con el usuario sincronizado desde Salesforce. Ejecuta la sincronizacion de usuarios despues de revisar el email.</div>
+                    <div class="small">No se aplican hasta que el ID comercial coincida con el usuario sincronizado desde Salesforce.</div>
                 </div>
             </div>
             <div class="table-shell">
                 <table>
-                    <thead><tr><th>Mes</th><th>Email comercial</th><th>Hoja</th><th class="num">Fila</th><th class="num">Importe</th></tr></thead>
+                    <thead><tr><th>Mes</th><th>Comercial</th><th>ID Salesforce</th><th>Hoja</th><th class="num">Fila</th><th class="num">Importe</th></tr></thead>
                     <tbody>
                     @forelse ($unmatchedPenalties as $penalty)
                         <tr>
                             <td>{{ optional($penalty->commission_month)->format('Y-m') }}</td>
-                            <td>{{ $penalty->commercial_email }}</td>
+                            <td>{{ $penalty->commercial_name ?: '-' }}</td>
+                            <td>{{ $penalty->salesforce_user_id ?: '-' }}</td>
                             <td>{{ $penalty->source_sheet ?: '-' }}</td>
                             <td class="num">{{ $penalty->source_row ?: '-' }}</td>
                             <td class="num commission-penalty-text">{{ number_format($penalty->amount, 2, ',', '.') }} EUR</td>
                         </tr>
                     @empty
-                        <tr><td colspan="5">Todas las filas activas tienen match con Salesforce.</td></tr>
+                        <tr><td colspan="6">Todas las filas activas tienen match con Salesforce.</td></tr>
                     @endforelse
                     </tbody>
                 </table>

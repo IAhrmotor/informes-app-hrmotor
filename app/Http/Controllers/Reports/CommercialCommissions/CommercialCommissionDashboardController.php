@@ -127,6 +127,72 @@ class CommercialCommissionDashboardController extends Controller
         ]);
     }
 
+    public function exportDelegationDeliveriesCsv(
+        Request $request,
+        CommercialCommissionDashboardService $dashboard,
+    ) {
+        $audit = $dashboard->delegationDeliveriesAudit($request->query('month'));
+
+        abort_unless($audit['ready'], 409, implode(' | ', $audit['issues'] ?? ['No se pudo preparar la auditoria.']));
+
+        $headers = [
+            'Opportunity ID',
+            'Opportunity Name',
+            'Fecha firma contrato',
+            'Record Type',
+            'Stage',
+            'Contrato CV firmado',
+            'Motivo de inclusion',
+            'Es Facilitea',
+            'Owner ID',
+            'Owner',
+            'Owner activo',
+            'Delegacion owner actual',
+            'Delegacion owner informe',
+            'Tienda entrega-compra',
+            'Delegacion calculada',
+            'Gestion de venta',
+            'Cuenta',
+            'Matricula',
+            'Vehiculo interes ID',
+        ];
+        $filename = 'auditoria-entregas-delegaciones-'.$audit['month'].'.csv';
+
+        return response()->streamDownload(function () use ($audit, $headers): void {
+            $output = fopen('php://output', 'w');
+            fwrite($output, "\xEF\xBB\xBF");
+            fputcsv($output, $headers);
+
+            foreach ($audit['rows'] as $row) {
+                fputcsv($output, [
+                    $row['opportunity_id'],
+                    $row['opportunity_name'],
+                    $row['contract_signed_date'],
+                    $row['record_type_name'],
+                    $row['stage_name'],
+                    $row['cv_signed'] ? 'Si' : 'No',
+                    $row['inclusion_reason'],
+                    $row['is_facilitea'] ? 'Si' : 'No',
+                    $row['owner_id'],
+                    $row['owner_name'],
+                    $row['owner_is_active'] ? 'Si' : 'No',
+                    $row['owner_delegation'],
+                    $row['report_owner_delegation'],
+                    $row['delivery_store'],
+                    $row['delegation_calculated'],
+                    is_null($row['sale_management']) ? '' : ($row['sale_management'] ? 'Si' : 'No'),
+                    $row['account_name'],
+                    $row['vehicle_plate'],
+                    $row['vehicle_interest_id'],
+                ]);
+            }
+
+            fclose($output);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
     private function resolveActiveTab(mixed $value): string
     {
         if ($value === 'detail') {

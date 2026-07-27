@@ -239,6 +239,7 @@ SOQL;
                 'owner_name' => data_get($record, 'Owner.Name'),
                 'owner_is_active' => (bool) data_get($record, 'Owner.IsActive', true),
                 'owner_delegation' => data_get($record, 'Owner.USR_SEL_Delegacion__c'),
+                'report_owner_delegation' => data_get($record, 'Delegacion_del_propietario__c'),
                 'delivery_store' => data_get($record, 'Tienda_de_entrega__c'),
                 'account_id' => data_get($record, 'AccountId'),
                 'account_name' => data_get($record, 'Account.Name'),

@@ -59,6 +59,7 @@
                 <th class="num" data-sortable="true">% garantias</th>
                 <th class="num" data-sortable="true">Inc. bloque 3</th>
                 <th class="num" data-sortable="true">Com. bloque 3</th>
+                <th class="num" data-sortable="true">Regla especial</th>
                 <th class="num" data-sortable="true">Total comision</th>
             </tr>
             </thead>
@@ -82,10 +83,59 @@
                     <td class="num">{{ number_format((float) ($row['guarantee_percentage'] ?? 0), 2, ',', '.') }}%</td>
                     <td class="num">{{ number_format(((float) ($row['guarantee_incentive'] ?? 0)) * 100, 2, ',', '.') }}%</td>
                     <td class="num">{{ number_format((float) ($row['block_3_commission'] ?? 0), 2, ',', '.') }}</td>
+                    <td class="num">
+                        @if ((float) ($row['special_zone_percent'] ?? 0) > 0)
+                            {{ number_format(((float) $row['special_zone_percent']) * 100, 2, ',', '.') }}% neta: {{ number_format((float) ($row['special_zone_commission'] ?? 0), 2, ',', '.') }}
+                        @else
+                            -
+                        @endif
+                    </td>
                     <td class="num"><strong>{{ number_format((float) ($row['final_commission'] ?? 0), 2, ',', '.') }}</strong></td>
                 </tr>
             @endforeach
             </tbody>
         </table>
     </div>
+@endif
+
+@php($financialDetailRows = collect($financialDashboard['detail_rows'] ?? []))
+@if ($financialDetailRows->isNotEmpty())
+    <section class="card panel">
+        <div class="panel-title">
+            <div>
+                <h2>Detalle auditable de rentabilidad</h2>
+                <div class="small">Cada oportunidad indica el tipo de interes sincronizado y si entra en el bloque 2.</div>
+            </div>
+        </div>
+        <div class="table-shell area-manager-summary-shell">
+            <table data-sortable-table="financial-detail">
+                <thead>
+                <tr>
+                    <th data-sortable="true">Zona</th>
+                    <th data-sortable="true">Opportunity ID</th>
+                    <th data-sortable="true">Opportunity</th>
+                    <th data-sortable="true">Tipo interes</th>
+                    <th data-sortable="true">Estado bloque 2</th>
+                    <th class="num" data-sortable="true">Imp. financiado</th>
+                    <th class="num" data-sortable="true">Com. financiera</th>
+                    <th class="num" data-sortable="true">Desc. financiera</th>
+                </tr>
+                </thead>
+                <tbody data-sort-body="financial-detail">
+                @foreach ($financialDetailRows as $row)
+                    <tr>
+                        <td>{{ $row['zone_name'] }}</td>
+                        <td>{{ $row['opportunity_id'] }}</td>
+                        <td>{{ $row['opportunity_name'] }}</td>
+                        <td>{{ $row['interest_rate'] !== '' ? $row['interest_rate'] : '-' }}</td>
+                        <td>{{ $row['profitability_reason'] }}</td>
+                        <td class="num">{{ number_format((float) ($row['amount_financed'] ?? 0), 2, ',', '.') }}</td>
+                        <td class="num">{{ number_format((float) ($row['financial_commission'] ?? 0), 2, ',', '.') }}</td>
+                        <td class="num">{{ number_format((float) ($row['financial_discount'] ?? 0), 2, ',', '.') }}</td>
+                    </tr>
+                @endforeach
+                </tbody>
+            </table>
+        </div>
+    </section>
 @endif

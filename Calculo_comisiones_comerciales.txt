@@ -634,14 +634,15 @@ F. Configuracion por periodo
 - La carga esta restringida actualmente al rol `Administrador` y queda preparada como permiso centralizado para ampliarlo a otro rol si negocio lo decide.
 - El archivo debe ser `.xlsx` e incluir las columnas:
   - `Mes comision`
-  - `Email comercial`
+  - `Nombre comercial`
+  - `ID comercial`
   - `descontar comercial 4%`
 - Se aceptan variaciones de mayusculas, acentos y el encabezado `descontar a comercial 4%`.
-- El email es la unica clave de match. No se usa nombre, matricula ni fecha de cancelacion para calcular la penalizacion.
+- El ID comercial Salesforce es la unica clave de match. El nombre es informativo; no se usa matricula ni fecha de cancelacion para calcular la penalizacion.
 - Cada fila se guarda como importe negativo. Si el Excel trae un importe positivo, se interpreta igualmente como descuento y se muestra negativo.
-- Varias filas del mismo email y mes se suman.
+- Varias filas del mismo ID comercial y mes se suman.
 - Una nueva carga sustituye las penalizaciones activas de los meses contenidos en ese fichero. Las importaciones previas quedan conservadas en historial, pero desactivadas para no duplicar importes.
-- Las filas sin email Salesforce coincidente se mantienen como incidencia y no se aplican hasta corregir el email o resincronizar usuarios.
+- Las filas sin ID Salesforce coincidente se mantienen como incidencia y no se aplican hasta corregir el ID o resincronizar usuarios.
 - El informe de Comerciales muestra la columna `Pen. cancelacion fin.` y la resta directamente de `Comision final` para comerciales y tasadores.
 - El detalle individual incorpora la pestana `Cancelaciones financiacion` con email, hoja, fila e importe importado.
 
@@ -659,4 +660,70 @@ php artisan salesforce:sync-monthly-commercial --days=120 -vvv
 php artisan salesforce:sync-opportunities --days=120 -vvv
 ```
 
-- El Excel historico `CANCELACIONES ANTICIPADAS.xlsx` se uso como referencia de estructura, pero no se puede importar hasta anadir `Mes comision` y `Email comercial` en cada fila.
+- El Excel historico `CANCELACIONES ANTICIPADAS.xlsx` se uso como referencia de estructura, pero el formato nuevo requiere `Mes comision`, `Nombre comercial` e `ID comercial` en cada fila.
+
+## 17. Reglas de conciliacion de delegaciones (junio 2026)
+
+### Penalizacion por cancelacion de financiacion
+
+- La columna visible `Pen. cancelacion fin.` toma el importe importado desde Excel.
+- El importe siempre se normaliza como negativo y se suma a `Comision final`.
+- El match se hace exclusivamente por `ID comercial` y `Mes comision`.
+
+### Entregas Facilitea
+
+- Las entregas de Delegaciones se asignan por `Tienda_de_entrega__c`.
+- Para Area Managers, una operacion normal se atribuye a la delegacion del owner.
+- Una operacion Facilitea con owner `GENERAL`, `Sin Zona` o sin delegacion se atribuye a `Tienda_de_entrega__c`.
+- Esta excepcion de Facilitea aplica a entregas y a los KPIs dependientes de entregas; no cambia la regla general de compras de Area Manager.
+
+### Porcentaje financiado de jefes de tienda
+
+- El porcentaje se calcula exactamente como el informe Salesforce Analisis por zonas:
+  - `SUM(Importe_financiado__c) / SUM(OPO_FOR_Importe_total__c)`.
+- La agrupacion financiera usa `Opportunity.Delegacion_del_propietario__c`, no la delegacion actual de `Owner`.
+- Si una oportunidad historica aun no tiene ese campo sincronizado, se usa temporalmente la delegacion de Owner como compatibilidad.
+- Las entregas Facilitea siguen computando para objetivos y primas de entrega, pero no se fuerzan dentro del ratio financiero de otra tienda.
+- La columna local es `report_owner_delegation` y se llena en el sync desde `Delegacion_del_propietario__c`.
+
+### Pendientes de datos a contrastar
+
+- La consulta directa a Salesforce de junio devuelve Zaragoza con 39 entregas elegibles, de las cuales 2 son Facilitea. Para llegar a 41 faltan 2 registros respecto al total informado por negocio; no se debe forzar el conteo sin identificar esos IDs.
+- Tras resincronizar, David Baeza devuelve 205 entregas y 71 compras. Excluir owners inactivos da 192/67, por lo que no explica el contraste 198/64. Se necesita comparar los IDs de Facilitea, Badajoz y Dos Hermanas con el informe de Oscar antes de cambiar la regla.
+- En Financieros, Salesforce devuelve `Inter_s_elegido__c` vacio en las 616 operaciones de junio. Por ello el bloque de rentabilidad queda a 0 de forma intencionada hasta que se complete ese campo o se confirme otro campo fuente.
+
+### Despliegue de esta correccion
+
+```bash
+php artisan migrate --force
+php artisan salesforce:sync-opportunities --from=2026-06-01 --to=2026-07-01 -vvv
+php artisan optimize:clear
+```
+
+## 18. Actualizacion: penalizaciones por ID y Financieros
+
+### Penalizaciones de financiacion
+
+- El formato activo del Excel es: `Mes comision`, `Nombre comercial`, `ID comercial` y `descontar comercial 4%`. `Observacion` es opcional.
+- El `ID comercial` de Salesforce es la clave unica de aplicacion. El nombre solo se conserva para auditoria.
+- Varias filas del mismo ID y mes se suman y se aplican siempre como descuento negativo a `Pen. cancelacion fin.` y a la comision final.
+- Se mantiene compatibilidad de lectura con archivos historicos que traigan `Email comercial`, pero no es el formato nuevo a utilizar.
+- Nueva migracion: `2026_07_27_104000_add_commercial_identity_to_financing_penalties_table.php`.
+- `outputs/penalizaciones-financiacion-plantilla/node_modules` es una dependencia local de generacion y no se debe desplegar ni subir a produccion.
+
+### Financieros
+
+- Direccion y Administrador tienen acceso a la pestana `Financieros` por pertenecer al informe de Comisiones Comerciales.
+- Carlos y Cristina usan los bloques generales: porcentaje financiado, rentabilidad y garantias premium.
+- Desde junio de 2026, Nuria e Irene usan una regla mensual configurable de `0,50%` sobre la comision neta; sustituye los bloques generales para esas zonas.
+- Se anade el tramo de rentabilidad de `13,00%` a `13,99%` con incentivo `0,10%`.
+- El detalle muestra por oportunidad el valor sincronizado de `Inter_s_elegido__c` y el motivo de inclusion o exclusion de rentabilidad.
+- Salesforce sigue devolviendo `Inter_s_elegido__c` vacio en las 616 operaciones de junio. No se han forzado los importes: para validar Carlos `1.798,64 EUR`, Cristina `2.466,73 EUR` y el total `4.626,62 EUR` se debe corregir el campo fuente o confirmar el API name que Salesforce expone.
+
+## 19. Auditoria de entregas por delegacion
+
+- El cuadro Delegaciones cuenta oportunidades con `Contrato CV firmado = true`, `Fecha firma contrato` dentro del mes y `Stage != Cerrada perdida`.
+- Se incluyen Record Type `Venta` y `Cambio`. Tambien se incluye cualquier oportunidad cuyo nombre contenga `Facilitea`, incluso si su Record Type es distinto; una Venta/Cambio Facilitea se cuenta una sola vez.
+- No se filtra por owner activo ni por `Gestion de venta` en el volumen de Delegaciones.
+- La asignacion de la entrega se hace por `Tienda_de_entrega__c` normalizada; se excluyen etiquetas no operativas como `General`, `Sin Zona` y `Call Fontellas`.
+- Boton disponible en Delegaciones: `Descargar CSV de auditoria de entregas`. El fichero usa la misma seleccion y expone Opportunity, fecha de firma, tipo, stage, motivo de inclusion, owner, tienda de entrega-compra, delegacion calculada, gestion de venta, cuenta y vehiculo.

@@ -36,9 +36,14 @@ class CommercialFinancingPenaltyImportController extends Controller
         $activePenalties = CommercialFinancingPenalty::query()
             ->where('is_active', true)
             ->get();
-        $salesforceEmails = SalesforceUser::query()
-            ->whereNotNull('email')
+        $salesforceUsers = SalesforceUser::query()
+            ->get(['salesforce_id', 'email']);
+        $salesforceUserIds = $salesforceUsers
+            ->pluck('salesforce_id')
+            ->flip();
+        $salesforceEmails = $salesforceUsers
             ->pluck('email')
+            ->filter()
             ->map(fn (string $email): string => Str::lower(trim($email)))
             ->flip();
 
@@ -60,9 +65,15 @@ class CommercialFinancingPenaltyImportController extends Controller
                 })
                 ->values(),
             'unmatchedPenalties' => $activePenalties
-                ->filter(fn (CommercialFinancingPenalty $penalty): bool => ! $salesforceEmails->has(Str::lower(trim($penalty->commercial_email))))
+                ->filter(function (CommercialFinancingPenalty $penalty) use ($salesforceUserIds, $salesforceEmails): bool {
+                    if (filled($penalty->salesforce_user_id)) {
+                        return ! $salesforceUserIds->has((string) $penalty->salesforce_user_id);
+                    }
+
+                    return ! $salesforceEmails->has(Str::lower(trim((string) $penalty->commercial_email)));
+                })
                 ->sortByDesc('created_at')
-                ->limit(20)
+                ->take(20)
                 ->values(),
         ]);
     }

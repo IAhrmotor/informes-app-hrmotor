@@ -1,6 +1,7 @@
 @php
     $currentReport = $currentReport ?? 'leads';
     $currentAdminPage = $currentAdminPage ?? null;
+    $updatedBadgeText = $updatedBadgeText ?? 'Cargando datos de Salesforce...';
     $adminLinks = [
         ['key' => 'users', 'label' => 'Usuarios', 'route' => 'reports.users.index'],
         ['key' => 'access-settings', 'label' => 'Permisos', 'route' => 'reports.access-settings.index'],
@@ -25,7 +26,7 @@
 
 <header class="app-header">
     <div class="header-actions">
-        <div class="badge" id="updatedBadge">Cargando datos de Salesforce...</div>
+        <div class="badge" id="updatedBadge">{{ $updatedBadgeText }}</div>
         @if (\App\Support\ReportUserAccess::canManageReportUsers(request()))
             @foreach ($adminLinks as $link)
                 @if (\Illuminate\Support\Facades\Route::has($link['route']))

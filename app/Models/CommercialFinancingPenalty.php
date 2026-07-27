@@ -11,6 +11,7 @@ class CommercialFinancingPenalty extends Model
         'import_id',
         'commission_month',
         'commercial_email',
+        'commercial_name',
         'salesforce_user_id',
         'amount',
         'source_sheet',

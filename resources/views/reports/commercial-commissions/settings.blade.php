@@ -459,6 +459,18 @@
                             </div>
                         @endforeach
                     </article>
+
+                    <article class="card report-access-card">
+                        <strong>Zonas con regla temporal</strong>
+                        <div class="small">Si el porcentaje es mayor que cero, la zona cobra ese porcentaje sobre su comision neta en lugar de los tres bloques generales.</div>
+                        @foreach (($settings['financials']['special_zone_net_commission_percentages'] ?? []) as $index => $override)
+                            <input type="hidden" name="financials[special_zone_net_commission_percentages][{{ $index }}][zone_name]" value="{{ $override['zone_name'] ?? '' }}">
+                            <div class="filter-group">
+                                <label for="financials_special_zone_{{ $index }}">{{ $override['zone_name'] ?? 'Zona' }}</label>
+                                <input id="financials_special_zone_{{ $index }}" name="financials[special_zone_net_commission_percentages][{{ $index }}][percent]" type="number" step="0.0001" min="0" max="1" value="{{ old("financials.special_zone_net_commission_percentages.$index.percent", $override['percent'] ?? 0) }}" @disabled(! $isEditableMonth)>
+                            </div>
+                        @endforeach
+                    </article>
                 </div>
             </section>
 
