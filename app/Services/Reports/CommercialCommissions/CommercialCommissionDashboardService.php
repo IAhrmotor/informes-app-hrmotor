@@ -1173,6 +1173,11 @@ class CommercialCommissionDashboardService
                 $this->deliveryDelegation($row)
             ))
             ->groupBy(fn (SalesforceOpportunity $row) => $this->delegationLabel($this->deliveryDelegation($row)));
+        // Financial ratios are reconciled against Salesforce "Analisis por zonas",
+        // which attributes the operation to the reporting owner delegation.
+        $financialOperationsByDelegation = $deliveries->groupBy(
+            fn (SalesforceOpportunity $row) => $this->delegationLabel($this->financialDelegation($row))
+        );
         $configuredGoals = collect($formulaSettings['delegations']['goals'] ?? []);
         $delegationLabels = collect($deliveriesByDelegation->keys())
             ->merge($rentabilityOperationsByDelegation->keys())
@@ -1184,11 +1189,13 @@ class CommercialCommissionDashboardService
             ->values();
         $reviewsByDelegation = $this->delegationReviews->forMonthAndDelegations($periodStart, $delegationLabels);
 
-        return $delegationLabels->map(function (string $delegationLabel) use ($deliveriesByDelegation, $rentabilityOperationsByDelegation, $configuredGoals, $formulaSettings, $reviewsByDelegation): array {
+        return $delegationLabels->map(function (string $delegationLabel) use ($deliveriesByDelegation, $rentabilityOperationsByDelegation, $financialOperationsByDelegation, $configuredGoals, $formulaSettings, $reviewsByDelegation): array {
             /** @var Collection<int, SalesforceOpportunity> $delegationOperations */
             $delegationOperations = $deliveriesByDelegation->get($delegationLabel, collect())->values();
             /** @var Collection<int, SalesforceOpportunity> $delegationRentabilityOperations */
             $delegationRentabilityOperations = $rentabilityOperationsByDelegation->get($delegationLabel, collect())->values();
+            /** @var Collection<int, SalesforceOpportunity> $delegationFinancialOperations */
+            $delegationFinancialOperations = $financialOperationsByDelegation->get($delegationLabel, collect())->values();
             $deliveriesCount = $delegationOperations->count();
             $goal = $this->delegationGoal($configuredGoals, $delegationLabel);
             $targetDeliveries = (int) ($goal['target_deliveries'] ?? 0);
@@ -1221,13 +1228,13 @@ class CommercialCommissionDashboardService
                 $reviewsAverageRating
             );
             $primaFinal = round($primaFinalBeforeReviews + $reviewsCommissionAmount, 2);
-            $financingBenefitTotal = round((float) $delegationOperations->sum(
+            $financingBenefitTotal = round((float) $delegationFinancialOperations->sum(
                 fn (SalesforceOpportunity $row) => (float) ($row->beneficio_financiacion_comercial ?? 0)
             ), 2);
-            $financedAmount = round((float) $delegationOperations->sum(
+            $financedAmount = round((float) $delegationFinancialOperations->sum(
                 fn (SalesforceOpportunity $row) => (float) ($row->importe_financiado ?? 0)
             ), 2);
-            $totalVehicleAmount = round((float) $delegationOperations->sum(function (SalesforceOpportunity $row): float {
+            $totalVehicleAmount = round((float) $delegationFinancialOperations->sum(function (SalesforceOpportunity $row): float {
                 $amount = (float) ($row->opo_for_importe_total ?? 0);
 
                 if ($amount <= 0) {
@@ -2083,6 +2090,18 @@ class CommercialCommissionDashboardService
         // No fallback to the owner in this tab. A delivery without a delivery
         // store remains outside Delegaciones until Salesforce completes the field.
         return $this->formulaConfig->normalizeDelegationLabel($row->delivery_store);
+    }
+
+    private function financialDelegation(SalesforceOpportunity $row): string
+    {
+        // Match Salesforce "Analisis por zonas": this historical reporting field
+        // can differ from the current owner and from the delivery store.
+        $reportDelegation = $row->report_owner_delegation
+            ?: data_get($row->raw_payload, 'Delegacion_del_propietario__c');
+
+        return $this->formulaConfig->normalizeDelegationLabel(
+            $reportDelegation ?: $row->owner_delegation
+        );
     }
 
     private function delegationGoal(Collection $configuredGoals, string $delegationLabel): array

@@ -759,3 +759,9 @@ php artisan optimize:clear
   La formula por operacion es `Product2.PRO_DIV_Precio_de_venta__c -
   Product2.PRO_DIV_Precio_de_compra__c - Opportunity.OPO_DIV_Descuento__c +
   Opportunity.Beneficio_financiacion_comercial__c + Opportunity.Garant_a_Total__c`.
+- La `% rentabilidad financiacion` y el `% importe financiado` de Delegaciones
+  replican el informe Salesforce `Analisis por zonas`: usan su universo de
+  entregas y la delegacion historica del propietario (`report_owner_delegation`),
+  que puede diferir de la tienda de entrega. Las formulas son
+  `SUM(Beneficio_financiacion_comercial) / SUM(Importe_financiado)` y
+  `SUM(Importe_financiado) / SUM(Importe_total)`.

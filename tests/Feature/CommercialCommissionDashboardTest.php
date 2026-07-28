@@ -1354,6 +1354,50 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(2500.0, $delegation['average_rentability']);
     }
 
+    public function test_dashboard_delegaciones_calcula_porcentajes_financieros_por_delegacion_historica_del_propietario(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-06', [
+            'delegations' => [
+                'goals' => [
+                    'rivas' => ['label' => 'Rivas', 'target_deliveries' => 1],
+                ],
+            ],
+        ]);
+
+        foreach ([
+            ['id' => 'RIV-HISTORICA', 'delivery_store' => 'Zaragoza', 'report_owner_delegation' => 'Rivas', 'benefit' => 1200, 'financed' => 10000, 'total' => 20000],
+            ['id' => 'RIV-ENTREGA', 'delivery_store' => 'Rivas', 'report_owner_delegation' => 'Bilbao', 'benefit' => 800, 'financed' => 4000, 'total' => 5000],
+        ] as $operation) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $operation['id'],
+                'name' => 'Venta '.$operation['id'],
+                'owner_id' => '005-RIV',
+                'owner_name' => 'Comercial Rivas',
+                'owner_is_active' => true,
+                'owner_delegation' => 'Rivas',
+                'report_owner_delegation' => $operation['report_owner_delegation'],
+                'delivery_store' => $operation['delivery_store'],
+                'stage_name' => 'Entrega',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-10',
+                'vehicle_sale_price' => 12000,
+                'vehicle_purchase_price' => 10000,
+                'beneficio_financiacion_comercial' => $operation['benefit'],
+                'importe_financiado' => $operation['financed'],
+                'opo_for_importe_total' => $operation['total'],
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        $delegation = collect(app(CommercialCommissionDashboardService::class)->build('2026-06')['delegation_rows'])
+            ->firstWhere('delegation_name', 'Rivas');
+
+        $this->assertNotNull($delegation);
+        $this->assertEquals(12.0, $delegation['financing_profitability_percentage']);
+        $this->assertEquals(50.0, $delegation['financed_amount_percentage']);
+    }
+
     public function test_auditoria_de_entregas_delegaciones_exporta_la_misma_logica_del_cuadro(): void
     {
         SalesforceOpportunity::create([
