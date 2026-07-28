@@ -52,7 +52,7 @@
     "src": "_instrument-sans-600-normal-DMks36a2.woff"
   },
   "resources/css/app.css": {
-    "file": "assets/app-CsT7dpZM.css",
+    "file": "assets/app-BP3U4GK1.css",
     "name": "app",
     "names": [
       "app.css"
@@ -82,7 +82,7 @@
     "isEntry": true
   },
   "resources/js/reports/campaigns-dashboard.js": {
-    "file": "assets/campaigns-dashboard-D3Ap3Vph.js",
+    "file": "assets/campaigns-dashboard-Dq5JnpV6.js",
     "name": "campaigns-dashboard",
     "src": "resources/js/reports/campaigns-dashboard.js",
     "isEntry": true

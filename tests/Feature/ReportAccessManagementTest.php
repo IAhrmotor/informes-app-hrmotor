@@ -107,4 +107,37 @@ class ReportAccessManagementTest extends TestCase
             ->get('/informes/leads')
             ->assertRedirect('/informes/reservas-ventas');
     }
+
+    public function test_auditor_de_comisiones_solo_puede_abrir_el_informe_de_comisiones(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        $auditor = ReportUser::query()->create([
+            'name' => 'Auditor de Comisiones',
+            'email' => 'auditor.comisiones@hrmotor.com',
+            'password' => Hash::make('secret'),
+            'role' => ReportUser::ROLE_COMMISSION_AUDITOR,
+            'is_active' => true,
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $auditor->id,
+            'report_user_role' => ReportUser::ROLE_COMMISSION_AUDITOR,
+            'report_user_email' => $auditor->email,
+        ];
+
+        $this->withSession($session)
+            ->get('/informes/comisiones-comerciales')
+            ->assertOk()
+            ->assertSee('Comisiones');
+
+        $this->withSession($session)
+            ->get('/informes/leads')
+            ->assertRedirect('/informes/comisiones-comerciales');
+
+        $this->withSession($session)
+            ->get('/informes/permisos-informes')
+            ->assertRedirect('/informes');
+    }
 }

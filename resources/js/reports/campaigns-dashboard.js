@@ -676,6 +676,7 @@ async function reloadAllData() {
 
         const campaignItems = Array.isArray(summary?.campaigns) ? summary.campaigns : [];
 
+        setUpdatedBadge(summary?.datos_actualizados);
         renderSummary(summary || {});
         renderFilterOptions(summary.filters || {}, campaignItems);
         campaignRows = campaignItems;
@@ -2593,11 +2594,41 @@ function setLoadingState(isLoading) {
     document.getElementById('loadingMessage')?.classList.toggle('is-hidden', !isLoading);
 
     if (isLoading) {
+        setUpdatedBadge(null, true);
         hideStatusMessage();
     }
 }
 
+function setUpdatedBadge(updatedAt = null, isLoading = false) {
+    const badge = document.getElementById('updatedBadge');
+    if (!badge) {
+        return;
+    }
+
+    if (!updatedAt) {
+        badge.textContent = isLoading
+            ? 'Cargando datos de Salesforce...'
+            : 'Sin fecha de actualizacion de Salesforce';
+        return;
+    }
+
+    const parsedDate = new Date(String(updatedAt).replace(' ', 'T'));
+    const label = Number.isNaN(parsedDate.getTime())
+        ? String(updatedAt)
+        : new Intl.DateTimeFormat('es-ES', {
+            dateStyle: 'short',
+            timeStyle: 'short',
+        }).format(parsedDate);
+
+    badge.textContent = `Datos actualizados: ${label}`;
+}
+
 function renderLoadFailure(error) {
+    const badge = document.getElementById('updatedBadge');
+    if (badge) {
+        badge.textContent = 'No se pudieron actualizar los datos de Salesforce';
+    }
+
     campaignRows = [];
     currentRankings = {};
     currentDiagnostics = {};

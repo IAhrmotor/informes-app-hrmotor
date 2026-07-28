@@ -11,6 +11,7 @@ class ReportUser extends Model
     public const ROLE_DIRECTOR = 'director';
     public const ROLE_AREA_MANAGER = 'area_manager';
     public const ROLE_VIEWER = 'viewer';
+    public const ROLE_COMMISSION_AUDITOR = 'commission_auditor';
     public const ROLE_WEIGHTS = [
         self::ROLE_VIEWER => 10,
         self::ROLE_AREA_MANAGER => 20,
@@ -22,6 +23,7 @@ class ReportUser extends Model
         self::ROLE_DIRECTOR => 'Direccion',
         self::ROLE_AREA_MANAGER => 'Area Manager',
         self::ROLE_VIEWER => 'Viewer',
+        self::ROLE_COMMISSION_AUDITOR => 'Auditor de comisiones',
     ];
 
     protected $fillable = [

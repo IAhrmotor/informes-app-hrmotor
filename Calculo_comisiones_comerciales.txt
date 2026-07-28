@@ -3,7 +3,8 @@ Version: 2026-07-28
 
 0. Acceso y administracion
 
-- El informe de comisiones comerciales lo pueden ver los usuarios con rol `admin` y `director`.
+- El informe de comisiones comerciales lo pueden ver los usuarios con rol `admin`, `director` y `commission_auditor`.
+- `commission_auditor` solo puede abrir Comisiones Comerciales: no puede ver otros informes ni acceder a configuracion, usuarios o permisos.
 - `area_manager` y `viewer` no pueden abrir ese informe.
 - La gestion de usuarios del portal de informes esta en `/informes/usuarios`.
 - Esa pantalla permite crear, editar, activar, desactivar, cambiar rol y eliminar usuarios de `report_users`.

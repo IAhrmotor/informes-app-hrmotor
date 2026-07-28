@@ -124,6 +124,12 @@ class ReportUserAccess
     public static function canViewReport(Request $request, string $reportKey): bool
     {
         $currentRole = self::canonicalRole(self::role($request));
+
+        // This operational role is intentionally isolated from the role hierarchy.
+        if ($currentRole === ReportUser::ROLE_COMMISSION_AUDITOR) {
+            return $reportKey === 'commercial-commissions';
+        }
+
         $minimumRole = self::canonicalRole(self::minimumRoleForReport($reportKey));
 
         if ($currentRole === null || $minimumRole === null) {
@@ -193,6 +199,15 @@ class ReportUserAccess
         return ReportUser::roleOptions();
     }
 
+    public static function reportMinimumRoleOptions(): array
+    {
+        return array_filter(
+            self::roleOptions(),
+            static fn (string $role): bool => $role !== ReportUser::ROLE_COMMISSION_AUDITOR,
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
     private static function canonicalRole(?string $role): ?string
     {
         return match (self::normalizeRole((string) $role)) {
@@ -200,6 +215,7 @@ class ReportUserAccess
             ReportUser::ROLE_DIRECTOR, 'direction', 'direccion' => ReportUser::ROLE_DIRECTOR,
             ReportUser::ROLE_AREA_MANAGER => ReportUser::ROLE_AREA_MANAGER,
             ReportUser::ROLE_VIEWER => ReportUser::ROLE_VIEWER,
+            ReportUser::ROLE_COMMISSION_AUDITOR => ReportUser::ROLE_COMMISSION_AUDITOR,
             default => null,
         };
     }

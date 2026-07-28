@@ -22,7 +22,7 @@ class ReportAccessManagementController extends Controller
             'reportUserRole' => ReportUserAccess::role($request),
             'reportDefinitions' => ReportUserAccess::reportDefinitions(),
             'minimumRoles' => ReportUserAccess::minimumRolesByReport(),
-            'roleOptions' => ReportUserAccess::roleOptions(),
+            'roleOptions' => ReportUserAccess::reportMinimumRoleOptions(),
         ]);
     }
 
@@ -36,7 +36,7 @@ class ReportAccessManagementController extends Controller
         $rules = [];
 
         foreach (array_keys($definitions) as $reportKey) {
-            $rules["minimum_roles.$reportKey"] = ['required', 'string', Rule::in(array_keys(ReportUserAccess::roleOptions()))];
+            $rules["minimum_roles.$reportKey"] = ['required', 'string', Rule::in(array_keys(ReportUserAccess::reportMinimumRoleOptions()))];
         }
 
         $data = $request->validate($rules);

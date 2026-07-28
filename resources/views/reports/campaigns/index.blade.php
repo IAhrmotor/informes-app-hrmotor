@@ -153,7 +153,7 @@
                 <span id="periodLabel"></span>
                 <span id="pivotLabel"></span>
                 <span id="selectedContextLabel"></span>
-                <span id="updatedBadge"></span>
+                <span id="campaignUpdatedBadge"></span>
             </div>
 
             <section class="campaign-topbar">
