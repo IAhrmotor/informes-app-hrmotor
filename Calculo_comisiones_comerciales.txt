@@ -1,5 +1,5 @@
 CALCULO DE COMISIONES COMERCIALES
-Version: 2026-07-20
+Version: 2026-07-28
 
 0. Acceso y administracion
 
@@ -735,3 +735,27 @@ php artisan optimize:clear
 - El match se hace por correo normalizado contra `salesforce_users.email`, sincronizado desde `User.Email` de Salesforce; el ID Salesforce resuelto se guarda junto a la penalizacion para trazabilidad.
 - Los archivos antiguos que solo tengan ID y nombre se mantienen como compatibilidad, pero Cristina debe usar el formato por email.
 - Tras desplegar, ejecutar `php artisan migrate --force` y `php artisan salesforce:sync-monthly-commercial --days=120 -vvv` para poblar los correos locales.
+21. Correcciones de conciliacion de Delegaciones y Area Managers
+---------------------------------------------------------------
+
+- Delegaciones se atribuye exclusivamente por `Opportunity.Tienda_de_entrega__c`.
+  No hay fallback por Owner, por delegacion del propietario ni por otro campo.
+  Si Tienda de entrega/compra esta vacia, la operacion queda fuera de entregas,
+  rentabilidad, porcentajes y comisiones de Delegaciones hasta que Salesforce la complete.
+- Los importes de rentabilidad, financiacion y garantias de Delegaciones usan el
+  mismo conjunto y la misma Tienda de entrega que sus entregas. No se agrupan por
+  la delegacion del propietario del informe.
+- Area Managers continua agrupando por `owner_delegation`; esta regla no cambia
+  para ese cuadro.
+- A Coruna y A Coruña se consolidan mediante la clave estable `a-coruna`. Si una
+  configuracion historica contiene ambas variantes, se conserva una unica
+  asignacion y se prioriza la que tenga objetivos mensuales configurados.
+- Financieros: el bloque de rentabilidad depende del valor sincronizado de
+  `Opportunity.Inter_s_elegido__c`. Mientras Salesforce lo entregue vacio, esas
+  operaciones quedan excluidas segun la regla vigente y no se fuerzan importes.
+- Rentabilidad Total de Delegaciones replica el informe Salesforce de productos:
+  `Fecha_firma_contrato__c` dentro del mes y `StageName` distinto de `Cerrada ganada`
+  y `Cerrada perdida`. No limita Record Type ni exige adicionalmente CV firmado.
+  La formula por operacion es `Product2.PRO_DIV_Precio_de_venta__c -
+  Product2.PRO_DIV_Precio_de_compra__c - Opportunity.OPO_DIV_Descuento__c +
+  Opportunity.Beneficio_financiacion_comercial__c + Opportunity.Garant_a_Total__c`.

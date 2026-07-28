@@ -1230,6 +1230,130 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(7.0, $delegation['financing_profitability_percentage']);
     }
 
+    public function test_dashboard_delegaciones_excluye_operaciones_sin_tienda_de_entrega(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-06', [
+            'delegations' => [
+                'goals' => [
+                    'zaragoza' => ['label' => 'Zaragoza', 'target_deliveries' => 2],
+                ],
+            ],
+        ]);
+
+        foreach ([
+            ['id' => 'ZAR-CON-TIENDA', 'delivery_store' => 'Zaragoza', 'sale_price' => 12000],
+            ['id' => 'ZAR-SIN-TIENDA', 'delivery_store' => null, 'sale_price' => 22000],
+        ] as $operation) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $operation['id'],
+                'name' => 'Venta '.$operation['id'],
+                'owner_id' => '005-ZAR',
+                'owner_name' => 'Comercial Zaragoza',
+                'owner_is_active' => true,
+                'owner_delegation' => 'Zaragoza',
+                'delivery_store' => $operation['delivery_store'],
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-06-10',
+                'vehicle_sale_price' => $operation['sale_price'],
+                'vehicle_purchase_price' => 10000,
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        $payload = app(CommercialCommissionDashboardService::class)->build('2026-06');
+        $delegation = collect($payload['delegation_rows'])->firstWhere('delegation_name', 'Zaragoza');
+        $audit = app(CommercialCommissionDashboardService::class)->delegationDeliveriesAudit('2026-06');
+
+        $this->assertNotNull($delegation);
+        $this->assertSame(1, $delegation['deliveries_count']);
+        $this->assertEquals(2000.0, $delegation['rentability_total']);
+        $this->assertCount(1, $audit['rows']);
+        $this->assertSame('ZAR-CON-TIENDA', $audit['rows'][0]['opportunity_id']);
+    }
+
+    public function test_dashboard_delegaciones_agrupa_rentabilidad_por_tienda_de_entrega(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-06', [
+            'delegations' => [
+                'goals' => [
+                    'paterna' => ['label' => 'Paterna', 'target_deliveries' => 1],
+                    'murcia' => ['label' => 'Murcia', 'target_deliveries' => 1],
+                ],
+            ],
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'MUR-ENTREGA-PAT-OWNER',
+            'name' => 'Venta entregada Murcia',
+            'owner_id' => '005-OWNER-PAT',
+            'owner_name' => 'Comercial Paterna',
+            'owner_is_active' => true,
+            'owner_delegation' => 'Paterna',
+            'report_owner_delegation' => 'Paterna',
+            'delivery_store' => 'Murcia',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-06-10',
+            'vehicle_sale_price' => 15000,
+            'vehicle_purchase_price' => 10000,
+            'gestion_de_venta' => false,
+        ]);
+
+        $rows = collect(app(CommercialCommissionDashboardService::class)->build('2026-06')['delegation_rows']);
+        $murcia = $rows->firstWhere('delegation_name', 'Murcia');
+        $paterna = $rows->firstWhere('delegation_name', 'Paterna');
+
+        $this->assertNotNull($murcia);
+        $this->assertEquals(5000.0, $murcia['rentability_total']);
+        $this->assertNotNull($paterna);
+        $this->assertEquals(0.0, $paterna['rentability_total']);
+    }
+
+    public function test_dashboard_delegaciones_rentabilidad_reproduce_filtros_del_informe_productos_salesforce(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-06', [
+            'delegations' => [
+                'goals' => [
+                    'murcia' => ['label' => 'Murcia', 'target_deliveries' => 1],
+                ],
+            ],
+        ]);
+
+        foreach ([
+            ['id' => 'RENT-VENTA', 'record_type' => 'Venta', 'stage' => 'Contrato', 'cv_signed' => true, 'rentability' => 3000],
+            ['id' => 'RENT-TASACION', 'record_type' => 'Tasacion', 'stage' => 'Contrato', 'cv_signed' => false, 'rentability' => 2000],
+            ['id' => 'RENT-GANADA', 'record_type' => 'Venta', 'stage' => 'Cerrada ganada', 'cv_signed' => true, 'rentability' => 7000],
+            ['id' => 'RENT-PERDIDA', 'record_type' => 'Venta', 'stage' => 'Cerrada perdida', 'cv_signed' => true, 'rentability' => 9000],
+        ] as $operation) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $operation['id'],
+                'name' => 'Operacion '.$operation['id'],
+                'owner_id' => '005-MUR',
+                'owner_name' => 'Comercial Murcia',
+                'owner_is_active' => true,
+                'owner_delegation' => 'Murcia',
+                'delivery_store' => 'Murcia',
+                'stage_name' => $operation['stage'],
+                'record_type_name' => $operation['record_type'],
+                'cv_signed' => $operation['cv_signed'],
+                'cv_signed_date' => '2026-06-10',
+                'vehicle_sale_price' => 10000 + $operation['rentability'],
+                'vehicle_purchase_price' => 10000,
+                'gestion_de_venta' => false,
+            ]);
+        }
+
+        $delegation = collect(app(CommercialCommissionDashboardService::class)->build('2026-06')['delegation_rows'])
+            ->firstWhere('delegation_name', 'Murcia');
+
+        $this->assertNotNull($delegation);
+        $this->assertEquals(5000.0, $delegation['rentability_total']);
+        $this->assertEquals(2500.0, $delegation['average_rentability']);
+    }
+
     public function test_auditoria_de_entregas_delegaciones_exporta_la_misma_logica_del_cuadro(): void
     {
         SalesforceOpportunity::create([

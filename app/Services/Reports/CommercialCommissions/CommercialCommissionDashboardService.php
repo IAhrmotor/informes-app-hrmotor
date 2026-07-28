@@ -8,6 +8,7 @@ use App\Models\SalesforceUser;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
@@ -1163,11 +1164,18 @@ class CommercialCommissionDashboardService
         $deliveriesByDelegation = $deliveries->groupBy(
             fn (SalesforceOpportunity $row) => $this->delegationLabel($this->deliveryDelegation($row))
         );
-        $financialOperationsByDelegation = $deliveries->groupBy(
-            fn (SalesforceOpportunity $row) => $this->delegationLabel($this->financialDelegation($row))
-        );
+        $rentabilityOperationsByDelegation = $this->monthlyDelegationRentabilityOpportunities(
+            $periodStart,
+            $periodEnd
+        )
+            ->get()
+            ->filter(fn (SalesforceOpportunity $row) => $this->formulaConfig->shouldIncludeDelegationLabel(
+                $this->deliveryDelegation($row)
+            ))
+            ->groupBy(fn (SalesforceOpportunity $row) => $this->delegationLabel($this->deliveryDelegation($row)));
         $configuredGoals = collect($formulaSettings['delegations']['goals'] ?? []);
         $delegationLabels = collect($deliveriesByDelegation->keys())
+            ->merge($rentabilityOperationsByDelegation->keys())
             ->merge($configuredGoals->map(fn (array $goal, string $key) => (string) ($goal['label'] ?? $key)))
             ->filter(fn (string $label) => $this->formulaConfig->shouldIncludeDelegationLabel($label))
             ->filter(fn (string $label) => trim($label) !== '')
@@ -1176,11 +1184,11 @@ class CommercialCommissionDashboardService
             ->values();
         $reviewsByDelegation = $this->delegationReviews->forMonthAndDelegations($periodStart, $delegationLabels);
 
-        return $delegationLabels->map(function (string $delegationLabel) use ($deliveriesByDelegation, $financialOperationsByDelegation, $configuredGoals, $formulaSettings, $reviewsByDelegation): array {
+        return $delegationLabels->map(function (string $delegationLabel) use ($deliveriesByDelegation, $rentabilityOperationsByDelegation, $configuredGoals, $formulaSettings, $reviewsByDelegation): array {
             /** @var Collection<int, SalesforceOpportunity> $delegationOperations */
             $delegationOperations = $deliveriesByDelegation->get($delegationLabel, collect())->values();
-            /** @var Collection<int, SalesforceOpportunity> $delegationFinancialOperations */
-            $delegationFinancialOperations = $financialOperationsByDelegation->get($delegationLabel, collect())->values();
+            /** @var Collection<int, SalesforceOpportunity> $delegationRentabilityOperations */
+            $delegationRentabilityOperations = $rentabilityOperationsByDelegation->get($delegationLabel, collect())->values();
             $deliveriesCount = $delegationOperations->count();
             $goal = $this->delegationGoal($configuredGoals, $delegationLabel);
             $targetDeliveries = (int) ($goal['target_deliveries'] ?? 0);
@@ -1188,11 +1196,11 @@ class CommercialCommissionDashboardService
                 ? round(($deliveriesCount / $targetDeliveries) * 100, 2)
                 : null;
             $objectiveCommissionPercent = $this->delegationObjectiveCommissionPercent($objectivePercentage, $formulaSettings);
-            $rentabilityTotal = round((float) $delegationOperations->sum(
+            $rentabilityTotal = round((float) $delegationRentabilityOperations->sum(
                 fn (SalesforceOpportunity $row) => $this->operationRentability($row)
             ), 2);
-            $averageRentability = $deliveriesCount > 0
-                ? round($rentabilityTotal / $deliveriesCount, 2)
+            $averageRentability = $delegationRentabilityOperations->isNotEmpty()
+                ? round($rentabilityTotal / $delegationRentabilityOperations->count(), 2)
                 : 0.0;
             $objectiveReached = $objectiveCommissionPercent > 0;
             $primaFinalBeforeReviews = $objectiveReached
@@ -1213,13 +1221,13 @@ class CommercialCommissionDashboardService
                 $reviewsAverageRating
             );
             $primaFinal = round($primaFinalBeforeReviews + $reviewsCommissionAmount, 2);
-            $financingBenefitTotal = round((float) $delegationFinancialOperations->sum(
+            $financingBenefitTotal = round((float) $delegationOperations->sum(
                 fn (SalesforceOpportunity $row) => (float) ($row->beneficio_financiacion_comercial ?? 0)
             ), 2);
-            $financedAmount = round((float) $delegationFinancialOperations->sum(
+            $financedAmount = round((float) $delegationOperations->sum(
                 fn (SalesforceOpportunity $row) => (float) ($row->importe_financiado ?? 0)
             ), 2);
-            $totalVehicleAmount = round((float) $delegationFinancialOperations->sum(function (SalesforceOpportunity $row): float {
+            $totalVehicleAmount = round((float) $delegationOperations->sum(function (SalesforceOpportunity $row): float {
                 $amount = (float) ($row->opo_for_importe_total ?? 0);
 
                 if ($amount <= 0) {
@@ -1425,6 +1433,24 @@ class CommercialCommissionDashboardService
         });
 
         return $query;
+    }
+
+    /**
+     * Mirrors the Salesforce product report used for "Rentabilidad Total".
+     * It intentionally has a different scope than delivery KPIs.
+     */
+    private function monthlyDelegationRentabilityOpportunities(
+        CarbonImmutable $periodStart,
+        CarbonImmutable $periodEnd
+    ): Builder {
+        return SalesforceOpportunity::query()
+            ->select(self::OPPORTUNITY_COLUMNS)
+            ->whereDate('cv_signed_date', '>=', $periodStart->toDateString())
+            ->whereDate('cv_signed_date', '<', $periodEnd->toDateString())
+            ->whereNotIn(DB::raw("LOWER(COALESCE(stage_name, ''))"), [
+                'cerrada ganada',
+                'cerrada perdida',
+            ]);
     }
 
     private function monthlyReviews(CarbonImmutable $periodStart, CarbonImmutable $periodEnd): Builder
@@ -2054,23 +2080,9 @@ class CommercialCommissionDashboardService
 
     private function deliveryDelegation(SalesforceOpportunity $row): string
     {
-        return $this->formulaConfig->deliveryDelegationLabel(
-            $row->delivery_store,
-            $row->owner_delegation
-        );
-    }
-
-    private function financialDelegation(SalesforceOpportunity $row): string
-    {
-        // Match the Salesforce "Analisis por zonas" report: this formula field can
-        // differ from the Owner's current delegation. Raw payload keeps old rows
-        // compatible until the next Salesforce synchronization populates the column.
-        $reportDelegation = $row->report_owner_delegation
-            ?: data_get($row->raw_payload, 'Delegacion_del_propietario__c');
-
-        return $this->formulaConfig->normalizeDelegationLabel(
-            $reportDelegation ?: $row->owner_delegation
-        );
+        // No fallback to the owner in this tab. A delivery without a delivery
+        // store remains outside Delegaciones until Salesforce completes the field.
+        return $this->formulaConfig->normalizeDelegationLabel($row->delivery_store);
     }
 
     private function delegationGoal(Collection $configuredGoals, string $delegationLabel): array

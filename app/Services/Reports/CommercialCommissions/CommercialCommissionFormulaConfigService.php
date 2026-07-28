@@ -135,6 +135,7 @@ class CommercialCommissionFormulaConfigService
     ];
 
     private const NORMALIZED_DELEGATION_ALIASES = [
+        'a coruna' => 'A Coruna',
         'san boi' => 'Sant Boi',
         'sant boi' => 'Sant Boi',
         'sant boi de llobregat' => 'Sant Boi',
@@ -644,7 +645,7 @@ class CommercialCommissionFormulaConfigService
                 $managerKey = '';
             }
 
-            $assignments[$key] = [
+            $candidate = [
                 'label' => $label,
                 'manager_key' => $managerKey,
                 'active' => (bool) ($assignment['active'] ?? true),
@@ -655,6 +656,15 @@ class CommercialCommissionFormulaConfigService
                     'purchases' => max(0, (float) ($assignment['objectives']['purchases'] ?? 0)),
                 ],
             ];
+
+            // Accents and case must not create a second area-manager centre.
+            // Keep the configured entry that actually carries the monthly goals.
+            if (
+                ! array_key_exists($key, $assignments)
+                || $this->areaManagerAssignmentObjectiveTotal($candidate) >= $this->areaManagerAssignmentObjectiveTotal($assignments[$key])
+            ) {
+                $assignments[$key] = $candidate;
+            }
         }
 
         $settings['area_manager']['assignments'] = collect($assignments)
@@ -689,6 +699,13 @@ class CommercialCommissionFormulaConfigService
             ->all();
 
         return $settings;
+    }
+
+    private function areaManagerAssignmentObjectiveTotal(array $assignment): float
+    {
+        return (float) collect($assignment['objectives'] ?? [])->sum(
+            fn (mixed $objective): float => max(0, (float) $objective)
+        );
     }
 
     public function canTemporarilyUnlockMonth(CarbonImmutable|string $month): bool

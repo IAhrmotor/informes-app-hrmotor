@@ -179,6 +179,38 @@ class CommercialCommissionFormulaSettingsTest extends TestCase
         $this->assertSame('Llica de Valls', $service->normalizeDelegationLabel('llica'));
     }
 
+    public function test_unifica_a_coruna_por_clave_estable_en_configuracion_area_manager(): void
+    {
+        $service = app(CommercialCommissionFormulaConfigService::class);
+
+        $service->saveForMonth('2026-06', [
+            'area_manager' => [
+                'assignments' => [
+                    'a-coruna-sin-tilde' => [
+                        'label' => 'A Coruna',
+                        'manager_key' => 'kosta-plamenov',
+                        'active' => true,
+                        'objectives' => ['deliveries' => 0, 'benefit' => 0, 'guarantee' => 0, 'purchases' => 0],
+                    ],
+                    'a-coruna-con-tilde' => [
+                        'label' => 'A Coruña',
+                        'manager_key' => 'kosta-plamenov',
+                        'active' => true,
+                        'objectives' => ['deliveries' => 30, 'benefit' => 31416, 'guarantee' => 12750, 'purchases' => 18],
+                    ],
+                ],
+            ],
+        ]);
+
+        $assignments = collect($service->forMonth('2026-06')['area_manager']['assignments'] ?? []);
+        $aCoruna = $assignments->filter(
+            fn (array $assignment): bool => $service->delegationKey((string) $assignment['label']) === 'a-coruna'
+        );
+
+        $this->assertCount(1, $aCoruna);
+        $this->assertSame(30.0, (float) data_get($aCoruna->first(), 'objectives.deliveries'));
+    }
+
     public function test_mes_cerrado_no_permita_guardar_coeficientes(): void
     {
         CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-06-26 12:00:00'));

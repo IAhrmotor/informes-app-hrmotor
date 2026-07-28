@@ -159,8 +159,9 @@ class AreaManagerCommissionDashboardService
         return collect($assignmentMap->map(fn (array $assignment) => (string) ($assignment['label'] ?? '')))
             ->merge($deliveryStats->keys())
             ->merge($purchaseStats->keys())
+            ->map(fn (string $label): string => $this->formulaConfig->normalizeDelegationLabel($label))
             ->filter(fn (string $label) => $label !== '' && $this->formulaConfig->shouldIncludeDelegationLabel($label))
-            ->unique()
+            ->unique(fn (string $label): string => $this->formulaConfig->delegationKey($label))
             ->sortBy(fn (string $label) => Str::of($label)->ascii()->lower()->toString())
             ->values();
     }
