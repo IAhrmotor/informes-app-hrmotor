@@ -115,6 +115,12 @@
                 </form>
             </section>
 
+            @if ($errors->has('export'))
+                <div class="notice commission-warning" role="alert">
+                    {{ $errors->first('export') }}
+                </div>
+            @endif
+
             @if (! $dashboard['ready'])
                 <div class="notice">
                     El informe no esta listo para calculo final. Hay bloqueos de configuracion o logica que impiden sacar comisiones definitivas.

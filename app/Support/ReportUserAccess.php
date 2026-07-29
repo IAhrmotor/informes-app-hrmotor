@@ -35,7 +35,13 @@ class ReportUserAccess
             'route' => 'reports.commercial-commissions.index',
             'default_minimum_role' => ReportUser::ROLE_DIRECTOR,
         ],
+        'stock' => [
+            'label' => 'Stock',
+            'route' => 'reports.stock.index',
+            'default_minimum_role' => ReportUser::ROLE_ADMIN,
+        ],
     ];
+
     public static function current(Request $request): ?array
     {
         if (! config('services.informes_auth.enabled', true)) {
@@ -120,6 +126,11 @@ class ReportUserAccess
     public static function canViewCalls(Request $request): bool
     {
         return self::canViewReport($request, 'calls');
+    }
+
+    public static function canViewStock(Request $request): bool
+    {
+        return self::canViewReport($request, 'stock');
     }
 
     public static function canManageReportUsers(Request $request): bool

@@ -1,0 +1,244 @@
+.stock-report {
+    background: #f5f7fb;
+}
+
+.stock-title {
+    align-items: flex-end;
+    display: flex;
+    justify-content: space-between;
+}
+
+.stock-title-meta {
+    align-items: flex-end;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.stock-title-meta span {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 12px;
+}
+
+.stock-section-nav {
+    margin-bottom: 18px;
+}
+
+.stock-section {
+    margin-bottom: 24px;
+    scroll-margin-top: 16px;
+}
+
+.stock-kpis {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stock-kpi,
+.stock-age-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 20px;
+}
+
+.stock-kpi span,
+.stock-age-card span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.stock-kpi strong,
+.stock-age-card strong {
+    color: #172033;
+    font-size: 27px;
+    line-height: 1;
+}
+
+.stock-kpi small,
+.stock-age-card small {
+    color: #64748b;
+}
+
+.stock-age-grid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-top: 14px;
+}
+
+.stock-age-card.priority {
+    border-color: rgba(229, 26, 46, .24);
+}
+
+.stock-age-card.priority strong {
+    color: #c4192c;
+}
+
+.stock-table {
+    border-collapse: collapse;
+    min-width: 900px;
+    width: 100%;
+}
+
+.stock-table th,
+.stock-table td {
+    border-bottom: 1px solid #e8edf4;
+    padding: 12px 14px;
+    text-align: left;
+    vertical-align: middle;
+}
+
+.stock-table th {
+    color: #64748b;
+    font-size: 11px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+
+.stock-table td {
+    color: #334155;
+    font-size: 13px;
+}
+
+.stock-tag {
+    background: #e8f7ef;
+    border-radius: 999px;
+    color: #16794b;
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 800;
+    margin-left: 7px;
+    padding: 4px 7px;
+    text-transform: uppercase;
+}
+
+.stock-tag.muted {
+    background: #eef2f6;
+    color: #64748b;
+}
+
+.stock-tag.danger {
+    background: #fff0f1;
+    color: #c4192c;
+}
+
+.negative {
+    color: #c4192c !important;
+    font-weight: 800;
+}
+
+.stock-capacity-layout {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: minmax(0, 1.5fr) minmax(280px, .7fr);
+    margin-bottom: 16px;
+}
+
+.stock-upload-form {
+    align-items: end;
+    display: grid;
+    gap: 14px;
+    grid-template-columns: minmax(240px, 1fr) 160px auto;
+}
+
+.stock-upload-form input[type="file"],
+.stock-capacity-table input[type="number"] {
+    background: #fff;
+    border: 1px solid #dbe3ec;
+    border-radius: 12px;
+    box-sizing: border-box;
+    min-height: 42px;
+    padding: 9px 12px;
+    width: 100%;
+}
+
+.stock-capacity-help ul {
+    color: #475569;
+    line-height: 1.65;
+    margin: 12px 0 0;
+    padding-left: 20px;
+}
+
+.stock-capacity-table {
+    min-width: 760px;
+}
+
+.stock-capacity-table input[type="number"] {
+    max-width: 150px;
+}
+
+.stock-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 18px;
+}
+
+.stock-quality-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stock-quality-grid article {
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #e6ebf2;
+    border-radius: 14px;
+    display: flex;
+    justify-content: space-between;
+    padding: 14px;
+}
+
+.stock-quality-grid span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.stock-quality-grid strong {
+    color: #172033;
+    font-size: 21px;
+}
+
+@media (max-width: 1000px) {
+    .stock-kpis,
+    .stock-quality-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .stock-capacity-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .stock-upload-form {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .stock-title {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .stock-title-meta {
+        align-items: flex-start;
+    }
+
+    .stock-kpis,
+    .stock-age-grid,
+    .stock-quality-grid {
+        grid-template-columns: 1fr;
+    }
+}

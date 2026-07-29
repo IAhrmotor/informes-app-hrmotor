@@ -1,9 +1,6 @@
 <?php
 
 use App\Http\Controllers\Auth\InformesLoginController;
-use App\Http\Controllers\Reports\Leads\LeadDashboardController;
-use App\Http\Controllers\Reports\Leads\LeadDashboardDataController;
-use App\Http\Controllers\Reports\Leads\MonthlyCommercialReportDataController;
 use App\Http\Controllers\Reports\Calls\CallDashboardController;
 use App\Http\Controllers\Reports\Calls\CallDashboardDataController;
 use App\Http\Controllers\Reports\Campaigns\CampaignDashboardController;
@@ -11,9 +8,14 @@ use App\Http\Controllers\Reports\Campaigns\CampaignDashboardDataController;
 use App\Http\Controllers\Reports\CommercialCommissions\CommercialCommissionDashboardController;
 use App\Http\Controllers\Reports\CommercialCommissions\CommercialCommissionFormulaSettingsController;
 use App\Http\Controllers\Reports\CommercialCommissions\CommercialFinancingPenaltyImportController;
+use App\Http\Controllers\Reports\Leads\LeadDashboardController;
+use App\Http\Controllers\Reports\Leads\LeadDashboardDataController;
+use App\Http\Controllers\Reports\Leads\MonthlyCommercialReportDataController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
 use App\Http\Controllers\Reports\Settings\ReportAccessManagementController;
+use App\Http\Controllers\Reports\Stock\StockCapacityController;
+use App\Http\Controllers\Reports\Stock\StockDashboardController;
 use App\Http\Controllers\Reports\Users\ReportUserManagementController;
 use App\Support\ReportUserAccess;
 use Illuminate\Http\Request;
@@ -111,6 +113,15 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/export/comisiones.xlsx', [CommercialCommissionDashboardController::class, 'exportCommissionsXlsx'])->name('export.commissions');
             Route::get('/export/call-center-missing-captador.csv', [CommercialCommissionDashboardController::class, 'exportCallCenterMissingCaptadorCsv'])->name('export.call-center-missing-captador');
             Route::get('/export/delegation-deliveries.csv', [CommercialCommissionDashboardController::class, 'exportDelegationDeliveriesCsv'])->name('export.delegation-deliveries');
+        });
+
+    Route::prefix('informes/stock')
+        ->name('reports.stock.')
+        ->middleware('report.access:stock')
+        ->group(function () {
+            Route::get('/', [StockDashboardController::class, 'index'])->name('index');
+            Route::post('/capacidades/importar', [StockCapacityController::class, 'import'])->name('capacities.import');
+            Route::put('/capacidades', [StockCapacityController::class, 'update'])->name('capacities.update');
         });
 
     Route::prefix('informes/usuarios')

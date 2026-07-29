@@ -16,6 +16,8 @@ Version: 2026-07-28
 - Descarga `comisiones-YYYY-MM.xlsx` con seis hojas: `Comerciales`, `Delegaciones`, `Area Managers`, `Call Center`, `Contact Center` y `Financieros`.
 - Cada hoja contiene unicamente el nombre de la entidad y su `Comision final` del mes seleccionado.
 - La hoja `Area Managers` agrega la fila `Oscar` con el 40% de la suma de comisiones finales de los Area Managers.
+- El archivo se genera temporalmente en `storage/app/exports` y se elimina despues de enviarse. En produccion, `storage` debe ser escribible por el usuario del contenedor PHP y debe estar habilitada la extension ZIP.
+- El export procesa los cuadros de forma secuencial y sin detalles auditables de Call Center y Contact Center, para limitar el consumo de memoria.
 
 1. Universo que entra en el informe
 

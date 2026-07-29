@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use Illuminate\Support\Facades\File;
 use RuntimeException;
 use ZipArchive;
 
@@ -16,11 +17,11 @@ class SimpleXlsxWorkbookWriter
             throw new RuntimeException('El servidor no tiene disponible la extension ZIP necesaria para generar archivos XLSX.');
         }
 
-        $path = tempnam(sys_get_temp_dir(), 'hrmotor-commissions-');
-
-        if ($path === false) {
-            throw new RuntimeException('No se pudo crear el archivo temporal para la exportacion.');
-        }
+        // Production containers may restrict the OS temporary directory. Laravel's
+        // storage directory is the application-managed writable location.
+        $directory = storage_path('app/exports');
+        File::ensureDirectoryExists($directory);
+        $path = $directory.DIRECTORY_SEPARATOR.'comisiones-'.bin2hex(random_bytes(12)).'.xlsx';
 
         $zip = new ZipArchive();
 

@@ -43,6 +43,7 @@ class ReportAccessManagementTest extends TestCase
                     'calls' => ReportUser::ROLE_VIEWER,
                     'campaigns' => ReportUser::ROLE_DIRECTOR,
                     'commercial-commissions' => ReportUser::ROLE_ADMIN,
+                    'stock' => ReportUser::ROLE_ADMIN,
                 ],
             ])
             ->assertRedirect('/informes/permisos-informes');
@@ -92,6 +93,7 @@ class ReportAccessManagementTest extends TestCase
                     'calls' => ReportUser::ROLE_VIEWER,
                     'campaigns' => ReportUser::ROLE_DIRECTOR,
                     'commercial-commissions' => ReportUser::ROLE_DIRECTOR,
+                    'stock' => ReportUser::ROLE_ADMIN,
                 ],
             ])
             ->assertRedirect('/informes/permisos-informes');

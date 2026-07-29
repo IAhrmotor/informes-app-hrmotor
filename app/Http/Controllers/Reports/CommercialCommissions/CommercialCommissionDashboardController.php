@@ -13,6 +13,7 @@ use App\Support\ReportUserAccess;
 use App\Support\SimpleXlsxWorkbookWriter;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class CommercialCommissionDashboardController extends Controller
 {
@@ -205,13 +206,14 @@ class CommercialCommissionDashboardController extends Controller
     ) {
         abort_unless(ReportUserAccess::canViewCommercialCommissions($request), 403);
 
-        // The export evaluates six independent dashboards. Keep only one payload
-        // in memory at a time so the audit detail arrays cannot exhaust PHP.
-        @ini_set('memory_limit', '512M');
-        @set_time_limit(120);
+        try {
+            // The export evaluates six independent dashboards. Keep only one payload
+            // in memory at a time so the audit detail arrays cannot exhaust PHP.
+            @ini_set('memory_limit', '512M');
+            @set_time_limit(120);
 
-        $sheets = [];
-        $commercialDashboard = $dashboard->build(
+            $sheets = [];
+            $commercialDashboard = $dashboard->build(
             $request->query('month'),
             includeSummaryRows: true,
             includeDelegationRows: true,
@@ -291,13 +293,27 @@ class CommercialCommissionDashboardController extends Controller
         unset($financialPayload);
         gc_collect_cycles();
 
-        $path = $workbookWriter->write($sheets);
+            $path = $workbookWriter->write($sheets);
 
-        return response()
-            ->download($path, 'comisiones-'.$month.'.xlsx', [
-                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            ])
-            ->deleteFileAfterSend(true);
+            return response()
+                ->download($path, 'comisiones-'.$month.'.xlsx', [
+                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                ])
+                ->deleteFileAfterSend(true);
+        } catch (\Throwable $exception) {
+            Log::error('No se pudo exportar el XLSX de comisiones.', [
+                'month' => $request->query('month'),
+                'user_id' => ReportUserAccess::current($request)['id'] ?? null,
+                'exception' => $exception,
+            ]);
+
+            return redirect()
+                ->route('reports.commercial-commissions.index', array_filter([
+                    'month' => $request->query('month'),
+                    'tab' => 'summary',
+                ]))
+                ->withErrors(['export' => 'No se pudo generar el Excel de comisiones. El motivo se ha registrado para revision tecnica.']);
+        }
     }
 
     /**

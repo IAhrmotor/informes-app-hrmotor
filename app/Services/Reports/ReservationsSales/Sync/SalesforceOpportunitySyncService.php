@@ -20,8 +20,7 @@ class SalesforceOpportunitySyncService
     public function __construct(
         private readonly SalesforceClient $client,
         private readonly OpportunityPortalNormalizer $portalNormalizer,
-    ) {
-    }
+    ) {}
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
     {
@@ -122,6 +121,8 @@ SELECT
     CloseDate,
     Amount,
     OPO_FOR_Importe_total__c,
+    OPO_FOR_Importe_vehiculo_venta__c,
+    OPO_FOR_Importe_vehiculo_a_cambio__c,
     StageName,
     RecordType.Name,
     OwnerId,
@@ -145,6 +146,10 @@ SELECT
     Beneficio_financiacion_comercial__c,
     Importe_financiado__c,
     Gestion_de_venta__c,
+    Costes_de_gestion__c,
+    Costes_de_Logistica_Incluido__c,
+    OPO_DIV_Coste_Traslado__c,
+    Descuento_Logistica__c,
     OPO_DIV_Descuento__c,
     Comisi_n_Financiera__c,
     OPO_DIV_Descuento_financiera__c,
@@ -178,6 +183,8 @@ SELECT
     OPP_BUS_Vehiculo_de_interes__r.Name,
     OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_venta__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_compra__c,
+    OPP_BUS_Vehiculo_de_interes__r.Plan_Auto_Plus__c,
+    OPP_BUS_Vehiculo_de_interes__r.CAE__c,
     OPP_BUS_Vehiculo_de_interes__r.Procedencia_de_compra__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_FEC_Fecha_compra__c,
     OPP_BUS_Vehiculo_de_interes__r.Comprador_oportunidad__c,
@@ -233,6 +240,10 @@ SOQL;
                 'close_date' => data_get($record, 'CloseDate'),
                 'amount' => $this->salesforceValue($record, 'Amount'),
                 'opo_for_importe_total' => $this->salesforceValue($record, 'OPO_FOR_Importe_total__c'),
+                'contract_vehicle_sale_amount' => $this->salesforceValue($record, 'OPO_FOR_Importe_vehiculo_venta__c'),
+                'plan_auto_plus_amount' => $this->salesforceValue($record, 'OPP_BUS_Vehiculo_de_interes__r.Plan_Auto_Plus__c'),
+                'cae_amount' => $this->salesforceValue($record, 'OPP_BUS_Vehiculo_de_interes__r.CAE__c'),
+                'trade_in_amount' => $this->salesforceValue($record, 'OPO_FOR_Importe_vehiculo_a_cambio__c'),
                 'stage_name' => $stage,
                 'record_type_name' => data_get($record, 'RecordType.Name'),
                 'owner_id' => data_get($record, 'OwnerId'),
@@ -260,6 +271,10 @@ SOQL;
                 'financing_paid_date' => data_get($record, 'Fecha_pagada_financiacion__c'),
                 'financed_amount_ratio' => $this->salesforceValue($record, 'Porcentaje_del_importe_financiado__c'),
                 'gestion_de_venta' => (bool) $this->salesforceValue($record, 'Gestion_de_venta__c'),
+                'management_cost' => $this->salesforceValue($record, 'Costes_de_gestion__c'),
+                'logistics_cost' => $this->salesforceValue($record, 'Costes_de_Logistica_Incluido__c'),
+                'transfer_cost' => $this->salesforceValue($record, 'OPO_DIV_Coste_Traslado__c'),
+                'logistics_discount' => $this->salesforceValue($record, 'Descuento_Logistica__c'),
                 'opo_div_descuento' => $this->salesforceValue($record, 'OPO_DIV_Descuento__c'),
                 'informe_rentabilidad' => $this->salesforceValue($record, 'informe_rentabilidad__c'),
                 'rentabilidad_financiera' => $this->salesforceValue($record, 'Rentabilidad_financiera__c'),

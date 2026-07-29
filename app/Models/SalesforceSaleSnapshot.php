@@ -1,0 +1,33 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class SalesforceSaleSnapshot extends Model
+{
+    protected $guarded = [];
+
+    protected $casts = [
+        'signed_date' => 'date',
+        'vehicle_entry_date' => 'date',
+        'rotation_days' => 'integer',
+        'sale_management' => 'boolean',
+        'sale_price' => 'decimal:2',
+        'purchase_price' => 'decimal:2',
+        'trade_in_amount' => 'decimal:2',
+        'management_cost' => 'decimal:2',
+        'logistics_cost' => 'decimal:2',
+        'transfer_cost' => 'decimal:2',
+        'warranty_amount' => 'decimal:2',
+        'plan_auto_plus_amount' => 'decimal:2',
+        'cae_amount' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
+        'financial_discount_amount' => 'decimal:2',
+        'logistics_discount_amount' => 'decimal:2',
+        'total_amount' => 'decimal:2',
+        'quality_issues' => 'array',
+        'source_payload' => 'array',
+        'captured_at' => 'datetime',
+    ];
+}

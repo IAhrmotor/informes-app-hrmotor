@@ -13,6 +13,7 @@
         ['key' => 'calls', 'label' => 'Llamadas', 'subtitle' => 'Actividad telefonica y atencion', 'route' => 'reports.calls.index'],
         ['key' => 'campaigns', 'label' => 'Campañas', 'subtitle' => 'Rentabilidad digital', 'route' => 'reports.campaigns.index'],
         ['key' => 'commercial-commissions', 'label' => 'Comisiones Comerciales', 'subtitle' => 'Calculo mensual por comercial', 'route' => 'reports.commercial-commissions.index'],
+        ['key' => 'stock', 'label' => 'Stock', 'subtitle' => 'Vehiculos, capacidad y rotacion', 'route' => 'reports.stock.index'],
     ];
 
     $visibleTabs = array_values(array_filter($tabs, function (array $tab): bool {

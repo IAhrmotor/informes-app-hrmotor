@@ -69,6 +69,15 @@
     "src": "resources/css/reports/leads-dashboard.css",
     "isEntry": true
   },
+  "resources/css/reports/stock-dashboard.css": {
+    "file": "assets/stock-dashboard-CTv2PAYW.css",
+    "name": "stock-dashboard",
+    "names": [
+      "stock-dashboard.css"
+    ],
+    "src": "resources/css/reports/stock-dashboard.css",
+    "isEntry": true
+  },
   "resources/js/app.js": {
     "file": "assets/app-34mOoJaZ.js",
     "name": "app",
@@ -76,31 +85,31 @@
     "isEntry": true
   },
   "resources/js/reports/calls-dashboard.js": {
-    "file": "assets/calls-dashboard-DPU4cJUp.js",
+    "file": "assets/calls-dashboard-ChwVtRyt.js",
     "name": "calls-dashboard",
     "src": "resources/js/reports/calls-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/campaigns-dashboard.js": {
-    "file": "assets/campaigns-dashboard-Dq5JnpV6.js",
+    "file": "assets/campaigns-dashboard-CPyyabVC.js",
     "name": "campaigns-dashboard",
     "src": "resources/js/reports/campaigns-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/commercial-commissions-dashboard.js": {
-    "file": "assets/commercial-commissions-dashboard-C8CK0S56.js",
+    "file": "assets/commercial-commissions-dashboard-qWY_7Fik.js",
     "name": "commercial-commissions-dashboard",
     "src": "resources/js/reports/commercial-commissions-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/leads-dashboard.js": {
-    "file": "assets/leads-dashboard-C8acaz9m.js",
+    "file": "assets/leads-dashboard-BlPHT4WR.js",
     "name": "leads-dashboard",
     "src": "resources/js/reports/leads-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/reservations-sales-dashboard.js": {
-    "file": "assets/reservations-sales-dashboard-D7-81IiZ.js",
+    "file": "assets/reservations-sales-dashboard-n80IZ7rX.js",
     "name": "reservations-sales-dashboard",
     "src": "resources/js/reports/reservations-sales-dashboard.js",
     "isEntry": true
