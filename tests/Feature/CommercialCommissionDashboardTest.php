@@ -52,6 +52,7 @@ class CommercialCommissionDashboardTest extends TestCase
             ->assertOk()
             ->assertSee('Comisiones Comerciales')
             ->assertSee('Mes cerrado')
+            ->assertSee('Exportar comisiones')
             ->assertSee('Diagnostico de datos base');
     }
 

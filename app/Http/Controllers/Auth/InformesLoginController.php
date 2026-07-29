@@ -66,6 +66,7 @@ class InformesLoginController extends Controller
             'report_user_id',
             'report_user_email',
             'report_user_role',
+            'report_user_name',
         ]);
         $request->session()->invalidate();
         $request->session()->regenerateToken();
@@ -117,6 +118,7 @@ class InformesLoginController extends Controller
         $request->session()->put('report_user_id', $user?->id);
         $request->session()->put('report_user_email', $email);
         $request->session()->put('report_user_role', $role);
+        $request->session()->put('report_user_name', $user?->name);
     }
 
     private function queueRememberCookie(Request $request, ?ReportUser $user): void

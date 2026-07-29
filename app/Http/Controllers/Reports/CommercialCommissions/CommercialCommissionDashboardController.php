@@ -10,6 +10,7 @@ use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardServ
 use App\Services\Reports\ContactCenterCommissions\ContactCenterCommissionDashboardService;
 use App\Services\Reports\FinancialCommissions\FinancialCommissionDashboardService;
 use App\Support\ReportUserAccess;
+use App\Support\SimpleXlsxWorkbookWriter;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 
@@ -191,6 +192,131 @@ class CommercialCommissionDashboardController extends Controller
         }, $filename, [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
+    }
+
+    public function exportCommissionsXlsx(
+        Request $request,
+        CommercialCommissionDashboardService $dashboard,
+        CallCenterCommissionDashboardService $callCenterDashboard,
+        ContactCenterCommissionDashboardService $contactCenterDashboard,
+        AreaManagerCommissionDashboardService $areaManagerDashboard,
+        FinancialCommissionDashboardService $financialDashboard,
+        SimpleXlsxWorkbookWriter $workbookWriter,
+    ) {
+        abort_unless(ReportUserAccess::canViewCommercialCommissions($request), 403);
+
+        // The export evaluates six independent dashboards. Keep only one payload
+        // in memory at a time so the audit detail arrays cannot exhaust PHP.
+        @ini_set('memory_limit', '512M');
+        @set_time_limit(120);
+
+        $sheets = [];
+        $commercialDashboard = $dashboard->build(
+            $request->query('month'),
+            includeSummaryRows: true,
+            includeDelegationRows: true,
+            includeDetails: false,
+        );
+        $month = $commercialDashboard['month'];
+        $sheets[] = $this->commissionSheet(
+            'Comerciales',
+            'Comercial',
+            $commercialDashboard['summary_rows'] ?? [],
+            'commercial_name',
+            'final_commission',
+        );
+        $sheets[] = $this->commissionSheet(
+            'Delegaciones',
+            'Delegacion',
+            $commercialDashboard['delegation_rows'] ?? [],
+            'delegation_name',
+            'total_commission',
+        );
+        unset($commercialDashboard);
+        gc_collect_cycles();
+
+        $callCenterPayload = $callCenterDashboard->build(
+            $month,
+            is_string($request->query('call_center_contract_from')) ? $request->query('call_center_contract_from') : null,
+            is_string($request->query('call_center_contract_to')) ? $request->query('call_center_contract_to') : null,
+            includeDetails: false,
+        );
+        $sheets[] = $this->commissionSheet(
+            'Call Center',
+            'Agente / captador',
+            $callCenterPayload['summary_rows'] ?? [],
+            'agent_name',
+            'final_total',
+        );
+        unset($callCenterPayload);
+        gc_collect_cycles();
+
+        $contactCenterPayload = $contactCenterDashboard->build($month, includeDetails: false);
+        $sheets[] = $this->commissionSheet(
+            'Contact Center',
+            'Agente / captador',
+            $contactCenterPayload['summary_rows'] ?? [],
+            'agent_name',
+            'final_total',
+        );
+        unset($contactCenterPayload);
+        gc_collect_cycles();
+
+        $areaManagerPayload = $areaManagerDashboard->build($month);
+        $areaManagerRows = collect($areaManagerPayload['summary_rows'] ?? []);
+        $sheets[] = $this->commissionSheet(
+            'Area Managers',
+            'Area Manager',
+            [
+                ...$areaManagerRows->all(),
+                [
+                    'manager_name' => 'Oscar',
+                    'final_total' => round((float) $areaManagerRows->sum('final_total') * 0.40, 2),
+                ],
+            ],
+            'manager_name',
+            'final_total',
+        );
+        unset($areaManagerPayload, $areaManagerRows);
+        gc_collect_cycles();
+
+        $financialPayload = $financialDashboard->build($month);
+        $sheets[] = $this->commissionSheet(
+            'Financieros',
+            'Zona financiera',
+            $financialPayload['summary_rows'] ?? [],
+            'zone_name',
+            'final_commission',
+        );
+        unset($financialPayload);
+        gc_collect_cycles();
+
+        $path = $workbookWriter->write($sheets);
+
+        return response()
+            ->download($path, 'comisiones-'.$month.'.xlsx', [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ])
+            ->deleteFileAfterSend(true);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     * @return array{name: string, headers: array<int, string>, rows: array<int, array<int, string|float>>}
+     */
+    private function commissionSheet(string $name, string $entityLabel, array $rows, string $nameKey, string $commissionKey): array
+    {
+        return [
+            'name' => $name,
+            'headers' => [$entityLabel, 'Comision final'],
+            'rows' => collect($rows)
+                ->map(fn (array $row): array => [
+                    (string) ($row[$nameKey] ?? '-'),
+                    round((float) ($row[$commissionKey] ?? 0), 2),
+                ])
+                ->values()
+                ->all(),
+        ];
     }
 
     private function resolveActiveTab(mixed $value): string

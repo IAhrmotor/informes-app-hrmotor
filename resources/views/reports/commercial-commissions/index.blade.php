@@ -33,6 +33,11 @@
     $delegationDeliveriesAuditUrl = route('reports.commercial-commissions.export.delegation-deliveries', [
         'month' => $dashboard['month'] ?? null,
     ]);
+    $commissionExportUrl = route('reports.commercial-commissions.export.commissions', array_filter([
+        'month' => $dashboard['month'] ?? null,
+        'call_center_contract_from' => $callCenterDashboard['contract_from'] ?? null,
+        'call_center_contract_to' => $callCenterDashboard['contract_to'] ?? null,
+    ]));
     $stockLabel = 'Stock +'.(int) ($formulaSettings['stock']['days_threshold'] ?? 150);
     $bonusLabel = 'Bonus +'.(int) ($formulaSettings['bonus']['start_after_delivery'] ?? 15);
     $defaultCommercialId = $summaryRows->first()['commercial_id'] ?? null;
@@ -105,6 +110,7 @@
                     </div>
                     <div class="filter-actions commission-filter-actions">
                         <button type="submit" class="main-tab">Cargar informe</button>
+                        <a id="commissionExport" href="{{ $commissionExportUrl }}" class="main-tab active">Exportar comisiones</a>
                     </div>
                 </form>
             </section>

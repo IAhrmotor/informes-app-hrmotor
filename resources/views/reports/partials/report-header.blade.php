@@ -22,10 +22,14 @@
 
         return \App\Support\ReportUserAccess::canViewReport(request(), $tab['key']);
     }));
+    $reportUserDisplayName = \App\Support\ReportUserAccess::displayName(request());
 @endphp
 
 <header class="app-header">
     <div class="header-actions">
+        @if (filled($reportUserDisplayName))
+            <div class="header-user-greeting">Hola {{ $reportUserDisplayName }}</div>
+        @endif
         <div class="badge" id="updatedBadge">{{ $updatedBadgeText }}</div>
         @if (\App\Support\ReportUserAccess::canManageReportUsers(request()))
             @foreach ($adminLinks as $link)

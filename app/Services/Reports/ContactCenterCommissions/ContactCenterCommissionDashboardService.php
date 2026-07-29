@@ -40,7 +40,7 @@ class ContactCenterCommissionDashboardService
         'rafael' => 'Rafael Polanco',
     ];
 
-    public function build(?string $month): array
+    public function build(?string $month, bool $includeDetails = true): array
     {
         [$selectedMonth, $monthWarning] = $this->resolveMonth($month);
         $periodStart = $selectedMonth->startOfMonth();
@@ -108,7 +108,8 @@ class ContactCenterCommissionDashboardService
                     $diagnostics['show_count']++;
                 }
 
-                $summaryRows[$rowKey]['details']['appointments'][] = [
+                if ($includeDetails) {
+                    $summaryRows[$rowKey]['details']['appointments'][] = [
                     'lead_id' => $appointment->salesforce_id,
                     'lead_name' => (string) ($appointment->name ?? ''),
                     'phone_normalized' => implode(' / ', $appointmentPhones),
@@ -123,7 +124,8 @@ class ContactCenterCommissionDashboardService
                     'portal' => (string) ($appointment->portal_text ?? ''),
                     'delegation' => (string) ($appointment->delegacion_encargada_text ?? ''),
                     'inclusion_reason' => $this->appointmentReason($appointment),
-                ];
+                    ];
+                }
                 $linkedOpportunities = $this->linkedOpportunitiesForAppointment(
                     $appointment,
                     $opportunitiesById,
@@ -139,7 +141,8 @@ class ContactCenterCommissionDashboardService
 
                     $summaryRows[$rowKey]['opportunity_count']++;
                     $diagnostics['opportunity_links_count']++;
-                    $summaryRows[$rowKey]['details']['opportunities'][] = [
+                    if ($includeDetails) {
+                        $summaryRows[$rowKey]['details']['opportunities'][] = [
                         'lead_id' => $appointment->salesforce_id,
                         'opportunity_id' => $opportunity->salesforce_id,
                         'opportunity_name' => (string) ($opportunity->name ?? ''),
@@ -153,12 +156,14 @@ class ContactCenterCommissionDashboardService
                         'record_type_name' => (string) ($opportunity->record_type_name ?? ''),
                         'link_origin' => $bestOutcome['link_origin'],
                         'commission_amount' => self::OPPORTUNITY_COMMISSION,
-                    ];
+                        ];
+                    }
 
                     if ($bestOutcome['has_reservation']) {
                         $summaryRows[$rowKey]['reservation_count']++;
                         $diagnostics['reservation_links_count']++;
-                        $summaryRows[$rowKey]['details']['reservations'][] = [
+                        if ($includeDetails) {
+                            $summaryRows[$rowKey]['details']['reservations'][] = [
                             'opportunity_id' => $opportunity->salesforce_id,
                             'opportunity_name' => (string) ($opportunity->name ?? ''),
                             'reservation_date' => optional($opportunity->reservation_date)?->toDateString(),
@@ -170,7 +175,8 @@ class ContactCenterCommissionDashboardService
                             'portal' => (string) ($opportunity->portal_resolved ?? $opportunity->portal_original ?? ''),
                             'pending_contract' => (bool) $opportunity->reservation && ! (bool) $opportunity->cv_signed,
                             'observations' => $bestOutcome['link_origin'],
-                        ];
+                            ];
+                        }
                     }
                 }
             }
@@ -196,7 +202,8 @@ class ContactCenterCommissionDashboardService
                 $rowKey = $this->agentKeyFromName($agentName);
                 $this->ensureRow($summaryRows, $rowKey, $agentName);
                 $summaryRows[$rowKey]['sales_count']++;
-                $summaryRows[$rowKey]['details']['sales'][] = [
+                if ($includeDetails) {
+                    $summaryRows[$rowKey]['details']['sales'][] = [
                     'opportunity_id' => $sale->salesforce_id,
                     'opportunity_name' => (string) ($sale->name ?? ''),
                     'phone_normalized' => implode(' / ', $this->phonesForOpportunity($sale)),
@@ -212,12 +219,13 @@ class ContactCenterCommissionDashboardService
                     'sale_commission_amount' => self::SALE_COMMISSION,
                     'ratio_bonus_applied' => false,
                     'observations' => $bestAppointment['reason'],
-                ];
+                    ];
+                }
             }
         }
 
         $summaryRows = collect($summaryRows)
-            ->map(function (array $row): array {
+            ->map(function (array $row) use ($includeDetails): array {
                 $ratio = $this->divide($row['sales_count'], $row['appointment_count']);
                 $opportunityCommission = round($row['opportunity_count'] * self::OPPORTUNITY_COMMISSION, 2);
                 $salesCommission = round($row['sales_count'] * self::SALE_COMMISSION, 2);
@@ -243,27 +251,31 @@ class ContactCenterCommissionDashboardService
                     ? count($row['details']['incidents']).' incidencias'
                     : 'Sin incidencias';
 
-                if ($ratioBonus > 0) {
+                if ($includeDetails && $ratioBonus > 0) {
                     foreach ($row['details']['sales'] as &$detail) {
                         $detail['ratio_bonus_applied'] = true;
                     }
                     unset($detail);
                 }
 
-                foreach (['appointments', 'opportunities', 'reservations', 'sales', 'incidents'] as $detailKey) {
-                    $row['details'][$detailKey] = collect($row['details'][$detailKey])
-                        ->sortBy([
-                            ['event_date', 'desc'],
-                            ['capture_date', 'desc'],
-                            ['contract_signed_date', 'desc'],
-                            ['reservation_date', 'desc'],
-                            ['opportunity_created_date', 'desc'],
-                            ['reference_name', 'asc'],
-                            ['opportunity_name', 'asc'],
-                            ['lead_name', 'asc'],
-                        ])
-                        ->values()
-                        ->all();
+                if ($includeDetails) {
+                    foreach (['appointments', 'opportunities', 'reservations', 'sales', 'incidents'] as $detailKey) {
+                        $row['details'][$detailKey] = collect($row['details'][$detailKey])
+                            ->sortBy([
+                                ['event_date', 'desc'],
+                                ['capture_date', 'desc'],
+                                ['contract_signed_date', 'desc'],
+                                ['reservation_date', 'desc'],
+                                ['opportunity_created_date', 'desc'],
+                                ['reference_name', 'asc'],
+                                ['opportunity_name', 'asc'],
+                                ['lead_name', 'asc'],
+                            ])
+                            ->values()
+                            ->all();
+                    }
+                } else {
+                    unset($row['details']);
                 }
 
                 return $row;

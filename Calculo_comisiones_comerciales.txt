@@ -10,6 +10,13 @@ Version: 2026-07-28
 - Esa pantalla permite crear, editar, activar, desactivar, cambiar rol y eliminar usuarios de `report_users`.
 - La gestion de usuarios solo la puede usar un `admin`.
 
+0.1. Exportacion resumida
+
+- En la barra de mes del informe existe el boton `Exportar comisiones`.
+- Descarga `comisiones-YYYY-MM.xlsx` con seis hojas: `Comerciales`, `Delegaciones`, `Area Managers`, `Call Center`, `Contact Center` y `Financieros`.
+- Cada hoja contiene unicamente el nombre de la entidad y su `Comision final` del mes seleccionado.
+- La hoja `Area Managers` agrega la fila `Oscar` con el 40% de la suma de comisiones finales de los Area Managers.
+
 1. Universo que entra en el informe
 
 Solo se usan oportunidades de Salesforce que cumplan:

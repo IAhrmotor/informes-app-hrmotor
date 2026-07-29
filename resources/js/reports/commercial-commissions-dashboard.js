@@ -43,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
     bindCommissionTabs();
     bindCallCenterBrowser();
     bindAgentBrowsers();
+    bindCommissionExportMonth();
     bindCommercialSummarySearch();
     bindCommissionDetailTabs();
     bindSortableTables();
@@ -52,6 +53,25 @@ document.addEventListener('DOMContentLoaded', () => {
     initHorizontalScrollRegions();
     bindKpiTooltips();
 });
+
+function bindCommissionExportMonth() {
+    const monthInput = document.getElementById('month');
+    const exportLink = document.getElementById('commissionExport');
+
+    if (!monthInput || !exportLink) {
+        return;
+    }
+
+    monthInput.addEventListener('change', () => {
+        if (!monthInput.value) {
+            return;
+        }
+
+        const url = new URL(exportLink.href, window.location.origin);
+        url.searchParams.set('month', monthInput.value);
+        exportLink.href = url.toString();
+    });
+}
 
 function bindCommissionTabs() {
     const triggers = [...document.querySelectorAll('[data-commission-tab-trigger]')];

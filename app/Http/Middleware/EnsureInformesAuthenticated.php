@@ -26,6 +26,7 @@ class EnsureInformesAuthenticated
             $request->session()->put('report_user_id', $rememberedUser->id);
             $request->session()->put('report_user_email', $rememberedUser->email);
             $request->session()->put('report_user_role', $rememberedUser->role);
+            $request->session()->put('report_user_name', $rememberedUser->name);
             $rememberedUser->forceFill(['last_login_at' => now()])->save();
 
             return $next($request);

@@ -23,7 +23,7 @@ class CallCenterCommissionDashboardService
 
     private array $tasacionOpportunityCache = [];
 
-    public function build(?string $month, ?string $contractFrom = null, ?string $contractTo = null): array
+    public function build(?string $month, ?string $contractFrom = null, ?string $contractTo = null, bool $includeDetails = true): array
     {
         [$selectedMonth, $monthWarning] = $this->resolveMonth($month);
         [$periodStart, $periodEnd, $contractFilterWarning] = $this->resolveContractDateRange(
@@ -58,7 +58,7 @@ class CallCenterCommissionDashboardService
         if ($issues === []) {
             $monthlyOpportunities = $this->monthlyOpportunities($periodStart, $periodEnd)->get();
             $diagnostics['monthly_opportunities'] = $monthlyOpportunities->count();
-            [$summaryRows, $rowWarnings, $diagnostics] = $this->buildSummaryRows($monthlyOpportunities, $diagnostics);
+            [$summaryRows, $rowWarnings, $diagnostics] = $this->buildSummaryRows($monthlyOpportunities, $diagnostics, $includeDetails);
             $warnings = array_values(array_filter([...$warnings, ...$rowWarnings]));
 
             if ($this->tasacionesSyncAvailable()) {
@@ -69,7 +69,8 @@ class CallCenterCommissionDashboardService
                     $monthlyTasaciones,
                     $periodStart,
                     $periodEnd,
-                    $diagnostics
+                    $diagnostics,
+                    $includeDetails,
                 );
                 $warnings = array_values(array_filter([...$warnings, ...$tasacionWarnings]));
             } else {
@@ -121,7 +122,7 @@ class CallCenterCommissionDashboardService
         ];
     }
 
-    private function buildSummaryRows(Collection $monthlyOpportunities, array $diagnostics): array
+    private function buildSummaryRows(Collection $monthlyOpportunities, array $diagnostics, bool $includeDetails): array
     {
         $rows = [];
         $warnings = [];
@@ -136,18 +137,20 @@ class CallCenterCommissionDashboardService
                 $this->ensureRow($rows, $agentKey, $captador);
                 $rows[$agentKey]['purchase_commission'] = round($rows[$agentKey]['purchase_commission'] + $entry['amount'], 2);
                 $rows[$agentKey]['purchase_count']++;
-                $rows[$agentKey]['details']['purchases'][] = [
-                    'opportunity_id' => $opportunity->salesforce_id,
-                    'opportunity_name' => (string) $opportunity->name,
-                    'record_type_name' => (string) $opportunity->record_type_name,
-                    'captador' => $captador,
-                    'commission_amount' => $entry['amount'],
-                    'commission_missing' => $entry['missing'],
-                    'contract_signed_date' => optional($opportunity->cv_signed_date)?->toDateString(),
-                    'vehicle_to_appraise' => $this->vehicleToAppraise($opportunity),
-                    'capture_date' => $this->payloadValue($opportunity, 'Fecha_captador__c'),
-                    'account_name' => (string) ($opportunity->account_name ?? ''),
-                ];
+                if ($includeDetails) {
+                    $rows[$agentKey]['details']['purchases'][] = [
+                        'opportunity_id' => $opportunity->salesforce_id,
+                        'opportunity_name' => (string) $opportunity->name,
+                        'record_type_name' => (string) $opportunity->record_type_name,
+                        'captador' => $captador,
+                        'commission_amount' => $entry['amount'],
+                        'commission_missing' => $entry['missing'],
+                        'contract_signed_date' => optional($opportunity->cv_signed_date)?->toDateString(),
+                        'vehicle_to_appraise' => $this->vehicleToAppraise($opportunity),
+                        'capture_date' => $this->payloadValue($opportunity, 'Fecha_captador__c'),
+                        'account_name' => (string) ($opportunity->account_name ?? ''),
+                    ];
+                }
                 $diagnostics['purchases_count']++;
                 $this->registerCommissionWarning($rows, $agentKey, $diagnostics, 'Compra/Tasacion sin Comision Captador', $entry['missing']);
             }
@@ -159,7 +162,8 @@ class CallCenterCommissionDashboardService
                 $this->ensureRow($rows, $agentKey, $captador);
                 $rows[$agentKey]['sales_commission'] = round($rows[$agentKey]['sales_commission'] + $entry['amount'], 2);
                 $rows[$agentKey]['sales_count']++;
-                $rows[$agentKey]['details']['sales'][] = [
+                if ($includeDetails) {
+                    $rows[$agentKey]['details']['sales'][] = [
                     'opportunity_id' => $opportunity->salesforce_id,
                     'opportunity_name' => (string) $opportunity->name,
                     'record_type_name' => (string) $opportunity->record_type_name,
@@ -172,7 +176,8 @@ class CallCenterCommissionDashboardService
                     'account_name' => (string) ($opportunity->account_name ?? ''),
                     'source' => (string) ($opportunity->opportunity_source_raw ?? ''),
                     'owner_name' => (string) ($opportunity->owner_name ?? ''),
-                ];
+                    ];
+                }
                 $diagnostics['sales_count']++;
                 $this->registerCommissionWarning($rows, $agentKey, $diagnostics, 'Venta sin Comision Captador', $entry['missing']);
             }
@@ -184,7 +189,8 @@ class CallCenterCommissionDashboardService
                 $this->ensureRow($rows, $agentKey, $captador);
                 $rows[$agentKey]['changes_commission'] = round($rows[$agentKey]['changes_commission'] + $entry['amount'], 2);
                 $rows[$agentKey]['changes_count']++;
-                $rows[$agentKey]['details']['changes'][] = [
+                if ($includeDetails) {
+                    $rows[$agentKey]['details']['changes'][] = [
                     'opportunity_id' => $opportunity->salesforce_id,
                     'opportunity_name' => (string) $opportunity->name,
                     'record_type_name' => (string) $opportunity->record_type_name,
@@ -197,7 +203,8 @@ class CallCenterCommissionDashboardService
                     'account_name' => (string) ($opportunity->account_name ?? ''),
                     'source' => (string) ($opportunity->opportunity_source_raw ?? ''),
                     'owner_name' => (string) ($opportunity->owner_name ?? ''),
-                ];
+                    ];
+                }
                 $diagnostics['changes_count']++;
                 $this->registerCommissionWarning($rows, $agentKey, $diagnostics, 'Cambio sin Comision Captador', $entry['missing']);
             }
@@ -208,7 +215,8 @@ class CallCenterCommissionDashboardService
                 $this->ensureRow($rows, $agentKey, $agentName);
                 $rows[$agentKey]['facilitea_commission'] = round($rows[$agentKey]['facilitea_commission'] + 5, 2);
                 $rows[$agentKey]['facilitea_count']++;
-                $rows[$agentKey]['details']['facilitea'][] = [
+                if ($includeDetails) {
+                    $rows[$agentKey]['details']['facilitea'][] = [
                     'opportunity_id' => $opportunity->salesforce_id,
                     'owner_name' => (string) ($opportunity->owner_name ?? ''),
                     'delivery_days' => $this->deliveryDays($opportunity),
@@ -220,13 +228,14 @@ class CallCenterCommissionDashboardService
                     'vehicle_interest' => $this->vehicleOfInterest($opportunity),
                     'delivery_date' => $this->payloadValue($opportunity, 'OPO_FEC_Fecha_entrega__c'),
                     'commission_amount' => 5.0,
-                ];
+                    ];
+                }
                 $diagnostics['facilitea_count']++;
             }
         }
 
         $rows = collect($rows)
-            ->map(fn (array $row): array => $this->finalizeSummaryRow($row))
+            ->map(fn (array $row): array => $this->finalizeSummaryRow($row, $includeDetails))
             ->sortByDesc('final_total')
             ->values()
             ->all();
@@ -243,7 +252,8 @@ class CallCenterCommissionDashboardService
         Collection $tasaciones,
         CarbonImmutable $periodStart,
         CarbonImmutable $periodEnd,
-        array $diagnostics
+        array $diagnostics,
+        bool $includeDetails,
     ): array
     {
         $rows = collect($summaryRows)
@@ -261,7 +271,8 @@ class CallCenterCommissionDashboardService
             $this->ensureRow($rows, $agentKey, self::GERMAN_AGENT_NAME);
             $rows[$agentKey]['german_negotiation_commission'] = round($rows[$agentKey]['german_negotiation_commission'] + 5, 2);
             $rows[$agentKey]['german_negotiation_count']++;
-            $rows[$agentKey]['details']['german_negotiations'][] = [
+            if ($includeDetails) {
+                $rows[$agentKey]['details']['german_negotiations'][] = [
                 'tasacion_id' => $tasacion->salesforce_id,
                 'tasacion_name' => (string) ($tasacion->name ?? ''),
                 'opportunity_id' => (string) ($tasacion->opportunity_salesforce_id ?? ''),
@@ -273,7 +284,8 @@ class CallCenterCommissionDashboardService
                 'negotiation_3' => (string) ($this->tasacionNegotiationValue($tasacion, 3) ?? ''),
                 'negotiation_4' => (string) ($this->tasacionNegotiationValue($tasacion, 4) ?? ''),
                 'commission_amount' => 5.0,
-            ];
+                ];
+            }
             $diagnostics['german_negotiations_count']++;
         }
 
@@ -285,7 +297,7 @@ class CallCenterCommissionDashboardService
 
         return [
             collect($rows)
-                ->map(fn (array $row): array => $this->finalizeSummaryRow($row))
+                ->map(fn (array $row): array => $this->finalizeSummaryRow($row, $includeDetails))
                 ->sortByDesc('final_total')
                 ->values()
                 ->all(),
@@ -294,7 +306,7 @@ class CallCenterCommissionDashboardService
         ];
     }
 
-    private function finalizeSummaryRow(array $row): array
+    private function finalizeSummaryRow(array $row, bool $includeDetails): array
     {
         $automaticTotal = round(
             $row['purchase_commission']
@@ -314,15 +326,19 @@ class CallCenterCommissionDashboardService
         $warnings = array_merge($existingObservations, $row['warnings'] ?? []);
         $row['observations'] = implode(' | ', array_values(array_unique(array_filter($warnings))));
 
-        foreach (['purchases', 'sales', 'changes', 'german_negotiations', 'facilitea'] as $detailKey) {
-            $row['details'][$detailKey] = collect($row['details'][$detailKey])
-                ->sortBy([
-                    ['contract_signed_date', 'desc'],
-                    ['opportunity_name', 'asc'],
-                    ['tasacion_name', 'asc'],
-                ])
-                ->values()
-                ->all();
+        if ($includeDetails) {
+            foreach (['purchases', 'sales', 'changes', 'german_negotiations', 'facilitea'] as $detailKey) {
+                $row['details'][$detailKey] = collect($row['details'][$detailKey])
+                    ->sortBy([
+                        ['contract_signed_date', 'desc'],
+                        ['opportunity_name', 'asc'],
+                        ['tasacion_name', 'asc'],
+                    ])
+                    ->values()
+                    ->all();
+            }
+        } else {
+            unset($row['details']);
         }
 
         unset($row['warnings']);

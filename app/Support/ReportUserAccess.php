@@ -62,6 +62,27 @@ class ReportUserAccess
         return (string) (self::current($request)['role'] ?? ReportUser::ROLE_VIEWER);
     }
 
+    public static function displayName(Request $request): ?string
+    {
+        if (! config('services.informes_auth.enabled', true)) {
+            return null;
+        }
+
+        $name = trim((string) $request->session()->get('report_user_name', ''));
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        $userId = $request->session()->get('report_user_id');
+
+        if ($userId === null) {
+            return null;
+        }
+
+        return ReportUser::query()->whereKey($userId)->value('name');
+    }
+
     public static function isAdmin(Request $request): bool
     {
         return self::normalizeRole(self::role($request)) === ReportUser::ROLE_ADMIN;

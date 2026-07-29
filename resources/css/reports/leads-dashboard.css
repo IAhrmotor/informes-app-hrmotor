@@ -111,6 +111,13 @@ body.campaigns-report {
     flex-wrap: wrap;
 }
 
+.header-user-greeting {
+    color: var(--brand-primary);
+    font-size: 13px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
 .header {
     display: flex;
     align-items: end;
@@ -3165,14 +3172,26 @@ th.num {
 }
 
 .commercial-commissions-report .commission-filter-form {
-    display: grid;
-    grid-template-columns: minmax(0, 220px) auto;
+    display: flex;
     gap: 14px;
     align-items: end;
+    flex-wrap: wrap;
+}
+
+.commercial-commissions-report .commission-filter-form > .filter-group {
+    flex: 0 1 220px;
+    min-width: 200px;
+}
+
+.commercial-commissions-report .commission-filter-form input[type="month"] {
+    display: block;
+    min-width: 200px;
 }
 
 .commercial-commissions-report .commission-filter-actions {
+    display: flex;
     justify-content: flex-start;
+    gap: 10px;
 }
 
 .commercial-commissions-report .commission-warning {
@@ -3614,7 +3633,6 @@ th.num {
         overflow-wrap: anywhere;
     }
 
-    .commercial-commissions-report .commission-filter-form,
     .commercial-commissions-report .commission-detail-shell {
         grid-template-columns: 1fr;
     }

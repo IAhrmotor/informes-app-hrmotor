@@ -67,7 +67,8 @@ class ReportsAuthMiddlewareTest extends TestCase
             ->assertRedirect('/informes/leads')
             ->assertSessionHas('informes_authenticated', true)
             ->assertSessionHas('report_user_email', 'viewer@hrmotor.com')
-            ->assertSessionHas('report_user_role', ReportUser::ROLE_VIEWER);
+            ->assertSessionHas('report_user_role', ReportUser::ROLE_VIEWER)
+            ->assertSessionHas('report_user_name', 'Viewer');
 
         $this->assertNotNull(ReportUser::query()->where('email', 'viewer@hrmotor.com')->value('last_login_at'));
     }
