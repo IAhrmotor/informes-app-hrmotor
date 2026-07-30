@@ -50,8 +50,11 @@ class StockDataFoundationTest extends TestCase
             $result['soql'],
         );
         $this->assertSame(3, SalesforceVehicle::query()->where('is_in_stock', true)->count());
-        $this->assertFalse(
+        $this->assertTrue(
             StockDelegation::query()->where('salesforce_name', 'HR MOTOR RIVAS-VACIA MADRID')->firstOrFail()->is_commercial
+        );
+        $this->assertFalse(
+            StockDelegation::query()->where('salesforce_name', 'HR MOTOR MANTENIMIENTO')->firstOrFail()->is_commercial
         );
 
         $client->records = [$this->vehicleRecord('01t-1', 'Disponible', 'HR MOTOR RIVAS-VACIA MADRID')];

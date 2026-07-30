@@ -41,6 +41,7 @@ class StockDelegationService
             'normalized_key' => $normalized['normalized_key'],
             'commercial_group' => $normalized['commercial_group'],
             'zone' => $normalized['zone'],
+            'is_commercial' => $normalized['is_commercial'],
         ];
         if (filled($salesforceId)) {
             $attributes['salesforce_id'] = $salesforceId;
@@ -69,7 +70,7 @@ class StockDelegationService
             'capacity_total' => max($capacity, 0),
             'capacity_source_name' => $sourceName,
             'capacity_updated_at' => now(),
-            'is_commercial' => true,
+            'is_commercial' => $this->normalizer->isCommercial($sourceName),
         ]);
         $delegation->save();
         $this->salesforceCache = [];

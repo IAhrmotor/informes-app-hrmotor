@@ -67,12 +67,6 @@ class SalesforceSignedSaleSyncService
 
     private function fillMissingSnapshotSupplements(array $record): void
     {
-        $planAutoPlus = data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.Plan_Auto_Plus__c');
-        $cae = data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.CAE__c');
-        if ($planAutoPlus === null && $cae === null) {
-            return;
-        }
-
         $snapshot = SalesforceSaleSnapshot::query()
             ->where('opportunity_salesforce_id', data_get($record, 'Id'))
             ->first();
@@ -81,11 +75,25 @@ class SalesforceSignedSaleSyncService
         }
 
         $updates = [];
-        if ($snapshot->plan_auto_plus_amount === null && $planAutoPlus !== null) {
-            $updates['plan_auto_plus_amount'] = $planAutoPlus;
+        foreach ([
+            'plan_auto_plus_amount' => 'Plan_Auto_Plus__c',
+            'cae_amount' => 'CAE__c',
+            'vehicle_brand' => 'PRO_SEL_Marca__c',
+            'vehicle_model' => 'PRO_TEX_Modelo__c',
+            'vehicle_segment' => 'Segmento__c',
+            'vehicle_fuel' => 'PRO_SEL_Combustible__c',
+            'vehicle_body' => 'PRO_SEL_Carroceria__c',
+            'vehicle_mileage' => 'PRO_NUM_Kilometraje__c',
+            'vehicle_purchase_source' => 'Procedencia_de_compra__c',
+        ] as $column => $field) {
+            $value = data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.'.$field);
+            if ($snapshot->{$column} === null && $value !== null) {
+                $updates[$column] = $value;
+            }
         }
-        if ($snapshot->cae_amount === null && $cae !== null) {
-            $updates['cae_amount'] = $cae;
+        $buyerName = data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.Comprador_oportunidad__r.Name');
+        if ($snapshot->vehicle_buyer_name === null && $buyerName !== null) {
+            $updates['vehicle_buyer_name'] = $buyerName;
         }
         if ($updates !== []) {
             $snapshot->update($updates);
@@ -108,6 +116,12 @@ SELECT
     Tienda_de_entrega__c,
     OPP_BUS_Vehiculo_de_interes__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_TEX_Matricula__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_SEL_Marca__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_TEX_Modelo__c,
+    OPP_BUS_Vehiculo_de_interes__r.Segmento__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_SEL_Combustible__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_SEL_Carroceria__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_NUM_Kilometraje__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_venta__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_compra__c,
     OPP_BUS_Vehiculo_de_interes__r.Plan_Auto_Plus__c,

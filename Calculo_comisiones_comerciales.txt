@@ -1,777 +1,879 @@
-CALCULO DE COMISIONES COMERCIALES
-Version: 2026-07-28
-
-0. Acceso y administracion
-
-- El informe de comisiones comerciales lo pueden ver los usuarios con rol `admin`, `director` y `commission_auditor`.
-- `commission_auditor` solo puede abrir Comisiones Comerciales: no puede ver otros informes ni acceder a configuracion, usuarios o permisos.
-- `area_manager` y `viewer` no pueden abrir ese informe.
-- La gestion de usuarios del portal de informes esta en `/informes/usuarios`.
-- Esa pantalla permite crear, editar, activar, desactivar, cambiar rol y eliminar usuarios de `report_users`.
-- La gestion de usuarios solo la puede usar un `admin`.
-
-0.1. Exportacion resumida
-
-- En la barra de mes del informe existe el boton `Exportar comisiones`.
-- Descarga `comisiones-YYYY-MM.xlsx` con seis hojas: `Comerciales`, `Delegaciones`, `Area Managers`, `Call Center`, `Contact Center` y `Financieros`.
-- Cada hoja contiene unicamente el nombre de la entidad y su `Comision final` del mes seleccionado.
-- La hoja `Area Managers` agrega la fila `Oscar` con el 40% de la suma de comisiones finales de los Area Managers.
-- El archivo se genera temporalmente en `storage/app/exports` y se elimina despues de enviarse. En produccion, `storage` debe ser escribible por el usuario del contenedor PHP y debe estar habilitada la extension ZIP.
-- El export procesa los cuadros de forma secuencial y sin detalles auditables de Call Center y Contact Center, para limitar el consumo de memoria.
-
-1. Universo que entra en el informe
-
-Solo se usan oportunidades de Salesforce que cumplan:
-
-- CV firmado = true
-- Owner activo = true
-- StageName distinto de "Cerrada perdida"
-- RecordType = Venta, Cambio o Tasacion
-- Fecha_firma_contrato__c dentro del mes seleccionado
-- Gestion_de_venta__c = false o null
-
-En el resumen visible del informe solo se muestran:
-
-- comerciales o tasadores reales
-- con alguna operacion firmada en el mes; hasta mayo tambien puede aparecer por compra historica liquidada
-- una compartida sola no genera fila propia si ese usuario no tiene operacion propia del mes
-- el usuario debe existir en `salesforce_users`
-- el perfil Salesforce permitido debe ser:
-  - `Compra/Venta`
-  - `Comerciales Partner Community`
-- un usuario con `User.Comision_Tasador__c = true` tambien entra aunque su perfil sea distinto, siempre que este activo
-
-No se listan usuarios tecnicos ni usuarios sincronizados sin actividad.
-
-2. Conceptos que suman
-
-A. Comerciales normales desde junio de 2026
-- Se identifican con `User.Comision_Tasador__c = false`.
-- Se pagan operaciones firmadas dentro del propio mes, sin rentabilidad de compra historica:
-  - Venta: `60 EUR`.
-  - Tasacion: `60 EUR`.
-  - Cambio: `85 EUR` total, una unica vez; no se duplica como venta y compra.
-- Las tasaciones y cambios se cobran aunque no se alcance el minimo de entregas del tramo.
-- Las ventas compartidas mantienen el reparto anterior de `30 EUR` para owner y `30 EUR` para el comercial compartido.
-
-B. Tasadores desde junio de 2026
-- Se identifican exclusivamente con `User.Comision_Tasador__c = true`.
-- Compras del mes = Tasacion + Cambio. El tramo se aplica a todas las compras del mes, no es progresivo:
-  - 0 a 7: `0 EUR/op`.
-  - 8 a 10: `30 EUR/op`.
-  - 11 a 15: `60 EUR/op`.
-  - 16 a 20: `65 EUR/op`.
-  - 21 a 25: `70 EUR/op`.
-  - 26 a 30: `75 EUR/op`.
-  - 31 a 35: `80 EUR/op`.
-  - mas de 35: `85 EUR/op`.
-- Venta de tasador: `60 EUR` por operacion.
-- Financiacion de tasador: `SUM(Beneficio_financiacion_comercial__c) x 3%`.
-- Rapidez de venta de cada compra: `<30 dias = 20 EUR`, `30 a 60 dias = 10 EUR`, `>60 dias o sin venta = 0 EUR`.
-- Para rapidez se cruza primero el Product2/vehiculo relacionado y despues la matricula normalizada entre compra y venta posterior.
-
-C. Regla historica hasta mayo de 2026
-- Solo para meses anteriores a junio de 2026 se conserva la liquidacion historica de compra al vender el vehiculo: rentabilidad de compra x `1,8%`.
-
-D. Compartidas
-- Si la oportunidad tiene copropietario en `Entrega_Compartida__c`, la entrega compartida reparte 30 EUR para el owner y 30 EUR para el comercial compartido.
-
-E. Stock +150
-- Si la venta tiene al menos 150 dias entre:
-  `Opportunity.Fecha_firma_contrato__c`
-  - `Product2.PRO_FEC_Fecha_entrada__c`
-  suma 10 EUR.
-
-F. Bonus +15
-- A partir de la entrega numero 16, cada entrega extra suma 30 EUR.
-
-3. Conceptos que restan
-
-A. Descuento comercial
-- Se suma `OPO_DIV_Descuento__c` del comercial en el mes.
-- Se descuenta el 5% de ese total.
-
-B. Penalizacion por garantias
-- Si el total de `Garant_a_Total__c` del mes es menor de 3500 EUR, se descuenta el 10% de la prima ajustada.
-
-C. Penalizacion por resenas
-- Se calcula:
-  porcentaje_resenas = resenas_del_mes / operaciones_del_mes
-- La logica correcta es excluyente:
-  - si porcentaje_resenas < 30, penalizacion = prima_ajustada x 50%
-  - si porcentaje_resenas >= 30 y porcentaje_resenas < 50, penalizacion = prima_ajustada x 10%
-  - si porcentaje_resenas >= 50, penalizacion = 0
-
-D. Penalizacion por financiacion
-- Se calcula sobre Venta + Cambio + Tasacion.
-- Formula:
-  porcentaje_financiacion = importe_financiado / importe_total_vehiculo
-- Si el porcentaje es menor de 40%, se descuenta el 10% de la prima ajustada.
-
-4. Tramo de entregas
-
-La parte de ventas, compartidas, descuento, stock y bonus se ajusta por tramo. Desde junio, las compras de comercial (Tasacion/Cambio) no se reducen por tramo.
-
-- Para perfil Salesforce `Compra/Venta`, el tramo aplicado es siempre 100%.
-- Para perfil Salesforce `Comerciales Partner Community`, si aplica la tabla normal de tramos.
-- 0 a 6 entregas => 0%
-- 7 a 11 entregas => 80%
-- 12 o mas entregas => 100%
-
-5. Productos adicionales
-
-A. Producto financiacion
-- Se suma `Beneficio_financiacion_comercial__c` del mes.
-- Sobre ese total se aplica un porcentaje por tramo:
-  - > 50000 => 9%
-  - 30001 a 50000 => 8%
-  - 25001 a 30000 => 7%
-  - 17001 a 25000 => 6%
-  - 12001 a 17000 => 5%
-  - 8001 a 12000 => 4%
-  - 5001 a 8000 => 3%
-  - 1 a 5000 => 2%
-
-B. Producto garantias
-- Se suma `Garant_a_Total__c` del mes.
-- Sobre ese total se aplica un porcentaje por tramo:
-  - > 20400 => 11%
-  - 14401 a 20400 => 9%
-  - 9601 a 14400 => 7%
-  - 5401 a 9600 => 6%
-  - 3501 a 5400 => 4%
-  - 1 a 3500 => 3%
-
-6. Formula resumida
-
-Comercial normal desde junio:
-
-Prima base de tramo =
-  ventas
-  + compartidas
-  - descuento 5%
-  + stock +150
-  + bonus +15
-
-Prima ajustada =
-  (prima base de tramo x tramo de entregas)
-  + tasaciones del mes
-  + cambios del mes
-
-Tasador desde junio:
-
-Comision final =
-  compras por tramo mensual
-  + ventas x 60 EUR
-  + beneficio financiacion x 3%
-  + incentivo rapidez
-
-Prima neta =
-  max(prima ajustada - penalizaciones, 0)
-
-Comision final =
-  max(prima ajustada - penalizaciones, 0)
-  + producto financiacion
-  + producto garantias
-
-7. Donde se audita
-
-En la propia vista de Comisiones Comerciales:
-
-- tab Comerciales: totales, tabla global por comercial y debajo el detalle auditable por comercial
-- tab Delegaciones: resumen por delegacion con metas, rentabilidad media, prima final y comision total
-- tab Call Center: resumen mensual y detalle auditable de captadores/agentes
-- tab Contact Center: resumen mensual y detalle auditable de citas, oportunidades, reservas y ventas por captador de cita
-- tab Area Manager: resumen mensual por manager y detalle auditable por delegacion/KPI
-- tab Financieros: resumen mensual por zona financiera con los 3 bloques configurables por periodo
-- selector de columnas en el resumen
-- filtro de texto en la tabla superior de Comerciales por nombre o ID Salesforce
-- `Comision final` aparece al inicio
-- `Operaciones` ya no aparece en la tabla resumen
-- `Pen. resenas` y `Pen. financiacion` muestran importe monetario penalizado
-- orden actual de pestañas:
-  - `Comerciales`
-  - `Delegaciones`
-  - `Call Center`
-  - `Contact Center`
-  - `Area Manager`
-
-8. Cuadro de delegaciones
-
-- La agrupacion se hace por `Opportunity.Tienda_de_entrega__c`, guardado localmente como `delivery_store`.
-- Si `delivery_store` viene vacio, se usa `owner_delegation` como fallback.
-- Se toman todas las operaciones `Venta` y `Cambio` de esa delegacion.
-- Las entregas cuentan para la delegacion donde se entrego el coche, aunque la compra del coche venga de otra delegacion.
-- Para este cuadro de auditoria no se filtra por `owner_is_active` ni por `Gestion_de_venta__c`.
-- La meta de entregas de cada delegacion se configura en `/informes/configuracion-comisiones` y se guarda por mes abierto.
-- Antes de agrupar y antes de cruzar las metas, las delegaciones se normalizan con alias canonicos:
-  - `HR MOTOR *` se muestra sin el prefijo `HR MOTOR`
-  - `Alcala De Guadaira` => `Alcala de Guadaira`
-  - `Castellon` => `Castellon`
-  - `Dos hermanas` => `Dos Hermanas`
-  - `San Boi`, `Sant_Boi` y variantes => `Sant Boi`
-  - `Mallorca` => `Palma`
-  - `Torrejon`, `Torrejon de Ardoz` y variantes => `Torrejon`
-  - `Villareal/Almasora`, `Villareal Almassora`, `Villarreal/Almassora`, `Almassora` y variantes => `Villareal`
-  - `Malga` => `Malaga`
-  - `General`, `Call Fontellas` y `Llisa de Vall` se excluyen
-- Si una meta se guardo con un alias antiguo y la delegacion del cuadro llega con otro alias, ambos se normalizan al mismo nombre antes de calcular el objetivo. Esto evita que `Meta entregas = 0` y que la `Prima Final` quede en `0` por no hacer match.
-- La rentabilidad por operacion se calcula con:
-  - `Product2.PRO_DIV_Precio_de_venta__c`
-  - menos `Product2.PRO_DIV_Precio_de_compra__c`
-  - menos `Opportunity.OPO_DIV_Descuento__c`
-  - mas `Opportunity.Beneficio_financiacion_comercial__c`
-  - mas `Opportunity.Garant_a_Total__c`
-- La `Rentabilidad operacion media` es:
-  - sumatorio de rentabilidades de Venta/Cambio / numero de entregas
-- La `% rentabilidad financiacion` del cuadro de delegaciones se calcula exactamente como en Salesforce:
-  - `SUM(Opportunity.Beneficio_financiacion_comercial__c) / SUM(Opportunity.Importe_financiado__c)`
-  - no se filtran a positivo los importes ni los beneficios antes de dividir
-  - el agrupado de este KPI y del `% importe financiado` se hace por `owner_delegation` normalizada
-  - para alias se reutiliza la misma normalizacion del proyecto, por ejemplo:
-    - `HR MOTOR MALLORCA` => `Palma`
-  - si `owner_delegation` viene vacia, hace fallback a la delegacion de entrega
-- El `% sobre objetivo` es:
-  - entregas / meta_entregas
-- El porcentaje aplicado a la rentabilidad media es:
-  - `<85% => 0%`
-  - `85-89,99% => 0,35%`
-  - `90-94,99% => 0,40%`
-  - `95-99,99% => 0,45%`
-  - `100% => 0,50%`
-  - `>100% => 0,60%`
-- `Prima Final`:
-  - si no cumple objetivo minimo de tramo (`% sobre objetivo < 85%`) => `0`
-  - si cumple objetivo => `Rentabilidad total delegacion x % por objetivo`
-- Resenas por delegacion:
-  - se consultan en:
-    - `https://app.hrmotor.com/api/internal/google-reviews/count`
-  - auth basica:
-    - `INTERNAL_REVIEWS_USER`
-    - `INTERNAL_REVIEWS_PASSWORD`
-  - query:
-    - `month` en formato `m-y`
-    - `location` segun la sede Google asociada a la delegacion
-  - columnas nuevas del cuadro:
-    - `Resenas`
-    - `Media nota`
-    - `Com. resenas`
-  - comision de resenas:
-    - primero verificar que la delegacion cumple objetivo para tramo
-    - despues verificar que `reviews_count / deliveries_count > 50%`
-    - si `average_rating > 4.5` => `+200 EUR`
-    - si `average_rating < 4.0` => `-200 EUR`
-    - si `average_rating < 3.7` => `-300 EUR`
-  - la comision fija de resenas se suma o resta sobre la `Prima Final` antes de aplicar los bonus porcentuales de calidad
-  - el fetch del endpoint esta blindado:
-    - si el endpoint falla o devuelve error, el dashboard no rompe
-    - la delegacion queda con `reviews_count = 0` y `average_rating = null`
-  - el cache del endpoint se invalido con una nueva version de clave y ahora refresca cada `15` minutos por defecto
-  - el cache actual usa clave versionada `v3`
-  - no existe comando de sync para estas resenas de delegacion porque se leen en vivo desde el endpoint interno
-  - si necesitas forzar refresco inmediato en entorno desplegado:
-    - `php artisan optimize:clear`
-    - o esperar al TTL de `INTERNAL_REVIEWS_CACHE_MINUTES` (15 minutos por defecto)
-- Bonus de calidad:
-  - si `Beneficio_financiacion_comercial__c / Importe_financiado__c > 14%`, suma 10%
-  - si `Importe_financiado__c / OPO_FOR_Importe_total__c > 40%`, suma 10%
-  - el bonus de `% importe financiado` se aplica antes del bonus de `% rentabilidad`
-- La tabla muestra tanto la `Prima Final` como la `Comision total` final por delegacion.
-
-9. Acceso actual
-
-- pueden verlo `admin` y `director`
-- `area_manager` y `viewer` no ven la tab ni pueden abrir la ruta
-- el diagnostico base ampliado solo lo ve `admin`
-- la edicion de coeficientes y metas solo la puede hacer `admin`
-
-10. Coeficientes por mes
-
-- Se editan en `/informes/configuracion-comisiones`.
-- El mes en curso queda abierto.
-- Un mes cerrado se puede abrir temporalmente y al guardar vuelve a cerrarse.
-- Junio y meses siguientes heredan metas del mes anterior si no tienen configuracion propia.
-- Ahora tambien incluyen tablas de `Financieros` por periodo para:
-  - `% financiado`
-  - `Rentabilidad`
-  - `% garantias premium`
-
-11. Financieros
-
-- Pestana nueva: `Financieros`.
-- Fuente base: `salesforce_opportunities`.
-- Filtro de periodo:
-  - `cv_signed_date` local, que viene de `Opportunity.Fecha_firma_contrato__c`
-- Tipos incluidos:
-  - `Tipo_de_registro_oportunidad__c = Venta`
-  - `Tipo_de_registro_oportunidad__c = Cambio`
-- Exclusiones:
-  - `zona_financiera__c = Sin Zona`
-  - `GENERAL`
-  - `StageName = Cerrada perdida`
-- La agrupacion principal se hace por:
-  - `Opportunity.zona_financiera__c`
-- Si ese campo aun no se ha resincronizado en local, hay fallback por `Owner.USR_SEL_Delegacion__c` para no dejar la zona vacia.
-
-A. Campos usados
-
-- `Fecha_firma_contrato__c`
-- `OPO_FOR_Importe_total__c`
-- `Importe_financiado__c`
-- `Comisi_n_Financiera__c`
-- `OPO_DIV_Descuento_financiera__c`
-- `Garant_a_Total__c`
-- `Inter_s_elegido__c`
-- `zona_financiera__c`
-- `Tipo_de_registro_oportunidad__c`
-
-B. Bloque 1: % financiado
-
-- Formula:
-  - `% financiado = SUM(Importe_financiado__c) / SUM(OPO_FOR_Importe_total__c)`
-- `Comision neta = SUM(Comisi_n_Financiera__c) - SUM(OPO_DIV_Descuento_financiera__c)`
-- `Comision bloque 1 = Comision neta x incentivo del tramo`
-
-C. Bloque 2: Rentabilidad
-
-- Primero se excluyen operaciones donde `Inter_s_elegido__c`:
-  - esta vacio
-  - `3,99%`
-  - `4,99%`
-  - `5,99%`
-- Sobre las operaciones validas:
-  - `Beneficio financiero valido = SUM(Comisi_n_Financiera__c) - SUM(OPO_DIV_Descuento_financiera__c)`
-  - `Rentabilidad = Beneficio financiero valido / SUM(Importe_financiado__c)`
-- `Comision bloque 2 = Beneficio financiero valido x incentivo del tramo`
-
-D. Bloque 3: Garantias premium
-
-- Formula:
-  - `% garantias = SUM(Garant_a_Total__c) / SUM(Importe_financiado__c)`
-- `Comision bloque 3 = SUM(Garant_a_Total__c) x incentivo del tramo`
-
-E. Total financiero
-
-- `Comision financiero = Bloque 1 + Bloque 2 + Bloque 3`
-
-F. Configuracion por periodo
-
-- Los tramos se guardan por mes en `commercial_commission_month_settings`.
-- Para que el informe funcione en local o produccion tras desplegar esta parte:
-  - ejecutar `php artisan migrate`
-  - resincronizar oportunidades:
-    - `php artisan salesforce:sync-opportunities --days=120`
-
-- el mes en curso permanece abierto y editable hasta que cambie el mes natural
-- cualquier mes cerrado puede abrirse temporalmente desde la pantalla de coeficientes
-- al guardar un mes cerrado abierto temporalmente, vuelve a cerrarse automaticamente
-- los meses futuros no se pueden abrir temporalmente
-- si un mes no tiene metas propias por delegacion, hereda automaticamente las metas del mes anterior mas cercano que si tenga configuracion guardada
-- en cuanto se guarda una configuracion propia para ese mes, deja de depender de la herencia y usa su propia foto historica
-
-10. Edicion de coeficientes por mes
-
-- El mes en curso permanece editable por defecto hasta que cierre el mes natural.
-- Los meses cerrados se muestran en solo lectura.
-- Excepcion temporal de validacion:
-  - `2026-04`
-  - `2026-05`
-- Esos meses pueden abrirse temporalmente desde la pantalla de coeficientes.
-- Tras guardar los cambios, vuelven a quedar cerrados automaticamente.
-
-11. API auxiliar de comisiones por comercial
-
-- Endpoint:
-  - `GET /api/comisiones_comercial?salesforce_id={id_salesforce}`
-- Protegido con basic auth.
-- Credenciales por entorno:
-  - `COMMISSIONS_API_USER`
-  - `COMMISSIONS_API_PASSWORD`
-- Devuelve JSON con:
-  - comercial consultado
-  - comision final del mes en curso
-  - comision final del mes anterior cerrado
-
-12. Bloque Call Center integrado en Comisiones Comerciales
-
-- No tiene una pagina independiente en el menu principal.
-- Se muestra como una cuarta pestaña dentro de `/informes/comisiones-comerciales`.
-- Usa oportunidades del mes cerrado por `Fecha_firma_contrato__c` (`cv_signed_date` local).
-- Bloques calculados:
-  - Compras / Tasaciones:
-    - `Record Type = Tasacion`
-    - `Captador__c` informado
-    - `Gestion_de_venta__c = false`
-    - comision = suma de `Comisi_n_Captador__c`
-    - si `Comisi_n_Captador__c` viene vacio, se computa `0` y queda marcado para revision
-  - Ventas / Cambios:
-    - `Record Type = Venta` o `Cambio`
-    - `Captador__c` informado
-    - `Gestion_de_venta__c = false`
-    - comision = suma de `Comisi_n_Captador__c`
-    - `Cambio` cuenta una sola vez dentro de ventas
-  - Negociaciones German:
-    - primera version automatizada inferida desde `Captador_2__c`, `Captador_3__c` y `Captador_4__c`
-    - cada oportunidad valida suma `5 EUR`
-  - Facilitea:
-    - owner con variantes de `Vanesa/Vanessa Sanjuan`
-    - `Gestion_de_venta__c = false`
-    - fuente/origen o nombre asociado a `FACILITEA`
-    - cada operacion valida suma `5 EUR`
-- La pestaña muestra:
-  - resumen por agente/captador
-  - totales por bloque
-  - detalle auditable por bloque:
-    - `Compras`
-    - `Ventas`
-    - `Negociaciones German`
-    - `Facilitea`
-
-12.1 Ajustes vigentes de Call Center
-
-- El bloque ya admite filtros `Fecha contrato desde` y `Fecha contrato hasta`, siempre acotados al mes cerrado seleccionado.
-- `Cambios` se separa de `Ventas` y tiene bloque propio en resumen, tabla y detalle.
-- Si el cuadro sale con muchos importes a `0` y sin captadores, el resync recomendado es:
-  - `php artisan salesforce:sync-opportunities --from=2026-05-01 --to=2026-06-01`
-- El informe avisa cuando faltan `Captador__c` o `Comisi_n_Captador__c` en la base local.
-
-12.2 Ajustes vigentes de Call Center sobre Negociaciones German y cuadro de agentes
-
-- `Negociaciones German` ya no se calcula desde `Captador_2__c`, `Captador_3__c` y `Captador_4__c`.
-- La fuente real pasa a ser `Tasacion__c`, persistida en la tabla local `salesforce_tasaciones`.
-- Nuevo comando de sync:
-  - `php artisan salesforce:sync-tasaciones --from=2026-05-01 --to=2026-06-01`
-- Regla del bloque `Negociaciones German`:
-  - solo cuentan tasaciones con `Seguimiento` tipo German
-  - `Negociacion 1` debe venir informada
-  - cada tasacion valida suma `5 EUR`
-- El cuadro resumen de agentes de `Call Center`:
-  - elimina columna `Mes`
-  - elimina columna `Observaciones`
-  - mueve `Total final` a la 2da columna
-  - deja los comandos de resync dentro del bloque de diagnostico
-- El auditable por captador queda contenido dentro del panel, sin desbordar el cuadro principal.
-
-13. Bloque Contact Center integrado en Comisiones Comerciales
-
-- No tiene pagina propia en el menu principal.
-- Se muestra como una quinta pestaña dentro de `/informes/comisiones-comerciales`.
-- Se calcula por mes cerrado.
-- La fuente valida sigue siendo Salesforce, persistida localmente en:
-  - `salesforce_leads`
-  - `salesforce_opportunities`
-
-13.1 Reglas de datos
-
-- El sync de leads no puede depender solo de `CreatedDate`.
-- Para que entren correctamente las citas del mes, la query local trae leads cuando se cumple cualquiera:
-  - `Lead.CreatedDate` dentro del rango
-  - `Lead.Fecha_captador__c` dentro del rango
-- El sync de opportunities debe traer tambien:
-  - `Captador_de_cita__c`
-  - `Captador_de_cita__r.Name`
-  - `Fecha_captador__c`
-- Resync minimo recomendado tras desplegar:
-  - `php artisan salesforce:sync-monthly-commercial --from=2026-04-20 --to=2026-07-01`
-  - `php artisan salesforce:sync-opportunities --from=2026-04-20 --to=2026-07-01`
-
-13.2 Bloques y calculo
-
-- Citas concertadas
-  - salen de `salesforce_leads`
-  - `Fecha_captador__c` dentro del mes seleccionado
-  - `Captador_de_cita__c` / `Captador_de_cita__r.Name` dentro del equipo Contact Center
-  - al menos una de:
-    - `Cita_llamada__c = true`
-    - `Cita_Tienda__c = true`
-- Citas con oportunidad
-  - se calculan desde la cita del mes
-  - se enlaza primero por `ConvertedOpportunityId`
-  - si no hay match, se enlaza por telefono normalizado
-  - la oportunidad debe tener un hito posterior a la cita y antes del cierre operativo
-  - cada cita cuenta una sola vez
-  - importe: `5 EUR`
-- Reservas detectadas
-  - salen del mismo cruce de citas con oportunidad
-  - cuentan si la oportunidad tiene reserva posterior a la cita y antes del cierre
-  - son informativas; no anaden un producto de comision aparte
-- Ventas confirmadas
-  - salen de oportunidades con:
-    - `Contrato CV firmado = true`
-    - `Stage != Cerrada perdida`
-    - `Fecha_firma_contrato__c` dentro del mes
-  - la atribucion se hace contra la mejor cita previa:
-    - prioridad 1: cita del mismo mes
-    - prioridad 2: cita previa anterior
-    - primero `ConvertedOpportunityId` y despues telefono
-  - importe: `12 EUR`
-- Ratio ventas / citas
-  - formula:
-    - `ventas_del_mes / citas_concertadas_del_mes`
-  - si el ratio es `> 3%`:
-    - `+2 EUR` por cada venta
-- Bonus por volumen
-  - `10 ventas => 100 EUR`
-  - `15 ventas => 250 EUR`
-  - `20 ventas => 500 EUR`
-  - no es acumulativo: se aplica solo el tramo maximo alcanzado
-- Show
-  - se calcula desde `Acudi_a_la_cita__c`
-  - es solo informativo
-  - no suma importe
-
-13.3 Formula final de Contact Center
-
-- `comision_citas_oportunidad = citas_con_oportunidad * 5`
-- `comision_ventas = ventas * 12`
-- `extra_ratio = ventas * 2` si `ventas / citas > 3%`, si no `0`
-- `bonus_ventas` segun tramo de 10 / 15 / 20 ventas
-- `show = 0` a efectos economicos
-- `total_automatico = comision_citas_oportunidad + comision_ventas + extra_ratio + bonus_ventas`
-
-13.4 Estado actual de implementacion
-
-- La atribucion ya no depende solo del captador grabado en la oportunidad.
-- La base principal para `Contact Center` es la cita efectiva y su cruce posterior con oportunidades/ventas.
-- Si tras desplegar sigue saliendo poca actividad, lo primero a revisar no es la formula:
-  - hay que resincronizar leads y opportunities con ventana suficiente para incluir citas del mes y del mes anterior.
-
-14. Bloque Area Manager integrado en Comisiones Comerciales
-
-- No tiene pagina independiente en el menu principal.
-- Se muestra como quinta pestana dentro de `/informes/comisiones-comerciales`.
-- La fuente real sale de `salesforce_opportunities`; los Excel/ODS solo se usan como referencia funcional y bootstrap inicial de objetivos.
-- Managers incluidos en esta primera fase:
-  - `David Baeza`
-  - `Nicolas Fernandez`
-  - `Kosta Plamenov`
-  - `Luis Lopez`
-- `Oscar` queda fuera de esta automatizacion.
-
-14.1 Configuracion mensual
-
-- Se gestiona desde `/informes/configuracion-comisiones`.
-- Nuevo bloque `Area Manager` editable solo por `admin` con:
-  - bases por KPI
-  - llaves de zona
-  - asignacion manager <-> delegacion
-  - objetivos por delegacion:
-    - `Entregas`
-    - `Beneficio`
-    - `Garantia Premium`
-    - `Compras`
-- Si un mes no tiene configuracion propia, hereda la ultima configuracion disponible.
-- Para no arrancar vacio, abril, mayo y junio de 2026 llevan bootstrap base desde los ficheros de objetivos facilitados.
-- Julio en adelante hereda automaticamente junio hasta que se guarde una foto mensual propia.
-
-14.2 KPIs reales usados
-
-- `Entregas`
-  - conteo de opportunities `Venta` y `Cambio`
-  - agrupadas por `owner_delegation` normalizada del owner de la opportunity
-- `Beneficio`
-  - suma de `Beneficio_financiacion_comercial__c`
-  - agrupada sobre las mismas entregas del owner/delegacion
-- `Garantia Premium`
-  - suma de `Garant_a_Total__c`
-  - agrupada sobre las mismas entregas del owner/delegacion
-- `Compras`
-  - conteo de opportunities `Tasacion` y `Cambio`
-  - agrupadas por `owner_delegation` normalizada del owner de la opportunity
-- Esta logica de `owner_delegation` aplica solo a `Area Manager`.
-- No modifica el cuadro de `Delegaciones`, que sigue contando por `delivery_store` / `Tienda_de_entrega__c`.
-
-14.3 Regla de comision por delegacion y KPI
-
-- `cumplimiento_real = real / objetivo`
-- `cumplimiento_usado = porcentaje redondeado al entero mas cercano`
-- bases por defecto:
-  - `Entregas = 150 EUR`
-  - `Beneficio = 150 EUR`
-  - `Garantia Premium = 100 EUR`
-  - `Compras = 100 EUR`
-- si `cumplimiento_usado >= 85%`:
-  - `comision_pre_llave = base_kpi x cumplimiento_usado`
-- si `cumplimiento_usado < 85%`:
-  - `comision_pre_llave = 0`
-- no se capa al `100%`; si supera `100%`, paga proporcionalmente por encima.
-
-14.4 Llave de zona
-
-- Se calcula por manager y KPI con:
-  - `cumplimiento_zona = total_real_kpi_manager / total_objetivo_kpi_manager`
-- Se usa el porcentaje redondeado para decidir la llave.
-- Tabla editable actual por defecto:
-  - `>= 100% => 1,10`
-  - `91% - 99% => 1,00`
-  - `85% - 90% => 0,90`
-  - `< 85% => 0,80`
-- `comision_final_kpi = suma_pre_llave_kpi x llave_zona_kpi`
-
-14.5 Total manager
-
-- `total_automatico = comision_entregas + comision_beneficio + comision_garantia + comision_compras`
-- `ajuste_manual = 0` en esta primera fase
-- `total_final = total_automatico`
-
-14.6 Salida del front
-
-- Resumen mensual con una fila por manager.
-- Detalle auditable por manager separado en pestanas por KPI:
-  - `Entregas`
-  - `Beneficio`
-  - `Garantia Premium`
-  - `Compras`
-- Cada tabla KPI:
-  - tiene scroll horizontal arriba y abajo
-  - resalta en verde las filas con `cumplimiento_usado >= 85%`
-  - ya no muestra `Motivo`, `% usado`, `Base KPI`, `% zona` ni la columna textual `>=85%`
-  - muestra al final una fila `Totales`
-    - `Objetivo` = suma
-    - `Real` = suma
-    - `% real` = promedio
-    - `Com. pre llave` = suma
-    - `Com. final` = suma pre-llave del KPI x llave del manager para ese KPI
-- `Lliça de Vall`, `Lliça de Valls`, `llica` y variantes se normalizan como `Llica de Valls`; ya no se excluyen del bloque Area Manager.
-- Incidencias visibles para:
-  - delegacion con datos reales pero sin manager asignado
-  - objetivo a cero
-  - configuracion incompleta
-
-## 15. Penalizaciones por cancelaciones anticipadas de financiacion
-
-- Se cargan desde Administracion > `Penalizaciones financieras`.
-- La carga esta restringida actualmente al rol `Administrador` y queda preparada como permiso centralizado para ampliarlo a otro rol si negocio lo decide.
-- El archivo debe ser `.xlsx` e incluir las columnas:
-  - `Mes comision`
-  - `Nombre comercial`
-  - `ID comercial`
-  - `descontar comercial 4%`
-- Se aceptan variaciones de mayusculas, acentos y el encabezado `descontar a comercial 4%`.
-- El ID comercial Salesforce es la unica clave de match. El nombre es informativo; no se usa matricula ni fecha de cancelacion para calcular la penalizacion.
-- Cada fila se guarda como importe negativo. Si el Excel trae un importe positivo, se interpreta igualmente como descuento y se muestra negativo.
-- Varias filas del mismo ID comercial y mes se suman.
-- Una nueva carga sustituye las penalizaciones activas de los meses contenidos en ese fichero. Las importaciones previas quedan conservadas en historial, pero desactivadas para no duplicar importes.
-- Las filas sin ID Salesforce coincidente se mantienen como incidencia y no se aplican hasta corregir el ID o resincronizar usuarios.
-- El informe de Comerciales muestra la columna `Pen. cancelacion fin.` y la resta directamente de `Comision final` para comerciales y tasadores.
-- El detalle individual incorpora la pestana `Cancelaciones financiacion` con email, hoja, fila e importe importado.
-
-### Datos y despliegue
-
-- Nuevas migraciones:
-  - `2026_07_27_100000_add_email_to_salesforce_users_table.php`
-  - `2026_07_27_101000_create_commercial_financing_penalty_imports_table.php`
-  - `2026_07_27_102000_create_commercial_financing_penalties_table.php`
-- El sync de usuarios Salesforce incorpora `User.Email`; despues de desplegar ejecutar:
-
-```bash
-php artisan migrate --force
-php artisan salesforce:sync-monthly-commercial --days=120 -vvv
-php artisan salesforce:sync-opportunities --days=120 -vvv
-```
-
-- El Excel historico `CANCELACIONES ANTICIPADAS.xlsx` se uso como referencia de estructura, pero el formato nuevo requiere `Mes comision`, `Nombre comercial` e `ID comercial` en cada fila.
-
-## 17. Reglas de conciliacion de delegaciones (junio 2026)
-
-### Penalizacion por cancelacion de financiacion
-
-- La columna visible `Pen. cancelacion fin.` toma el importe importado desde Excel.
-- El importe siempre se normaliza como negativo y se suma a `Comision final`.
-- El match se hace exclusivamente por `ID comercial` y `Mes comision`.
-
-### Entregas Facilitea
-
-- Las entregas de Delegaciones se asignan por `Tienda_de_entrega__c`.
-- Para Area Managers, una operacion normal se atribuye a la delegacion del owner.
-- Una operacion Facilitea con owner `GENERAL`, `Sin Zona` o sin delegacion se atribuye a `Tienda_de_entrega__c`.
-- Esta excepcion de Facilitea aplica a entregas y a los KPIs dependientes de entregas; no cambia la regla general de compras de Area Manager.
-
-### Porcentaje financiado de jefes de tienda
-
-- El porcentaje se calcula exactamente como el informe Salesforce Analisis por zonas:
-  - `SUM(Importe_financiado__c) / SUM(OPO_FOR_Importe_total__c)`.
-- La agrupacion financiera usa `Opportunity.Delegacion_del_propietario__c`, no la delegacion actual de `Owner`.
-- Si una oportunidad historica aun no tiene ese campo sincronizado, se usa temporalmente la delegacion de Owner como compatibilidad.
-- Las entregas Facilitea siguen computando para objetivos y primas de entrega, pero no se fuerzan dentro del ratio financiero de otra tienda.
-- La columna local es `report_owner_delegation` y se llena en el sync desde `Delegacion_del_propietario__c`.
-
-### Pendientes de datos a contrastar
-
-- La consulta directa a Salesforce de junio devuelve Zaragoza con 39 entregas elegibles, de las cuales 2 son Facilitea. Para llegar a 41 faltan 2 registros respecto al total informado por negocio; no se debe forzar el conteo sin identificar esos IDs.
-- Tras resincronizar, David Baeza devuelve 205 entregas y 71 compras. Excluir owners inactivos da 192/67, por lo que no explica el contraste 198/64. Se necesita comparar los IDs de Facilitea, Badajoz y Dos Hermanas con el informe de Oscar antes de cambiar la regla.
-- En Financieros, Salesforce devuelve `Inter_s_elegido__c` vacio en las 616 operaciones de junio. Por ello el bloque de rentabilidad queda a 0 de forma intencionada hasta que se complete ese campo o se confirme otro campo fuente.
-
-### Despliegue de esta correccion
-
-```bash
-php artisan migrate --force
-php artisan salesforce:sync-opportunities --from=2026-06-01 --to=2026-07-01 -vvv
-php artisan optimize:clear
-```
-
-## 18. Actualizacion: penalizaciones por ID y Financieros
-
-### Penalizaciones de financiacion
-
-- El formato activo del Excel es: `Mes comision`, `Nombre comercial`, `ID comercial` y `descontar comercial 4%`. `Observacion` es opcional.
-- El `ID comercial` de Salesforce es la clave unica de aplicacion. El nombre solo se conserva para auditoria.
-- Varias filas del mismo ID y mes se suman y se aplican siempre como descuento negativo a `Pen. cancelacion fin.` y a la comision final.
-- Se mantiene compatibilidad de lectura con archivos historicos que traigan `Email comercial`, pero no es el formato nuevo a utilizar.
-- Nueva migracion: `2026_07_27_104000_add_commercial_identity_to_financing_penalties_table.php`.
-- `outputs/penalizaciones-financiacion-plantilla/node_modules` es una dependencia local de generacion y no se debe desplegar ni subir a produccion.
-
-### Financieros
-
-- Direccion y Administrador tienen acceso a la pestana `Financieros` por pertenecer al informe de Comisiones Comerciales.
-- Carlos y Cristina usan los bloques generales: porcentaje financiado, rentabilidad y garantias premium.
-- Desde junio de 2026, Nuria e Irene usan una regla mensual configurable de `0,50%` sobre la comision neta; sustituye los bloques generales para esas zonas.
-- Se anade el tramo de rentabilidad de `13,00%` a `13,99%` con incentivo `0,10%`.
-- El detalle muestra por oportunidad el valor sincronizado de `Inter_s_elegido__c` y el motivo de inclusion o exclusion de rentabilidad.
-- Salesforce sigue devolviendo `Inter_s_elegido__c` vacio en las 616 operaciones de junio. No se han forzado los importes: para validar Carlos `1.798,64 EUR`, Cristina `2.466,73 EUR` y el total `4.626,62 EUR` se debe corregir el campo fuente o confirmar el API name que Salesforce expone.
-
-## 19. Auditoria de entregas por delegacion
-
-- El cuadro Delegaciones cuenta oportunidades con `Contrato CV firmado = true`, `Fecha firma contrato` dentro del mes y `Stage != Cerrada perdida`.
-- Se incluyen Record Type `Venta` y `Cambio`. Tambien se incluye cualquier oportunidad cuyo nombre contenga `Facilitea`, incluso si su Record Type es distinto; una Venta/Cambio Facilitea se cuenta una sola vez.
-- No se filtra por owner activo ni por `Gestion de venta` en el volumen de Delegaciones.
-- La asignacion de la entrega se hace por `Tienda_de_entrega__c` normalizada; se excluyen etiquetas no operativas como `General`, `Sin Zona` y `Call Fontellas`.
-- Boton disponible en Delegaciones: `Descargar CSV de auditoria de entregas`. El fichero usa la misma seleccion y expone Opportunity, fecha de firma, tipo, stage, motivo de inclusion, owner, tienda de entrega-compra, delegacion calculada, gestion de venta, cuenta y vehiculo.
-
-## 20. Penalizaciones por email comercial
-
-- El formato operativo de penalizaciones pasa a usar como obligatorios `Mes comision`, `Email comercial` y `descontar comercial 4%`.
-- `Nombre comercial` e `ID Salesforce` son opcionales y solo se conservan como datos de auditoria.
-- El match se hace por correo normalizado contra `salesforce_users.email`, sincronizado desde `User.Email` de Salesforce; el ID Salesforce resuelto se guarda junto a la penalizacion para trazabilidad.
-- Los archivos antiguos que solo tengan ID y nombre se mantienen como compatibilidad, pero Cristina debe usar el formato por email.
-- Tras desplegar, ejecutar `php artisan migrate --force` y `php artisan salesforce:sync-monthly-commercial --days=120 -vvv` para poblar los correos locales.
-21. Correcciones de conciliacion de Delegaciones y Area Managers
----------------------------------------------------------------
-
-- Delegaciones se atribuye exclusivamente por `Opportunity.Tienda_de_entrega__c`.
-  No hay fallback por Owner, por delegacion del propietario ni por otro campo.
-  Si Tienda de entrega/compra esta vacia, la operacion queda fuera de entregas,
-  rentabilidad, porcentajes y comisiones de Delegaciones hasta que Salesforce la complete.
-- Los importes de rentabilidad, financiacion y garantias de Delegaciones usan el
-  mismo conjunto y la misma Tienda de entrega que sus entregas. No se agrupan por
-  la delegacion del propietario del informe.
-- Area Managers continua agrupando por `owner_delegation`; esta regla no cambia
-  para ese cuadro.
-- A Coruna y A Coruña se consolidan mediante la clave estable `a-coruna`. Si una
-  configuracion historica contiene ambas variantes, se conserva una unica
-  asignacion y se prioriza la que tenga objetivos mensuales configurados.
-- Financieros: el bloque de rentabilidad depende del valor sincronizado de
-  `Opportunity.Inter_s_elegido__c`. Mientras Salesforce lo entregue vacio, esas
-  operaciones quedan excluidas segun la regla vigente y no se fuerzan importes.
-- Rentabilidad Total de Delegaciones replica el informe Salesforce de productos:
-  `Fecha_firma_contrato__c` dentro del mes y `StageName` distinto de `Cerrada ganada`
-  y `Cerrada perdida`. No limita Record Type ni exige adicionalmente CV firmado.
-  La formula por operacion es `Product2.PRO_DIV_Precio_de_venta__c -
-  Product2.PRO_DIV_Precio_de_compra__c - Opportunity.OPO_DIV_Descuento__c +
-  Opportunity.Beneficio_financiacion_comercial__c + Opportunity.Garant_a_Total__c`.
-- La `% rentabilidad financiacion` y el `% importe financiado` de Delegaciones
-  replican el informe Salesforce `Analisis por zonas`: usan su universo de
-  entregas y la delegacion historica del propietario (`report_owner_delegation`),
-  que puede diferir de la tienda de entrega. Las formulas son
-  `SUM(Beneficio_financiacion_comercial) / SUM(Importe_financiado)` y
-  `SUM(Importe_financiado) / SUM(Importe_total)`.
+ESPECIFICACIÓN FUNCIONAL Y TÉCNICA DE COMISIONES COMERCIALES
+============================================================
+
+Fecha de revisión: 2026-07-30
+Proyecto: informes-app-hrmotor
+
+Este documento describe la lógica que está implementada en el proyecto. No es
+una propuesta de negocio. Ante una diferencia con una hoja manual debe
+conciliarse primero el universo de oportunidades, la fecha pivote y el
+responsable atribuido; después se revisan importes y porcentajes.
+
+La documentación transversal, las queries completas del resto de informes y el
+mapa de fuentes están en:
+
+  Documentacion_general_informes_y_contraste_salesforce.md
+
+
+1. FUENTES Y OBJETOS
+====================
+
+Salesforce
+----------
+
+- Opportunity:
+  operaciones de venta, cambio y tasación; fechas de firma; propietario;
+  captadores; tienda de entrega; importes de financiación, garantía,
+  rentabilidad y comisiones.
+- User:
+  usuarios activos, perfil, delegación y flag de tasador.
+- Resena__c:
+  reseñas por delegación usadas en la pestaña Delegaciones.
+- Tasacion__c:
+  negociaciones de Alemania usadas por Call Center.
+- Lead:
+  citas y captadores usados por Contact Center.
+
+Persistencia local
+------------------
+
+- salesforce_opportunities
+- salesforce_users
+- salesforce_leads
+- commercial_financing_penalties
+- commercial_financing_penalty_imports
+- commercial_commission_month_settings
+- report_access_settings
+
+Las pantallas se calculan principalmente desde las tablas locales. La lectura de
+Resena__c es una excepción: se consulta en Salesforce, se cachea y el informe
+queda protegido frente a un fallo de la API.
+
+
+2. CAMPOS DE SALESFORCE RELEVANTES
+==================================
+
+Los nombres siguientes son los usados por el código. La disponibilidad de un
+campo debe comprobarse en el describe de Opportunity si cambia el esquema de la
+organización.
+
+Identificación y fechas
+-----------------------
+
+- Id
+- Name
+- CreatedDate
+- LastModifiedDate
+- StageName
+- CloseDate
+- RecordType.Id
+- RecordType.Name
+- OPO_CAS_Contrato_CV_firmado__c
+- Fecha_firma_contrato__c
+- OPO_CAS_Reserva__c
+- OPO_FEC_Fecha_de_reserva__c
+
+Responsables y estructura
+--------------------------
+
+- OwnerId
+- Owner.Name
+- Owner.Email
+- Owner.Profile.Name
+- Owner.USR_SEL_Delegacion__c
+- Entrega_Compartida__c
+- Entrega_Compartida__r.Name
+- Comercial_que_atiende_en_tienda__c
+- Comercial_que_atiende_en_tienda__r.Name
+- Captador_de_cita__c
+- Captador_de_cita__r.Name
+- Captador__c
+- Captador_2__c
+- Captador_3__c
+- Captador_4__c
+- Tienda_de_entrega__c
+- Delegacion_del_propietario__c
+- zona_financiera__c
+
+Importes y producto
+-------------------
+
+- Amount
+- OPO_FOR_Importe_total__c
+- OPO_FOR_Importe_vehiculo_venta__c
+- OPO_FOR_Importe_vehiculo_a_cambio__c
+- OPO_DIV_Descuento__c
+- Beneficio_financiacion_comercial__c
+- Importe_financiado__c
+- Comisi_n_Financiera__c
+- OPO_DIV_Descuento_financiera__c
+- Garant_a_Total__c
+- Inter_s_elegido__c
+- Financiaci_n_pagada__c
+- Fecha_pagada_financiacion__c
+- Porcentaje_del_importe_financiado__c
+- Costes_de_gestion__c
+- Costes_de_Logistica_Incluido__c
+- OPO_DIV_Coste_Traslado__c
+- Descuento_Logistica__c
+- OPP_BUS_Vehiculo_de_interes__c
+- OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_venta__c
+- OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_compra__c
+- OPP_BUS_Vehiculo_de_interes__r.PRO_FEC_Fecha_entrada__c
+- OPP_BUS_Vehiculo_de_interes__r.Dias_en_stock__c
+
+Call Center y Contact Center
+----------------------------
+
+- Comisi_n_Captador__c
+- Facturado_Facilitea__c
+- Numero_Factura_Facilitea__c
+- Teléfono, móvil, correo y cuenta relacionados necesarios para vincular la cita
+- Campos de cita y captador sincronizados desde Lead
+
+
+3. QUERY BASE PARA COMERCIALES
+==============================
+
+La consulta siguiente sirve para contrastar la pestaña Comerciales. Deben
+sustituirse las fechas por el primer día del mes y el primer día del mes
+siguiente. El sincronizador real solicita además campos auxiliares usados por
+otros informes.
+
+SELECT
+    Id,
+    Name,
+    StageName,
+    RecordType.Name,
+    OwnerId,
+    Owner.Name,
+    Owner.Email,
+    Owner.IsActive,
+    Owner.Profile.Name,
+    Owner.USR_SEL_Delegacion__c,
+    OPO_CAS_Contrato_CV_firmado__c,
+    Fecha_firma_contrato__c,
+    Gestion_de_venta__c,
+    Entrega_Compartida__c,
+    Entrega_Compartida__r.Name,
+    OPO_DIV_Descuento__c,
+    Beneficio_financiacion_comercial__c,
+    Importe_financiado__c,
+    Comisi_n_Financiera__c,
+    OPO_DIV_Descuento_financiera__c,
+    Garant_a_Total__c,
+    OPP_BUS_Vehiculo_de_interes__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_venta__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_compra__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_FEC_Fecha_entrada__c,
+    OPP_BUS_Vehiculo_de_interes__r.Dias_en_stock__c
+FROM Opportunity
+WHERE IsDeleted = FALSE
+  AND OPO_CAS_Contrato_CV_firmado__c = TRUE
+  AND Fecha_firma_contrato__c >= 2026-07-01
+  AND Fecha_firma_contrato__c < 2026-08-01
+  AND StageName != 'Cerrada Perdida'
+  AND RecordType.Name IN ('Venta', 'Cambio', 'Tasacion')
+  AND Owner.IsActive = TRUE
+  AND (Gestion_de_venta__c = FALSE OR Gestion_de_venta__c = NULL)
+ORDER BY Fecha_firma_contrato__c, Id
+
+Filtros locales adicionales
+---------------------------
+
+- El propietario debe estar activo, salvo que una pestaña indique expresamente
+  otra cosa.
+- Se excluyen operaciones marcadas como gestión.
+- Se excluyen usuarios técnicos.
+- El conjunto de comerciales se obtiene de User activo con perfil comercial.
+- Los ajustes de nombre, email, perfil y delegación se realizan con los
+  normalizadores del proyecto.
+
+Query de usuarios para contraste:
+
+SELECT
+    Id,
+    Name,
+    Email,
+    IsActive,
+    Profile.Name,
+    USR_SEL_Delegacion__c,
+    Comision_Tasador__c
+FROM User
+WHERE IsActive = TRUE
+  AND (
+      Profile.Name = 'Comerciales Partner Community'
+      OR Profile.Name = 'Compra/Venta'
+      OR Comision_Tasador__c = TRUE
+  )
+ORDER BY Name
+
+
+4. PESTAÑA COMERCIALES
+======================
+
+4.1 Reglas desde junio de 2026
+--------------------------------
+
+Importes unitarios por defecto:
+
+- Venta con un único comercial: 60 EUR.
+- Venta compartida, propietario: 30 EUR.
+- Venta compartida, comercial secundario: 30 EUR.
+- Tasación: 60 EUR.
+- Cambio: 85 EUR.
+- Descuento: se resta el 5 % de la suma de descuentos positivos.
+- Stock con antigüedad igual o superior a 150 días: 10 EUR.
+- Desde la operación número 16: 30 EUR por operación adicional.
+
+Las cifras anteriores son valores por defecto. Si existe un ajuste vigente en
+commercial_commission_month_settings se usa la configuración JSON del mes.
+
+Base de ventas:
+
+  base_ventas =
+      ventas_individuales
+    + participaciones_compartidas
+    - penalizacion_descuento
+    + incentivo_stock
+    + bonus_volumen
+
+Tramo de entregas para perfiles estándar:
+
+- 0 a 6 entregas: 0,00
+- 7 a 11 entregas: 0,80
+- 12 o más entregas: 1,00
+
+El perfil Compra/Venta usa coeficiente 1,00. Tasaciones y cambios se pagan fuera
+del coeficiente de entregas:
+
+  comision_ajustada =
+      base_ventas * coeficiente_entregas
+    + comision_tasaciones
+    + comision_cambios
+
+Operaciones compartidas
+-----------------------
+
+- La oportunidad paga la parte del propietario y la del comercial secundario.
+- Una misma persona no recibe dos veces la misma oportunidad.
+- La conciliación debe hacerse por Opportunity.Id y por el email normalizado del
+  beneficiario, no únicamente por nombre visible.
+
+Descuentos
+----------
+
+  penalizacion_descuento =
+      suma(max(0, descuento_operacion)) * 0,05
+
+Antigüedad de stock
+-------------------
+
+  incentivo_stock =
+      numero_operaciones_con_antiguedad >= 150_dias * 10 EUR
+
+Bonus de volumen
+----------------
+
+  bonus_volumen = max(0, numero_operaciones - 15) * 30 EUR
+
+4.2 Tasadores
+-------------
+
+Cuando un usuario está marcado como tasador se aplica el sistema específico.
+Las compras computables son oportunidades de Tasacion y Cambio del mes.
+
+Tramos por número de compras:
+
+- 0 a 7: 0 EUR por compra
+- 8 a 10: 30 EUR por compra
+- 11 a 15: 60 EUR por compra
+- 16 a 20: 65 EUR por compra
+- 21 a 25: 70 EUR por compra
+- 26 a 30: 75 EUR por compra
+- 31 a 35: 80 EUR por compra
+- Más de 35: 85 EUR por compra
+
+Además:
+
+- Venta: 60 EUR.
+- Financiación: 3 % del beneficio financiero.
+- Compra resuelta en menos de 30 días: 20 EUR.
+- Compra resuelta entre 30 y 60 días: 10 EUR.
+- Resto: 0 EUR.
+- Las cancelaciones se restan.
+
+  comision_tasador =
+      compras * importe_tramo
+    + ventas * 60
+    + beneficio_financiero * 0,03
+    + incentivo_velocidad
+    - cancelaciones
+
+4.3 Regla histórica hasta mayo de 2026
+--------------------------------------
+
+Para meses anteriores a junio de 2026 se conserva la compatibilidad histórica:
+
+  comision_compra_legacy =
+      rentabilidad_vehiculo_vendido * 0,018
+
+No debe aplicarse este 1,8 % a junio de 2026 ni a meses posteriores.
+
+4.4 Penalizaciones
+------------------
+
+Garantía:
+
+- Umbral por defecto: 3.500 EUR.
+- Si no se alcanza, penalización del 10 % de la comisión ajustada.
+
+Reseñas:
+
+  porcentaje_resenas = resenas / operaciones * 100
+
+- Menos del 30 %: penalización del 50 %.
+- Desde el 30 % y menos del 50 %: penalización del 10 %.
+- Desde el 50 %: sin penalización.
+
+Estas reseñas comerciales proceden de Resena__c y se atribuyen al propietario de
+la oportunidad relacionada:
+
+SELECT
+    Id,
+    CreatedDate,
+    OwnerId,
+    Owner.Name,
+    RES_BUS_Oportunidad__c,
+    RES_BUS_Oportunidad__r.Name,
+    RES_BUS_Oportunidad__r.OwnerId,
+    RES_BUS_Oportunidad__r.Owner.Name,
+    RES_BUS_Oportunidad__r.RecordType.Name,
+    RES_BUS_Oportunidad__r.Fecha_firma_contrato__c
+FROM Resena__c
+WHERE CreatedDate >= 2026-07-01T00:00:00Z
+  AND CreatedDate < 2026-08-01T00:00:00Z
+ORDER BY CreatedDate, Id
+
+Financiación:
+
+  porcentaje_financiacion =
+      suma_importe_financiado / suma_importe_total_vehiculo * 100
+
+- Si es inferior al 40 %: penalización del 10 %.
+
+Las penalizaciones se calculan sobre la comisión ajustada. El resultado no puede
+bajar de cero antes de sumar productos y restar cancelaciones.
+
+4.5 Productos adicionales y total
+---------------------------------
+
+- Producto financiero: importe según sus tramos configurados.
+- Producto garantía: importe según sus tramos configurados.
+- Cancelaciones: importe negativo.
+
+  total_comercial =
+      max(0, comision_ajustada - penalizaciones)
+    + producto_financiero
+    + producto_garantia
+    + ajuste_cancelaciones_financiacion
+
+El ajuste importado de cancelaciones se guarda con signo: normalmente ya es
+negativo. Por eso la implementación lo suma al total; no vuelve a invertirlo.
+
+
+5. PESTAÑA DELEGACIONES
+=======================
+
+Esta pestaña no comparte exactamente el mismo universo que Comerciales.
+
+5.1 Entregas
+------------
+
+Universo:
+
+- Contrato firmado en el mes.
+- No Cerrada Perdida.
+- RecordType Venta o Cambio, o una operación Facilitea reconocida.
+- No se exige que el propietario esté activo.
+- No se aplica el filtro de gestión de la pestaña Comerciales.
+
+Atribución vigente:
+
+  delegacion_entrega = Tienda_de_entrega
+
+La asignación es exclusiva por tienda de entrega. No existe fallback a la
+delegación del propietario para este contador.
+
+Query orientativa:
+
+SELECT
+    Id,
+    Name,
+    RecordType.Name,
+    StageName,
+    OPO_CAS_Contrato_CV_firmado__c,
+    Fecha_firma_contrato__c,
+    Tienda_de_entrega__c,
+    Delegacion_del_propietario__c,
+    OPO_DIV_Descuento__c,
+    Beneficio_financiacion_comercial__c,
+    Importe_financiado__c,
+    Garant_a_Total__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_venta__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_compra__c
+FROM Opportunity
+WHERE OPO_CAS_Contrato_CV_firmado__c = TRUE
+  AND Fecha_firma_contrato__c >= 2026-07-01
+  AND Fecha_firma_contrato__c < 2026-08-01
+  AND StageName != 'Cerrada Perdida'
+ORDER BY Tienda_de_entrega__c, Id
+
+5.2 Rentabilidad
+----------------
+
+La rentabilidad usa un universo separado, con fecha del mes y estados distintos:
+
+- StageName no está en Cerrada Ganada ni Cerrada Perdida.
+- No exige contrato firmado.
+- No se limita a un RecordType concreto.
+- Se agrupa por tienda de entrega.
+
+  rentabilidad =
+      precio_venta
+    - precio_compra
+    - descuento
+    + beneficio_financiero
+    + importe_garantia
+
+Se suman las rentabilidades de las oportunidades atribuidas a cada delegación.
+
+5.3 Objetivo y prima
+--------------------
+
+  cumplimiento_objetivo = entregas / objetivo_entregas * 100
+
+Coeficiente de prima por defecto:
+
+- Más del 100 %: 0,0060
+- 100 %: 0,0050
+- Desde el 95 %: 0,0045
+- Desde el 90 %: 0,0040
+- Desde el 85 %: 0,0035
+- Menos del 85 %: 0
+
+  prima_base = rentabilidad_total * coeficiente_objetivo
+
+Los objetivos y coeficientes pueden sobrescribirse mediante la configuración
+administrativa.
+
+5.4 Reseñas
+-----------
+
+Las reseñas solo modifican la prima cuando se ha alcanzado el objetivo y la
+cobertura de reseñas supera el 50 %.
+
+- Media inferior a 3,7: -300 EUR.
+- Media desde 3,7 e inferior a 4,0: -200 EUR.
+- Media superior a 4,5: +200 EUR.
+- Resto: 0 EUR.
+
+Estas reseñas no proceden de Resena__c. El servicio consulta el endpoint interno
+configurado en `INTERNAL_REVIEWS_ENDPOINT`, con Basic Auth y parámetros:
+
+  month = MM-YY
+  location = ubicación Google asociada a la delegación
+
+La respuesta esperada contiene:
+
+  reviews_count
+  average_rating
+
+El resultado se cachea por mes y delegación. Si el endpoint no está configurado,
+falla o no existe mapping de ubicación, se usan cero reseñas y media nula. Las
+credenciales solo deben existir en variables de entorno.
+
+5.5 Calidad y financiación
+--------------------------
+
+Después del ajuste de reseñas se aplican secuencialmente:
+
+- Bonus del 10 % si el ratio financiado es superior al 40 %.
+- Bonus del 10 % si la rentabilidad media es superior al 14 %.
+
+Al ser secuenciales, cuando se cumplen ambos:
+
+  total = (prima_base + ajuste_resenas) * 1,10 * 1,10
+
+No equivale a sumar un 20 % sobre la base original.
+
+Para los ratios financieros la delegación se atribuye por
+Delegacion_del_propietario__c y, si falta, por la delegación del propietario.
+Este eje es deliberadamente distinto de la tienda de entrega.
+
+
+6. PESTAÑA CALL CENTER
+======================
+
+Universo principal:
+
+- Oportunidades firmadas en el mes.
+- Tasaciones: RecordType Tasacion, con captador y sin marca de gestión.
+- Ventas: RecordType Venta, con captador.
+- Cambios: RecordType Cambio, con captador.
+
+La comisión de cada oportunidad se toma de Comision_Captador__c. Si el campo está
+vacío, el importe es cero y se deja advertencia para auditoría.
+
+Componentes:
+
+- Comisión por tasaciones captadas.
+- Comisión por ventas captadas.
+- Comisión por cambios captados.
+- Negociaciones Alemania desde Tasacion__c.
+- Operaciones Facilitea con sus propietarios y factores configurados.
+
+Query orientativa de Tasacion__c:
+
+SELECT
+    Id,
+    Name,
+    CreatedDate,
+    Fecha_firma_contrato__c,
+    Contrato_CV_firmado__c,
+    Seguimiento__c,
+    Negociacion_1__c,
+    Negociacion_2__c,
+    Negociacion_3__c,
+    Negociacion_4__c,
+    Opportunity__c,
+    Opportunity__r.Name,
+    Opportunity__r.Fecha_firma_contrato__c,
+    Opportunity__r.OPO_CAS_Contrato_CV_firmado__c
+FROM Tasacion__c
+WHERE IsDeleted = FALSE
+  AND (
+      (CreatedDate >= 2026-07-01T00:00:00Z
+       AND CreatedDate < 2026-08-01T00:00:00Z)
+      OR
+      (Fecha_firma_contrato__c >= 2026-07-01
+       AND Fecha_firma_contrato__c < 2026-08-01)
+      OR
+      (Opportunity__r.Fecha_firma_contrato__c >= 2026-07-01
+       AND Opportunity__r.Fecha_firma_contrato__c < 2026-08-01)
+  )
+ORDER BY CreatedDate
+
+  total_call_center =
+      comisiones_captador_tasacion
+    + comisiones_captador_venta
+    + comisiones_captador_cambio
+    + negociaciones_alemania
+    + facilitlea
+
+El sincronizador prueba perfiles de relación alternativos
+(`Opportunity__c`, `RES_BUS_Oportunidad__c`, `TAS_BUS_Oportunidad__c` o sin
+relación) y elimina de la query los campos que Salesforce declare inválidos. Los
+nombres de Facilitea pueden estar configurados. Para conciliar se debe consultar
+el SOQL y el payload crudo registrados, no inferirlos por la etiqueta visual.
+
+
+7. PESTAÑA CONTACT CENTER
+=========================
+
+7.1 Citas
+---------
+
+- La fecha pivote de la cita es Fecha_captador__c.
+- Debe existir captador.
+- Se admiten citas telefónicas y de tienda.
+- Para resolver resultados se carga un histórico de dos meses.
+- Una oportunidad se vincula primero por ConvertedOpportunityId.
+- Si no existe vínculo explícito, se intenta por teléfono normalizado.
+
+7.2 Ventana de cierre
+---------------------
+
+Para un mes M se revisan resultados hasta el día 10 incluido del mes siguiente.
+En términos de intervalo exclusivo, el cierre termina el día 11 a las 00:00.
+
+7.3 Resultados y cálculo
+------------------------
+
+- Cita vinculada a oportunidad: 5 EUR.
+- Venta firmada: 12 EUR.
+- Si ventas / citas es superior al 3 %: 2 EUR adicionales por venta.
+- Bonus de volumen no acumulativo:
+  - 10 o más ventas: 100 EUR.
+  - 15 o más ventas: 250 EUR.
+  - 20 o más ventas: 500 EUR.
+- El componente informativo de asistencia se muestra, pero actualmente aporta
+  0 EUR.
+
+  ratio_conversion = ventas / citas
+
+  total_contact_center =
+      citas_con_oportunidad * 5
+    + ventas * 12
+    + bonus_ratio
+    + bonus_volumen
+
+Las ventas deben estar firmadas en el mes y no estar Cerrada Perdida.
+
+
+8. PESTAÑA AREA MANAGER
+=======================
+
+8.1 Universos y atribución
+--------------------------
+
+Entregas:
+
+- Firmadas en el mes.
+- No Cerrada Perdida.
+- Venta, Cambio o Facilitea reconocida.
+
+Compras:
+
+- Tasacion o Cambio.
+
+Delegación:
+
+1. Delegación vigente del User sincronizado.
+2. Si falta, delegación del propietario almacenada en la oportunidad.
+3. En Facilitea cuyo propietario no sea operativo, tienda de entrega.
+
+8.2 KPIs
+--------
+
+- Entregas.
+- Beneficio positivo.
+- Garantía positiva.
+- Compras.
+
+Para cada KPI:
+
+  cumplimiento_real = actual / objetivo * 100
+  cumplimiento_usado = redondear(cumplimiento_real)
+
+Solo cualifica si el cumplimiento usado es al menos 85 %. No se limita al 100 %:
+un sobrecumplimiento incrementa la base.
+
+  importe_pre_key =
+      base_kpi * cumplimiento_usado / 100
+
+Bases por defecto:
+
+- Entregas: 150 EUR.
+- Beneficio: 150 EUR.
+- Garantía: 100 EUR.
+- Compras: 100 EUR.
+
+8.3 Multiplicador de zona
+-------------------------
+
+El porcentaje del manager es la media aritmética del cumplimiento real de sus
+delegaciones y después se redondea. Sobre ese resultado se selecciona el
+multiplicador configurado.
+
+  total_area_manager =
+      suma(importes_pre_key) * multiplicador_zona
+
+No debe calcularse el porcentaje de zona sumando numeradores y denominadores:
+la implementación usa la media de porcentajes por delegación.
+
+
+9. PESTAÑA FINANCIEROS
+=====================
+
+9.1 Universo y zona
+-------------------
+
+- Fecha de firma dentro del mes.
+- StageName distinto de Cerrada Perdida.
+- Tipo normalizado Venta o Cambio; si falta la fórmula se usa RecordType.
+- Zona desde el campo financiero; como fallback, mapeo por delegación del
+  propietario.
+- Se excluyen General y Sin Zona.
+
+  comision_neta =
+      importe_comision_financiera - descuento
+
+  porcentaje_financiado =
+      suma_importe_financiado / suma_importe_total * 100
+
+9.2 Bloque 1: comisión neta
+---------------------------
+
+  bloque_1 =
+      suma(comision_neta) * coeficiente_por_porcentaje_financiado
+
+Los tramos se leen de la configuración vigente.
+
+9.3 Bloque 2: interés y beneficio
+---------------------------------
+
+Se excluyen:
+
+- Operaciones sin Inter_s_elegido__c.
+- Intereses 3,99; 4,99; 5,99.
+
+  ratio_beneficio =
+      beneficio_financiero_valido / importe_financiado_valido
+
+  bloque_2 =
+      beneficio_financiero_valido * coeficiente_por_ratio
+
+Si el interés no llega de Salesforce, el bloque queda a cero por diseño.
+
+9.4 Bloque 3: garantía
+----------------------
+
+  ratio_garantia =
+      importe_garantia / importe_financiado
+
+  bloque_3 =
+      importe_garantia * coeficiente_por_ratio
+
+9.5 Excepción individual desde junio de 2026
+--------------------------------------------
+
+Para las identidades configuradas de Nuria e Irene:
+
+  total_financiero_especial =
+      suma(comision_neta) * 0,005
+
+Este cálculo sustituye los tres bloques; no se suma a ellos.
+
+
+10. PENALIZACIONES DE FINANCIACIÓN
+=================================
+
+La clave operativa actual es el email normalizado del comercial.
+
+La importación histórica admite identificadores anteriores para poder leer
+ficheros antiguos, pero al resolver una penalización tiene prioridad el email.
+No se debe documentar el ID como clave vigente.
+
+Campos funcionales:
+
+- período
+- email del comercial
+- importe
+- motivo
+- fuente de importación
+- usuario y fecha de modificación
+
+Las penalizaciones se restan en el período al que pertenecen. La auditoría debe
+mostrar el registro aplicado y no solo el total agregado.
+
+
+11. CONFIGURACIÓN POR DEFECTO
+=============================
+
+Los valores predeterminados se encuentran en la configuración de comisiones y
+pueden ser sustituidos por registros administrativos vigentes. Entre ellos:
+
+- venta individual: 60
+- venta compartida propietario: 30
+- venta compartida secundario: 30
+- compra legacy: 1,8 %
+- stock mínimo: 150 días
+- incentivo stock: 10
+- umbral bonus volumen: 15
+- importe por operación adicional: 30
+- tramos de entrega: 0 / 0,8 / 1
+- umbral garantía: 3.500
+- penalizaciones de reseñas: 50 % y 10 %
+- umbral financiación: 40 %
+- objetivo mínimo de delegación para prima: 85 %
+- bonus de calidad: 10 % por rentabilidad y 10 % por financiación
+- bases Area Manager: 150 / 150 / 100 / 100
+
+Para una conciliación histórica hay que consultar la configuración efectiva del
+mes. Modificar los valores por defecto no debe reescribir un cierre ya validado.
+
+
+12. AUDITORÍA Y EXPORTACIÓN
+===========================
+
+La pantalla dispone de:
+
+- detalle por comercial y operación;
+- detalle por delegación;
+- trazabilidad de Call Center y Contact Center;
+- desglose de Area Manager;
+- desglose de Financieros;
+- endpoints de auditoría;
+- exportación XLSX con seis hojas.
+
+Las seis hojas corresponden a:
+
+1. Comerciales
+2. Delegaciones
+3. Call Center
+4. Contact Center
+5. Area Manager
+6. Financieros
+
+Para validar una cifra:
+
+1. Fijar mes y zona horaria Europe/Madrid.
+2. Ejecutar la query de Salesforce con intervalo [inicio, siguiente mes).
+3. Exportar Opportunity.Id.
+4. Aplicar exactamente el universo de la pestaña.
+5. Resolver responsable por email normalizado.
+6. Comparar primero cantidades y después importes.
+7. Revisar la configuración efectiva del período.
+8. Comprobar penalizaciones y cancelaciones como líneas separadas.
+9. Usar el endpoint auditable para explicar cada Opportunity.Id.
+
+
+13. ARCHIVOS DE IMPLEMENTACIÓN
+==============================
+
+Núcleo:
+
+- app/Services/Reports/CommercialCommissions/
+- app/Services/Reports/CallCenterCommissions/
+- app/Services/Reports/ContactCenterCommissions/
+- app/Services/Reports/AreaManagerCommissions/
+- app/Services/Reports/FinancialCommissions/
+- app/Http/Controllers/Reports/CommercialCommissions/CommercialCommissionDashboardController.php
+- app/Http/Controllers/Reports/CommercialCommissions/CommercialCommissionFormulaSettingsController.php
+- app/Http/Controllers/Reports/CommercialCommissions/CommercialFinancingPenaltyImportController.php
+- app/Http/Controllers/Api/CommercialCommissionApiController.php
+- config/commercial_commissions.php
+
+Persistencia:
+
+- app/Models/SalesforceOpportunity.php
+- app/Models/SalesforceUser.php
+- app/Models/SalesforceLead.php
+- app/Models/CommercialFinancingPenalty.php
+- app/Models/CommercialFinancingPenaltyImport.php
+- app/Models/CommercialCommissionMonthSetting.php
+
+Pruebas:
+
+- tests/Feature/CommercialCommissionDashboardTest.php
+- tests/Feature/CommercialCommissionFormulaSettingsTest.php
+- tests/Feature/CommercialCommissionApiTest.php
+- tests/Feature/CallCenterCommissionDashboardTest.php
+- tests/Feature/ContactCenterCommissionDashboardTest.php
+
+
+14. CAUTELAS
+============
+
+- No mezclar CreatedDate, fecha de reserva y fecha de firma.
+- No reutilizar el universo de Comerciales en Delegaciones o Financieros.
+- Tienda de entrega y delegación del propietario son ejes distintos.
+- Una venta compartida puede generar dos beneficiarios, pero una sola operación.
+- Los bonus secuenciales de Delegaciones se multiplican; no se suman.
+- Contact Center tiene una ventana de cierre que llega hasta el día 10 del mes
+  siguiente.
+- Area Manager usa la media de porcentajes por delegación.
+- Financieros depende del interés elegido; un dato ausente no se inventa.
+- La configuración del período prevalece sobre los valores por defecto.
+- Nunca guardar contraseñas, tokens o credenciales en este archivo.

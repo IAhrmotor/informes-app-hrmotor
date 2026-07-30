@@ -6,6 +6,7 @@ use App\Services\Reports\Stock\SalesforceLogisticsSyncService;
 use App\Services\Reports\Stock\SalesforceSaleSnapshotService;
 use App\Services\Reports\Stock\SalesforceSignedSaleSyncService;
 use App\Services\Reports\Stock\SalesforceVehicleSyncService;
+use App\Services\Reports\Stock\StockAvailabilityAlertService;
 use App\Services\Reports\Stock\StockDailySnapshotService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
@@ -21,7 +22,8 @@ class SyncStockAnalysisCommand extends Command
         {--skip-vehicles : No sincroniza Product2}
         {--skip-stock-snapshot : No genera la fotografía diaria de stock}
         {--skip-opportunities : No resincroniza oportunidades}
-        {--skip-logistics : No sincroniza logística}';
+        {--skip-logistics : No sincroniza logística}
+        {--skip-alerts : No evalúa alertas de disponibilidad}';
 
     protected $description = 'Sincroniza Product2 y genera las fotografías diarias de stock y ventas.';
 
@@ -31,6 +33,7 @@ class SyncStockAnalysisCommand extends Command
         SalesforceSignedSaleSyncService $signedSales,
         SalesforceSaleSnapshotService $saleSnapshots,
         SalesforceLogisticsSyncService $logistics,
+        StockAvailabilityAlertService $availabilityAlerts,
     ): int {
         $lock = Cache::lock('stock-analysis-daily-sync', 7200);
         if (! $lock->get()) {
@@ -70,6 +73,10 @@ class SyncStockAnalysisCommand extends Command
             if (! $this->option('skip-stock-snapshot')) {
                 $stockRows = $stockSnapshots->capture($snapshotDate);
                 $this->line("Vehículos fotografiados para {$snapshotDate->toDateString()}: {$stockRows}");
+            }
+            if (! $this->option('skip-alerts')) {
+                $alertResult = $availabilityAlerts->evaluate();
+                $this->line("Alertas de disponibilidad: {$alertResult['opened']} nuevas, {$alertResult['resolved']} resueltas, {$alertResult['errors']} errores.");
             }
             $this->info('Sincronización diaria de stock completada.');
 

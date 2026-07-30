@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SalesforceSaleSnapshot extends Model
 {
@@ -11,6 +12,7 @@ class SalesforceSaleSnapshot extends Model
     protected $casts = [
         'signed_date' => 'date',
         'vehicle_entry_date' => 'date',
+        'vehicle_mileage' => 'integer',
         'rotation_days' => 'integer',
         'sale_management' => 'boolean',
         'sale_price' => 'decimal:2',
@@ -30,4 +32,9 @@ class SalesforceSaleSnapshot extends Model
         'source_payload' => 'array',
         'captured_at' => 'datetime',
     ];
+
+    public function delegation(): BelongsTo
+    {
+        return $this->belongsTo(StockDelegation::class, 'stock_delegation_id');
+    }
 }

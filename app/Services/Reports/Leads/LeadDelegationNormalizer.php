@@ -117,7 +117,8 @@ class LeadDelegationNormalizer
         $this->add($map, 'Badalona', ['HR MOTOR BADALONA', 'Badalona', 'leadsbadalona@hrmotor.com']);
         $this->add($map, 'Lliçà de Vall', [
             'HR MOTOR LLIÇÀ DE VALL', 'HR MOTOR LLIÇA', 'Lliçà de Vall', 'Lliça de Vall',
-            'Llica de Vall', 'LLIÇÀ DE VALL',
+            'Llica de Vall', 'LLIÇÀ DE VALL', 'HR MOTOR LLIÇÀ DE VALLS', 'HR MOTOR LLIÇA DE VALLS',
+            'HR MOTOR LLICA DE VALLS', 'Lliçà de Valls', 'Lliça de Valls', 'Llica de Valls',
         ]);
         $this->add($map, 'Manresa', ['HR MOTOR MANRESA', 'Manresa', 'leadsmanresa@hrmotor.com']);
         $this->add($map, 'Lleida', ['HR MOTOR LLEIDA', 'Lleida', 'Lerida', 'leadslleida@hrmotor.com']);
@@ -151,7 +152,7 @@ class LeadDelegationNormalizer
         $this->add($map, 'Pamplona', ['HR MOTOR PAMPLONA', 'Pamplona', 'leadspamplona@hrmotor.com']);
         $this->add($map, 'Navarra General', ['Navarra', 'Zona Navarra', 'leadstudela@hrmotor.com']);
 
-        $this->add($map, 'Málaga', ['HR MOTOR MALAGA', 'Málaga', 'Malaga', 'leadsmalaga@hrmotor.com']);
+        $this->add($map, 'Málaga', ['HR MOTOR MALAGA', 'Málaga', 'Malaga', 'Malga', 'leadsmalaga@hrmotor.com']);
         $this->add($map, 'Málaga Centro', ['HR MOTOR MALAGA CENTRO', 'Málaga Centro', 'Malaga Centro']);
         $this->add($map, 'Málaga General', [
             'Málaga general', 'Malaga general', 'Zona Málaga', 'Zona Malaga', 'leads.gasset@hrmotor.com',
@@ -163,7 +164,11 @@ class LeadDelegationNormalizer
         $this->add($map, 'Zaragoza', ['HR MOTOR ZARAGOZA', 'Zaragoza', 'leadszaragoza@hrmotor.com']);
         $this->add($map, 'Gijón', ['HR MOTOR GIJON', 'Gijón', 'Gijon', 'leadsgijon@hrmotor.com']);
         $this->add($map, 'Valladolid', ['HR MOTOR VALLADOLID', 'Valladolid', 'leadsvalladolid@hrmotor.com']);
-        $this->add($map, 'Mallorca', ['HR MOTOR MALLORCA', 'Mallorca', 'leads.mallorca@hrmotor.com']);
+        $this->add($map, 'Mallorca', [
+            'HR MOTOR MALLORCA', 'Mallorca', 'Palma', 'Palma de Mallorca', 'HR MOTOR PALMA',
+            'leads.mallorca@hrmotor.com',
+        ]);
+        $this->add($map, 'Badajoz', ['HR MOTOR BADAJOZ', 'Badajoz']);
         $this->add($map, 'Elche', ['HR MOTOR ELCHE', 'Elche', 'leadselche@hrmotor.com']);
         $this->add($map, 'A Coruña', [
             'HR MOTOR A CORUÑA', 'HR A CORUÑA', 'HRMOTOR CORUÑA', 'A Coruña', 'Coruña',
@@ -193,7 +198,7 @@ class LeadDelegationNormalizer
         $this->addMeta($meta, 'Grupo País Vasco', 'Zona Norte', ['Bilbao', 'San Sebastián']);
         $this->addMeta($meta, self::INDEPENDENT_GROUP, 'Zona Mediterraneo', ['Alicante', 'Murcia', 'Elche', 'Alcoy']);
         $this->addMeta($meta, self::INDEPENDENT_GROUP, 'Zona Norte', ['Gijón', 'Zaragoza', 'Valladolid', 'A Coruña']);
-        $this->addMeta($meta, self::INDEPENDENT_GROUP, 'Zona Sur y Centro', ['Mallorca']);
+        $this->addMeta($meta, self::INDEPENDENT_GROUP, 'Zona Sur y Centro', ['Mallorca', 'Badajoz']);
 
         return $this->delegationMeta = $meta;
     }

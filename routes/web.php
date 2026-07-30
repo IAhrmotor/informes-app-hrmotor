@@ -120,6 +120,7 @@ Route::middleware('reports.auth')->group(function () {
         ->middleware('report.access:stock')
         ->group(function () {
             Route::get('/', [StockDashboardController::class, 'index'])->name('index');
+            Route::get('/exportar/calidad-dato.xlsx', [StockDashboardController::class, 'exportQualityXlsx'])->name('export.quality');
             Route::post('/capacidades/importar', [StockCapacityController::class, 'import'])->name('capacities.import');
             Route::put('/capacidades', [StockCapacityController::class, 'update'])->name('capacities.update');
         });

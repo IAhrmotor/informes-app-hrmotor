@@ -43,8 +43,12 @@ class StockCapacityImportService
                 'capacity_total' => null,
                 'capacity_source_name' => null,
                 'capacity_updated_at' => null,
-                'is_commercial' => false,
+                'is_commercial' => true,
             ]);
+
+            StockDelegation::query()
+                ->whereIn('normalized_key', $this->normalizer->nonCommercialKeys())
+                ->update(['is_commercial' => false]);
 
             foreach ($capacities as $capacity) {
                 $this->delegations->applyCapacity($capacity['name'], $capacity['capacity']);

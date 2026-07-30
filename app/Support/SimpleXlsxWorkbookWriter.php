@@ -141,6 +141,9 @@ class SimpleXlsxWorkbookWriter
     private function sheet(array $sheet): string
     {
         $rows = [$this->row(1, $sheet['headers'], true)];
+        $columnCount = max(count($sheet['headers']), 1);
+        $lastColumn = $this->columnName($columnCount);
+        $lastRow = count($sheet['rows']) + 1;
 
         foreach ($sheet['rows'] as $index => $values) {
             $rows[] = $this->row($index + 2, $values, false);
@@ -148,10 +151,11 @@ class SimpleXlsxWorkbookWriter
 
         return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             .'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-            .'<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
+            .'<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
             .'<sheetFormatPr defaultRowHeight="15"/>'
-            .'<cols><col min="1" max="1" width="30" customWidth="1"/><col min="2" max="2" width="18" customWidth="1"/></cols>'
+            .$this->columns($sheet)
             .'<sheetData>'.implode('', $rows).'</sheetData>'
+            .'<autoFilter ref="A1:'.$lastColumn.$lastRow.'"/>'
             .'</worksheet>';
     }
 
@@ -163,7 +167,7 @@ class SimpleXlsxWorkbookWriter
         foreach (array_values($values) as $index => $value) {
             $reference = $this->columnName($index + 1).$rowNumber;
 
-            if (! $isHeader && is_numeric($value)) {
+            if (! $isHeader && (is_int($value) || is_float($value))) {
                 $cells .= '<c r="'.$reference.'" s="2"><v>'.number_format((float) $value, 2, '.', '').'</v></c>';
                 continue;
             }
@@ -179,12 +183,34 @@ class SimpleXlsxWorkbookWriter
     {
         return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             .'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-            .'<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
-            .'<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+            .'<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Calibri"/></font></fonts>'
+            .'<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF172033"/><bgColor indexed="64"/></patternFill></fill></fills>'
             .'<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
             .'<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-            .'<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>'
+            .'<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>'
             .'</styleSheet>';
+    }
+
+    /** @param array{headers: array<int, string>, rows: array<int, array<int, string|int|float|null>>} $sheet */
+    private function columns(array $sheet): string
+    {
+        $columns = '';
+        $columnCount = max(count($sheet['headers']), 1);
+
+        for ($index = 0; $index < $columnCount; $index++) {
+            $values = [($sheet['headers'][$index] ?? '')];
+            foreach ($sheet['rows'] as $row) {
+                $values[] = $row[$index] ?? '';
+            }
+            $width = collect($values)
+                ->map(fn ($value): int => mb_strlen((string) ($value ?? '')))
+                ->max() + 2;
+            $width = min(max($width, 12), 42);
+            $position = $index + 1;
+            $columns .= '<col min="'.$position.'" max="'.$position.'" width="'.$width.'" customWidth="1"/>';
+        }
+
+        return '<cols>'.$columns.'</cols>';
     }
 
     private function columnName(int $index): string

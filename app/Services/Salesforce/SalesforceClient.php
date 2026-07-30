@@ -34,6 +34,57 @@ class SalesforceClient
         return $this->collectPaginatedResults($auth, $response->json() ?? []);
     }
 
+    public function create(string $object, array $fields): string
+    {
+        $auth = $this->authService->accessToken();
+        $response = $this->sendCreate($auth, $object, $fields);
+        if ($response->status() === 401) {
+            $this->authService->clearToken();
+            $auth = $this->authService->accessToken();
+            $response = $this->sendCreate($auth, $object, $fields);
+        }
+        if (! $response->successful() || blank($response->json('id'))) {
+            throw new RuntimeException('Error creando '.$object.' en Salesforce: '.$response->status().' '.$this->sanitizeBody($response->body()));
+        }
+
+        return (string) $response->json('id');
+    }
+
+    public function update(string $object, string $id, array $fields): void
+    {
+        $auth = $this->authService->accessToken();
+        $response = $this->sendUpdate($auth, $object, $id, $fields);
+        if ($response->status() === 401) {
+            $this->authService->clearToken();
+            $auth = $this->authService->accessToken();
+            $response = $this->sendUpdate($auth, $object, $id, $fields);
+        }
+        if (! $response->successful()) {
+            throw new RuntimeException('Error actualizando '.$object.' en Salesforce: '.$response->status().' '.$this->sanitizeBody($response->body()));
+        }
+    }
+
+    private function sendCreate(array $auth, string $object, array $fields): Response
+    {
+        return Http::withToken($auth['access_token'])
+            ->timeout((int) config('salesforce.timeout', 120))
+            ->acceptJson()
+            ->post($this->sObjectUrl($auth, $object), $fields);
+    }
+
+    private function sendUpdate(array $auth, string $object, string $id, array $fields): Response
+    {
+        return Http::withToken($auth['access_token'])
+            ->timeout((int) config('salesforce.timeout', 120))
+            ->acceptJson()
+            ->patch($this->sObjectUrl($auth, $object).'/'.$id, $fields);
+    }
+
+    private function sObjectUrl(array $auth, string $object): string
+    {
+        return rtrim($auth['instance_url'], '/').'/services/data/'.config('salesforce.api_version').'/sobjects/'.$object;
+    }
+
     private function sendQuery(array $auth, string $soql): Response
     {
         return Http::withToken($auth['access_token'])

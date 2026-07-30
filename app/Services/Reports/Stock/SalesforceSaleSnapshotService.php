@@ -74,6 +74,14 @@ class SalesforceSaleSnapshotService
                 'stock_delegation_id' => $deliveryDelegation?->id,
                 'vehicle_salesforce_id' => $opportunity->vehicle_interest_id,
                 'vehicle_plate' => $opportunity->vehicle_plate,
+                'vehicle_brand' => data_get($opportunity->raw_payload, 'OPP_BUS_Vehiculo_de_interes__r.PRO_SEL_Marca__c'),
+                'vehicle_model' => data_get($opportunity->raw_payload, 'OPP_BUS_Vehiculo_de_interes__r.PRO_TEX_Modelo__c'),
+                'vehicle_segment' => data_get($opportunity->raw_payload, 'OPP_BUS_Vehiculo_de_interes__r.Segmento__c'),
+                'vehicle_fuel' => data_get($opportunity->raw_payload, 'OPP_BUS_Vehiculo_de_interes__r.PRO_SEL_Combustible__c'),
+                'vehicle_body' => data_get($opportunity->raw_payload, 'OPP_BUS_Vehiculo_de_interes__r.PRO_SEL_Carroceria__c'),
+                'vehicle_mileage' => data_get($opportunity->raw_payload, 'OPP_BUS_Vehiculo_de_interes__r.PRO_NUM_Kilometraje__c'),
+                'vehicle_purchase_source' => $opportunity->vehicle_purchase_source,
+                'vehicle_buyer_name' => $opportunity->vehicle_buyer_name,
                 'vehicle_entry_date' => $entryDate?->toDateString(),
                 'rotation_days' => $signedDate && $entryDate && $entryDate->lessThanOrEqualTo($signedDate)
                     ? (int) $entryDate->diffInDays($signedDate)

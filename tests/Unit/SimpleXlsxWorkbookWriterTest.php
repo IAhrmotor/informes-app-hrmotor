@@ -30,6 +30,8 @@ class SimpleXlsxWorkbookWriterTest extends TestCase
             $this->assertNotFalse($zip->locateName('xl/worksheets/sheet1.xml'));
             $this->assertNotFalse($zip->locateName('xl/worksheets/sheet2.xml'));
             $this->assertStringContainsString('Oscar', (string) $zip->getFromName('xl/worksheets/sheet2.xml'));
+            $this->assertStringContainsString('state="frozen"', (string) $zip->getFromName('xl/worksheets/sheet1.xml'));
+            $this->assertStringContainsString('<autoFilter ref="A1:B2"/>', (string) $zip->getFromName('xl/worksheets/sheet1.xml'));
             $zip->close();
         } finally {
             @unlink($path);

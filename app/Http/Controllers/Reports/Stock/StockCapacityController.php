@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Reports\Stock;
 use App\Http\Controllers\Controller;
 use App\Models\StockDelegation;
 use App\Services\Reports\Stock\StockCapacityImportService;
+use App\Services\Reports\Stock\StockDelegationNormalizer;
 use App\Support\ReportUserAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,7 +34,7 @@ class StockCapacityController extends Controller
             ->with('status', "Capacidades importadas correctamente: {$result['imported']} tiendas.");
     }
 
-    public function update(Request $request): RedirectResponse
+    public function update(Request $request, StockDelegationNormalizer $normalizer): RedirectResponse
     {
         abort_unless(ReportUserAccess::isAdmin($request), 403);
 
@@ -42,7 +43,7 @@ class StockCapacityController extends Controller
             'capacities.*' => ['nullable', 'integer', 'min:0', 'max:10000'],
         ]);
 
-        DB::transaction(function () use ($data): void {
+        DB::transaction(function () use ($data, $normalizer): void {
             foreach ($data['capacities'] as $delegationId => $capacity) {
                 $delegation = StockDelegation::query()->findOrFail((int) $delegationId);
                 $hasCapacity = $capacity !== null && $capacity !== '';
@@ -50,7 +51,9 @@ class StockCapacityController extends Controller
                     'capacity_total' => $hasCapacity ? (int) $capacity : null,
                     'capacity_source_name' => $hasCapacity ? 'Edición manual' : null,
                     'capacity_updated_at' => $hasCapacity ? now() : null,
-                    'is_commercial' => $hasCapacity,
+                    // Commercial status is determined by the approved location list,
+                    // not by whether a capacity has been assigned yet.
+                    'is_commercial' => $normalizer->isCommercial($delegation->canonical_name),
                 ]);
             }
         });
