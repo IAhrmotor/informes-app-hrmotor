@@ -38,7 +38,9 @@
                 <div class="small">Desde 60 días: revisión. Desde 90 días o exceso del mismo modelo: prioritario. Se analizan {{ number_format($recommendationTotal,0,',','.') }} disponibles.</div>
             </div>
         </div>
-        <div class="table-scroll">
+        <div class="stock-scroll-region" data-stock-scroll-region>
+            <div class="stock-scrollbar-top" data-stock-scroll-top aria-label="Desplazamiento horizontal superior"><div data-stock-scroll-spacer></div></div>
+            <div class="table-scroll stock-overflow-table stock-candidate-scroll" data-stock-scroll-body>
             <table class="stock-table stock-recommendations-table" data-sortable-table>
                 <thead><tr>
                     @foreach ([['Vehículo','text'],['Delegación actual','text'],['Días','number'],['Mismo modelo','number'],['Prioridad','text'],['Top 3 destinos','text']] as $index=>[$label,$type])
@@ -71,6 +73,7 @@
                 @endforelse
                 </tbody>
             </table>
+            </div>
         </div>
     </article>
 </section>

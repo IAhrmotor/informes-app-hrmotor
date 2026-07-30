@@ -55,9 +55,13 @@
 
 <nav class="report-switch" aria-label="Informes comerciales">
     @foreach ($visibleTabs as $tab)
-        <a href="{{ route($tab['route']) }}" @class(['active' => $currentReport === $tab['key']])>
+        <a
+            href="{{ route($tab['route']) }}"
+            data-report-tooltip="{{ $tab['subtitle'] }}"
+            aria-label="{{ $tab['label'] }}: {{ $tab['subtitle'] }}"
+            @class(['active' => $currentReport === $tab['key']])
+        >
             <strong>{{ $tab['label'] }}</strong>
-            <span>{{ $tab['subtitle'] }}</span>
         </a>
     @endforeach
 </nav>

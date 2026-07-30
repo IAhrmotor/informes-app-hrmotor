@@ -83,6 +83,46 @@ class StockDataFoundationTest extends TestCase
         ]);
     }
 
+    public function test_badajoz_existe_sin_stock_y_la_sincronizacion_reutiliza_su_registro(): void
+    {
+        $this->assertDatabaseHas('stock_delegations', [
+            'canonical_name' => 'Badajoz',
+            'normalized_key' => 'badajoz',
+            'commercial_group' => 'Independientes',
+            'zone' => 'Zona Sur y Centro',
+            'is_commercial' => true,
+        ]);
+
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                return [[
+                    'Id' => '01t-badajoz',
+                    'PRO_SEL_Estado__c' => 'Disponible',
+                    'PRO_BUS_Delegacion__c' => 'a0D-badajoz',
+                    'PRO_BUS_Delegacion__r' => ['Name' => 'HR MOTOR BADAJOZ'],
+                ]];
+            }
+        };
+
+        (new SalesforceVehicleSyncService($client, app(StockDelegationService::class)))->sync();
+
+        $this->assertSame(1, StockDelegation::query()->where('normalized_key', 'badajoz')->count());
+        $this->assertDatabaseHas('stock_delegations', [
+            'canonical_name' => 'Badajoz',
+            'normalized_key' => 'badajoz',
+            'salesforce_id' => 'a0D-badajoz',
+            'salesforce_name' => 'HR MOTOR BADAJOZ',
+        ]);
+        $this->assertDatabaseHas('salesforce_vehicles', [
+            'salesforce_id' => '01t-badajoz',
+            'stock_delegation_id' => StockDelegation::query()->where('normalized_key', 'badajoz')->value('id'),
+        ]);
+    }
+
     public function test_fotografia_diaria_es_idempotente_y_calcula_tramos_y_antiguedad(): void
     {
         $vehicle = SalesforceVehicle::query()->create([

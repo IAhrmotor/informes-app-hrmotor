@@ -239,7 +239,7 @@ class StockDashboardDatasetService
                 'over_180' => $ages->filter(fn ($days) => $days >= 180)->count(),
                 'is_commercial' => $delegation->is_commercial,
             ];
-        })->filter(fn (array $row) => $row['total'] > 0 || $row['model']->capacity_total !== null)
+        })->filter(fn (array $row) => $row['is_commercial'] || $row['total'] > 0 || $row['model']->capacity_total !== null)
             ->sortBy(fn (array $row) => sprintf('%d-%s', $row['is_commercial'] ? 0 : 1, $row['model']->normalized_key))
             ->values();
     }

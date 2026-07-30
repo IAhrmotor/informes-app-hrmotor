@@ -33,7 +33,7 @@
         @endforeach
     </div>
 
-    <div class="stock-two-columns">
+    <div class="stock-summary-stack">
         <article class="card panel">
             <div class="panel-title">
                 <div>

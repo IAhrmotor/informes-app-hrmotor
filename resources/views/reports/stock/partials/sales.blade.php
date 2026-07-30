@@ -5,7 +5,9 @@
             <div class="small">Mostrando {{ number_format($salesRows->count(),0,',','.') }} de {{ number_format($salesTotal,0,',','.') }} operaciones del periodo. El importe total es la liquidación del cliente, no el precio del vehículo.</div>
         </div>
     </div>
-    <div class="table-scroll">
+    <div class="stock-scroll-region" data-stock-scroll-region>
+        <div class="stock-scrollbar-top" data-stock-scroll-top aria-label="Desplazamiento horizontal superior"><div data-stock-scroll-spacer></div></div>
+        <div class="table-scroll stock-overflow-table" data-stock-scroll-body>
         <table class="stock-table stock-sales-table" data-sortable-table>
             <thead><tr>
             @foreach([
@@ -39,5 +41,6 @@
             @endforelse
             </tbody>
         </table>
+        </div>
     </div>
 </section>

@@ -52,7 +52,7 @@
     "src": "_instrument-sans-600-normal-DMks36a2.woff"
   },
   "resources/css/app.css": {
-    "file": "assets/app-nCpsVaxB.css",
+    "file": "assets/app-CX75o8Ph.css",
     "name": "app",
     "names": [
       "app.css"
@@ -61,7 +61,7 @@
     "isEntry": true
   },
   "resources/css/reports/leads-dashboard.css": {
-    "file": "assets/leads-dashboard-CnkPcJYp.css",
+    "file": "assets/leads-dashboard-snko9-x8.css",
     "name": "leads-dashboard",
     "names": [
       "leads-dashboard.css"
@@ -70,7 +70,7 @@
     "isEntry": true
   },
   "resources/css/reports/stock-dashboard.css": {
-    "file": "assets/stock-dashboard-DzebDowa.css",
+    "file": "assets/stock-dashboard-Csnf_rlK.css",
     "name": "stock-dashboard",
     "names": [
       "stock-dashboard.css"
@@ -115,7 +115,7 @@
     "isEntry": true
   },
   "resources/js/reports/stock-dashboard.js": {
-    "file": "assets/stock-dashboard-BJtO5y07.js",
+    "file": "assets/stock-dashboard-BJpVNQqq.js",
     "name": "stock-dashboard",
     "src": "resources/js/reports/stock-dashboard.js",
     "isEntry": true

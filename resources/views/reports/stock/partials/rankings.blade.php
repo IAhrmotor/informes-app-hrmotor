@@ -12,7 +12,7 @@
         @foreach ($rankings as $ranking)
             <article class="card panel stock-ranking">
                 <div class="panel-title"><h2>{{ $ranking['label'] }}</h2></div>
-                <div class="table-scroll">
+                <div class="table-scroll stock-overflow-table">
                     <table class="stock-table">
                         <thead><tr><th>Perfil</th><th>Ventas</th><th>Stock</th><th>Rotación</th><th>Antig. stock</th><th>Ventas/stock</th></tr></thead>
                         <tbody>

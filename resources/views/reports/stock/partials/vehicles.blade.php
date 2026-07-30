@@ -5,7 +5,9 @@
             <div class="small">Mostrando {{ number_format($detailRows->count(),0,',','.') }} de {{ number_format($detailTotal,0,',','.') }} vehículos. Usa los filtros para localizar cualquier unidad.</div>
         </div>
     </div>
-    <div class="table-scroll">
+    <div class="stock-scroll-region" data-stock-scroll-region>
+        <div class="stock-scrollbar-top" data-stock-scroll-top aria-label="Desplazamiento horizontal superior"><div data-stock-scroll-spacer></div></div>
+        <div class="table-scroll stock-overflow-table" data-stock-scroll-body>
         <table class="stock-table stock-detail-table" data-sortable-table>
             <thead><tr>
                 @foreach ([
@@ -53,5 +55,6 @@
             @endforelse
             </tbody>
         </table>
+        </div>
     </div>
 </section>

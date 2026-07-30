@@ -58,6 +58,47 @@ document.querySelectorAll('[data-sortable-table]').forEach((table) => {
     });
 });
 
+document.querySelectorAll('[data-stock-scroll-region]').forEach((region) => {
+    const top = region.querySelector('[data-stock-scroll-top]');
+    const spacer = region.querySelector('[data-stock-scroll-spacer]');
+    const body = region.querySelector('[data-stock-scroll-body]');
+    const table = body?.querySelector('table');
+
+    if (!top || !spacer || !body || !table) {
+        return;
+    }
+
+    let syncing = false;
+
+    const updateWidth = () => {
+        spacer.style.width = `${table.scrollWidth}px`;
+        top.hidden = table.scrollWidth <= body.clientWidth;
+        top.scrollLeft = body.scrollLeft;
+    };
+
+    top.addEventListener('scroll', () => {
+        if (syncing) return;
+        syncing = true;
+        body.scrollLeft = top.scrollLeft;
+        syncing = false;
+    });
+
+    body.addEventListener('scroll', () => {
+        if (syncing) return;
+        syncing = true;
+        top.scrollLeft = body.scrollLeft;
+        syncing = false;
+    });
+
+    if ('ResizeObserver' in window) {
+        const observer = new ResizeObserver(updateWidth);
+        observer.observe(region);
+        observer.observe(table);
+    }
+
+    requestAnimationFrame(updateWidth);
+});
+
 const dateFrom = document.querySelector('#stock_date_from');
 const dateTo = document.querySelector('#stock_date_to');
 

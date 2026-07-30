@@ -38,7 +38,88 @@
 
 .stock-section {
     margin-bottom: 24px;
+    max-width: 100%;
+    min-width: 0;
     scroll-margin-top: 16px;
+}
+
+.stock-section > .card,
+.stock-rankings-grid,
+.stock-ranking {
+    max-width: 100%;
+    min-width: 0;
+}
+
+.stock-scroll-region {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+}
+
+.stock-scrollbar-top {
+    height: 17px;
+    margin-bottom: 10px;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-color: #94a3b8 #edf1f6;
+    scrollbar-width: thin;
+    width: 100%;
+}
+
+.stock-scrollbar-top [data-stock-scroll-spacer] {
+    height: 1px;
+}
+
+.stock-scrollbar-top::-webkit-scrollbar {
+    height: 12px;
+}
+
+.stock-scrollbar-top::-webkit-scrollbar-track {
+    background: #edf1f6;
+    border-radius: 999px;
+}
+
+.stock-scrollbar-top::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border: 3px solid #edf1f6;
+    border-radius: 999px;
+}
+
+.stock-overflow-table {
+    max-width: 100%;
+    overflow: auto;
+    scrollbar-color: #94a3b8 #edf1f6;
+    scrollbar-width: thin;
+    width: 100%;
+    height: 55vh;
+}
+
+.stock-overflow-table::-webkit-scrollbar {
+    height: 12px;
+}
+
+.stock-overflow-table::-webkit-scrollbar-track {
+    background: #edf1f6;
+    border-radius: 999px;
+}
+
+.stock-overflow-table::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border: 3px solid #edf1f6;
+    border-radius: 999px;
+}
+
+.stock-candidate-scroll {
+    max-height: 560px;
+    overflow: auto;
+}
+
+.stock-candidate-scroll .stock-table thead {
+    background: #fff;
+    position: sticky;
+    top: 0;
+    z-index: 2;
 }
 
 .stock-quality-panel {
@@ -237,10 +318,10 @@
     text-decoration: none;
 }
 
-.stock-two-columns {
+.stock-summary-stack {
     display: grid;
     gap: 14px;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     margin-top: 14px;
 }
 
@@ -321,7 +402,7 @@
 }
 
 .stock-distribution-tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .stock-distribution-grid {
@@ -693,7 +774,6 @@
         grid-template-columns: repeat(3, minmax(150px, 1fr));
     }
 
-    .stock-two-columns,
     .stock-rankings-grid,
     .stock-recommendation-cards {
         grid-template-columns: 1fr;

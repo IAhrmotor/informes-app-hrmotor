@@ -236,9 +236,9 @@ h2 {
 
 .report-switch {
     display: flex;
-    gap: 12px;
+    gap: 8px;
     margin: 0 0 18px;
-    padding: 8px;
+    padding: 7px;
     background: rgba(255, 255, 255, .92);
     border: 1px solid var(--line);
     border-radius: 32px;
@@ -246,18 +246,51 @@ h2 {
 }
 
 .report-switch a {
+    align-items: center;
     display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 220px;
+    flex: 1 1 0;
+    justify-content: center;
+    min-width: 0;
+    position: relative;
     border: 1px solid transparent;
     border-radius: 24px;
-    padding: 16px 18px;
+    padding: 12px 10px;
     background: transparent;
     color: var(--brand-primary);
+    font-size: 13px;
+    text-align: center;
     text-decoration: none;
     box-shadow: none;
     transition: background .18s ease, border-color .18s ease, transform .18s ease, box-shadow .18s ease;
+}
+
+.report-switch a::after {
+    background: #172033;
+    border-radius: 8px;
+    color: #fff;
+    content: attr(data-report-tooltip);
+    font-size: 11px;
+    font-weight: 650;
+    left: 50%;
+    line-height: 1.35;
+    max-width: 220px;
+    opacity: 0;
+    padding: 7px 9px;
+    pointer-events: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    transform: translate(-50%, -4px);
+    transition: opacity .15s ease, transform .15s ease;
+    visibility: hidden;
+    white-space: nowrap;
+    z-index: 30;
+}
+
+.report-switch a:hover::after,
+.report-switch a:focus-visible::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    visibility: visible;
 }
 
 .report-switch a:hover {
@@ -271,16 +304,6 @@ h2 {
     border-color: var(--brand-primary);
     background: var(--brand-primary);
     color: #fff;
-}
-
-.report-switch span {
-    color: var(--muted);
-    font-size: 12px;
-    line-height: 1.45;
-}
-
-.report-switch a.active span {
-    color: #e5e7eb;
 }
 
 .card {

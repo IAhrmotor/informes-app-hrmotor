@@ -5,7 +5,9 @@
             <div class="small">Ventas y rotación corresponden al periodo seleccionado. Ventas/stock es aproximado hasta completar el histórico diario.</div>
         </div>
     </div>
-    <div class="table-scroll">
+    <div class="stock-scroll-region" data-stock-scroll-region>
+        <div class="stock-scrollbar-top" data-stock-scroll-top aria-label="Desplazamiento horizontal superior"><div data-stock-scroll-spacer></div></div>
+        <div class="table-scroll stock-overflow-table" data-stock-scroll-body>
         <table class="stock-table stock-wide-table" data-sortable-table>
             <thead><tr>
                 @foreach ([
@@ -46,6 +48,7 @@
             @endforelse
             </tbody>
         </table>
+        </div>
     </div>
 </section>
 
