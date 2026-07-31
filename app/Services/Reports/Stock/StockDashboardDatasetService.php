@@ -12,6 +12,8 @@ use Illuminate\Support\Collection;
 
 class StockDashboardDatasetService
 {
+    private array $ageCache = [];
+
     public function __construct(
         private readonly StockRecommendationService $recommendations,
         private readonly StockDelegationNormalizer $delegationNormalizer,
@@ -20,8 +22,12 @@ class StockDashboardDatasetService
 
     public function build(array $input, string $section = 'summary'): array
     {
+        $this->ageCache = [];
         $today = CarbonImmutable::today(config('app.timezone'));
         $filters = $this->filters($input, $today);
+        if ($section === 'capacities') {
+            return $this->emptyDataset($filters);
+        }
         $allStock = SalesforceVehicle::query()
             ->select([
                 'id', 'salesforce_id', 'name', 'plate', 'brand', 'model', 'version', 'segment', 'fuel', 'body',
@@ -31,21 +37,21 @@ class StockDashboardDatasetService
             ->with('delegation')
             ->where('is_in_stock', true)
             ->get();
-        $allSales = SalesforceSaleSnapshot::query()
-            ->select([
-                'id', 'opportunity_salesforce_id', 'opportunity_name', 'record_type', 'signed_date',
-                'delivery_store', 'stock_delegation_id', 'vehicle_salesforce_id', 'vehicle_plate',
-                'vehicle_entry_date', 'rotation_days', 'sale_price', 'purchase_price',
-                'vehicle_brand', 'vehicle_model', 'vehicle_segment', 'vehicle_fuel', 'vehicle_body',
-                'vehicle_mileage', 'vehicle_purchase_source', 'vehicle_buyer_name',
-                'trade_in_vehicle_salesforce_id', 'trade_in_vehicle_plate', 'trade_in_amount',
-                'management_cost', 'logistics_cost', 'transfer_cost', 'warranty_amount',
-                'plan_auto_plus_amount', 'cae_amount', 'discount_amount', 'total_amount',
-            ])
-            ->with('delegation')
-            ->where('is_valid', true)
-            ->whereBetween('signed_date', [$filters['date_from'], $filters['date_to']])
-            ->get();
+        $allSales = in_array($section, ['summary', 'delegations'], true)
+            ? SalesforceSaleSnapshot::query()
+                ->leftJoin('stock_delegations', 'stock_delegations.id', '=', 'salesforce_sale_snapshots.stock_delegation_id')
+                ->select([
+                    'salesforce_sale_snapshots.id', 'signed_date', 'delivery_store', 'stock_delegation_id', 'rotation_days', 'sale_price',
+                    'vehicle_brand', 'vehicle_model', 'vehicle_segment', 'vehicle_fuel', 'vehicle_body',
+                    'vehicle_mileage', 'vehicle_purchase_source', 'vehicle_buyer_name',
+                    'stock_delegations.canonical_name as filter_delegation_name',
+                    'stock_delegations.zone as filter_delegation_zone',
+                ])
+                ->where('is_valid', true)
+                ->whereBetween('signed_date', [$filters['date_from'], $filters['date_to']])
+                ->toBase()
+                ->get()
+            : collect();
         $delegations = StockDelegation::query()->orderBy('canonical_name')->get()
             ->each(fn (StockDelegation $delegation) => $delegation->setAttribute(
                 'is_commercial',
@@ -57,18 +63,19 @@ class StockDashboardDatasetService
             ->filter(fn (SalesforceVehicle $vehicle): bool => $this->catalogNormalizer->isOperationalVehicle($vehicle))
             ->values();
         $operationalSales = $sales
-            ->filter(fn (SalesforceSaleSnapshot $sale): bool => $this->catalogNormalizer->isOperationalVehicle($sale, true))
+            ->filter(fn (object $sale): bool => $this->catalogNormalizer->isOperationalVehicle($sale, true))
             ->values();
         $ages = $stock->map(fn (SalesforceVehicle $vehicle) => $this->age($vehicle, $today))->filter(fn ($age) => $age !== null);
         $rotations = $sales->pluck('rotation_days')->filter(fn ($days) => $days !== null);
         $purchaseValue = (float) $stock->sum(fn ($vehicle) => (float) ($vehicle->purchase_price ?? 0));
         $saleValue = (float) $stock->sum(fn ($vehicle) => (float) ($vehicle->sale_price ?? 0));
-        $stockHistory = $this->stockHistory($filters);
+        $stockHistory = $section === 'summary' ? $this->stockHistory($filters) : $this->emptyStockHistory();
         $currentAvailable = $stock->where('state', 'Disponible')->count();
         $stockDenominator = $stockHistory['sufficient']
             ? $stockHistory['average_available']
             : $currentAvailable;
         $salesStockRatio = $stockDenominator > 0 ? round($sales->count() / $stockDenominator, 2) : null;
+        $ageBuckets = $this->ageBuckets($ages, $stock->count());
 
         $detailRows = collect();
         $recommendationRows = collect();
@@ -85,15 +92,17 @@ class StockDashboardDatasetService
                 ])
                 ->where('is_valid', true)
                 ->where('signed_date', '>=', $today->subDays(120)->toDateString())
+                ->toBase()
                 ->get()
-                ->filter(fn (SalesforceSaleSnapshot $sale): bool => $this->catalogNormalizer->isOperationalVehicle($sale, true))
+                ->filter(fn (object $sale): bool => $this->catalogNormalizer->isOperationalVehicle($sale, true))
                 ->values();
             $recommendationContext = $this->recommendations->prepare($allStock, $recommendationSales, $delegations);
             $sameModelCounts = $allStock
                 ->groupBy(fn (SalesforceVehicle $vehicle) => $vehicle->stock_delegation_id.'|'.$this->recommendations->key($vehicle->model))
                 ->map->count();
             if ($section === 'vehicles') {
-                $detailRows = $stock
+                $detailStock = $this->filterByPlate($stock, $input['vehicle_plate'] ?? null);
+                $detailRows = $detailStock
                     ->sortByDesc(fn (SalesforceVehicle $vehicle) => $this->age($vehicle, $today) ?? -1)
                     ->take((int) config('stock.vehicle_detail_limit', 250))
                     ->map(fn (SalesforceVehicle $vehicle) => $this->vehicleRow($vehicle, $recommendationContext, $sameModelCounts, $today))
@@ -102,7 +111,8 @@ class StockDashboardDatasetService
             if ($section === 'recommendations') {
                 $allCandidates = $operationalStock
                     ->where('state', 'Disponible')
-                    ->map(fn (SalesforceVehicle $vehicle) => $this->vehicleRow($vehicle, $recommendationContext, $sameModelCounts, $today))
+                    ->pipe(fn (Collection $vehicles): Collection => $this->filterByPlate($vehicles, $input['candidate_plate'] ?? null))
+                    ->map(fn (SalesforceVehicle $vehicle) => $this->vehicleRow($vehicle, $recommendationContext, $sameModelCounts, $today, true))
                     ->filter(fn (array $row): bool => $row['review_level'] !== 'normal')
                     ->sort(function (array $left, array $right): int {
                         $priority = ['priority' => 2, 'review' => 1, 'normal' => 0];
@@ -125,6 +135,7 @@ class StockDashboardDatasetService
                 );
                 $recommendationRows = $allCandidates
                     ->forPage($recommendationPage, $perPage)
+                    ->map(fn (array $row): array => $this->vehicleRow($row['_vehicle'], $recommendationContext, $sameModelCounts, $today))
                     ->values();
                 $recommendationDisplayed = $recommendationRows->count();
             }
@@ -152,19 +163,23 @@ class StockDashboardDatasetService
                 'sales' => $sales->count(),
                 'sales_stock_ratio' => $salesStockRatio,
                 'sales_stock_approximate' => ! $stockHistory['sufficient'],
-                'over_60' => $ages->filter(fn (int $days) => $days >= 60)->count(),
-                'over_90' => $ages->filter(fn (int $days) => $days >= 90)->count(),
-                'over_120' => $ages->filter(fn (int $days) => $days >= 120)->count(),
-                'over_180' => $ages->filter(fn (int $days) => $days >= 180)->count(),
+                ...$ageBuckets,
             ],
             'stockHistory' => $stockHistory,
-            'delegationRows' => in_array($section, ['summary', 'delegations'], true) ? $this->delegationRows($stock, $sales, $delegations, $today) : collect(),
-            'salesRows' => $section === 'sales' ? $this->salesRows($sales) : collect(),
+            'delegationRows' => in_array($section, ['summary', 'delegations'], true)
+                ? $this->delegationRows($stock, $sales, $delegations, $today, $section === 'delegations' ? $filters['delegation'] : null)
+                : collect(),
+            'capacityAlertRows' => $section === 'summary' ? $this->delegationRows($allStock, collect(), $delegations, $today) : collect(),
+            'salesRows' => collect(),
             'salesTotal' => $sales->count(),
-            'distributions' => in_array($section, ['summary', 'delegations'], true) ? $this->distributions($operationalStock) : [],
-            'rankings' => $section === 'rankings' ? $this->rankings($operationalStock, $operationalSales, $today) : [],
+            'distributions' => in_array($section, ['summary', 'delegations'], true)
+                ? $this->distributions($operationalStock, $section === 'summary' ? 10 : null)
+                : [],
+            'rankings' => $section === 'delegations'
+                ? $this->rankings($operationalStock, $operationalSales, $today, (string) ($input['ranking_view'] ?? 'top'))
+                : [],
             'detailRows' => $detailRows,
-            'detailTotal' => $stock->count(),
+            'detailTotal' => isset($detailStock) ? $detailStock->count() : $stock->count(),
             'recommendationRows' => $recommendationRows,
             'recommendationTotal' => $recommendationTotal,
             'recommendationDisplayed' => $recommendationDisplayed,
@@ -172,6 +187,43 @@ class StockDashboardDatasetService
             'recommendationPages' => $recommendationPages,
             'recommendationAvailableTotal' => $stock->where('state', 'Disponible')->count(),
             'newVehicleRecommendations' => $newVehicleRecommendations,
+        ];
+    }
+
+    private function emptyDataset(array $filters): array
+    {
+        return [
+            'filters' => $filters,
+            'filterOptions' => [],
+            'summary' => ['sales_stock_approximate' => true],
+            'stockHistory' => $this->emptyStockHistory(),
+            'delegationRows' => collect(),
+            'capacityAlertRows' => collect(),
+            'salesRows' => collect(),
+            'salesTotal' => 0,
+            'distributions' => [],
+            'rankings' => [],
+            'detailRows' => collect(),
+            'detailTotal' => 0,
+            'recommendationRows' => collect(),
+            'recommendationTotal' => 0,
+            'recommendationDisplayed' => 0,
+            'recommendationPage' => 1,
+            'recommendationPages' => 1,
+            'recommendationAvailableTotal' => 0,
+            'newVehicleRecommendations' => null,
+        ];
+    }
+
+    private function emptyStockHistory(): array
+    {
+        return [
+            'days' => 0,
+            'expected_days' => 0,
+            'coverage' => 0,
+            'sufficient' => false,
+            'average_available' => 0,
+            'series' => collect(),
         ];
     }
 
@@ -232,9 +284,9 @@ class StockDashboardDatasetService
 
     private function filterSales(Collection $sales, array $filters): Collection
     {
-        return $sales->filter(function (SalesforceSaleSnapshot $sale) use ($filters): bool {
-            return $this->matches($sale->delegation?->canonical_name, $filters['delegation'])
-                && $this->matches($sale->delegation?->zone, $filters['zone'])
+        return $sales->filter(function (object $sale) use ($filters): bool {
+            return $this->matches($sale->filter_delegation_name ?? null, $filters['delegation'])
+                && $this->matches($sale->filter_delegation_zone ?? null, $filters['zone'])
                 && $this->matches($sale->vehicle_brand, $filters['brand'])
                 && $this->matches($sale->vehicle_model, $filters['model'])
                 && $this->matches($sale->vehicle_segment, $filters['segment'])
@@ -249,7 +301,13 @@ class StockDashboardDatasetService
         })->values();
     }
 
-    private function delegationRows(Collection $stock, Collection $sales, Collection $delegations, CarbonImmutable $today): Collection
+    private function delegationRows(
+        Collection $stock,
+        Collection $sales,
+        Collection $delegations,
+        CarbonImmutable $today,
+        ?string $selectedDelegation = null,
+    ): Collection
     {
         return $delegations->map(function (StockDelegation $delegation) use ($stock, $sales, $today): array {
             $delegationStock = $stock->where('stock_delegation_id', $delegation->id);
@@ -260,6 +318,7 @@ class StockDashboardDatasetService
             $sale = (float) $delegationStock->sum(fn ($vehicle) => (float) ($vehicle->sale_price ?? 0));
             $total = $delegationStock->count();
             $capacity = $delegation->capacity_total;
+            $ageBuckets = $this->ageBuckets($ages, $total);
 
             return [
                 'model' => $delegation,
@@ -276,26 +335,24 @@ class StockDashboardDatasetService
                 'average_rotation' => $rotations->isNotEmpty() ? round($rotations->average(), 1) : null,
                 'sales' => $delegationSales->count(),
                 'sales_per_stock' => $total > 0 ? round($delegationSales->count() / $total, 2) : null,
-                'over_60' => $ages->filter(fn ($days) => $days >= 60)->count(),
-                'over_90' => $ages->filter(fn ($days) => $days >= 90)->count(),
-                'over_120' => $ages->filter(fn ($days) => $days >= 120)->count(),
-                'over_180' => $ages->filter(fn ($days) => $days >= 180)->count(),
+                ...$ageBuckets,
                 'is_commercial' => $delegation->is_commercial,
             ];
-        })->filter(fn (array $row) => $row['is_commercial'] || $row['total'] > 0 || $row['model']->capacity_total !== null)
+        })->filter(fn (array $row) => ($selectedDelegation === null || $this->matches($row['model']->canonical_name, $selectedDelegation))
+                && ($row['is_commercial'] || $row['total'] > 0 || $row['model']->capacity_total !== null))
             ->sortBy(fn (array $row) => sprintf('%d-%s', $row['is_commercial'] ? 0 : 1, $row['model']->normalized_key))
             ->values();
     }
 
-    private function distributions(Collection $stock): array
+    private function distributions(Collection $stock, ?int $limit = 10): array
     {
         return [
-            'brand' => $this->distribution($stock, fn ($vehicle) => $vehicle->brand),
-            'model' => $this->distribution($stock, fn ($vehicle) => $vehicle->model),
-            'segment' => $this->distribution($stock, fn ($vehicle) => $vehicle->segment),
-            'fuel' => $this->distribution($stock, fn ($vehicle) => $vehicle->fuel),
-            'body' => $this->distribution($stock, fn ($vehicle) => $vehicle->body),
-            'price_band' => $this->distribution($stock, fn ($vehicle) => $this->recommendations->priceBand($vehicle->sale_price)),
+            'brand' => $this->distribution($stock, fn ($vehicle) => $vehicle->brand, $limit),
+            'model' => $this->distribution($stock, fn ($vehicle) => $vehicle->model, $limit),
+            'segment' => $this->distribution($stock, fn ($vehicle) => $vehicle->segment, $limit),
+            'fuel' => $this->distribution($stock, fn ($vehicle) => $vehicle->fuel, $limit),
+            'body' => $this->distribution($stock, fn ($vehicle) => $vehicle->body, $limit),
+            'price_band' => $this->distribution($stock, fn ($vehicle) => $this->recommendations->priceBand($vehicle->sale_price), $limit),
         ];
     }
 
@@ -330,7 +387,7 @@ class StockDashboardDatasetService
         ])->values();
     }
 
-    private function distribution(Collection $items, callable $resolver): array
+    private function distribution(Collection $items, callable $resolver, ?int $limit = 10): array
     {
         return $items
             ->groupBy(function ($item) use ($resolver): string {
@@ -344,12 +401,12 @@ class StockDashboardDatasetService
                 return ['label' => $label, 'value' => $rows->count()];
             })
             ->sortByDesc('value')
-            ->take(10)
+            ->pipe(fn (Collection $rows): Collection => $limit === null ? $rows : $rows->take($limit))
             ->values()
             ->all();
     }
 
-    private function rankings(Collection $stock, Collection $sales, CarbonImmutable $today): array
+    private function rankings(Collection $stock, Collection $sales, CarbonImmutable $today, string $view = 'top'): array
     {
         $dimensions = [
             'brand' => ['Marcas', fn ($item, $isSale) => $isSale ? $item->vehicle_brand : $item->brand],
@@ -396,17 +453,15 @@ class StockDashboardDatasetService
                     'performance' => $performance !== null ? round($performance, 2) : null,
                     'demand_without_stock' => $stockCount === 0 && $salesCount > 0,
                 ];
-            })->sort(function (array $left, array $right): int {
-                return [
-                    $right['performance'] !== null ? 1 : 0,
-                    $right['performance'] ?? -1,
-                    $right['sales'],
-                ] <=> [
-                    $left['performance'] !== null ? 1 : 0,
-                    $left['performance'] ?? -1,
-                    $left['sales'],
-                ];
-            })->take((int) config('stock.ranking_limit', 10))->values();
+            });
+            $rows = $rows->sort(function (array $left, array $right) use ($view): int {
+                $salesOrder = $view === 'bottom'
+                    ? $left['sales'] <=> $right['sales']
+                    : $right['sales'] <=> $left['sales'];
+
+                return $salesOrder !== 0 ? $salesOrder : strnatcasecmp($left['label'], $right['label']);
+            });
+            $rows = $rows->values();
             $result[$key] = ['label' => $label, 'rows' => $rows];
         }
 
@@ -462,7 +517,13 @@ class StockDashboardDatasetService
         }
     }
 
-    private function vehicleRow(SalesforceVehicle $vehicle, array $context, Collection $sameModelCounts, CarbonImmutable $today): array
+    private function vehicleRow(
+        SalesforceVehicle $vehicle,
+        array $context,
+        Collection $sameModelCounts,
+        CarbonImmutable $today,
+        bool $compactRecommendations = false,
+    ): array
     {
         $age = $this->age($vehicle, $today);
         $sameModel = (int) $sameModelCounts->get(
@@ -477,9 +538,9 @@ class StockDashboardDatasetService
         }
         $isOperational = $this->catalogNormalizer->isOperationalVehicle($vehicle);
         $recommendations = $vehicle->state === 'Disponible' && $isOperational
-            ? $this->recommendations->recommend($vehicle, $context)
+            ? $this->recommendations->recommend($vehicle, $context, true, $compactRecommendations)
             : [];
-        $currentProfile = $this->recommendations->currentProfile($vehicle, $context);
+        $currentProfile = $this->recommendations->currentProfile($vehicle, $context, $compactRecommendations);
         if (
             $vehicle->state === 'Disponible'
             && $currentProfile
@@ -490,6 +551,7 @@ class StockDashboardDatasetService
         }
 
         return [
+            ...($compactRecommendations ? ['_vehicle' => $vehicle] : []),
             'id' => $vehicle->salesforce_id,
             'plate' => $vehicle->plate,
             'brand' => $vehicle->brand,
@@ -549,11 +611,24 @@ class StockDashboardDatasetService
             ->sort()
             ->values();
 
+        $modelsByBrand = $stock
+            ->filter(fn ($vehicle): bool => filled($vehicle->brand) && filled($vehicle->model))
+            ->groupBy(fn ($vehicle): string => $this->catalogNormalizer->display($vehicle->brand) ?? 'Sin marca')
+            ->map(fn (Collection $vehicles) => $vehicles
+                ->pluck('model')
+                ->groupBy(fn ($value): string => $this->catalogNormalizer->key($value))
+                ->map(fn (Collection $values) => $this->catalogNormalizer->display($values->first()))
+                ->filter()
+                ->sort()
+                ->values())
+            ->sortKeys();
+
         return [
             'delegations' => $delegations->where('is_commercial', true)->pluck('canonical_name')->filter()->sort()->values(),
             'zones' => $delegations->pluck('zone')->filter()->unique()->sort()->values(),
             'brands' => $option('brand'),
             'models' => $option('model'),
+            'models_by_brand' => $modelsByBrand,
             'segments' => $option('segment'),
             'bodies' => $option('body'),
             'fuels' => $option('fuel'),
@@ -575,12 +650,50 @@ class StockDashboardDatasetService
 
     private function age(SalesforceVehicle $vehicle, CarbonImmutable $today): ?int
     {
-        return $vehicle->entry_date ? (int) CarbonImmutable::parse($vehicle->entry_date)->diffInDays($today) : null;
+        $cacheKey = (int) ($vehicle->id ?? spl_object_id($vehicle));
+        if (array_key_exists($cacheKey, $this->ageCache)) {
+            return $this->ageCache[$cacheKey];
+        }
+        $entryDate = $vehicle->getRawOriginal('entry_date');
+
+        return $this->ageCache[$cacheKey] = ($entryDate
+            ? (int) CarbonImmutable::parse($entryDate)->diffInDays($today)
+            : null);
+    }
+
+    private function ageBuckets(Collection $ages, int $stockTotal): array
+    {
+        $knownAges = $ages->map(fn ($days): int => (int) $days);
+        $buckets = [
+            'age_under_60' => $knownAges->filter(fn (int $days): bool => $days < 60)->count(),
+            'age_60_90' => $knownAges->filter(fn (int $days): bool => $days >= 60 && $days < 90)->count(),
+            'age_90_120' => $knownAges->filter(fn (int $days): bool => $days >= 90 && $days < 120)->count(),
+            'age_120_180' => $knownAges->filter(fn (int $days): bool => $days >= 120 && $days <= 180)->count(),
+            'age_over_180' => $knownAges->filter(fn (int $days): bool => $days > 180)->count(),
+        ];
+        $buckets['age_unknown'] = max($stockTotal - array_sum($buckets), 0);
+        $buckets['age_bucket_total'] = array_sum($buckets);
+
+        return $buckets;
     }
 
     private function matches(mixed $actual, ?string $expected): bool
     {
         return $expected === null || $this->recommendations->key($actual) === $this->recommendations->key($expected);
+    }
+
+    private function filterByPlate(Collection $vehicles, mixed $plate): Collection
+    {
+        $needle = preg_replace('/[^a-z0-9]/', '', $this->recommendations->key($plate));
+        if ($needle === '') {
+            return $vehicles->values();
+        }
+
+        return $vehicles->filter(function (SalesforceVehicle $vehicle) use ($needle): bool {
+            $plate = preg_replace('/[^a-z0-9]/', '', $this->recommendations->key($vehicle->plate));
+
+            return $plate !== '' && str_contains($plate, $needle);
+        })->values();
     }
 
     private function range(mixed $actual, ?float $minimum, ?float $maximum): bool

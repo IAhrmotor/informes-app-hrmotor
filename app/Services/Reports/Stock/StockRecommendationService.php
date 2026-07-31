@@ -100,10 +100,10 @@ class StockRecommendationService
         ];
     }
 
-    public function recommend(SalesforceVehicle $vehicle, array $context, bool $excludeCurrent = true): array
+    public function recommend(SalesforceVehicle $vehicle, array $context, bool $excludeCurrent = true, bool $compact = false): array
     {
         $vehicleKeys = $this->vehicleKeys($vehicle);
-        $cacheKey = $vehicleKeys['signature'].'|'.($excludeCurrent ? (int) $vehicle->stock_delegation_id : 0);
+        $cacheKey = $vehicleKeys['signature'].'|'.($excludeCurrent ? (int) $vehicle->stock_delegation_id : 0).'|'.($compact ? 'compact' : 'full');
         if (array_key_exists($cacheKey, $this->recommendationCache)) {
             return $this->recommendationCache[$cacheKey];
         }
@@ -113,7 +113,7 @@ class StockRecommendationService
             if ($excludeCurrent && (int) $vehicle->stock_delegation_id === (int) $delegation->id) {
                 continue;
             }
-            $rows[] = $this->profile($vehicleKeys, $delegation, $context);
+            $rows[] = $this->profile($vehicleKeys, $delegation, $context, $compact);
         }
 
         usort($rows, fn (array $left, array $right): int => $right['score'] <=> $left['score']);
@@ -121,14 +121,14 @@ class StockRecommendationService
         return $this->recommendationCache[$cacheKey] = array_slice($rows, 0, 3);
     }
 
-    public function currentProfile(SalesforceVehicle $vehicle, array $context): ?array
+    public function currentProfile(SalesforceVehicle $vehicle, array $context, bool $compact = false): ?array
     {
         $delegation = $context['delegations']->get($vehicle->stock_delegation_id);
 
-        return $delegation ? $this->profile($this->vehicleKeys($vehicle), $delegation, $context) : null;
+        return $delegation ? $this->profile($this->vehicleKeys($vehicle), $delegation, $context, $compact) : null;
     }
 
-    private function profile(array $vehicleKeys, StockDelegation $delegation, array $context): array
+    private function profile(array $vehicleKeys, StockDelegation $delegation, array $context, bool $compact = false): array
     {
         $weights = $context['weights'];
         $stock = $context['stock'][$delegation->id] ?? ['total' => 0, 'model' => [], 'old_model' => [], 'similar' => []];
@@ -173,6 +173,13 @@ class StockRecommendationService
         if (! $hasHistory) {
             $score -= $weights['no_history'];
         }
+        $roundedScore = round($score, 1);
+        if ($compact) {
+            return [
+                'delegation_id' => $delegation->id,
+                'score' => $roundedScore,
+            ];
+        }
 
         $reasons = [];
         $reasons[] = "{$modelSales} {$vehicleKeys['label']} vendidos en 120 días";
@@ -193,7 +200,7 @@ class StockRecommendationService
         return [
             'delegation_id' => $delegation->id,
             'delegation' => $delegation->canonical_name,
-            'score' => round($score, 1),
+            'score' => $roundedScore,
             'model_sales' => $modelSales,
             'brand_sales' => $brandSales,
             'segment_sales' => $segmentSales,

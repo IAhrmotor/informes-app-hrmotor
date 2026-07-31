@@ -44,15 +44,17 @@ class StockDashboardController extends Controller
             ->values();
 
         $activeTab = $request->query('section');
-        $allowedTabs = ['summary', 'delegations', 'sales', 'rankings', 'recommendations', 'vehicles'];
+        if (in_array($activeTab, ['sales', 'rankings'], true)) {
+            $activeTab = 'delegations';
+        }
+        $allowedTabs = ['summary', 'delegations', 'recommendations', 'vehicles'];
         if (ReportUserAccess::isAdmin($request)) {
             $allowedTabs[] = 'capacities';
         }
         $activeTab = in_array($activeTab, $allowedTabs, true) ? $activeTab : 'summary';
         $dataset = $datasetService->build($request->query(), $activeTab);
-        $qualityVehicles = SalesforceVehicle::query()->where('is_in_stock', true)->get();
-        $catalogDuplicates = $catalogNormalizer->duplicateGroups($qualityVehicles);
-        $excludedCatalogVehicles = $catalogNormalizer->excludedVehicles($qualityVehicles);
+        $quality = $activeTab === 'summary' ? $this->qualityMetrics($catalogNormalizer) : [];
+
         return view('reports.stock.index', [
             ...$dataset,
             'reportUserRole' => ReportUserAccess::role($request),
@@ -61,51 +63,74 @@ class StockDashboardController extends Controller
             'activeStockTab' => $activeTab,
             'latestSnapshotDate' => StockDailySnapshot::query()->max('snapshot_date'),
             'saleSnapshotsCount' => SalesforceSaleSnapshot::query()->count(),
-            'quality' => [
-                'stock_missing_entry_date' => SalesforceVehicle::query()->where('is_in_stock', true)->whereNull('entry_date')->count(),
-                'stock_missing_delegation' => SalesforceVehicle::query()->where('is_in_stock', true)->whereNull('stock_delegation_id')->count(),
-                'stock_missing_brand' => SalesforceVehicle::query()->where('is_in_stock', true)->whereNull('brand')->count(),
-                'stock_missing_model' => SalesforceVehicle::query()->where('is_in_stock', true)->whereNull('model')->count(),
-                'stock_missing_segment' => SalesforceVehicle::query()->where('is_in_stock', true)->whereNull('segment')->count(),
-                'stock_missing_fuel' => SalesforceVehicle::query()->where('is_in_stock', true)->whereNull('fuel')->count(),
-                'stock_delivered' => SalesforceVehicle::query()
-                    ->where('is_in_stock', true)
-                    ->whereIn('salesforce_id', SalesforceSaleSnapshot::query()->where('is_valid', true)->select('vehicle_salesforce_id'))
-                    ->count(),
-                'stock_commercial_without_zone' => SalesforceVehicle::query()
-                    ->where('is_in_stock', true)
-                    ->whereHas('delegation', fn ($query) => $query->where('is_commercial', true)->whereNull('zone'))
-                    ->count(),
-                'sales_missing_signed_date' => SalesforceSaleSnapshot::query()->whereNull('signed_date')->count(),
-                'sales_missing_delivery_store' => SalesforceSaleSnapshot::query()->whereNull('delivery_store')->count(),
-                'sales_missing_entry_date' => SalesforceSaleSnapshot::query()->whereNull('vehicle_entry_date')->count(),
-                'sales_missing_price' => SalesforceSaleSnapshot::query()->whereNull('sale_price')->count(),
-                'signed_date_without_contract' => SalesforceOpportunity::query()
-                    ->whereNotNull('cv_signed_date')
-                    ->where('cv_signed', false)
-                    ->count(),
-                'signed_closed_lost' => SalesforceOpportunity::query()
-                    ->where('cv_signed', true)
-                    ->whereRaw('LOWER(stage_name) = ?', ['cerrada perdida'])
-                    ->count(),
-                'duplicate_valid_vehicle' => SalesforceSaleSnapshot::query()
-                    ->where('invalid_reason', 'duplicate_valid_vehicle')
-                    ->whereNotNull('vehicle_salesforce_id')
-                    ->distinct()
-                    ->count('vehicle_salesforce_id'),
-                'signed_unexpected_stage' => $this->unexpectedSignedStageQuery()->count(),
-                'future_entry_date' => SalesforceVehicle::query()
-                    ->where('is_in_stock', true)
-                    ->whereDate('entry_date', '>', today(config('app.timezone')))
-                    ->count(),
-                'stores_without_capacity' => StockDelegation::query()
-                    ->where('is_commercial', true)
-                    ->where(fn ($query) => $query->whereNull('capacity_total')->orWhere('capacity_total', '<=', 0))
-                    ->count(),
-                'catalog_duplicates' => $catalogDuplicates->count(),
-                'non_operational_catalog_values' => $excludedCatalogVehicles->count(),
-            ],
+            'quality' => $quality,
         ]);
+    }
+
+    private function qualityMetrics(StockCatalogNormalizer $catalogNormalizer): array
+    {
+        $vehicleCounts = SalesforceVehicle::query()
+            ->where('is_in_stock', true)
+            ->selectRaw('SUM(CASE WHEN entry_date IS NULL THEN 1 ELSE 0 END) AS missing_entry_date')
+            ->selectRaw('SUM(CASE WHEN stock_delegation_id IS NULL THEN 1 ELSE 0 END) AS missing_delegation')
+            ->selectRaw('SUM(CASE WHEN brand IS NULL THEN 1 ELSE 0 END) AS missing_brand')
+            ->selectRaw('SUM(CASE WHEN model IS NULL THEN 1 ELSE 0 END) AS missing_model')
+            ->selectRaw('SUM(CASE WHEN segment IS NULL THEN 1 ELSE 0 END) AS missing_segment')
+            ->selectRaw('SUM(CASE WHEN fuel IS NULL THEN 1 ELSE 0 END) AS missing_fuel')
+            ->selectRaw('SUM(CASE WHEN entry_date > ? THEN 1 ELSE 0 END) AS future_entry_date', [today(config('app.timezone'))->toDateString()])
+            ->toBase()
+            ->first();
+        $saleCounts = SalesforceSaleSnapshot::query()
+            ->selectRaw('SUM(CASE WHEN signed_date IS NULL THEN 1 ELSE 0 END) AS missing_signed_date')
+            ->selectRaw('SUM(CASE WHEN delivery_store IS NULL THEN 1 ELSE 0 END) AS missing_delivery_store')
+            ->selectRaw('SUM(CASE WHEN vehicle_entry_date IS NULL THEN 1 ELSE 0 END) AS missing_entry_date')
+            ->selectRaw('SUM(CASE WHEN sale_price IS NULL THEN 1 ELSE 0 END) AS missing_price')
+            ->toBase()
+            ->first();
+        $opportunityCounts = SalesforceOpportunity::query()
+            ->selectRaw('SUM(CASE WHEN cv_signed_date IS NOT NULL AND cv_signed = 0 THEN 1 ELSE 0 END) AS signed_date_without_contract')
+            ->selectRaw("SUM(CASE WHEN cv_signed = 1 AND LOWER(stage_name) = 'cerrada perdida' THEN 1 ELSE 0 END) AS signed_closed_lost")
+            ->toBase()
+            ->first();
+        $qualityVehicles = SalesforceVehicle::query()
+            ->where('is_in_stock', true)
+            ->get(['salesforce_id', 'brand', 'model', 'segment', 'fuel', 'body', 'purchase_source']);
+
+        return [
+            'stock_missing_entry_date' => (int) ($vehicleCounts->missing_entry_date ?? 0),
+            'stock_missing_delegation' => (int) ($vehicleCounts->missing_delegation ?? 0),
+            'stock_missing_brand' => (int) ($vehicleCounts->missing_brand ?? 0),
+            'stock_missing_model' => (int) ($vehicleCounts->missing_model ?? 0),
+            'stock_missing_segment' => (int) ($vehicleCounts->missing_segment ?? 0),
+            'stock_missing_fuel' => (int) ($vehicleCounts->missing_fuel ?? 0),
+            'stock_delivered' => SalesforceVehicle::query()
+                ->where('is_in_stock', true)
+                ->whereIn('salesforce_id', SalesforceSaleSnapshot::query()->where('is_valid', true)->select('vehicle_salesforce_id'))
+                ->count(),
+            'stock_commercial_without_zone' => SalesforceVehicle::query()
+                ->where('is_in_stock', true)
+                ->whereHas('delegation', fn ($query) => $query->where('is_commercial', true)->whereNull('zone'))
+                ->count(),
+            'sales_missing_signed_date' => (int) ($saleCounts->missing_signed_date ?? 0),
+            'sales_missing_delivery_store' => (int) ($saleCounts->missing_delivery_store ?? 0),
+            'sales_missing_entry_date' => (int) ($saleCounts->missing_entry_date ?? 0),
+            'sales_missing_price' => (int) ($saleCounts->missing_price ?? 0),
+            'signed_date_without_contract' => (int) ($opportunityCounts->signed_date_without_contract ?? 0),
+            'signed_closed_lost' => (int) ($opportunityCounts->signed_closed_lost ?? 0),
+            'duplicate_valid_vehicle' => SalesforceSaleSnapshot::query()
+                ->where('invalid_reason', 'duplicate_valid_vehicle')
+                ->whereNotNull('vehicle_salesforce_id')
+                ->distinct()
+                ->count('vehicle_salesforce_id'),
+            'signed_unexpected_stage' => $this->unexpectedSignedStageQuery()->count(),
+            'future_entry_date' => (int) ($vehicleCounts->future_entry_date ?? 0),
+            'stores_without_capacity' => StockDelegation::query()
+                ->where('is_commercial', true)
+                ->where(fn ($query) => $query->whereNull('capacity_total')->orWhere('capacity_total', '<=', 0))
+                ->count(),
+            'catalog_duplicates' => $catalogNormalizer->duplicateGroups($qualityVehicles)->count(),
+            'non_operational_catalog_values' => $catalogNormalizer->excludedVehicles($qualityVehicles)->count(),
+        ];
     }
 
     public function exportQualityXlsx(

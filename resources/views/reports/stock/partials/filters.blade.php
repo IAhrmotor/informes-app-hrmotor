@@ -66,3 +66,4 @@
         </div>
     </form>
 </details>
+<script type="application/json" id="stockGeneralModelsByBrand">@json($filterOptions['models_by_brand'] ?? [])</script>

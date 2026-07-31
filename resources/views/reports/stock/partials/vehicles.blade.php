@@ -5,10 +5,17 @@
             <div class="small">Mostrando {{ number_format($detailRows->count(),0,',','.') }} de {{ number_format($detailTotal,0,',','.') }} vehículos. Usa los filtros para localizar cualquier unidad.</div>
         </div>
     </div>
+    <form method="GET" action="{{ route('reports.stock.index') }}" class="stock-inline-filter" data-live-plate-form>
+        @foreach(request()->except(['vehicle_plate']) as $name => $value)
+            @if(is_scalar($value))<input type="hidden" name="{{ $name }}" value="{{ $value }}">@endif
+        @endforeach
+        <label for="stock-vehicle-plate">Filtrar por matrícula</label>
+        <input id="stock-vehicle-plate" name="vehicle_plate" type="search" value="{{ request('vehicle_plate') }}" placeholder="Escribe una matrícula…" autocomplete="off" data-live-plate-input data-live-table-target="stock-vehicles-table">
+    </form>
     <div class="stock-scroll-region" data-stock-scroll-region>
         <div class="stock-scrollbar-top" data-stock-scroll-top aria-label="Desplazamiento horizontal superior"><div data-stock-scroll-spacer></div></div>
         <div class="table-scroll stock-overflow-table" data-stock-scroll-body>
-        <table class="stock-table stock-detail-table" data-sortable-table>
+        <table id="stock-vehicles-table" class="stock-table stock-detail-table" data-sortable-table>
             <thead><tr>
                 @foreach ([
                     ['ID / matrícula','text'],['Vehículo','text'],['Delegación','text'],['Estado','text'],['Entrada','text'],['Días','number'],
@@ -20,7 +27,7 @@
             </tr></thead>
             <tbody>
             @forelse($detailRows as $row)
-                <tr data-commercial="1">
+                <tr data-commercial="1" data-plate="{{ $row['plate'] }}">
                     <td data-sort-value="{{ $row['plate'] }}"><strong>{{ $row['plate'] ?: 'Sin matrícula' }}</strong><small>{{ $row['id'] }}</small></td>
                     <td data-sort-value="{{ $row['brand'].' '.$row['model'] }}"><strong>{{ trim(($row['brand'] ?? '').' '.($row['model'] ?? '')) ?: 'Sin normalizar' }}</strong><small>{{ $row['version'] ?: '—' }}</small></td>
                     <td data-sort-value="{{ $row['delegation'] }}">{{ $row['delegation'] ?: 'Sin delegación' }}</td>

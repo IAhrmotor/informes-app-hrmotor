@@ -38,13 +38,13 @@
             </div>
         </section>
 
-        @php($tabQuery = request()->except('section'))
+        @php
+            $tabQuery = request()->except('section');
+        @endphp
         <nav class="tabs-main stock-section-nav" aria-label="Secciones de stock">
             @foreach ([
                 'summary' => 'Resumen',
-                'delegations' => 'Delegaciones',
-                'sales' => 'Ventas',
-                'rankings' => 'Rankings',
+                'delegations' => 'Delegaciones y ventas',
                 'recommendations' => 'Recomendaciones',
                 'vehicles' => 'Vehículos',
             ] as $key => $label)
@@ -72,9 +72,6 @@
             @include('reports.stock.partials.summary')
         @elseif ($activeStockTab === 'delegations')
             @include('reports.stock.partials.delegations')
-        @elseif ($activeStockTab === 'sales')
-            @include('reports.stock.partials.sales')
-        @elseif ($activeStockTab === 'rankings')
             @include('reports.stock.partials.rankings')
         @elseif ($activeStockTab === 'recommendations')
             @include('reports.stock.partials.recommendations')

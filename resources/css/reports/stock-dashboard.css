@@ -168,8 +168,19 @@
 .stock-age-grid {
     display: grid;
     gap: 14px;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     margin-top: 14px;
+}
+
+.stock-age-reconciliation {
+    color: #64748b;
+    font-size: 12px;
+    margin: 9px 2px 0;
+    text-align: right;
+}
+
+.stock-age-reconciliation strong {
+    color: #172033;
 }
 
 .stock-age-card.priority {
@@ -201,7 +212,19 @@
 }
 
 .stock-wide-table {
-    min-width: 2250px;
+    min-width: 2450px;
+}
+
+.stock-delegation-link {
+    color: #172033;
+    text-decoration-color: rgba(229, 26, 46, .35);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+}
+
+.stock-delegation-link:hover,
+.stock-delegation-link:focus-visible {
+    color: #c4192c;
 }
 
 .stock-detail-table {
@@ -325,12 +348,102 @@
     margin-top: 14px;
 }
 
+.stock-collapsible-panel {
+    overflow: hidden;
+}
+
+.stock-collapsible-panel > summary {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    list-style: none;
+    padding: 20px;
+}
+
+.stock-collapsible-panel > summary::-webkit-details-marker {
+    display: none;
+}
+
+.stock-collapsible-panel > summary h2,
+.stock-collapsible-panel > summary .small {
+    margin: 0;
+}
+
+.stock-collapsible-actions {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+}
+
+.stock-collapsible-panel[open] .stock-toggle-open,
+.stock-collapsible-panel:not([open]) .stock-toggle-close {
+    display: none;
+}
+
+.stock-collapsible-content {
+    border-top: 1px solid #e8edf4;
+    padding: 20px;
+}
+
 .stock-evolution {
     display: flex;
     flex-direction: column;
     gap: 9px;
     max-height: 330px;
     overflow-y: auto;
+}
+
+.stock-line-chart-wrap {
+    padding: 8px 0 28px;
+}
+
+.stock-line-chart {
+    height: 280px;
+}
+
+.stock-line-chart .stock-available-line {
+    stroke: #21a66f;
+}
+
+.stock-line-chart .stock-reserved-line {
+    stroke: #f2a93b;
+}
+
+.stock-line-chart .stock-blocked-line {
+    stroke: #78869b;
+}
+
+.stock-line-hover-layer {
+    inset: 10px 0 0;
+    position: absolute;
+}
+
+.stock-line-hover {
+    cursor: help;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    width: max(8px, calc(100% / 120));
+}
+
+.stock-line-hover:hover {
+    background: rgba(23, 32, 51, .035);
+}
+
+.stock-line-labels {
+    height: 22px;
+    position: relative;
+}
+
+.stock-line-labels time {
+    color: #64748b;
+    font-size: 10px;
+    position: absolute;
+    top: 7px;
+    transform: translateX(-50%);
+    white-space: nowrap;
 }
 
 .stock-evolution-row {
@@ -416,7 +529,8 @@
     margin: 0 0 12px;
 }
 
-.stock-mini-chart > div:not(.stock-empty) {
+.stock-distribution-tabs .stock-mini-chart > div:not(.stock-empty),
+.stock-mini-chart-list > div:not(.stock-empty) {
     align-items: center;
     display: grid;
     gap: 8px;
@@ -424,7 +538,8 @@
     margin: 8px 0;
 }
 
-.stock-mini-chart > div > span {
+.stock-mini-chart > div > span,
+.stock-mini-chart-list > div > span {
     color: #475569;
     font-size: 11px;
     overflow: hidden;
@@ -432,7 +547,8 @@
     white-space: nowrap;
 }
 
-.stock-mini-chart > div > i {
+.stock-mini-chart > div > i,
+.stock-mini-chart-list > div > i {
     background: #edf1f6;
     border-radius: 999px;
     display: block;
@@ -440,14 +556,16 @@
     overflow: hidden;
 }
 
-.stock-mini-chart > div > i b {
+.stock-mini-chart > div > i b,
+.stock-mini-chart-list > div > i b {
     background: #e51a2e;
     border-radius: inherit;
     display: block;
     height: 100%;
 }
 
-.stock-mini-chart > div > strong {
+.stock-mini-chart > div > strong,
+.stock-mini-chart-list > div > strong {
     color: #172033;
     font-size: 11px;
     text-align: right;
@@ -476,9 +594,37 @@
     padding: 12px 14px;
 }
 
+.stock-alert-list > div.stock-alert-under {
+    background: #fffaf0;
+    border-color: #f7dfac;
+}
+
+.stock-alert-list > div.stock-alert-under strong {
+    color: #9a6500;
+}
+
 .stock-alert-list strong,
 .stock-alert-list span {
     display: block;
+}
+
+.stock-expandable-extra {
+    display: none !important;
+}
+
+.is-expanded > .stock-expandable-extra {
+    display: revert !important;
+}
+
+.stock-expand-list-button {
+    display: block;
+    margin: 14px auto 0;
+}
+
+.stock-mini-chart-list.is-expanded {
+    max-height: 420px;
+    overflow-y: auto;
+    padding-right: 5px;
 }
 
 .stock-alert-list strong {
@@ -504,6 +650,19 @@
     margin: 0;
 }
 
+.stock-ranking-modes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    justify-content: flex-end;
+}
+
+.stock-ranking-modes .is-active {
+    background: #172033;
+    border-color: #172033;
+    color: #fff;
+}
+
 .stock-context-banner p {
     color: #64748b;
     font-size: 12px;
@@ -517,7 +676,69 @@
 }
 
 .stock-ranking .stock-table {
-    min-width: 660px;
+    min-width: 560px;
+}
+
+.stock-column-picker {
+    position: relative;
+}
+
+.stock-column-picker > summary {
+    list-style: none;
+    white-space: nowrap;
+}
+
+.stock-column-picker > summary::-webkit-details-marker {
+    display: none;
+}
+
+.stock-column-picker > div {
+    background: #fff;
+    border: 1px solid #dbe3ec;
+    border-radius: 12px;
+    box-shadow: 0 16px 35px rgba(23, 32, 51, .14);
+    display: grid;
+    gap: 9px;
+    grid-template-columns: repeat(2, minmax(130px, 1fr));
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 14px;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 7px);
+    width: 340px;
+    z-index: 8;
+}
+
+.stock-column-picker label {
+    color: #475569;
+    font-size: 12px;
+}
+
+.stock-column-hidden {
+    display: none !important;
+}
+
+.stock-inline-filter {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+    margin: 0 0 14px;
+}
+
+.stock-inline-filter label {
+    color: #475569;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.stock-inline-filter input[type="search"] {
+    background: #fff;
+    border: 1px solid #dbe3ec;
+    border-radius: 10px;
+    min-height: 42px;
+    padding: 8px 12px;
+    width: min(320px, 100%);
 }
 
 .stock-simulator {
@@ -849,5 +1070,17 @@
         align-items: flex-start;
         flex-direction: column;
         gap: 12px;
+    }
+
+    .stock-collapsible-panel > summary,
+    .stock-inline-filter {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .stock-column-picker > div {
+        left: 0;
+        right: auto;
+        width: min(320px, 80vw);
     }
 }

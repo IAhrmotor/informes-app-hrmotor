@@ -1,6 +1,6 @@
 # Documentación general de informes y contraste con Salesforce
 
-Versión: 2026-07-30
+Versión: 2026-07-31
 Proyecto: `informes-app-hrmotor`
 
 ## 1. Propósito y criterio de verdad
@@ -803,11 +803,12 @@ Stock cruza:
 2. ventas firmadas de `Opportunity`;
 3. logística de `Logistica__c`;
 4. capacidades por tienda importadas desde CSV/XLSX;
-5. fotografías diarias y snapshots inmutables de venta.
+5. fotografías diarias y snapshots económicos de venta.
 
 El dashboard no calcula ventas históricas leyendo el Product2 actual: cuando detecta
 una nueva venta crea `salesforce_sale_snapshots` y conserva los importes y atributos
-de ese momento.
+de ese momento. El contenido económico queda congelado; el estado de validez del
+snapshot sí se reconcilia posteriormente contra el estado actual de Opportunity.
 
 ### 8.2 Query de inventario
 
@@ -822,6 +823,7 @@ SELECT
     PRO_DIV_Precio_de_compra__c,
     PRO_DIV_Precio_de_venta__c,
     PRO_DIV_Precio_venta_financiado__c,
+    Solo_financiado__c,
     PRO_FEC_Fecha_entrada__c,
     Comprador_oportunidad__c, Comprador_oportunidad__r.Name,
     Procedencia_de_compra__c
@@ -833,11 +835,19 @@ ORDER BY PRO_BUS_Delegacion__r.Name, PRO_FEC_Fecha_entrada__c, Id
 Cada sincronización marca primero como fuera de stock todos los vehículos locales
 que estaban activos y vuelve a activar únicamente los IDs devueltos por esta query.
 
+Precio efectivo de stock:
+
+- si `Solo_financiado__c = true`, se usa
+  `PRO_DIV_Precio_venta_financiado__c` y, si falta, el precio normal;
+- en cualquier otro caso se usa `PRO_DIV_Precio_de_venta__c`;
+- se conservan además `normal_sale_price`, `financed_sale_price` y
+  `only_financed` para que la elección sea auditable.
+
 ### 8.3 Query de ventas firmadas
 
 ```sql
 SELECT
-    Id, Name, RecordType.Name,
+    Id, Name, StageName, LastModifiedDate, RecordType.Name,
     OPO_CAS_Contrato_CV_firmado__c, Fecha_firma_contrato__c,
     Tienda_de_entrega__c,
     OPP_BUS_Vehiculo_de_interes__c,
@@ -849,6 +859,8 @@ SELECT
     OPP_BUS_Vehiculo_de_interes__r.PRO_SEL_Carroceria__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_NUM_Kilometraje__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_venta__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_venta_financiado__c,
+    OPP_BUS_Vehiculo_de_interes__r.Solo_financiado__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_compra__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_FEC_Fecha_entrada__c,
     OPP_BUS_Vehiculo_de_interes__r.Procedencia_de_compra__c,
@@ -867,15 +879,47 @@ SELECT
     Descuento_Logistica__c, OPO_FOR_Importe_total__c
 FROM Opportunity
 WHERE IsDeleted = false
-  AND OPO_CAS_Contrato_CV_firmado__c = true
   AND RecordType.Name IN ('Venta', 'Cambio')
-  AND Fecha_firma_contrato__c >= 2026-06-01
-  AND Fecha_firma_contrato__c < 2026-07-01
-ORDER BY Fecha_firma_contrato__c, Id
+  AND (
+      (
+          OPO_CAS_Contrato_CV_firmado__c = true
+          AND Fecha_firma_contrato__c >= 2026-06-01
+          AND Fecha_firma_contrato__c < 2026-07-01
+      )
+      OR LastModifiedDate >= 2026-06-01T00:00:00Z
+  )
 ```
 
-El sincronizador incluye además oportunidades sin fecha de firma modificadas en la
-ventana para diagnosticarlas; no entrarán en ventas por período hasta tener fecha.
+La rama de `LastModifiedDate` no tiene límite superior en la implementación. Sirve
+para volver a leer cambios posteriores —por ejemplo, una operación que pasa a
+`Cerrada perdida`— y reconciliar snapshots ya creados. Esto significa que la query
+puede devolver operaciones sin contrato vigente o fuera del intervalo de firma;
+no se cuentan automáticamente como venta.
+
+Precio de venta capturado:
+
+1. `OPO_FOR_Importe_vehiculo_venta__c` si está informado;
+2. precio efectivo del Product2 relacionado;
+3. para un vehículo `Solo_financiado__c`, el efectivo es el financiado con
+   fallback al normal.
+
+Validez de snapshots:
+
+- una nueva venta se crea con `pending_validation`;
+- es válida únicamente si el contrato continúa firmado, el tipo es Venta/Cambio,
+  la fase no es `Cerrada perdida` y existe vehículo de interés;
+- motivos posibles: `contract_not_signed`, `invalid_record_type`, `closed_lost`
+  y `missing_vehicle_interest`;
+- si hay más de una venta base-válida para el mismo Product2, todas quedan
+  invalidadas como `duplicate_valid_vehicle`: no se elige una arbitrariamente;
+- se actualizan `current_stage_name`, `is_valid`, `validity_checked_at`,
+  `invalidated_at` e `invalid_reason`, pero no se reescriben los importes
+  congelados;
+- si falta la Opportunity local, el snapshot queda sin comprobar en esa pasada.
+
+Solo los snapshots con `is_valid = true` participan en KPIs, ratios, rankings,
+recomendaciones y en la detección de vehículos entregados que aún figuran en
+stock. Los inválidos se conservan como trazabilidad económica y de calidad.
 
 ### 8.4 Query logística
 
@@ -912,15 +956,19 @@ Stock actual:
 - margen potencial = valor venta − valor compra;
 - precio medio = suma / unidades;
 - antigüedad = hoy − fecha de entrada;
-- umbrales: ≥60, ≥90, ≥120 y ≥180 días.
+- tramos de antigüedad excluyentes: 0–59, 60–89, 90–119, 120–180 y más de
+  180 días;
+- los vehículos sin fecha se presentan en `Sin fecha de entrada`; la suma de los
+  cinco tramos y este grupo debe coincidir con el stock total.
 
 Ventas:
 
-- universo: snapshots con `signed_date` dentro del rango;
+- universo: snapshots con `is_valid = true` y `signed_date` dentro del rango;
 - rotación = fecha firma − fecha entrada, solo si entrada ≤ firma;
 - margen bruto mostrado = precio contractual de venta − precio de compra;
-- la tabla expone además cambio, gestión, logística, traslado, garantía, Plan Auto
-  Plus, CAE, descuentos e importe total, sin combinarlos en un único margen neto.
+- el detalle económico conserva cambio, gestión, logística, traslado, garantía,
+  Plan Auto Plus, CAE, descuentos e importe total, pero la vista unificada no
+  muestra por ahora las operaciones individuales.
 
 Capacidad:
 
@@ -935,24 +983,37 @@ Ratio ventas/stock general:
 - si no, fallback aproximado:
   `ventas / disponibles actuales`;
 - el payload marca si el resultado es aproximado.
+- el KPI general de ventas/stock no se muestra en Resumen, aunque el dato se
+  conserva como contexto analítico en las tablas.
 
 Histórico:
 
 - cobertura = días fotografiados / días esperados;
 - suficiente si cobertura ≥ 80%;
-- serie diaria separa disponible, reservado y bloqueado.
+- el gráfico de líneas diario presenta tres series separadas: Disponible,
+  Reservado y Bloqueado.
 
 Rankings:
 
 - dimensiones: marca, modelo, segmento, combustible, tramo de precio, carrocería,
   procedencia, kilometraje y antigüedad/rotación;
 - rendimiento = ventas / stock actual;
-- si no hay stock pero sí ventas, rendimiento = ventas.
+- los valores equivalentes se agrupan con una clave en minúsculas, ASCII, sin
+  diferencias de puntuación/separadores ni espacios repetidos;
+- se excluyen de distribuciones y rankings los vehículos con términos no
+  operativos en marca/modelo/segmento/combustible/carrocería/procedencia;
+- si no hay stock, el rendimiento queda nulo; si existen ventas se muestra
+  `Demanda sin stock` en vez de convertir el número de ventas en un ratio falso.
+- el orden principal es exclusivamente por unidades vendidas; se puede consultar
+  más vendidos, menos vendidos o todos los valores;
+- las antiguas pestañas Delegaciones, Ventas y Rankings están unificadas. Pulsar
+  el nombre de una delegación aplica el filtro a stock, ventas y rankings.
 
 ### 8.6 Motor de recomendaciones
 
-Usa ventas de los últimos 120 días y stock actual de cada delegación comercial con
-capacidad informada.
+Usa únicamente ventas válidas y operativas de los últimos 120 días. Los candidatos
+son Product2 operativos en estado `Disponible`; Reservado y Bloqueado no se
+proponen para traslado.
 
 Puntuación de destino:
 
@@ -973,7 +1034,16 @@ score =
 
 `bonus_rotacion_rapida = max(0, (120 - min(rotación_media, 120)) / 120) * 12`.
 
-Se devuelven los tres mejores destinos con capacidad libre. Un vehículo queda:
+Se devuelven los tres mejores destinos. Un destino es elegible si:
+
+- es una delegación comercial;
+- tiene capacidad positiva y al menos una plaza libre;
+- no es la delegación actual del vehículo;
+- no está en `stock.excluded_destination_keys`; actualmente se excluyen las
+  variantes configuradas de Dos Hermanas.
+
+El stock no operativo sigue ocupando capacidad, pero no aporta coincidencias de
+modelo/similitud. Un vehículo queda:
 
 - `review` desde 60 días;
 - `priority` desde 90 días;
@@ -982,6 +1052,23 @@ Se devuelven los tres mejores destinos con capacidad libre. Un vehículo queda:
 
 Los tramos de precio son bloques de 5.000 EUR. Stock similar significa misma
 combinación de segmento, combustible y tramo de precio.
+
+Normalización y volumen:
+
+- el catálogo operativo normaliza marca, modelo, segmento, combustible,
+  carrocería y procedencia para distribuciones/rankings; elimina diferencias de
+  mayúsculas, acentos, puntuación/separadores y espacios;
+- la firma interna del score de recomendaciones normaliza mayúsculas, acentos y
+  espacios, pero conserva los demás separadores;
+- términos excluidos por defecto: `prueba`, `test`, `formacion` y
+  `fuera de stock`;
+- primero se calculan y ordenan todos los candidatos y después se pagina;
+- el cálculo global conserva solo destino y puntuación; las explicaciones y el
+  perfil completo se materializan después para las 150 filas de la página;
+- página de recomendaciones: 150 candidatos;
+- pestaña Vehículos: máximo 250 filas de detalle;
+- las recomendaciones se cachean en memoria por firma normalizada del vehículo
+  durante la construcción del dataset.
 
 ### 8.7 Capacidades, alertas y calidad
 
@@ -997,11 +1084,30 @@ combinación de segmento, combustible y tramo de precio.
   - cero vehículos `Disponible` abre alerta;
   - crea `Task` prioritaria en Salesforce y envía email a `STOCK_ALERT_EMAIL`;
   - cuando vuelve a haber disponibles, resuelve la alerta y completa la Task.
+- Alerta visual del Resumen:
+  - muestra delegaciones por encima del 100% o por debajo del 80% de ocupación;
+  - usa el stock completo, independientemente de los filtros analíticos;
+  - no sustituye el ciclo automático de Task/email por cero disponibles.
 - Calidad:
   - stock sin entrada/delegación/marca/modelo/segmento/combustible;
-  - entregados que aún aparecen en stock;
+  - entregados válidos que aún aparecen en stock;
   - tiendas comerciales sin zona;
-  - ventas sin firma/tienda/entrada/precio.
+  - snapshots sin firma/tienda/entrada/precio;
+  - fecha de firma sin contrato, firmado en Cerrada perdida y fase inesperada;
+  - más de una venta base-válida para el mismo vehículo;
+  - fecha de entrada futura y tienda sin capacidad válida;
+  - variantes duplicadas de catálogo y vehículos con valores no operativos.
+
+El XLSX de calidad contiene 20 hojas: las 12 comprobaciones anteriores de stock y
+snapshot, más Firma sin contrato, Firmados cerrada perdida, Vehículos venta
+duplicada, Fases inesperadas, Entradas futuras, Tiendas sin capacidad, Catálogos
+duplicados y Valores no operativos. Las fases firmadas esperadas son `Contrato` y
+`Cerrada ganada`.
+
+Para evitar que la carga común supere el límite HTTP, estos controles se ejecutan
+solo en Resumen. Los recuentos de nulos se agrupan con agregaciones condicionales;
+Capacidades no carga el dataset analítico y las ventas de Resumen/Delegaciones se
+leen únicamente con las columnas necesarias y sin hidratación Eloquent completa.
 
 Exportación:
 
@@ -1022,6 +1128,18 @@ stock:sync-daily --sales-days=14 --logistics-days=30
 sin solapamiento durante 120 minutos
 ```
 
+Orden relevante dentro de `stock:sync-daily`:
+
+1. sincroniza Product2, salvo `--skip-vehicles`;
+2. sincroniza oportunidades recientes y modificadas, salvo
+   `--skip-opportunities`;
+3. crea snapshots nuevos;
+4. reconcilia siempre la validez de todos los snapshots con Opportunity;
+5. sincroniza logística, fotografía el stock y evalúa alertas según sus flags.
+
+La reconciliación de validez se ejecuta aunque se use `--skip-opportunities`; en
+ese caso trabaja con el estado local ya disponible.
+
 Código fuente:
 
 - `app/Services/Reports/Stock/SalesforceVehicleSyncService.php`
@@ -1031,7 +1149,11 @@ Código fuente:
 - `app/Services/Reports/Stock/StockDailySnapshotService.php`
 - `app/Services/Reports/Stock/StockDashboardDatasetService.php`
 - `app/Services/Reports/Stock/StockRecommendationService.php`
+- `app/Services/Reports/Stock/StockCatalogNormalizer.php`
+- `app/Services/Reports/Stock/StockSaleValidityService.php`
 - `app/Services/Reports/Stock/StockAvailabilityAlertService.php`
+- `config/stock.php`
+- `database/migrations/2026_07_31_090000_add_sale_validity_and_financed_stock_price.php`
 
 ## 9. Método de conciliación recomendado
 

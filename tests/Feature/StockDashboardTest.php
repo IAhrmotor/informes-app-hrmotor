@@ -6,6 +6,8 @@ use App\Models\ReportUser;
 use App\Models\SalesforceSaleSnapshot;
 use App\Models\SalesforceVehicle;
 use App\Models\StockDelegation;
+use App\Models\StockDailySnapshot;
+use App\Services\Reports\Stock\StockDashboardDatasetService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
@@ -26,7 +28,7 @@ class StockDashboardTest extends TestCase
             'capacity_total' => 100,
             'is_commercial' => true,
         ]);
-        SalesforceVehicle::query()->create([
+        $vehicle = SalesforceVehicle::query()->create([
             'salesforce_id' => '01t-stock-ui',
             'state' => 'Disponible',
             'stock_delegation_id' => $delegation->id,
@@ -35,11 +37,27 @@ class StockDashboardTest extends TestCase
             'entry_date' => '2026-07-01',
             'is_in_stock' => true,
         ]);
+        foreach (['2026-07-28' => 'Disponible', '2026-07-29' => 'Reservado', '2026-07-30' => 'Bloqueado'] as $date => $state) {
+            StockDailySnapshot::query()->create([
+                'snapshot_date' => $date,
+                'salesforce_vehicle_id' => $vehicle->id,
+                'vehicle_salesforce_id' => $vehicle->salesforce_id,
+                'state' => $state,
+                'stock_delegation_id' => $delegation->id,
+                'delegation_name' => 'Rivas',
+            ]);
+        }
 
         $this->withSession($this->sessionData($admin))
             ->get('/informes/stock')
             ->assertOk()
             ->assertSee('Análisis integral del stock')
+            ->assertSee('Menos de 60 días')
+            ->assertSee('Total por tramos')
+            ->assertSee('stock-line-chart', false)
+            ->assertSee('id="stock-history-panel"', false)
+            ->assertSee('data-expandable-list', false)
+            ->assertDontSee('Ventas por stock')
             ->assertSee('Calidad del dato')
             ->assertSee('Exportar incidencias a Excel')
             ->assertDontSee('Importar capacidades')
@@ -50,7 +68,14 @@ class StockDashboardTest extends TestCase
             ->assertOk()
             ->assertSee('Badajoz')
             ->assertSee('Stock, capacidad y ventas por delegación')
+            ->assertSee('Ventas por perfil')
+            ->assertSee('Más vendidos')
+            ->assertSee('Menos vendidos')
+            ->assertSee('stock-delegation-link', false)
             ->assertSee('data-sortable-table', false)
+            ->assertSee('Añadir/quitar columnas')
+            ->assertSee('data-column-key="sales_per_stock"', false)
+            ->assertSee('stockGeneralModelsByBrand', false)
             ->assertSee('Rivas')
             ->assertDontSee('Calidad del dato')
             ->assertDontSee('Importar capacidades');
@@ -67,25 +92,29 @@ class StockDashboardTest extends TestCase
         $this->withSession($this->sessionData($admin))
             ->get('/informes/stock?section=rankings')
             ->assertOk()
-            ->assertSee('Rankings de rendimiento')
+            ->assertSee('Ventas por perfil')
             ->assertSee('Tramos de precio');
 
         $this->withSession($this->sessionData($admin))
             ->get('/informes/stock?section=sales')
             ->assertOk()
-            ->assertSee('Ventas firmadas y operaciones de cambio')
-            ->assertSee('Liquidación cliente');
+            ->assertSee('Stock, capacidad y ventas por delegación')
+            ->assertSee('Ventas por perfil')
+            ->assertDontSee('Liquidación cliente');
 
         $this->withSession($this->sessionData($admin))
             ->get('/informes/stock?section=recommendations')
             ->assertOk()
             ->assertSee('Simulador para nuevos vehículos')
-            ->assertSee('Vehículos disponibles candidatos a traslado');
+            ->assertSee('Vehículos propuestos para traslado')
+            ->assertSee('name="candidate_plate"', false)
+            ->assertSee('stockModelsByBrand', false);
 
         $this->withSession($this->sessionData($admin))
             ->get('/informes/stock?section=vehicles')
             ->assertOk()
             ->assertSee('Detalle de vehículos')
+            ->assertSee('name="vehicle_plate"', false)
             ->assertSee('Delegaciones recomendadas');
 
         $this->withSession($this->sessionData($admin))
@@ -242,6 +271,119 @@ class StockDashboardTest extends TestCase
             ->assertSee('Ford')
             ->assertSee('Focus')
             ->assertSee('Mostrando 1 de 1 vehículos');
+    }
+
+    public function test_delegacion_y_matricula_se_filtran_antes_de_construir_los_listados(): void
+    {
+        foreach (['Rivas', 'Alcobendas'] as $index => $name) {
+            $delegation = StockDelegation::query()->create([
+                'canonical_name' => $name,
+                'normalized_key' => str($name)->lower()->ascii()->toString(),
+                'capacity_total' => 20,
+                'is_commercial' => true,
+            ]);
+            SalesforceVehicle::query()->create([
+                'salesforce_id' => '01t-filter-plate-'.$index,
+                'plate' => $index === 0 ? '1234ABC' : '9876XYZ',
+                'brand' => 'Ford',
+                'model' => $index === 0 ? 'Focus' : 'Fiesta',
+                'state' => 'Disponible',
+                'stock_delegation_id' => $delegation->id,
+                'entry_date' => now()->subDays(70)->toDateString(),
+                'is_in_stock' => true,
+            ]);
+        }
+
+        $service = app(StockDashboardDatasetService::class);
+        $delegations = $service->build(['delegation' => 'Rivas'], 'delegations');
+        $vehicles = $service->build(['vehicle_plate' => '34a'], 'vehicles');
+        $candidates = $service->build(['candidate_plate' => '76x'], 'recommendations');
+
+        $this->assertSame(['Rivas'], $delegations['delegationRows']->pluck('model.canonical_name')->all());
+        $this->assertSame(['1234ABC'], $vehicles['detailRows']->pluck('plate')->all());
+        $this->assertSame(1, $vehicles['detailTotal']);
+        $this->assertSame(['9876XYZ'], $candidates['recommendationRows']->pluck('plate')->all());
+        $this->assertSame(1, $candidates['recommendationTotal']);
+    }
+
+    public function test_los_tramos_de_antiguedad_son_excluyentes_y_cuadran_con_el_stock(): void
+    {
+        $delegation = StockDelegation::query()->create([
+            'canonical_name' => 'Tramos',
+            'normalized_key' => 'tramos',
+            'capacity_total' => 20,
+            'is_commercial' => true,
+        ]);
+        foreach ([10, 60, 90, 120, 180, 181, null] as $index => $days) {
+            SalesforceVehicle::query()->create([
+                'salesforce_id' => '01t-age-'.$index,
+                'state' => 'Disponible',
+                'stock_delegation_id' => $delegation->id,
+                'entry_date' => $days === null ? null : now()->subDays($days)->toDateString(),
+                'is_in_stock' => true,
+            ]);
+        }
+
+        $summary = app(StockDashboardDatasetService::class)->build([], 'summary')['summary'];
+
+        $this->assertSame(1, $summary['age_under_60']);
+        $this->assertSame(1, $summary['age_60_90']);
+        $this->assertSame(1, $summary['age_90_120']);
+        $this->assertSame(2, $summary['age_120_180']);
+        $this->assertSame(1, $summary['age_over_180']);
+        $this->assertSame(1, $summary['age_unknown']);
+        $this->assertSame($summary['total'], $summary['age_bucket_total']);
+    }
+
+    public function test_rankings_se_ordenan_por_ventas_y_el_simulador_relaciona_marcas_y_modelos(): void
+    {
+        $delegation = StockDelegation::query()->create([
+            'canonical_name' => 'Ventas',
+            'normalized_key' => 'ventas',
+            'capacity_total' => 30,
+            'is_commercial' => true,
+        ]);
+        foreach ([['Ford', 'Focus'], ['Ford', 'Fiesta'], ['Toyota', 'Yaris'], ['Seat', 'Ibiza']] as $index => [$brand, $model]) {
+            SalesforceVehicle::query()->create([
+                'salesforce_id' => '01t-rank-'.$index,
+                'brand' => $brand,
+                'model' => $model,
+                'state' => 'Disponible',
+                'stock_delegation_id' => $delegation->id,
+                'entry_date' => now()->subDays(30)->toDateString(),
+                'is_in_stock' => true,
+            ]);
+        }
+        foreach (['Ford', 'Ford', 'Ford', 'Toyota'] as $index => $brand) {
+            SalesforceSaleSnapshot::query()->create([
+                'opportunity_salesforce_id' => '006-rank-'.$index,
+                'signed_date' => now()->toDateString(),
+                'stock_delegation_id' => $delegation->id,
+                'vehicle_brand' => $brand,
+                'vehicle_model' => $brand === 'Ford' ? 'Focus' : 'Yaris',
+                'is_valid' => true,
+                'captured_at' => now(),
+            ]);
+        }
+
+        $service = app(StockDashboardDatasetService::class);
+        $period = ['date_from' => '2020-01-01', 'date_to' => '2030-01-01'];
+        config()->set('stock.ranking_limit', 2);
+        $top = $service->build($period, 'delegations');
+        $bottom = $service->build([...$period, 'ranking_view' => 'bottom'], 'delegations');
+        $all = $service->build([...$period, 'ranking_view' => 'all'], 'delegations');
+
+        $this->assertSame('Ford', $top['rankings']['brand']['rows']->first()['label']);
+        $this->assertSame(
+            'Seat',
+            $bottom['rankings']['brand']['rows']->first()['label'],
+            $bottom['rankings']['brand']['rows']->toJson(),
+        );
+        $this->assertEqualsCanonicalizing(['Fiesta', 'Focus'], $top['filterOptions']['models_by_brand']['Ford']->all());
+        $this->assertNotContains('Yaris', $top['filterOptions']['models_by_brand']['Ford']->all());
+        $this->assertCount(3, $top['rankings']['brand']['rows']);
+        $this->assertCount(3, $bottom['rankings']['brand']['rows']);
+        $this->assertCount(3, $all['rankings']['brand']['rows']);
     }
 
     private function user(string $role, string $email): ReportUser

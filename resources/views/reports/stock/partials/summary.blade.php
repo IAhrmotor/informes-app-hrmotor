@@ -13,7 +13,6 @@
             ['Antigüedad media', $summary['average_age'] !== null ? number_format($summary['average_age'], 1, ',', '.').' días' : '—', 'hoy − fecha de entrada'],
             ['Rotación media', $summary['average_rotation'] !== null ? number_format($summary['average_rotation'], 1, ',', '.').' días' : '—', 'firma − entrada'],
             ['Ventas del periodo', number_format($summary['sales'], 0, ',', '.'), \Carbon\CarbonImmutable::parse($filters['date_from'])->format('d/m/Y').'–'.\Carbon\CarbonImmutable::parse($filters['date_to'])->format('d/m/Y')],
-            ['Ventas por stock', $summary['sales_stock_ratio'] !== null ? number_format($summary['sales_stock_ratio'], 2, ',', '.') : '—', $summary['sales_stock_approximate'] ? 'aprox. con stock actual' : 'con stock medio disponible'],
         ] as [$label, $value, $hint])
             <article class="card stock-kpi">
                 <span>{{ $label }}</span>
@@ -24,42 +23,81 @@
     </div>
 
     <div class="stock-age-grid">
-        @foreach ([60, 90, 120, 180] as $days)
-            <article class="card stock-age-card @if($days >= 90) priority @endif">
-                <span>Desde {{ $days }} días</span>
-                <strong>{{ number_format($summary["over_$days"], 0, ',', '.') }}</strong>
-                <small>{{ $days === 60 ? 'Candidatos a revisión' : ($days === 90 ? 'Revisión prioritaria' : 'Stock envejecido') }}</small>
+        @foreach ([
+            ['Menos de 60 días', 'age_under_60', 'Stock reciente', false],
+            ['60–89 días', 'age_60_90', 'Candidatos a revisión', false],
+            ['90–119 días', 'age_90_120', 'Revisión prioritaria', true],
+            ['120–180 días', 'age_120_180', 'Stock envejecido', true],
+            ['Más de 180 días', 'age_over_180', 'Stock crítico', true],
+            ['Sin fecha de entrada', 'age_unknown', 'Requiere corregir el dato', true],
+        ] as [$label, $key, $hint, $priority])
+            <article @class(['card', 'stock-age-card', 'priority' => $priority])>
+                <span>{{ $label }}</span>
+                <strong>{{ number_format($summary[$key], 0, ',', '.') }}</strong>
+                <small>{{ $hint }}</small>
             </article>
         @endforeach
     </div>
+    <div class="stock-age-reconciliation">Total por tramos: <strong>{{ number_format($summary['age_bucket_total'], 0, ',', '.') }}</strong> · Stock total: <strong>{{ number_format($summary['total'], 0, ',', '.') }}</strong></div>
 
     <div class="stock-summary-stack">
-        <article class="card panel">
-            <div class="panel-title">
+        <details id="stock-history-panel" class="card panel stock-collapsible-panel" @if($stockHistory['days'] >= 15) open @endif>
+            <summary>
                 <div>
                     <h2>Evolución diaria del stock</h2>
                     <div class="small">{{ $stockHistory['days'] }} de {{ $stockHistory['expected_days'] }} días disponibles · cobertura {{ number_format($stockHistory['coverage'], 1, ',', '.') }}%</div>
                 </div>
-                @unless ($stockHistory['sufficient'])
-                    <span class="stock-tag warning">Histórico insuficiente</span>
-                @endunless
-            </div>
+                <div class="stock-collapsible-actions">
+                    @unless ($stockHistory['sufficient'])
+                        <span class="stock-tag warning">Histórico insuficiente</span>
+                    @endunless
+                    <span class="secondary-button stock-toggle-open">Mostrar</span>
+                    <span class="secondary-button stock-toggle-close">Ocultar</span>
+                </div>
+            </summary>
+            <div class="stock-collapsible-content">
             @if ($stockHistory['series']->isEmpty())
                 <div class="stock-empty">Todavía no hay fotografías dentro del periodo seleccionado.</div>
             @else
-                @php($seriesMax = max((int) $stockHistory['series']->max('total'), 1))
-                <div class="stock-evolution">
-                    @foreach ($stockHistory['series'] as $point)
-                        <div class="stock-evolution-row">
-                            <time>{{ \Carbon\CarbonImmutable::parse($point['date'])->format('d/m') }}</time>
-                            <div class="stock-stacked-bar" title="{{ $point['total'] }} vehículos">
-                                <span class="available" style="width: {{ ($point['available'] / $seriesMax) * 100 }}%"></span>
-                                <span class="reserved" style="width: {{ ($point['reserved'] / $seriesMax) * 100 }}%"></span>
-                                <span class="blocked" style="width: {{ ($point['blocked'] / $seriesMax) * 100 }}%"></span>
-                            </div>
-                            <strong>{{ $point['total'] }}</strong>
+                @php
+                    $chartRows = $stockHistory['series']->values();
+                    $chartCount = $chartRows->count();
+                    $chartMax = max((int) $chartRows->max(fn($point) => max($point['available'], $point['reserved'], $point['blocked'])), 1);
+                    $chartPoints = function (string $key) use ($chartRows, $chartCount, $chartMax): string {
+                        return $chartRows->map(function ($point, $index) use ($key, $chartCount, $chartMax): string {
+                            $x = $chartCount > 1 ? ($index / ($chartCount - 1)) * 100 : 50;
+                            $y = 92 - (((int) $point[$key] / $chartMax) * 84);
+                            return number_format($x, 2, '.', '').','.number_format($y, 2, '.', '');
+                        })->implode(' ');
+                    };
+                @endphp
+                <div class="campaign-evolution campaign-evolution-lines stock-line-chart-wrap">
+                    <div class="campaign-line-chart stock-line-chart">
+                        <svg viewBox="-0.75 0 101.5 96" preserveAspectRatio="none" role="img" aria-label="Evolución diaria de disponibles, reservados y bloqueados">
+                            @foreach ([8, 29, 50, 71, 92] as $y)
+                                <line class="line-grid" x1="0" x2="100" y1="{{ $y }}" y2="{{ $y }}"></line>
+                            @endforeach
+                            <line class="line-axis-frame is-bottom" x1="0" x2="100" y1="92" y2="92"></line>
+                            <polyline class="line-series stock-available-line" points="{{ $chartPoints('available') }}"></polyline>
+                            <polyline class="line-series stock-reserved-line" points="{{ $chartPoints('reserved') }}"></polyline>
+                            <polyline class="line-series stock-blocked-line" points="{{ $chartPoints('blocked') }}"></polyline>
+                        </svg>
+                        <div class="stock-line-hover-layer">
+                            @foreach ($chartRows as $index => $point)
+                                @php
+                                    $x = $chartCount > 1 ? ($index / ($chartCount - 1)) * 100 : 50;
+                                @endphp
+                                <span class="stock-line-hover" style="left: {{ $x }}%" title="{{ \Carbon\CarbonImmutable::parse($point['date'])->format('d/m/Y') }} · {{ $point['available'] }} disponibles · {{ $point['reserved'] }} reservados · {{ $point['blocked'] }} bloqueados"></span>
+                            @endforeach
                         </div>
-                    @endforeach
+                    </div>
+                    <div class="stock-line-labels">
+                        @foreach ($chartRows as $index => $point)
+                            @if($index === 0 || $index === $chartCount - 1 || $index % max((int) ceil($chartCount / 8), 1) === 0)
+                                <time style="left: {{ $chartCount > 1 ? ($index / ($chartCount - 1)) * 100 : 50 }}%">{{ \Carbon\CarbonImmutable::parse($point['date'])->format('d/m') }}</time>
+                            @endif
+                        @endforeach
+                    </div>
                 </div>
                 <div class="stock-legend">
                     <span><i class="available"></i>Disponible</span>
@@ -67,7 +105,8 @@
                     <span><i class="blocked"></i>Bloqueado</span>
                 </div>
             @endif
-        </article>
+            </div>
+        </details>
 
         <article class="card panel">
             <div class="panel-title">
@@ -80,7 +119,9 @@
                 @foreach (['brand' => 'Marca', 'segment' => 'Segmento', 'fuel' => 'Combustible', 'price_band' => 'Precio'] as $key => $label)
                     <div class="stock-mini-chart">
                         <h3>{{ $label }}</h3>
-                        @php($maxDistribution = max((int) collect($distributions[$key])->max('value'), 1))
+                        @php
+                            $maxDistribution = max((int) collect($distributions[$key])->max('value'), 1);
+                        @endphp
                         @foreach ($distributions[$key] as $row)
                             <div>
                                 <span title="{{ $row['label'] }}">{{ $row['label'] }}</span>
@@ -94,23 +135,34 @@
         </article>
     </div>
 
-    @php($zeroAvailableDelegations = $delegationRows->filter(fn($row) => $row['is_commercial'] && $row['model']->capacity_total !== null && $row['available'] === 0))
+    @php
+        $overCapacityDelegations = $capacityAlertRows->filter(fn($row) => $row['is_commercial'] && $row['occupancy'] !== null && $row['occupancy'] > 100);
+        $underCapacityDelegations = $capacityAlertRows->filter(fn($row) => $row['is_commercial'] && $row['occupancy'] !== null && $row['occupancy'] < 80);
+        $capacityAlerts = $overCapacityDelegations->concat($underCapacityDelegations);
+    @endphp
     <article class="card panel stock-alert-panel">
         <div class="panel-title">
             <div>
                 <h2>Alertas de stock comercial</h2>
-                <div class="small">Una tienda entra en alerta cuando tiene cero vehículos disponibles, aunque conserve reservados o bloqueados.</div>
+                <div class="small">Delegaciones con ocupación superior al 100% o inferior al 80% de su capacidad informada.</div>
             </div>
-            <span @class(['stock-tag','danger'=>$zeroAvailableDelegations->isNotEmpty()])>{{ $zeroAvailableDelegations->count() }} tiendas sin disponibles</span>
+            <span @class(['stock-tag','danger'=>$capacityAlerts->isNotEmpty()])>{{ $capacityAlerts->count() }} alertas de capacidad</span>
         </div>
-        @if($zeroAvailableDelegations->isEmpty())
-            <div class="stock-empty">Todas las delegaciones con capacidad tienen al menos un vehículo disponible.</div>
+        @if($capacityAlerts->isEmpty())
+            <div class="stock-empty">Todas las delegaciones están entre el 80% y el 100% de ocupación.</div>
         @else
-            <div class="stock-alert-list">
-                @foreach($zeroAvailableDelegations as $row)
-                    <div><strong>{{ $row['model']->canonical_name }}</strong><span>{{ $row['reserved'] }} reservados · {{ $row['blocked'] }} bloqueados · {{ $row['free_capacity'] }} plazas libres</span></div>
+            <div id="stock-capacity-alerts" class="stock-alert-list" data-expandable-list>
+                @foreach($capacityAlerts as $index => $row)
+                    @php($isOverCapacity = $row['occupancy'] > 100)
+                    <div @class(['stock-alert-under' => !$isOverCapacity, 'stock-expandable-extra' => $index >= 9])>
+                        <strong>{{ $row['model']->canonical_name }} · {{ $isOverCapacity ? 'Sobre capacidad' : 'Baja ocupación' }}</strong>
+                        <span>{{ number_format($row['occupancy'], 1, ',', '.') }}% ocupado · {{ $isOverCapacity ? abs($row['free_capacity']).' plazas de exceso' : $row['free_capacity'].' plazas libres' }}</span>
+                    </div>
                 @endforeach
             </div>
+            @if($capacityAlerts->count() > 9)
+                <button type="button" class="secondary-button stock-expand-list-button" data-expand-list="stock-capacity-alerts" data-show-label="Mostrar todas ({{ $capacityAlerts->count() }})" data-hide-label="Mostrar solo 9">Mostrar todas ({{ $capacityAlerts->count() }})</button>
+            @endif
         @endif
     </article>
 
