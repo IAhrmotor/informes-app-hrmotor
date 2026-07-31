@@ -83,6 +83,47 @@ class StockDataFoundationTest extends TestCase
         ]);
     }
 
+    public function test_utiliza_precio_financiado_solo_cuando_product2_esta_marcado_solo_financiado(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            public array $records = [];
+
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                return $this->records;
+            }
+        };
+        $financed = $this->vehicleRecord('01t-financed', 'Disponible', 'HR MOTOR RIVAS-VACIA MADRID');
+        $financed['Solo_financiado__c'] = true;
+        $financed['PRO_DIV_Precio_de_venta__c'] = 15000;
+        $financed['PRO_DIV_Precio_venta_financiado__c'] = 14000;
+        $normal = $this->vehicleRecord('01t-normal', 'Disponible', 'HR MOTOR RIVAS-VACIA MADRID');
+        $normal['Solo_financiado__c'] = false;
+        $normal['PRO_DIV_Precio_de_venta__c'] = 16000;
+        $normal['PRO_DIV_Precio_venta_financiado__c'] = 14500;
+        $client->records = [$financed, $normal];
+
+        (new SalesforceVehicleSyncService($client, app(StockDelegationService::class)))->sync();
+
+        $this->assertDatabaseHas('salesforce_vehicles', [
+            'salesforce_id' => '01t-financed',
+            'sale_price' => 14000,
+            'normal_sale_price' => 15000,
+            'financed_sale_price' => 14000,
+            'only_financed' => true,
+        ]);
+        $this->assertDatabaseHas('salesforce_vehicles', [
+            'salesforce_id' => '01t-normal',
+            'sale_price' => 16000,
+            'normal_sale_price' => 16000,
+            'financed_sale_price' => 14500,
+            'only_financed' => false,
+        ]);
+    }
+
     public function test_badajoz_existe_sin_stock_y_la_sincronizacion_reutiliza_su_registro(): void
     {
         $this->assertDatabaseHas('stock_delegations', [

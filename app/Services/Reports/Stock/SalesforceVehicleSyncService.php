@@ -27,6 +27,12 @@ class SalesforceVehicleSyncService
                 if (blank($salesforceId)) {
                     continue;
                 }
+                $onlyFinanced = (bool) data_get($record, 'Solo_financiado__c', false);
+                $normalSalePrice = data_get($record, 'PRO_DIV_Precio_de_venta__c');
+                $financedSalePrice = data_get($record, 'PRO_DIV_Precio_venta_financiado__c');
+                $effectiveSalePrice = $onlyFinanced
+                    ? ($financedSalePrice ?? $normalSalePrice)
+                    : $normalSalePrice;
 
                 $delegation = $this->delegations->resolveSalesforce(
                     data_get($record, 'PRO_BUS_Delegacion__c'),
@@ -51,8 +57,10 @@ class SalesforceVehicleSyncService
                         'salesforce_delegation_id' => data_get($record, 'PRO_BUS_Delegacion__c'),
                         'salesforce_delegation_name' => data_get($record, 'PRO_BUS_Delegacion__r.Name'),
                         'purchase_price' => data_get($record, 'PRO_DIV_Precio_de_compra__c'),
-                        'sale_price' => data_get($record, 'PRO_DIV_Precio_de_venta__c'),
-                        'financed_sale_price' => data_get($record, 'PRO_DIV_Precio_venta_financiado__c'),
+                        'sale_price' => $effectiveSalePrice,
+                        'normal_sale_price' => $normalSalePrice,
+                        'financed_sale_price' => $financedSalePrice,
+                        'only_financed' => $onlyFinanced,
                         'entry_date' => data_get($record, 'PRO_FEC_Fecha_entrada__c'),
                         'buyer_id' => data_get($record, 'Comprador_oportunidad__c'),
                         'buyer_name' => data_get($record, 'Comprador_oportunidad__r.Name'),
@@ -89,6 +97,7 @@ SELECT
     PRO_DIV_Precio_de_compra__c,
     PRO_DIV_Precio_de_venta__c,
     PRO_DIV_Precio_venta_financiado__c,
+    Solo_financiado__c,
     PRO_FEC_Fecha_entrada__c,
     Comprador_oportunidad__c,
     Comprador_oportunidad__r.Name,

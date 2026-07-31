@@ -35,7 +35,11 @@
         <div class="panel-title">
             <div>
                 <h2>Vehículos disponibles candidatos a traslado</h2>
-                <div class="small">Desde 60 días: revisión. Desde 90 días o exceso del mismo modelo: prioritario. Se analizan {{ number_format($recommendationTotal,0,',','.') }} disponibles.</div>
+                <div class="small">
+                    Desde {{ config('stock.review_days', 60) }} días: revisión. Desde {{ config('stock.priority_days', 90) }} días o exceso del mismo modelo: prioritario.
+                    Se analizan {{ number_format($recommendationAvailableTotal,0,',','.') }} disponibles.
+                    <strong>Mostrando {{ number_format($recommendationDisplayed,0,',','.') }} de {{ number_format($recommendationTotal,0,',','.') }} candidatos.</strong>
+                </div>
             </div>
         </div>
         <div class="stock-scroll-region" data-stock-scroll-region>
@@ -75,5 +79,16 @@
             </table>
             </div>
         </div>
+        @if($recommendationPages > 1)
+            <nav class="stock-pagination" aria-label="Paginación de candidatos">
+                @if($recommendationPage > 1)
+                    <a class="secondary-button" href="{{ route('reports.stock.index', array_merge(request()->query(), ['section'=>'recommendations','recommendation_page'=>$recommendationPage-1])) }}">← Anterior</a>
+                @endif
+                <span>Página {{ $recommendationPage }} de {{ $recommendationPages }}</span>
+                @if($recommendationPage < $recommendationPages)
+                    <a class="secondary-button" href="{{ route('reports.stock.index', array_merge(request()->query(), ['section'=>'recommendations','recommendation_page'=>$recommendationPage+1])) }}">Siguiente →</a>
+                @endif
+            </nav>
+        @endif
     </article>
 </section>

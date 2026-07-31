@@ -23,11 +23,28 @@ class SalesforceSignedSaleSyncService
             if (blank(data_get($record, 'Id'))) {
                 continue;
             }
+            $onlyFinanced = (bool) data_get(
+                $record,
+                'OPP_BUS_Vehiculo_de_interes__r.Solo_financiado__c',
+                false,
+            );
+            $normalSalePrice = data_get(
+                $record,
+                'OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_venta__c',
+            );
+            $financedSalePrice = data_get(
+                $record,
+                'OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_venta_financiado__c',
+            );
+            $effectiveSalePrice = $onlyFinanced
+                ? ($financedSalePrice ?? $normalSalePrice)
+                : $normalSalePrice;
 
             SalesforceOpportunity::updateOrCreate(
                 ['salesforce_id' => data_get($record, 'Id')],
                 [
                     'name' => data_get($record, 'Name'),
+                    'stage_name' => data_get($record, 'StageName'),
                     'record_type_name' => data_get($record, 'RecordType.Name'),
                     'delivery_store' => data_get($record, 'Tienda_de_entrega__c'),
                     'garantia_total' => data_get($record, 'Garant_a_Total__c'),
@@ -46,14 +63,16 @@ class SalesforceSignedSaleSyncService
                     'contract_vehicle_sale_amount' => data_get($record, 'OPO_FOR_Importe_vehiculo_venta__c'),
                     'plan_auto_plus_amount' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.Plan_Auto_Plus__c'),
                     'cae_amount' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.CAE__c'),
-                    'vehicle_sale_price' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_venta__c'),
+                    'vehicle_sale_price' => $effectiveSalePrice,
+                    'financed_vehicle_sale_price' => $financedSalePrice,
+                    'vehicle_only_financed' => $onlyFinanced,
                     'vehicle_purchase_price' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_compra__c'),
                     'vehicle_plate' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.PRO_TEX_Matricula__c'),
                     'vehicle_entry_date' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.PRO_FEC_Fecha_entrada__c'),
                     'vehicle_purchase_source' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.Procedencia_de_compra__c'),
                     'vehicle_buyer_id' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.Comprador_oportunidad__c'),
                     'vehicle_buyer_name' => data_get($record, 'OPP_BUS_Vehiculo_de_interes__r.Comprador_oportunidad__r.Name'),
-                    'cv_signed' => true,
+                    'cv_signed' => (bool) data_get($record, 'OPO_CAS_Contrato_CV_firmado__c', false),
                     'cv_signed_date' => data_get($record, 'Fecha_firma_contrato__c'),
                     'raw_payload' => $record,
                 ],
@@ -110,6 +129,8 @@ class SalesforceSignedSaleSyncService
 SELECT
     Id,
     Name,
+    StageName,
+    LastModifiedDate,
     RecordType.Name,
     OPO_CAS_Contrato_CV_firmado__c,
     Fecha_firma_contrato__c,
@@ -123,6 +144,8 @@ SELECT
     OPP_BUS_Vehiculo_de_interes__r.PRO_SEL_Carroceria__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_NUM_Kilometraje__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_venta__c,
+    OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_venta_financiado__c,
+    OPP_BUS_Vehiculo_de_interes__r.Solo_financiado__c,
     OPP_BUS_Vehiculo_de_interes__r.PRO_DIV_Precio_de_compra__c,
     OPP_BUS_Vehiculo_de_interes__r.Plan_Auto_Plus__c,
     OPP_BUS_Vehiculo_de_interes__r.CAE__c,
@@ -145,11 +168,14 @@ SELECT
     OPO_FOR_Importe_total__c
 FROM Opportunity
 WHERE IsDeleted = false
-    AND OPO_CAS_Contrato_CV_firmado__c = true
     AND RecordType.Name IN ('Venta', 'Cambio')
     AND (
-        (Fecha_firma_contrato__c >= {$startDate} AND Fecha_firma_contrato__c < {$endDate})
-        OR (Fecha_firma_contrato__c = null AND LastModifiedDate >= {$startDateTime})
+        (
+            OPO_CAS_Contrato_CV_firmado__c = true
+            AND Fecha_firma_contrato__c >= {$startDate}
+            AND Fecha_firma_contrato__c < {$endDate}
+        )
+        OR LastModifiedDate >= {$startDateTime}
     )
 SOQL;
     }

@@ -9,8 +9,19 @@ use Illuminate\Support\Str;
 
 class StockRecommendationService
 {
+    private array $keyCache = [];
+
+    private array $priceBandCache = [];
+
+    private array $recommendationCache = [];
+
+    public function __construct(
+        private readonly StockCatalogNormalizer $catalogNormalizer,
+    ) {}
+
     public function prepare(Collection $stock, Collection $sales, Collection $delegations): array
     {
+        $this->recommendationCache = [];
         $stockStats = [];
         foreach ($stock as $vehicle) {
             $delegationId = (int) ($vehicle->stock_delegation_id ?? 0);
@@ -20,6 +31,9 @@ class StockRecommendationService
             $stats = &$stockStats[$delegationId];
             $stats ??= ['total' => 0, 'model' => [], 'old_model' => [], 'similar' => []];
             $stats['total']++;
+            if (! $this->catalogNormalizer->isOperationalVehicle($vehicle)) {
+                continue;
+            }
             $model = $this->key($vehicle->model);
             $similar = $this->similarKey($vehicle);
             $stats['model'][$model] = ($stats['model'][$model] ?? 0) + ($model !== '' ? 1 : 0);
@@ -60,8 +74,26 @@ class StockRecommendationService
             }
         }
 
+        $excludedDestinations = array_map(
+            fn ($value): string => $this->key($value),
+            config('stock.excluded_destination_keys', []),
+        );
+        $eligibleDelegations = $delegations->filter(function (StockDelegation $delegation) use ($excludedDestinations, $stockStats): bool {
+            if (
+                ! $delegation->is_commercial
+                || $delegation->capacity_total === null
+                || (int) $delegation->capacity_total <= 0
+                || in_array($this->key($delegation->canonical_name), $excludedDestinations, true)
+            ) {
+                return false;
+            }
+
+            return (int) $delegation->capacity_total - (int) ($stockStats[$delegation->id]['total'] ?? 0) > 0;
+        })->values();
+
         return [
             'delegations' => $delegations->keyBy('id'),
+            'eligible_delegations' => $eligibleDelegations,
             'stock' => $stockStats,
             'sales' => $saleStats,
             'weights' => config('stock.recommendation_weights'),
@@ -70,36 +102,33 @@ class StockRecommendationService
 
     public function recommend(SalesforceVehicle $vehicle, array $context, bool $excludeCurrent = true): array
     {
+        $vehicleKeys = $this->vehicleKeys($vehicle);
+        $cacheKey = $vehicleKeys['signature'].'|'.($excludeCurrent ? (int) $vehicle->stock_delegation_id : 0);
+        if (array_key_exists($cacheKey, $this->recommendationCache)) {
+            return $this->recommendationCache[$cacheKey];
+        }
+
         $rows = [];
-        foreach ($context['delegations'] as $delegation) {
-            if (! $delegation->is_commercial || $delegation->capacity_total === null) {
-                continue;
-            }
+        foreach ($context['eligible_delegations'] as $delegation) {
             if ($excludeCurrent && (int) $vehicle->stock_delegation_id === (int) $delegation->id) {
                 continue;
             }
-            $profile = $this->profile($vehicle, $delegation, $context);
-            if ($profile['free_capacity'] <= 0) {
-                continue;
-            }
-            $rows[] = $profile;
+            $rows[] = $this->profile($vehicleKeys, $delegation, $context);
         }
 
-        return collect($rows)
-            ->sortByDesc('score')
-            ->take(3)
-            ->values()
-            ->all();
+        usort($rows, fn (array $left, array $right): int => $right['score'] <=> $left['score']);
+
+        return $this->recommendationCache[$cacheKey] = array_slice($rows, 0, 3);
     }
 
     public function currentProfile(SalesforceVehicle $vehicle, array $context): ?array
     {
         $delegation = $context['delegations']->get($vehicle->stock_delegation_id);
 
-        return $delegation ? $this->profile($vehicle, $delegation, $context) : null;
+        return $delegation ? $this->profile($this->vehicleKeys($vehicle), $delegation, $context) : null;
     }
 
-    private function profile(SalesforceVehicle $vehicle, StockDelegation $delegation, array $context): array
+    private function profile(array $vehicleKeys, StockDelegation $delegation, array $context): array
     {
         $weights = $context['weights'];
         $stock = $context['stock'][$delegation->id] ?? ['total' => 0, 'model' => [], 'old_model' => [], 'similar' => []];
@@ -107,13 +136,13 @@ class StockRecommendationService
             'total' => 0, 'model' => [], 'brand' => [], 'segment' => [], 'fuel' => [], 'band' => [],
             'rotation_sum' => [], 'rotation_count' => [],
         ];
-        $modelKey = $this->key($vehicle->model);
-        $brandKey = $this->key($vehicle->brand);
-        $segmentKey = $this->key($vehicle->segment);
-        $fuelKey = $this->key($vehicle->fuel);
-        $band = $this->priceBand($vehicle->sale_price);
-        $bandKey = $this->key($band);
-        $similarKey = $this->similarKey($vehicle);
+        $modelKey = $vehicleKeys['model'];
+        $brandKey = $vehicleKeys['brand'];
+        $segmentKey = $vehicleKeys['segment'];
+        $fuelKey = $vehicleKeys['fuel'];
+        $band = $vehicleKeys['band'];
+        $bandKey = $vehicleKeys['band_key'];
+        $similarKey = $vehicleKeys['similar'];
         $modelSales = $sales['model'][$modelKey] ?? 0;
         $brandSales = $sales['brand'][$brandKey] ?? 0;
         $segmentSales = $sales['segment'][$segmentKey] ?? 0;
@@ -146,7 +175,7 @@ class StockRecommendationService
         }
 
         $reasons = [];
-        $reasons[] = "{$modelSales} ".trim(($vehicle->brand ?? '').' '.($vehicle->model ?? 'modelo'))." vendidos en 120 días";
+        $reasons[] = "{$modelSales} {$vehicleKeys['label']} vendidos en 120 días";
         $reasons[] = $averageRotation !== null
             ? "Rotación media del modelo: {$averageRotation} días"
             : 'Sin rotación histórica suficiente del modelo';
@@ -182,13 +211,17 @@ class StockRecommendationService
 
     public function priceBand(mixed $price): string
     {
+        $cacheKey = is_scalar($price) || $price === null ? (string) $price : serialize($price);
+        if (array_key_exists($cacheKey, $this->priceBandCache)) {
+            return $this->priceBandCache[$cacheKey];
+        }
         if (! is_numeric($price) || (float) $price < 0) {
-            return 'Sin precio';
+            return $this->priceBandCache[$cacheKey] = 'Sin precio';
         }
         $lower = (int) floor((float) $price / 5000) * 5000;
         $upper = $lower + 5000;
 
-        return number_format($lower, 0, '.', '.').'–'.number_format($upper, 0, '.', '.').' €';
+        return $this->priceBandCache[$cacheKey] = number_format($lower, 0, '.', '.').'–'.number_format($upper, 0, '.', '.').' €';
     }
 
     public function mileageBand(mixed $mileage): string
@@ -228,7 +261,32 @@ class StockRecommendationService
 
     public function key(mixed $value): string
     {
-        return Str::of((string) $value)->lower()->ascii()->squish()->toString();
+        $raw = (string) $value;
+        if (array_key_exists($raw, $this->keyCache)) {
+            return $this->keyCache[$raw];
+        }
+
+        return $this->keyCache[$raw] = Str::of($raw)->lower()->ascii()->squish()->toString();
+    }
+
+    private function vehicleKeys(object $vehicle): array
+    {
+        $band = $this->priceBand($vehicle->sale_price ?? null);
+        $keys = [
+            'model' => $this->key($vehicle->model ?? null),
+            'brand' => $this->key($vehicle->brand ?? null),
+            'segment' => $this->key($vehicle->segment ?? null),
+            'fuel' => $this->key($vehicle->fuel ?? null),
+            'band' => $band,
+            'band_key' => $this->key($band),
+            'label' => trim(($vehicle->brand ?? '').' '.($vehicle->model ?? 'modelo')),
+        ];
+        $keys['similar'] = implode('|', [$keys['segment'], $keys['fuel'], $keys['band_key']]);
+        $keys['signature'] = implode('|', [
+            $keys['model'], $keys['brand'], $keys['segment'], $keys['fuel'], $keys['band_key'], $keys['label'],
+        ]);
+
+        return $keys;
     }
 
     private function similarKey(object $vehicle): string

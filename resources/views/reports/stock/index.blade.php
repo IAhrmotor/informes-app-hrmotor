@@ -30,7 +30,7 @@
                 <p class="sub">Situación actual, rendimiento por tienda, rotación y recomendaciones logísticas explicadas.</p>
             </div>
             <div class="stock-title-meta">
-                <span>{{ number_format($saleSnapshotsCount, 0, ',', '.') }} ventas congeladas</span>
+                <span>{{ number_format($saleSnapshotsCount, 0, ',', '.') }} snapshots económicos</span>
                 <span>{{ $stockHistory['days'] }} fotografías diarias</span>
                 @if ($summary['sales_stock_approximate'])
                     <span class="stock-warning-pill">Ventas/stock: aproximación</span>

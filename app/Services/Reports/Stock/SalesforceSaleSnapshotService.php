@@ -69,6 +69,9 @@ class SalesforceSaleSnapshotService
             [
                 'opportunity_name' => $opportunity->name,
                 'record_type' => $opportunity->record_type_name,
+                'current_stage_name' => $opportunity->stage_name,
+                'is_valid' => false,
+                'invalid_reason' => 'pending_validation',
                 'signed_date' => $signedDate?->toDateString(),
                 'delivery_store' => $opportunity->delivery_store,
                 'stock_delegation_id' => $deliveryDelegation?->id,
@@ -86,7 +89,7 @@ class SalesforceSaleSnapshotService
                 'rotation_days' => $signedDate && $entryDate && $entryDate->lessThanOrEqualTo($signedDate)
                     ? (int) $entryDate->diffInDays($signedDate)
                     : null,
-                'sale_price' => $opportunity->contract_vehicle_sale_amount,
+                'sale_price' => $opportunity->contract_vehicle_sale_amount ?? $opportunity->vehicle_sale_price,
                 'purchase_price' => $opportunity->vehicle_purchase_price,
                 'trade_in_vehicle_salesforce_id' => $opportunity->appraised_vehicle_id,
                 'trade_in_vehicle_plate' => $opportunity->appraised_vehicle_plate,

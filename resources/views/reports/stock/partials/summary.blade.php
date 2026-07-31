@@ -136,6 +136,14 @@
                 ['Ventas sin tienda de entrega', $quality['sales_missing_delivery_store']],
                 ['Ventas sin fecha de entrada', $quality['sales_missing_entry_date']],
                 ['Ventas sin precio contractual', $quality['sales_missing_price']],
+                ['Fecha de firma sin contrato firmado', $quality['signed_date_without_contract']],
+                ['Contrato firmado en Cerrada perdida', $quality['signed_closed_lost']],
+                ['Ventas válidas duplicadas por vehículo', $quality['duplicate_valid_vehicle']],
+                ['Contratos firmados en fases inesperadas', $quality['signed_unexpected_stage']],
+                ['Vehículos con fecha de entrada futura', $quality['future_entry_date']],
+                ['Tiendas sin capacidad válida', $quality['stores_without_capacity']],
+                ['Valores de catálogo duplicados o sin normalizar', $quality['catalog_duplicates']],
+                ['Vehículos con valores de prueba, formación o fuera de stock', $quality['non_operational_catalog_values']],
             ] as [$label, $value])
                 <article>
                     <span>{{ $label }}</span>

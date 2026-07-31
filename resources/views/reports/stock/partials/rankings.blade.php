@@ -23,7 +23,13 @@
                                 <td>{{ $row['stock'] }}</td>
                                 <td>{{ $row['rotation'] !== null ? number_format($row['rotation'],1,',','.').' d' : '—' }}</td>
                                 <td>{{ $row['age'] !== null ? number_format($row['age'],1,',','.').' d' : '—' }}</td>
-                                <td><span class="stock-tag">{{ number_format($row['performance'],2,',','.') }}</span></td>
+                                <td>
+                                    @if($row['performance'] !== null)
+                                        <span class="stock-tag">{{ number_format($row['performance'],2,',','.') }}</span>
+                                    @else
+                                        <span class="stock-tag warning">{{ $row['demand_without_stock'] ? 'Demanda sin stock' : 'Sin stock' }}</span>
+                                    @endif
+                                </td>
                             </tr>
                         @empty
                             <tr><td colspan="6">Sin datos suficientes.</td></tr>

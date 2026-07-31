@@ -8,6 +8,7 @@ use App\Services\Reports\Stock\SalesforceSignedSaleSyncService;
 use App\Services\Reports\Stock\SalesforceVehicleSyncService;
 use App\Services\Reports\Stock\StockAvailabilityAlertService;
 use App\Services\Reports\Stock\StockDailySnapshotService;
+use App\Services\Reports\Stock\StockSaleValidityService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -34,6 +35,7 @@ class SyncStockAnalysisCommand extends Command
         SalesforceSaleSnapshotService $saleSnapshots,
         SalesforceLogisticsSyncService $logistics,
         StockAvailabilityAlertService $availabilityAlerts,
+        StockSaleValidityService $saleValidity,
     ): int {
         $lock = Cache::lock('stock-analysis-daily-sync', 7200);
         if (! $lock->get()) {
@@ -63,6 +65,11 @@ class SyncStockAnalysisCommand extends Command
 
             $newSales = $saleSnapshots->captureNew();
             $this->line("Nuevas ventas congeladas: {$newSales}");
+            $validity = $saleValidity->reconcile();
+            $this->line(
+                "Validez de ventas: {$validity['valid']} válidas, {$validity['invalid']} invalidadas, "
+                ."{$validity['duplicates']} snapshots con vehículo duplicado.",
+            );
 
             if (! $this->option('skip-logistics')) {
                 $days = max((int) $this->option('logistics-days'), 1);

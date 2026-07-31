@@ -31,6 +31,9 @@ class SalesforceSaleSnapshot extends Model
         'quality_issues' => 'array',
         'source_payload' => 'array',
         'captured_at' => 'datetime',
+        'is_valid' => 'boolean',
+        'validity_checked_at' => 'datetime',
+        'invalidated_at' => 'datetime',
     ];
 
     public function delegation(): BelongsTo

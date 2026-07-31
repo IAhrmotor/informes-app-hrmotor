@@ -15,6 +15,7 @@ class StockDashboardDatasetService
     public function __construct(
         private readonly StockRecommendationService $recommendations,
         private readonly StockDelegationNormalizer $delegationNormalizer,
+        private readonly StockCatalogNormalizer $catalogNormalizer,
     ) {}
 
     public function build(array $input, string $section = 'summary'): array
@@ -42,6 +43,7 @@ class StockDashboardDatasetService
                 'plan_auto_plus_amount', 'cae_amount', 'discount_amount', 'total_amount',
             ])
             ->with('delegation')
+            ->where('is_valid', true)
             ->whereBetween('signed_date', [$filters['date_from'], $filters['date_to']])
             ->get();
         $delegations = StockDelegation::query()->orderBy('canonical_name')->get()
@@ -51,6 +53,12 @@ class StockDashboardDatasetService
             ));
         $stock = $this->filterStock($allStock, $filters, $today);
         $sales = $this->filterSales($allSales, $filters);
+        $operationalStock = $stock
+            ->filter(fn (SalesforceVehicle $vehicle): bool => $this->catalogNormalizer->isOperationalVehicle($vehicle))
+            ->values();
+        $operationalSales = $sales
+            ->filter(fn (SalesforceSaleSnapshot $sale): bool => $this->catalogNormalizer->isOperationalVehicle($sale, true))
+            ->values();
         $ages = $stock->map(fn (SalesforceVehicle $vehicle) => $this->age($vehicle, $today))->filter(fn ($age) => $age !== null);
         $rotations = $sales->pluck('rotation_days')->filter(fn ($days) => $days !== null);
         $purchaseValue = (float) $stock->sum(fn ($vehicle) => (float) ($vehicle->purchase_price ?? 0));
@@ -64,6 +72,10 @@ class StockDashboardDatasetService
 
         $detailRows = collect();
         $recommendationRows = collect();
+        $recommendationTotal = 0;
+        $recommendationDisplayed = 0;
+        $recommendationPage = 1;
+        $recommendationPages = 1;
         $newVehicleRecommendations = null;
         if (in_array($section, ['recommendations', 'vehicles'], true)) {
             $recommendationSales = SalesforceSaleSnapshot::query()
@@ -71,33 +83,60 @@ class StockDashboardDatasetService
                     'id', 'signed_date', 'stock_delegation_id', 'rotation_days', 'sale_price',
                     'vehicle_brand', 'vehicle_model', 'vehicle_segment', 'vehicle_fuel',
                 ])
+                ->where('is_valid', true)
                 ->where('signed_date', '>=', $today->subDays(120)->toDateString())
-                ->get();
+                ->get()
+                ->filter(fn (SalesforceSaleSnapshot $sale): bool => $this->catalogNormalizer->isOperationalVehicle($sale, true))
+                ->values();
             $recommendationContext = $this->recommendations->prepare($allStock, $recommendationSales, $delegations);
             $sameModelCounts = $allStock
                 ->groupBy(fn (SalesforceVehicle $vehicle) => $vehicle->stock_delegation_id.'|'.$this->recommendations->key($vehicle->model))
                 ->map->count();
-            $detailRows = $stock
-                ->sortByDesc(fn (SalesforceVehicle $vehicle) => $this->age($vehicle, $today) ?? -1)
-                ->take(250)
-                ->map(fn (SalesforceVehicle $vehicle) => $this->vehicleRow($vehicle, $recommendationContext, $sameModelCounts, $today))
-                ->values();
-            $recommendationRows = $detailRows
-                ->where('state', 'Disponible')
-                ->filter(fn (array $row) => $row['review_level'] !== 'normal' || $row['recommendations'] !== [])
-                ->sortByDesc(fn (array $row) => match ($row['review_level']) {
-                    'priority' => 2,
-                    'review' => 1,
-                    default => 0,
-                })
-                ->take(150)
-                ->values();
+            if ($section === 'vehicles') {
+                $detailRows = $stock
+                    ->sortByDesc(fn (SalesforceVehicle $vehicle) => $this->age($vehicle, $today) ?? -1)
+                    ->take((int) config('stock.vehicle_detail_limit', 250))
+                    ->map(fn (SalesforceVehicle $vehicle) => $this->vehicleRow($vehicle, $recommendationContext, $sameModelCounts, $today))
+                    ->values();
+            }
+            if ($section === 'recommendations') {
+                $allCandidates = $operationalStock
+                    ->where('state', 'Disponible')
+                    ->map(fn (SalesforceVehicle $vehicle) => $this->vehicleRow($vehicle, $recommendationContext, $sameModelCounts, $today))
+                    ->filter(fn (array $row): bool => $row['review_level'] !== 'normal')
+                    ->sort(function (array $left, array $right): int {
+                        $priority = ['priority' => 2, 'review' => 1, 'normal' => 0];
+
+                        return [
+                            $priority[$right['review_level']] ?? 0,
+                            $right['days'] ?? -1,
+                        ] <=> [
+                            $priority[$left['review_level']] ?? 0,
+                            $left['days'] ?? -1,
+                        ];
+                    })
+                    ->values();
+                $recommendationTotal = $allCandidates->count();
+                $perPage = max((int) config('stock.recommendation_page_size', 150), 1);
+                $recommendationPages = max((int) ceil($recommendationTotal / $perPage), 1);
+                $recommendationPage = min(
+                    max((int) ($input['recommendation_page'] ?? 1), 1),
+                    $recommendationPages,
+                );
+                $recommendationRows = $allCandidates
+                    ->forPage($recommendationPage, $perPage)
+                    ->values();
+                $recommendationDisplayed = $recommendationRows->count();
+            }
             $newVehicleRecommendations = $this->newVehicleRecommendations($input, $recommendationContext);
         }
 
         return [
             'filters' => $filters,
-            'filterOptions' => $this->filterOptions($allStock, $delegations),
+            'filterOptions' => $this->filterOptions(
+                $allStock->filter(fn (SalesforceVehicle $vehicle): bool => $this->catalogNormalizer->isOperationalVehicle($vehicle))->values(),
+                $delegations,
+            ),
             'summary' => [
                 'total' => $stock->count(),
                 'available' => $currentAvailable,
@@ -122,12 +161,16 @@ class StockDashboardDatasetService
             'delegationRows' => in_array($section, ['summary', 'delegations'], true) ? $this->delegationRows($stock, $sales, $delegations, $today) : collect(),
             'salesRows' => $section === 'sales' ? $this->salesRows($sales) : collect(),
             'salesTotal' => $sales->count(),
-            'distributions' => in_array($section, ['summary', 'delegations'], true) ? $this->distributions($stock) : [],
-            'rankings' => $section === 'rankings' ? $this->rankings($stock, $sales, $today) : [],
+            'distributions' => in_array($section, ['summary', 'delegations'], true) ? $this->distributions($operationalStock) : [],
+            'rankings' => $section === 'rankings' ? $this->rankings($operationalStock, $operationalSales, $today) : [],
             'detailRows' => $detailRows,
             'detailTotal' => $stock->count(),
             'recommendationRows' => $recommendationRows,
-            'recommendationTotal' => $stock->where('state', 'Disponible')->count(),
+            'recommendationTotal' => $recommendationTotal,
+            'recommendationDisplayed' => $recommendationDisplayed,
+            'recommendationPage' => $recommendationPage,
+            'recommendationPages' => $recommendationPages,
+            'recommendationAvailableTotal' => $stock->where('state', 'Disponible')->count(),
             'newVehicleRecommendations' => $newVehicleRecommendations,
         ];
     }
@@ -289,8 +332,17 @@ class StockDashboardDatasetService
 
     private function distribution(Collection $items, callable $resolver): array
     {
-        return $items->groupBy(fn ($item) => filled($resolver($item)) ? (string) $resolver($item) : 'Sin dato')
-            ->map(fn (Collection $rows, string $label) => ['label' => $label, 'value' => $rows->count()])
+        return $items
+            ->groupBy(function ($item) use ($resolver): string {
+                $key = $this->catalogNormalizer->key($resolver($item));
+
+                return $key !== '' ? $key : '__sin_dato__';
+            })
+            ->map(function (Collection $rows) use ($resolver): array {
+                $label = $this->catalogNormalizer->display($resolver($rows->first())) ?? 'Sin dato';
+
+                return ['label' => $label, 'value' => $rows->count()];
+            })
             ->sortByDesc('value')
             ->take(10)
             ->values()
@@ -312,27 +364,48 @@ class StockDashboardDatasetService
         ];
         $result = [];
         foreach ($dimensions as $key => [$label, $resolver]) {
-            $saleGroups = $sales->groupBy(fn ($item) => filled($resolver($item, true)) ? (string) $resolver($item, true) : 'Sin dato');
-            $stockGroups = $stock->groupBy(fn ($item) => filled($resolver($item, false)) ? (string) $resolver($item, false) : 'Sin dato');
-            $rows = collect($saleGroups->keys())->merge($stockGroups->keys())->unique()->map(function (string $value) use ($saleGroups, $stockGroups): array {
+            $saleGroups = $sales->groupBy(function ($item) use ($resolver): string {
+                $normalized = $this->catalogNormalizer->key($resolver($item, true));
+
+                return $normalized !== '' ? $normalized : '__sin_dato__';
+            });
+            $stockGroups = $stock->groupBy(function ($item) use ($resolver): string {
+                $normalized = $this->catalogNormalizer->key($resolver($item, false));
+
+                return $normalized !== '' ? $normalized : '__sin_dato__';
+            });
+            $rows = collect($saleGroups->keys())->merge($stockGroups->keys())->unique()->map(function (string $value) use ($saleGroups, $stockGroups, $resolver): array {
                 $sold = $saleGroups->get($value, collect());
                 $current = $stockGroups->get($value, collect());
                 $rotations = $sold->pluck('rotation_days')->filter(fn ($days) => $days !== null);
                 $ages = $current->map(fn ($vehicle) => $this->age($vehicle, CarbonImmutable::today(config('app.timezone'))))->filter(fn ($age) => $age !== null);
                 $salesCount = $sold->count();
                 $stockCount = $current->count();
-                $performance = $stockCount > 0 ? $salesCount / $stockCount : ($salesCount > 0 ? $salesCount : 0);
+                $performance = $stockCount > 0 ? $salesCount / $stockCount : null;
+                $sample = $sold->first() ?? $current->first();
+                $display = $sample
+                    ? $this->catalogNormalizer->display($resolver($sample, $sold->isNotEmpty()))
+                    : null;
 
                 return [
-                    'label' => $value,
+                    'label' => $display ?? 'Sin dato',
                     'sales' => $salesCount,
                     'stock' => $stockCount,
                     'rotation' => $rotations->isNotEmpty() ? round($rotations->average(), 1) : null,
                     'age' => $ages->isNotEmpty() ? round($ages->average(), 1) : null,
-                    'performance' => round($performance, 2),
+                    'performance' => $performance !== null ? round($performance, 2) : null,
+                    'demand_without_stock' => $stockCount === 0 && $salesCount > 0,
                 ];
             })->sort(function (array $left, array $right): int {
-                return [$right['performance'], $right['sales']] <=> [$left['performance'], $left['sales']];
+                return [
+                    $right['performance'] !== null ? 1 : 0,
+                    $right['performance'] ?? -1,
+                    $right['sales'],
+                ] <=> [
+                    $left['performance'] !== null ? 1 : 0,
+                    $left['performance'] ?? -1,
+                    $left['sales'],
+                ];
             })->take((int) config('stock.ranking_limit', 10))->values();
             $result[$key] = ['label' => $label, 'rows' => $rows];
         }
@@ -402,7 +475,8 @@ class StockDashboardDatasetService
         if ($sameModel >= (int) config('stock.duplicate_model_priority', 3)) {
             $reviewLevel = 'priority';
         }
-        $recommendations = $vehicle->state === 'Disponible'
+        $isOperational = $this->catalogNormalizer->isOperationalVehicle($vehicle);
+        $recommendations = $vehicle->state === 'Disponible' && $isOperational
             ? $this->recommendations->recommend($vehicle, $context)
             : [];
         $currentProfile = $this->recommendations->currentProfile($vehicle, $context);
@@ -441,6 +515,7 @@ class StockDashboardDatasetService
             'review_level' => $reviewLevel,
             'recommendations' => $recommendations,
             'current_profile' => $currentProfile,
+            'is_operational' => $isOperational,
         ];
     }
 
@@ -465,7 +540,14 @@ class StockDashboardDatasetService
 
     private function filterOptions(Collection $stock, Collection $delegations): array
     {
-        $option = fn (string $field) => $stock->pluck($field)->filter()->unique()->sort()->values();
+        $option = fn (string $field) => $stock
+            ->pluck($field)
+            ->filter()
+            ->groupBy(fn ($value): string => $this->catalogNormalizer->key($value))
+            ->map(fn (Collection $values) => $this->catalogNormalizer->display($values->first()))
+            ->filter()
+            ->sort()
+            ->values();
 
         return [
             'delegations' => $delegations->where('is_commercial', true)->pluck('canonical_name')->filter()->sort()->values(),

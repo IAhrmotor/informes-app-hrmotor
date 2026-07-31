@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Reports\Stock;
 
 use App\Http\Controllers\Controller;
+use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceSaleSnapshot;
 use App\Models\SalesforceVehicle;
 use App\Models\StockDailySnapshot;
 use App\Models\StockDelegation;
 use App\Services\Reports\Stock\StockDashboardDatasetService;
+use App\Services\Reports\Stock\StockCatalogNormalizer;
 use App\Services\Reports\Stock\StockDelegationNormalizer;
 use App\Support\ReportUserAccess;
 use App\Support\SimpleXlsxWorkbookWriter;
@@ -15,6 +17,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class StockDashboardController extends Controller
@@ -23,6 +26,7 @@ class StockDashboardController extends Controller
         Request $request,
         StockDelegationNormalizer $normalizer,
         StockDashboardDatasetService $datasetService,
+        StockCatalogNormalizer $catalogNormalizer,
     ): View
     {
         $capacityDelegations = StockDelegation::query()
@@ -46,6 +50,9 @@ class StockDashboardController extends Controller
         }
         $activeTab = in_array($activeTab, $allowedTabs, true) ? $activeTab : 'summary';
         $dataset = $datasetService->build($request->query(), $activeTab);
+        $qualityVehicles = SalesforceVehicle::query()->where('is_in_stock', true)->get();
+        $catalogDuplicates = $catalogNormalizer->duplicateGroups($qualityVehicles);
+        $excludedCatalogVehicles = $catalogNormalizer->excludedVehicles($qualityVehicles);
         return view('reports.stock.index', [
             ...$dataset,
             'reportUserRole' => ReportUserAccess::role($request),
@@ -63,7 +70,7 @@ class StockDashboardController extends Controller
                 'stock_missing_fuel' => SalesforceVehicle::query()->where('is_in_stock', true)->whereNull('fuel')->count(),
                 'stock_delivered' => SalesforceVehicle::query()
                     ->where('is_in_stock', true)
-                    ->whereIn('salesforce_id', SalesforceSaleSnapshot::query()->select('vehicle_salesforce_id'))
+                    ->whereIn('salesforce_id', SalesforceSaleSnapshot::query()->where('is_valid', true)->select('vehicle_salesforce_id'))
                     ->count(),
                 'stock_commercial_without_zone' => SalesforceVehicle::query()
                     ->where('is_in_stock', true)
@@ -73,15 +80,44 @@ class StockDashboardController extends Controller
                 'sales_missing_delivery_store' => SalesforceSaleSnapshot::query()->whereNull('delivery_store')->count(),
                 'sales_missing_entry_date' => SalesforceSaleSnapshot::query()->whereNull('vehicle_entry_date')->count(),
                 'sales_missing_price' => SalesforceSaleSnapshot::query()->whereNull('sale_price')->count(),
+                'signed_date_without_contract' => SalesforceOpportunity::query()
+                    ->whereNotNull('cv_signed_date')
+                    ->where('cv_signed', false)
+                    ->count(),
+                'signed_closed_lost' => SalesforceOpportunity::query()
+                    ->where('cv_signed', true)
+                    ->whereRaw('LOWER(stage_name) = ?', ['cerrada perdida'])
+                    ->count(),
+                'duplicate_valid_vehicle' => SalesforceSaleSnapshot::query()
+                    ->where('invalid_reason', 'duplicate_valid_vehicle')
+                    ->whereNotNull('vehicle_salesforce_id')
+                    ->distinct()
+                    ->count('vehicle_salesforce_id'),
+                'signed_unexpected_stage' => $this->unexpectedSignedStageQuery()->count(),
+                'future_entry_date' => SalesforceVehicle::query()
+                    ->where('is_in_stock', true)
+                    ->whereDate('entry_date', '>', today(config('app.timezone')))
+                    ->count(),
+                'stores_without_capacity' => StockDelegation::query()
+                    ->where('is_commercial', true)
+                    ->where(fn ($query) => $query->whereNull('capacity_total')->orWhere('capacity_total', '<=', 0))
+                    ->count(),
+                'catalog_duplicates' => $catalogDuplicates->count(),
+                'non_operational_catalog_values' => $excludedCatalogVehicles->count(),
             ],
         ]);
     }
 
-    public function exportQualityXlsx(Request $request, SimpleXlsxWorkbookWriter $workbookWriter)
+    public function exportQualityXlsx(
+        Request $request,
+        SimpleXlsxWorkbookWriter $workbookWriter,
+        StockCatalogNormalizer $catalogNormalizer,
+    )
     {
         try {
             $vehicles = SalesforceVehicle::query()->where('is_in_stock', true);
             $sales = SalesforceSaleSnapshot::query();
+            $allVehicles = $vehicles->clone()->get();
             $path = $workbookWriter->write([
                 $this->vehicleQualitySheet('Stock sin entrada', $vehicles->clone()->whereNull('entry_date')->get()),
                 $this->vehicleQualitySheet('Stock sin delegacion', $vehicles->clone()->whereNull('stock_delegation_id')->get()),
@@ -90,13 +126,28 @@ class StockDashboardController extends Controller
                 $this->vehicleQualitySheet('Stock sin segmento', $vehicles->clone()->whereNull('segment')->get()),
                 $this->vehicleQualitySheet('Stock sin combustible', $vehicles->clone()->whereNull('fuel')->get()),
                 $this->vehicleQualitySheet('Entregados aun en stock', $vehicles->clone()
-                    ->whereIn('salesforce_id', SalesforceSaleSnapshot::query()->select('vehicle_salesforce_id'))->get()),
+                    ->whereIn('salesforce_id', SalesforceSaleSnapshot::query()->where('is_valid', true)->select('vehicle_salesforce_id'))->get()),
                 $this->vehicleQualitySheet('Tiendas sin zona', $vehicles->clone()
                     ->whereHas('delegation', fn ($query) => $query->where('is_commercial', true)->whereNull('zone'))->get()),
                 $this->saleQualitySheet('Ventas sin firma', $sales->clone()->whereNull('signed_date')->get()),
                 $this->saleQualitySheet('Ventas sin tienda', $sales->clone()->whereNull('delivery_store')->get()),
                 $this->saleQualitySheet('Ventas sin entrada', $sales->clone()->whereNull('vehicle_entry_date')->get()),
                 $this->saleQualitySheet('Ventas sin precio', $sales->clone()->whereNull('sale_price')->get()),
+                $this->opportunityQualitySheet('Firma sin contrato', SalesforceOpportunity::query()
+                    ->whereNotNull('cv_signed_date')->where('cv_signed', false)->get()),
+                $this->opportunityQualitySheet('Firmados cerrada perdida', SalesforceOpportunity::query()
+                    ->where('cv_signed', true)->whereRaw('LOWER(stage_name) = ?', ['cerrada perdida'])->get()),
+                $this->saleQualitySheet('Vehiculos venta duplicada', $sales->clone()
+                    ->where('invalid_reason', 'duplicate_valid_vehicle')->get()),
+                $this->opportunityQualitySheet('Fases inesperadas', $this->unexpectedSignedStageQuery()->get()),
+                $this->vehicleQualitySheet('Entradas futuras', $vehicles->clone()
+                    ->whereDate('entry_date', '>', today(config('app.timezone')))->get()),
+                $this->delegationQualitySheet('Tiendas sin capacidad', StockDelegation::query()
+                    ->where('is_commercial', true)
+                    ->where(fn ($query) => $query->whereNull('capacity_total')->orWhere('capacity_total', '<=', 0))
+                    ->get()),
+                $this->catalogDuplicateQualitySheet('Catalogos duplicados', $catalogNormalizer->duplicateGroups($allVehicles)),
+                $this->vehicleQualitySheet('Valores no operativos', $catalogNormalizer->excludedVehicles($allVehicles)),
             ]);
 
             return response()
@@ -156,5 +207,68 @@ class StockDashboardController extends Controller
                 $sale->sale_price,
             ])->all(),
         ];
+    }
+
+    private function opportunityQualitySheet(string $name, iterable $opportunities): array
+    {
+        return [
+            'name' => $name,
+            'headers' => ['ID Salesforce oportunidad', 'ID Salesforce vehiculo', 'Matricula', 'Oportunidad', 'Tipo', 'Fase', 'Contrato firmado', 'Fecha firma', 'Tienda entrega'],
+            'rows' => collect($opportunities)->map(fn (SalesforceOpportunity $opportunity): array => [
+                $opportunity->salesforce_id,
+                $opportunity->vehicle_interest_id,
+                $opportunity->vehicle_plate,
+                $opportunity->name,
+                $opportunity->record_type_name,
+                $opportunity->stage_name,
+                $opportunity->cv_signed ? 'Sí' : 'No',
+                $opportunity->cv_signed_date?->toDateString(),
+                $opportunity->delivery_store,
+            ])->all(),
+        ];
+    }
+
+    private function delegationQualitySheet(string $name, iterable $delegations): array
+    {
+        return [
+            'name' => $name,
+            'headers' => ['Delegación', 'Nombre Salesforce', 'Zona', 'Grupo', 'Capacidad'],
+            'rows' => collect($delegations)->map(fn (StockDelegation $delegation): array => [
+                $delegation->canonical_name,
+                $delegation->salesforce_name,
+                $delegation->zone,
+                $delegation->commercial_group,
+                $delegation->capacity_total,
+            ])->all(),
+        ];
+    }
+
+    private function catalogDuplicateQualitySheet(string $name, iterable $groups): array
+    {
+        return [
+            'name' => $name,
+            'headers' => ['Catálogo', 'Clave normalizada', 'Valores originales', 'IDs Salesforce de vehículos'],
+            'rows' => collect($groups)->map(fn (array $group): array => [
+                $group['dimension'],
+                $group['normalized_key'],
+                implode(' | ', $group['raw_values']),
+                implode(' | ', $group['vehicles']),
+            ])->all(),
+        ];
+    }
+
+    private function unexpectedSignedStageQuery()
+    {
+        $expected = collect(config('stock.expected_signed_stages', []))
+            ->map(fn ($stage): string => Str::of((string) $stage)->lower()->ascii()->squish()->toString())
+            ->values()
+            ->all();
+
+        return SalesforceOpportunity::query()
+            ->where('cv_signed', true)
+            ->where(function ($query) use ($expected): void {
+                $query->whereNull('stage_name')
+                    ->orWhereNotIn(\DB::raw('LOWER(stage_name)'), [...$expected, 'cerrada perdida']);
+            });
     }
 }

@@ -534,6 +534,20 @@
     margin-top: 18px;
 }
 
+.stock-pagination {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+.stock-pagination span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+}
+
 .stock-recommendation-card {
     background: #f8fafc;
     border: 1px solid #e4eaf1;

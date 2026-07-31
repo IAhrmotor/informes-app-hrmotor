@@ -209,7 +209,7 @@ class StockDashboardTest extends TestCase
         try {
             $this->assertTrue($zip->open($path) === true);
             $workbook = (string) $zip->getFromName('xl/workbook.xml');
-            $this->assertSame(12, substr_count($workbook, '<sheet '));
+            $this->assertSame(20, substr_count($workbook, '<sheet '));
             $this->assertStringContainsString('Stock sin entrada', $workbook);
             $this->assertStringContainsString('Ventas sin firma', $workbook);
             $this->assertStringContainsString('01t-quality', (string) $zip->getFromName('xl/worksheets/sheet1.xml'));
