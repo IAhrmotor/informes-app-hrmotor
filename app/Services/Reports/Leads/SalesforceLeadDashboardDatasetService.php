@@ -264,6 +264,7 @@ class SalesforceLeadDashboardDatasetService
                 'portal_text' => $lead['portal_text'] ?? null,
                 'portal_group' => $lead['grupo_portal'] ?? null,
                 'channel' => $lead['canal'] ?? null,
+                'lead_delegation_raw' => $lead['lead_delegation_raw'] ?? null,
                 'lead_delegation' => $lead['lead_delegation'] ?? null,
                 'lead_zone' => $lead['lead_zone'] ?? null,
                 'commercial_delegation' => $lead['commercial_delegation'] ?? null,

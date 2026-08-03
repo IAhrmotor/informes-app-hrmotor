@@ -15,8 +15,7 @@ class CampaignDashboardDataController extends Controller
 
     public function __construct(
         private readonly CampaignDashboardDatasetService $dataset,
-    ) {
-    }
+    ) {}
 
     public function summary(Request $request): JsonResponse
     {
@@ -41,9 +40,18 @@ class CampaignDashboardDataController extends Controller
 
     public function kpiAudit(Request $request): JsonResponse
     {
-        abort_unless(ReportUserAccess::canExport($request), 403);
+        abort_unless(ReportUserAccess::canAudit($request), 403);
 
         return $this->jsonResponse($this->dataset->kpiAudit($request));
+    }
+
+    public function attributionAudit(Request $request): JsonResponse
+    {
+        abort_unless(ReportUserAccess::canAudit($request), 403);
+
+        $items = $this->dataset->attributionAuditRows($request);
+
+        return $this->jsonResponse(['ok' => true, 'total' => count($items), 'items' => $items]);
     }
 
     public function exportCampaignsCsv(Request $request): StreamedResponse
@@ -139,7 +147,7 @@ class CampaignDashboardDataController extends Controller
 
     public function exportKpiAuditCsv(Request $request): StreamedResponse
     {
-        abort_unless(ReportUserAccess::canExport($request), 403);
+        abort_unless(ReportUserAccess::canAudit($request), 403);
 
         $payload = $this->dataset->kpiAudit($request);
         $rows = $payload['items'] ?? [];
@@ -238,6 +246,81 @@ class CampaignDashboardDataController extends Controller
 
             fclose($output);
         }, "campanas-auditoria-{$metric}.csv", [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    public function exportAttributionsCsv(Request $request): StreamedResponse
+    {
+        abort_unless(ReportUserAccess::canAudit($request), 403);
+
+        $rows = $this->dataset->attributionAuditRows($request);
+        $headers = [
+            'Attribution ID',
+            'Lead.Id',
+            'Campaña final',
+            'Campaña bruta Salesforce',
+            'Plataforma',
+            'ID anuncio usado',
+            'ID adset/ad group usado',
+            'ID campaña final',
+            'Id_Adquirido__c bruto',
+            'Contenido_Adquirido__c bruto',
+            'Tipo de match',
+            'Confianza del match',
+            'Estado del match',
+            'Origen de campaña',
+            'Tipo de campaña',
+            'RecordType Lead bruto',
+            'RecordType Lead normalizado',
+            'CreatedDate Lead',
+            'Opportunity relacionada',
+            'Atribución construida',
+            'Atribución actualizada',
+            'LastModifiedDate Lead',
+            'Lead synced_at',
+            'Lead eliminado',
+            'Campañas distintas para el Lead',
+            'Solapa otra campaña',
+        ];
+
+        return response()->streamDownload(function () use ($rows, $headers): void {
+            $output = fopen('php://output', 'w');
+            fputcsv($output, $headers);
+
+            foreach ($rows as $row) {
+                fputcsv($output, [
+                    $row['attribution_id'],
+                    $row['lead_id'],
+                    $row['resolved_campaign_name'],
+                    $row['raw_campaign_name'],
+                    $row['platform'],
+                    $row['ad_id'],
+                    $row['adset_or_adgroup_id'],
+                    $row['campaign_id'],
+                    $row['raw_acquired_id'],
+                    $row['raw_content_id'],
+                    $row['match_type'],
+                    $row['match_confidence'],
+                    $row['match_status'],
+                    $row['campaign_source_type'],
+                    $row['campaign_type'],
+                    $row['lead_record_type_raw'],
+                    $row['lead_record_type_normalized'],
+                    $row['lead_created_date'],
+                    $row['opportunity_id'],
+                    $row['attribution_built_at'],
+                    $row['attribution_updated_at'],
+                    $row['lead_last_modified_at'],
+                    $row['lead_synced_at'],
+                    $row['lead_is_deleted'] ? 'Sí' : 'No',
+                    $row['campaigns_for_lead'],
+                    $row['overlaps_another_campaign'] ? 'Sí' : 'No',
+                ]);
+            }
+
+            fclose($output);
+        }, 'campanas-atribuciones-auditoria.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }

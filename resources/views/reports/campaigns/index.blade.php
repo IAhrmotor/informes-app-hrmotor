@@ -15,6 +15,7 @@
     <script>
         window.reportUserRole = @json($reportUserRole ?? 'viewer');
         window.reportUserCanExport = @json($reportUserCanExport ?? false);
+        window.reportUserCanAudit = @json($reportUserCanAudit ?? false);
     </script>
 </head>
 <body class="campaigns-report">
@@ -40,11 +41,17 @@
         </div>
         <div class="filter-group">
             <label for="campaignType">Tipo de campaña</label>
+            <div class="small">Clasifica la campaña; no filtra el RecordType del lead.</div>
             <select id="campaignType">
                 <option value="all" selected>Todos</option>
                 <option value="venta">Venta</option>
                 <option value="tasacion">Tasación</option>
             </select>
+        </div>
+        <div class="filter-group">
+            <label for="leadType">Tipo del lead</label>
+            <div class="small">Filtra por Lead.RecordType.Name.</div>
+            <select id="leadType"><option value="">Todos</option></select>
         </div>
         <div class="filter-group" id="saleSubcategoryGroup">
             <label for="saleSubcategory">Subcategoría venta</label>

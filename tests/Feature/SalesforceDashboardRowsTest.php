@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\MasterPortal;
+use App\Models\ReportUser;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceUser;
 use Carbon\CarbonImmutable;
@@ -145,6 +146,51 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->get('/informes/leads/export/kpi-audit.csv?metric=convertidos')
             ->assertOk()
             ->assertHeader('content-type', 'text/csv; charset=UTF-8');
+    }
+
+    public function test_direccion_puede_auditar_leads_pero_no_usar_exports_generales_de_admin(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        $this->lead('00Q-director-audit', 'Convertido', [
+            'record_type_name' => 'Tasación',
+            'record_type_normalized' => 'tasacion',
+            'delegacion_encargada_text' => 'Zona Madrid',
+            'salesforce_last_modified_at' => '2026-05-12 08:00:00',
+            'synced_at' => '2026-05-12 08:05:00',
+        ]);
+
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_role' => ReportUser::ROLE_DIRECTOR,
+            'report_user_email' => 'director@hrmotor.com',
+        ];
+
+        $this->withSession($session)
+            ->get('/informes/leads')
+            ->assertOk()
+            ->assertSee('window.reportUserCanExport = false', false)
+            ->assertSee('window.reportUserCanAudit = true', false);
+
+        $payload = $this->withSession($session)
+            ->getJson('/informes/leads/data/kpi-audit?metric=convertidos')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->json('items.0');
+
+        $this->assertSame('Tasación', $payload['lead_type_raw']);
+        $this->assertSame('tasacion', $payload['lead_type_normalized']);
+        $this->assertSame('Zona Madrid', $payload['lead_delegation_raw']);
+        $this->assertSame('Madrid General', $payload['lead_delegation']);
+
+        $csv = $this->withSession($session)
+            ->get('/informes/leads/export/kpi-audit.csv?metric=convertidos')
+            ->assertOk()
+            ->streamedContent();
+
+        $this->assertStringContainsString('Delegacion bruta', $csv);
+        $this->assertStringContainsString('00Q-director-audit', $csv);
+        $this->assertStringContainsString('Zona Madrid', $csv);
     }
 
     public function test_filtros_y_tabla_delegaciones_no_exponen_brutos_ni_emails(): void

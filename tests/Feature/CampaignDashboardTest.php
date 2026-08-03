@@ -8,8 +8,8 @@ use App\Models\ReportUser;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
 use App\Services\Campaigns\CampaignAttributionBuilderService;
-use App\Services\Campaigns\GoogleAdsClient;
 use App\Services\Campaigns\CampaignSaleAmountResolver;
+use App\Services\Campaigns\GoogleAdsClient;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -74,6 +74,9 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('id="campaignCharts"', $html);
         $this->assertStringContainsString('id="platformComparison"', $html);
         $this->assertStringContainsString('id="campaignType"', $html);
+        $this->assertStringContainsString('id="leadType"', $html);
+        $this->assertStringContainsString('Clasifica la campaña; no filtra el RecordType del lead.', $html);
+        $this->assertStringContainsString('Filtra por Lead.RecordType.Name.', $html);
         $this->assertStringContainsString('id="saleSubcategory"', $html);
         $this->assertStringContainsString('data-context="venta"', $html);
         $this->assertStringContainsString('data-context="tasacion"', $html);
@@ -97,6 +100,8 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString("{ value: 'current_year', label: 'Año actual' }", file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('Evolución de tasaciones y compras', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringContainsString('const monthlyChartEnabled = false;', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('summaryLoadingController?.abort()', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
+        $this->assertStringContainsString('requestId !== latestReloadRequestId', file_get_contents(resource_path('js/reports/campaigns-dashboard.js')));
         $this->assertStringNotContainsString('id="reviewCampaigns"', $html);
         $this->assertStringNotContainsString('#7d494e', file_get_contents(resource_path('css/reports/leads-dashboard.css')));
         $this->assertStringNotContainsString('brand-block', $html);
@@ -153,7 +158,8 @@ class CampaignDashboardTest extends TestCase
             ->assertOk()
             ->assertSee('diagnosticsOpen', false)
             ->assertSee('campaignDiagnosticsModal', false)
-            ->assertSee('window.reportUserCanExport = true', false);
+            ->assertSee('window.reportUserCanExport = true', false)
+            ->assertSee('window.reportUserCanAudit = true', false);
 
         $this->withSession($adminSession)
             ->getJson('/informes/campanas/data/summary?'.$this->query())
@@ -203,7 +209,8 @@ class CampaignDashboardTest extends TestCase
             ->assertOk()
             ->assertDontSee('diagnosticsOpen', false)
             ->assertDontSee('campaignDiagnosticsModal', false)
-            ->assertSee('window.reportUserCanExport = false', false);
+            ->assertSee('window.reportUserCanExport = false', false)
+            ->assertSee('window.reportUserCanAudit = true', false);
 
         $this->withSession($directorSession)
             ->getJson('/informes/campanas/data/summary?'.$this->query())
@@ -217,7 +224,15 @@ class CampaignDashboardTest extends TestCase
 
         $this->withSession($directorSession)
             ->getJson('/informes/campanas/data/kpi-audit?'.$this->query().'&metric=leads_salesforce')
-            ->assertForbidden();
+            ->assertOk();
+
+        $this->withSession($directorSession)
+            ->get('/informes/campanas/export/kpi-audit.csv?'.$this->query().'&metric=leads_salesforce')
+            ->assertOk();
+
+        $this->withSession($directorSession)
+            ->get('/informes/campanas/export/attributions.csv?'.$this->query())
+            ->assertOk();
     }
 
     public function test_google_ads_query_usa_campaign_para_incluir_performance_max(): void
@@ -489,6 +504,14 @@ class CampaignDashboardTest extends TestCase
             'has_reservation' => true,
             'has_sale' => true,
             'sale_amount' => 12000,
+        ]);
+        $this->assertDatabaseHas('campaign_lead_attributions', [
+            'lead_id' => '00Q-1',
+            'campaign_id' => 'camp-1',
+            'attribution_method' => 'ad_id_match',
+            'attribution_confidence' => 'high',
+            'match_status' => 'Cruzada por ID',
+            'campaign_source_type' => 'platform_campaign',
         ]);
 
         $query = $this->query();
@@ -1904,6 +1927,124 @@ class CampaignDashboardTest extends TestCase
         $this->assertNotNull($review);
         $this->assertSame('Leads / oportunidades', $review['metric']);
         $this->assertSame('2 / 0', $review['value']);
+    }
+
+    public function test_tipo_de_campana_y_tipo_del_lead_son_filtros_independientes(): void
+    {
+        DB::table('campaign_lead_attributions')->insert([
+            $this->attributionRow([
+                'lead_id' => '00Q-campaign-sale-lead-appraisal',
+                'campaign_id' => 'campaign-sale-classification',
+                'campaign_name' => 'Expiey_Espana_Marca',
+                'source_campaign_name' => 'Expiey_Espana_Marca',
+                'campaign_type' => 'venta',
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-campaign-sale-lead-sale',
+                'campaign_id' => 'campaign-sale-classification',
+                'campaign_name' => 'Expiey_Espana_Marca',
+                'source_campaign_name' => 'Expiey_Espana_Marca',
+                'campaign_type' => 'venta',
+            ]),
+        ]);
+
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-campaign-sale-lead-appraisal',
+            'created_date' => '2026-05-10 10:00:00',
+            'record_type_name' => 'TasaciÃ³n',
+            'record_type_normalized' => 'tasacion',
+        ]);
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-campaign-sale-lead-sale',
+            'created_date' => '2026-05-10 11:00:00',
+            'record_type_name' => 'Venta',
+            'record_type_normalized' => 'venta',
+        ]);
+
+        $allLeadTypes = $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=ventas')
+            ->assertOk()
+            ->json();
+        $appraisalsOnly = $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=ventas&lead_type=Tasaci%C3%B3n')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(2, $allLeadTypes['kpis']['leads_salesforce']);
+        $this->assertSame(1, $appraisalsOnly['kpis']['leads_salesforce']);
+        $this->assertSame('venta', $appraisalsOnly['campaigns'][0]['campaign_type']);
+    }
+
+    public function test_kpi_distinct_explica_solapamiento_y_auditoria_identifica_el_lead(): void
+    {
+        DB::table('campaign_lead_attributions')->insert([
+            $this->attributionRow([
+                'lead_id' => '00Q-overlap-campaigns',
+                'campaign_id' => 'campaign-appraisal-a',
+                'campaign_name' => 'Tasador Landing Search',
+                'source_campaign_name' => 'TASADOR_LANDING_SEARCH_1',
+                'campaign_acquired' => 'TASADOR_LANDING_SEARCH_1',
+                'acquired_id' => 'ad-123',
+                'campaign_type' => 'tasacion',
+            ]),
+            $this->attributionRow([
+                'lead_id' => '00Q-overlap-campaigns',
+                'platform' => 'google_ads',
+                'campaign_id' => 'campaign-appraisal-b',
+                'campaign_name' => 'Geo Tasacion',
+                'source_campaign_name' => 'Expiey_Leads_Geo_Tasacion',
+                'campaign_acquired' => 'Expiey_Leads_Geo_Tasacion',
+                'acquired_id' => 'ad-123',
+                'campaign_type' => 'tasacion',
+            ]),
+        ]);
+
+        CampaignAttribution::query()->create([
+            'lead_id' => '00Q-overlap-campaigns',
+            'platform' => 'meta',
+            'campaign_id' => 'campaign-appraisal-a',
+            'campaign_name' => 'Tasador Landing Search',
+            'campaign_acquired' => 'TASADOR_LANDING_SEARCH_1',
+            'acquired_id' => 'ad-123',
+            'attribution_method' => 'ad_id_match',
+            'attribution_confidence' => 'high',
+            'match_status' => 'matched',
+            'campaign_source_type' => 'salesforce',
+            'lead_created_at' => '2026-05-10 10:00:00',
+        ]);
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-overlap-campaigns',
+            'created_date' => '2026-05-10 10:00:00',
+            'salesforce_last_modified_at' => '2026-05-12 08:00:00',
+            'synced_at' => '2026-05-12 08:05:00',
+            'record_type_name' => 'TasaciÃ³n',
+            'record_type_normalized' => 'tasacion',
+        ]);
+
+        $summary = $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion&campaign_status=')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(1, $summary['kpis']['leads_salesforce']);
+        $this->assertSame(2, $summary['kpis']['lead_attribution_appearances']);
+        $this->assertSame(1, $summary['kpis']['lead_attribution_overlap']);
+        $this->assertStringContainsString('1 aparici', implode(' ', $summary['warnings']));
+
+        $audit = $this->getJson('/informes/campanas/data/attribution-audit?'.$this->query().'&context=tasacion&campaign_status=')
+            ->assertOk()
+            ->assertJsonPath('total', 2)
+            ->json('items');
+
+        $this->assertSame(['00Q-overlap-campaigns'], collect($audit)->pluck('lead_id')->unique()->values()->all());
+        $this->assertSame([2], collect($audit)->pluck('campaigns_for_lead')->unique()->values()->all());
+        $this->assertTrue(collect($audit)->every(fn (array $row): bool => $row['overlaps_another_campaign']));
+        $this->assertSame(['tasacion'], collect($audit)->pluck('lead_record_type_normalized')->unique()->values()->all());
+
+        $csv = $this->get('/informes/campanas/export/attributions.csv?'.$this->query().'&context=tasacion&campaign_status=')
+            ->assertOk()
+            ->streamedContent();
+
+        $this->assertStringContainsString('00Q-overlap-campaigns', $csv);
+        $this->assertStringContainsString('TASADOR_LANDING_SEARCH_1', $csv);
+        $this->assertStringContainsString('ad_id_match', $csv);
     }
 
     private function query(): string

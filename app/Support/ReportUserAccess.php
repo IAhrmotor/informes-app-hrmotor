@@ -143,6 +143,11 @@ class ReportUserAccess
         return self::isAdmin($request);
     }
 
+    public static function canAudit(Request $request): bool
+    {
+        return self::isAdmin($request) || self::isDirector($request);
+    }
+
     public static function canSeeSyncDiagnostics(Request $request): bool
     {
         return self::isAdmin($request);

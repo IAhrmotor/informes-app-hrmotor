@@ -17,6 +17,7 @@ class CampaignDashboardController extends Controller
         return view('reports.campaigns.index', [
             'reportUserRole' => ReportUserAccess::role($request),
             'reportUserCanExport' => ReportUserAccess::canExport($request),
+            'reportUserCanAudit' => ReportUserAccess::canAudit($request),
         ]);
     }
 }

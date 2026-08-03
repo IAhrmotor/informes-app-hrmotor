@@ -102,8 +102,10 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/data/campaigns', [CampaignDashboardDataController::class, 'campaigns'])->name('data.campaigns');
             Route::get('/data/rankings', [CampaignDashboardDataController::class, 'rankings'])->name('data.rankings');
             Route::get('/data/kpi-audit', [CampaignDashboardDataController::class, 'kpiAudit'])->name('data.kpi-audit');
+            Route::get('/data/attribution-audit', [CampaignDashboardDataController::class, 'attributionAudit'])->name('data.attribution-audit');
             Route::get('/export/campaigns.csv', [CampaignDashboardDataController::class, 'exportCampaignsCsv'])->name('export.campaigns');
             Route::get('/export/kpi-audit.csv', [CampaignDashboardDataController::class, 'exportKpiAuditCsv'])->name('export.kpi-audit');
+            Route::get('/export/attributions.csv', [CampaignDashboardDataController::class, 'exportAttributionsCsv'])->name('export.attributions');
         });
 
     Route::prefix('informes/comisiones-comerciales')

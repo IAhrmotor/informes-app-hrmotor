@@ -4,9 +4,11 @@ namespace App\Services\Campaigns;
 
 use App\Models\CampaignAttribution;
 use App\Models\CampaignPlatformDailyMetric;
+use App\Services\Reports\Leads\LeadRecordTypeNormalizer;
 use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -14,6 +16,7 @@ use Illuminate\Support\Facades\Schema;
 class CampaignDashboardDatasetService
 {
     private const CACHE_TTL_MINUTES = 10;
+
     private const REPORT_TIMEZONE = 'Europe/Madrid';
 
     public function __construct(
@@ -21,8 +24,8 @@ class CampaignDashboardDatasetService
         private readonly CampaignPerformanceClassifier $classifier,
         private readonly CampaignSaleAmountResolver $saleAmountResolver,
         private readonly CampaignTypeResolver $campaignTypeResolver,
-    ) {
-    }
+        private readonly LeadRecordTypeNormalizer $leadRecordTypeNormalizer,
+    ) {}
 
     public function summary(Request $request): array
     {
@@ -33,7 +36,7 @@ class CampaignDashboardDatasetService
         $summary['rankings'] = $payload['rankings'];
 
         if (! ReportUserAccess::isAdmin($request)) {
-            $summary['warnings'] = [];
+            $summary['warnings'] = $summary['public_warnings'] ?? [];
             unset($summary['diagnostics']);
         } elseif (! $includeDiagnostics) {
             unset($summary['diagnostics']);
@@ -66,6 +69,129 @@ class CampaignDashboardDatasetService
         return $this->payload($request, false, false)['campaigns'];
     }
 
+    public function attributionAuditRows(Request $request): array
+    {
+        $filters = $this->filters($request);
+        $period = $this->period($filters);
+        $visibleRows = $this->payload($request, false, false)['campaigns'];
+        $visibleRowKeys = array_fill_keys(array_map(fn (array $row): string => $this->rowKey($row), $visibleRows), true);
+
+        if ($visibleRowKeys === []) {
+            return [];
+        }
+
+        $query = DB::table('campaign_lead_attributions as cla')
+            ->leftJoin('campaign_attributions as ca', 'ca.lead_id', '=', 'cla.lead_id')
+            ->leftJoin('salesforce_leads as sl', 'sl.salesforce_id', '=', 'cla.lead_id')
+            ->where('cla.lead_created_date', '>=', $period['start_at'])
+            ->where('cla.lead_created_date', '<', $period['end_at']);
+
+        $this->applyLeadAttributionFilters($query, $filters, 'cla');
+        $this->applyCampaignContextFilter($query, $filters, 'cla');
+
+        $rows = $query
+            ->select([
+                'cla.id as attribution_id',
+                'cla.lead_id',
+                'cla.lead_created_date',
+                'cla.campaign_name as resolved_campaign_name',
+                'cla.campaign_id as resolved_campaign_id',
+                'cla.source_campaign_name as raw_campaign_name',
+                'cla.campaign_acquired',
+                'cla.platform',
+                'cla.campaign_type',
+                'cla.acquired_id',
+                'cla.content_acquired',
+                'cla.attribution_method as row_attribution_method',
+                'cla.attribution_confidence as row_attribution_confidence',
+                'cla.match_status as row_match_status',
+                'cla.campaign_source_type as row_campaign_source_type',
+                'cla.opportunity_id',
+                'cla.created_at as attribution_built_at',
+                'cla.updated_at as attribution_updated_at',
+                'ca.attribution_method as lead_attribution_method',
+                'ca.attribution_confidence as lead_attribution_confidence',
+                'ca.match_status as lead_match_status',
+                'ca.campaign_source_type as lead_campaign_source_type',
+                'sl.record_type_name as lead_record_type_raw',
+                'sl.record_type_normalized as lead_record_type_normalized',
+                'sl.salesforce_last_modified_at as lead_last_modified_at',
+                'sl.synced_at as lead_synced_at',
+                'sl.is_deleted as lead_is_deleted',
+            ])
+            ->orderBy('cla.lead_id')
+            ->orderBy('cla.id')
+            ->get()
+            ->filter(function (object $row) use ($visibleRowKeys): bool {
+                $identity = $this->normalizeDashboardRow([
+                    'platform' => $row->platform,
+                    'campaign_id' => $row->resolved_campaign_id,
+                    'campaign_name' => $row->resolved_campaign_name,
+                    'source_campaign_name' => $row->raw_campaign_name,
+                    'campaign_acquired' => $row->campaign_acquired,
+                    'campaign_type' => $row->campaign_type,
+                    'campaign_source_type' => $row->platform === 'salesforce'
+                        ? 'salesforce_campaign_without_spend'
+                        : 'platform_campaign',
+                ]);
+                $identity['campaign_source_type'] = $this->deriveSourceType($identity);
+
+                return isset($visibleRowKeys[$this->rowKey($identity)]);
+            })
+            ->map(function (object $row): array {
+                $method = $row->row_attribution_method ?: $row->lead_attribution_method;
+                $matchValue = $row->acquired_id ?: $row->content_acquired;
+
+                return [
+                    'attribution_id' => (int) $row->attribution_id,
+                    'lead_id' => $row->lead_id,
+                    'resolved_campaign_name' => $row->resolved_campaign_name,
+                    'raw_campaign_name' => $row->raw_campaign_name ?: $row->campaign_acquired,
+                    'platform' => $row->platform,
+                    'ad_id' => $method === 'ad_id_match' ? $matchValue : null,
+                    'adset_or_adgroup_id' => $method === 'adset_or_adgroup_id_match' ? $matchValue : null,
+                    'campaign_id' => $row->resolved_campaign_id,
+                    'raw_acquired_id' => $row->acquired_id,
+                    'raw_content_id' => $row->content_acquired,
+                    'match_type' => $method,
+                    'match_confidence' => $row->row_attribution_confidence ?: $row->lead_attribution_confidence,
+                    'match_status' => $row->row_match_status ?: $row->lead_match_status,
+                    'campaign_source_type' => $row->row_campaign_source_type ?: $row->lead_campaign_source_type,
+                    'campaign_type' => $row->campaign_type,
+                    'lead_record_type_raw' => $row->lead_record_type_raw,
+                    'lead_record_type_normalized' => $row->lead_record_type_normalized
+                        ?: $this->leadRecordTypeNormalizer->normalize($row->lead_record_type_raw),
+                    'lead_created_date' => $row->lead_created_date,
+                    'opportunity_id' => $row->opportunity_id,
+                    'attribution_built_at' => $row->attribution_built_at,
+                    'attribution_updated_at' => $row->attribution_updated_at,
+                    'lead_last_modified_at' => $row->lead_last_modified_at,
+                    'lead_synced_at' => $row->lead_synced_at,
+                    'lead_is_deleted' => (bool) $row->lead_is_deleted,
+                ];
+            })
+            ->values()
+            ->all();
+
+        $campaignCounts = collect($rows)
+            ->groupBy('lead_id')
+            ->map(fn (Collection $leadRows): int => $leadRows
+                ->map(fn (array $row): string => implode('|', [
+                    $row['platform'],
+                    $row['campaign_id'],
+                    $row['resolved_campaign_name'],
+                ]))
+                ->unique()
+                ->count());
+
+        return array_map(function (array $row) use ($campaignCounts): array {
+            $row['campaigns_for_lead'] = (int) $campaignCounts->get($row['lead_id'], 1);
+            $row['overlaps_another_campaign'] = $row['campaigns_for_lead'] > 1;
+
+            return $row;
+        }, $rows);
+    }
+
     public function kpiAudit(Request $request): array
     {
         $filters = $this->filters($request);
@@ -95,7 +221,7 @@ class CampaignDashboardDatasetService
         $period = $this->period($filters);
 
         return Cache::remember(
-            'campaign-dashboard-v3:'.md5(json_encode([
+            'campaign-dashboard-v4:'.md5(json_encode([
                 'filters' => $filters,
                 'period' => $period,
                 'include_diagnostics' => $includeDiagnostics,
@@ -141,7 +267,9 @@ class CampaignDashboardDatasetService
             'account_id' => $request->string('account_id')->toString(),
             'search' => $request->string('search')->toString(),
             'context' => $this->normalizeContext($context),
-            'campaign_status' => $request->string('campaign_status')->toString() ?: 'active',
+            'campaign_status' => $request->exists('campaign_status')
+                ? $request->string('campaign_status')->toString()
+                : 'active',
             'campaign_source_type' => $request->string('campaign_source_type')->toString(),
             'source_acquired' => $request->string('source_acquired')->toString(),
             'medium_acquired' => $request->string('medium_acquired')->toString(),
@@ -152,6 +280,7 @@ class CampaignDashboardDatasetService
             'delegation' => $request->string('delegation')->toString(),
             'zone' => $request->string('zone')->toString(),
             'lead_status' => $request->string('lead_status')->toString(),
+            'lead_type' => $this->normalizeLeadTypeFilter($request->string('lead_type')->toString()),
             'has_opportunity' => $request->string('has_opportunity')->toString(),
             'has_reservation' => $request->string('has_reservation')->toString(),
             'has_sale' => $request->string('has_sale')->toString(),
@@ -229,9 +358,7 @@ class CampaignDashboardDatasetService
             }
         }
 
-        if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
-            $query->where('cla.campaign_type', $filters['context']);
-        }
+        $this->applyCampaignContextFilter($query, $filters, 'cla');
 
         $items = [];
 
@@ -1068,7 +1195,16 @@ class CampaignDashboardDatasetService
         ]);
         $totals['result_count'] = $this->resultCountForTotals($totals, $filters['context'] ?? 'all');
         $totals['cost_per_result'] = $this->divide((float) $totals['spend'], (int) $totals['result_count']);
+        $totals['lead_attribution_appearances'] = array_sum(array_map(
+            static fn (array $row): int => (int) ($row['leads_salesforce'] ?? 0),
+            $rows
+        ));
+        $totals['lead_attribution_overlap'] = max(
+            $totals['lead_attribution_appearances'] - (int) $totals['leads_salesforce'],
+            0
+        );
         $charts = $this->charts($rows, $filters, $period, $totals, $attributionAnalytics);
+        $publicWarnings = $this->publicWarnings($totals);
 
         return [
             'ok' => count($rows) > 0,
@@ -1082,6 +1218,7 @@ class CampaignDashboardDatasetService
             'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
             'kpis' => $totals,
             'warnings' => $this->warnings($rows, $totals, $period, $filters),
+            'public_warnings' => $publicWarnings,
             'charts' => $charts,
             'daily_investment_leads' => $charts['daily_evolution'],
             'daily_results' => $charts['daily_reservations_sales'],
@@ -1187,9 +1324,7 @@ class CampaignDashboardDatasetService
                 }
             }
 
-            if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
-                $query->where('cla.campaign_type', $filters['context']);
-            }
+            $this->applyCampaignContextFilter($query, $filters, 'cla');
 
             $query
                 ->select([
@@ -1704,9 +1839,7 @@ class CampaignDashboardDatasetService
             }
         }
 
-        if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
-            $attributionQuery->where('cla.campaign_type', $filters['context']);
-        }
+        $this->applyCampaignContextFilter($attributionQuery, $filters, 'cla');
 
         $attributionQuery
             ->select([
@@ -1830,9 +1963,7 @@ class CampaignDashboardDatasetService
             }
         }
 
-        if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
-            $attributionQuery->where('cla.campaign_type', $filters['context']);
-        }
+        $this->applyCampaignContextFilter($attributionQuery, $filters, 'cla');
 
         $attributionByDate = $attributionQuery
             ->select([
@@ -1886,9 +2017,7 @@ class CampaignDashboardDatasetService
             }
         }
 
-        if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
-            $query->where('cla.campaign_type', $filters['context']);
-        }
+        $this->applyCampaignContextFilter($query, $filters, 'cla');
 
         $rowsByDate = (clone $query)
             ->select([
@@ -2017,9 +2146,7 @@ class CampaignDashboardDatasetService
             }
         }
 
-        if (! in_array($filters['context'], ['all', 'todas', '', null], true)) {
-            $query->where('cla.campaign_type', $filters['context']);
-        }
+        $this->applyCampaignContextFilter($query, $filters, 'cla');
 
         $leadIds = [];
         $opportunities = [];
@@ -2300,9 +2427,23 @@ class CampaignDashboardDatasetService
         ];
     }
 
+    private function publicWarnings(array $totals): array
+    {
+        $overlap = (int) ($totals['lead_attribution_overlap'] ?? 0);
+
+        if ($overlap === 0) {
+            return [];
+        }
+
+        return [sprintf(
+            'Las filas contienen %d apariciones adicionales de leads atribuidos a más de una campaña. El KPI Leads Salesforce usa Lead.Id únicos; la auditoría identifica los IDs solapados.',
+            $overlap
+        )];
+    }
+
     private function warnings(array $rows, array $totals, array $period, array $filters): array
     {
-        $warnings = [];
+        $warnings = $this->publicWarnings($totals);
 
         if (! filled(config('services.meta_ads.access_token')) || config('services.meta_ads.ad_account_ids') === []) {
             $warnings[] = 'Las credenciales de Meta Ads no estan configuradas. Se muestran datos disponibles de Salesforce y/o ultima inversion cacheada.';
@@ -2666,6 +2807,12 @@ class CampaignDashboardDatasetService
             });
         }
 
+        if (filled($filters['lead_type'] ?? null)) {
+            $query->whereIn($column('lead_id'), DB::table('salesforce_leads')
+                ->select('salesforce_id')
+                ->where('record_type_normalized', $filters['lead_type']));
+        }
+
         if (filled($filters['search'] ?? null)) {
             $search = '%'.$filters['search'].'%';
             $query->where(function ($subQuery) use ($search, $column): void {
@@ -2726,6 +2873,12 @@ class CampaignDashboardDatasetService
             });
         }
 
+        if (filled($filters['lead_type'] ?? null)) {
+            $query->whereIn($column('lead_id'), DB::table('salesforce_leads')
+                ->select('salesforce_id')
+                ->where('record_type_normalized', $filters['lead_type']));
+        }
+
         if (filled($filters['search'] ?? null)) {
             $search = '%'.$filters['search'].'%';
             $query->where(function ($subQuery) use ($search, $column): void {
@@ -2760,6 +2913,13 @@ class CampaignDashboardDatasetService
                 ['value' => 'exposicion', 'label' => 'Exposicion'],
                 ['value' => 'branding', 'label' => 'Branding'],
                 ['value' => 'otros', 'label' => 'Otros'],
+            ],
+            'lead_types' => [
+                ['value' => 'venta', 'label' => 'Venta'],
+                ['value' => 'venta_con_cambio', 'label' => 'Venta con cambio'],
+                ['value' => 'lead', 'label' => 'Lead'],
+                ['value' => 'ayvens', 'label' => 'Ayvens'],
+                ['value' => 'tasacion', 'label' => 'Tasación'],
             ],
             'platforms' => collect($this->distinctFromBoth('platform'))
                 ->filter(fn (string $platform): bool => in_array($platform, ['google_ads', 'meta'], true))
@@ -2806,7 +2966,7 @@ class CampaignDashboardDatasetService
     private function filterOptionsCached(): array
     {
         return Cache::remember(
-            'campaign-dashboard-filter-options-v1:'.md5(json_encode($this->filterOptionsVersion())),
+            'campaign-dashboard-filter-options-v2:'.md5(json_encode($this->filterOptionsVersion())),
             now()->addMinutes(self::CACHE_TTL_MINUTES),
             fn () => $this->filterOptions()
         );
@@ -2819,6 +2979,33 @@ class CampaignDashboardDatasetService
         return in_array($context, ['venta', 'ventas', 'tasacion', 'exposicion', 'branding', 'otros', 'all', 'todas'], true)
             ? ($context === 'todas' ? 'all' : $context)
             : 'all';
+    }
+
+    private function normalizeLeadTypeFilter(mixed $leadType): string
+    {
+        if (blank($leadType) || $this->normalizer->key($leadType) === 'all') {
+            return '';
+        }
+
+        return $this->leadRecordTypeNormalizer->normalize($leadType) ?? '';
+    }
+
+    private function applyCampaignContextFilter($query, array $filters, ?string $alias = null): void
+    {
+        $context = $this->normalizeContext($filters['context'] ?? 'all');
+        $column = $alias ? "{$alias}.campaign_type" : 'campaign_type';
+
+        if ($context === 'all') {
+            return;
+        }
+
+        if ($context === 'venta') {
+            $query->whereIn($column, ['venta', 'exposicion', 'branding', 'otros']);
+
+            return;
+        }
+
+        $query->where($column, $context === 'ventas' ? 'venta' : $context);
     }
 
     private function contextLabel(?string $context): string
@@ -2965,7 +3152,6 @@ class CampaignDashboardDatasetService
     }
 
     /**
-     * @param mixed $value
      * @return array<int, string>|string
      */
     private function campaignNameFilter(mixed $value): array|string
@@ -3034,6 +3220,7 @@ class CampaignDashboardDatasetService
             'has_sale',
             'commercial_user',
             'vehicle_interest',
+            'lead_type',
         ] as $key) {
             if ($key === 'campaign_source_type' && ($filters[$key] ?? null) === 'platform_campaign') {
                 continue;

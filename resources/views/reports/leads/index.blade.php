@@ -17,6 +17,7 @@
 <div class="wrap">
     <script>
         window.reportUserCanExport = @json($reportUserCanExport ?? false);
+        window.reportUserCanAudit = @json($reportUserCanAudit ?? false);
     </script>
     @include('reports.partials.report-header', ['currentReport' => 'leads', 'subtitle' => 'Leads'])
 

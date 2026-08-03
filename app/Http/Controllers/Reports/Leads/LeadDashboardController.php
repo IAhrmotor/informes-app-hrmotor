@@ -12,6 +12,7 @@ class LeadDashboardController extends Controller
     {
         return view('reports.leads.index', [
             'reportUserCanExport' => ReportUserAccess::canExport($request),
+            'reportUserCanAudit' => ReportUserAccess::canAudit($request),
         ]);
     }
 }

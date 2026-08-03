@@ -734,7 +734,7 @@ function buildKpiAuditUrl(metric) {
 }
 
 function kpiAuditLinkHtml(metric, label) {
-    if (!window.reportUserCanExport || !metric) {
+    if (!window.reportUserCanAudit || !metric) {
         return '';
     }
 

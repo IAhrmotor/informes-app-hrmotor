@@ -13,7 +13,9 @@ use Illuminate\Support\Facades\Schema;
 class CampaignAttributionBuilderService
 {
     private const LEAD_CHUNK_SIZE = 1000;
+
     private const UPSERT_CHUNK_SIZE = 25;
+
     private const OPPORTUNITY_LOOKUP_CHUNK_SIZE = 500;
 
     public function __construct(
@@ -21,8 +23,7 @@ class CampaignAttributionBuilderService
         private readonly SalesforceLeadDashboardDatasetService $leadDataset,
         private readonly CampaignSaleAmountResolver $saleAmountResolver,
         private readonly CampaignTypeResolver $campaignTypeResolver,
-    ) {
-    }
+    ) {}
 
     public function build(CarbonInterface $start, CarbonInterface $end): array
     {
@@ -906,6 +907,10 @@ class CampaignAttributionBuilderService
                     'campaign_acquired' => $row['campaign_acquired'],
                     'acquired_id' => $row['acquired_id'],
                     'content_acquired' => $row['content_acquired'],
+                    'attribution_method' => $row['attribution_method'],
+                    'attribution_confidence' => $row['attribution_confidence'],
+                    'match_status' => $row['match_status'],
+                    'campaign_source_type' => $row['campaign_source_type'],
                     'lead_status' => $row['lead_status'],
                     'lead_delegation' => $row['lead_delegation'],
                     'lead_zone' => $row['lead_zone'],

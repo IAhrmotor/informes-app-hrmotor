@@ -240,6 +240,7 @@ function bindResetFilters() {
     document.getElementById('resetFilters')?.addEventListener('click', async () => {
         [
             'campaignType',
+            'leadType',
             'platform',
             'campaignSearch',
             'campaignStatus',
@@ -286,6 +287,7 @@ function bindFilters() {
         'hasReservation',
         'hasSale',
         'classification',
+        'leadType',
     ].forEach((id) => {
         document.getElementById(id)?.addEventListener('change', reloadAllData);
     });
@@ -689,6 +691,10 @@ async function reloadAllData() {
         const exportLink = document.getElementById('exportCsv');
         if (exportLink) {
             exportLink.href = `/informes/campanas/export/campaigns.csv?${query}`;
+        }
+        const attributionAuditLink = document.getElementById('exportAttributionAudit');
+        if (attributionAuditLink) {
+            attributionAuditLink.href = `/informes/campanas/export/attributions.csv?${query}`;
         }
     } catch (error) {
         if (isAbortError(error) || requestId !== latestReloadRequestId) {
@@ -1872,6 +1878,7 @@ function kpiCardsForContext(context, kpis) {
 function renderFilterOptions(filters, rows = []) {
     const filtersKey = JSON.stringify({
         campaign_types: filters.campaign_types || [],
+        lead_types: filters.lead_types || [],
         platforms: filters.platforms || [],
         campaign_statuses: filters.campaign_statuses || [],
         classifications: filters.classifications || [],
@@ -1879,6 +1886,7 @@ function renderFilterOptions(filters, rows = []) {
 
     if (filtersKey !== lastRenderedFilterOptionsKey) {
         populateCampaignTypeSelect(filters.campaign_types || []);
+        populateSelect('leadType', filters.lead_types || [], 'Todos');
         populatePlatformSelect(filters.platforms || []);
         populateSelect('campaignStatus', filters.campaign_statuses || [], 'Todas');
         populateSelect('classification', filters.classifications || [], 'Todas');
@@ -2090,6 +2098,7 @@ function currentFilters() {
     setParam(params, 'end_date', document.getElementById('endDate')?.value);
     setParam(params, 'platform', document.getElementById('platform')?.value);
     setParam(params, 'context', currentContext);
+    setParam(params, 'lead_type', document.getElementById('leadType')?.value);
     setParam(params, 'campaign_status', document.getElementById('campaignStatus')?.value);
     setParam(params, 'search', document.getElementById('campaignSearch')?.value);
     appendArrayParam(params, 'campaign_name', campaignNameSelections);
@@ -2113,7 +2122,7 @@ function buildCampaignKpiAuditUrl(metric) {
 }
 
 function campaignKpiAuditLinkHtml(metric, label) {
-    if (!window.reportUserCanExport || !metric) {
+    if (!window.reportUserCanAudit || !metric) {
         return '';
     }
 
@@ -3120,6 +3129,7 @@ function renderCampaignTable(tableType, title, subtitle, rows, emptyMessage = nu
                         <div class="columns-popover card is-hidden" id="columnsPopover"></div>
                     </div>
                     ${window.reportUserCanExport ? '<a class="main-tab" id="exportCsv" href="/informes/campanas/export/campaigns.csv">Export CSV</a>' : ''}
+                    ${window.reportUserCanAudit ? '<a class="main-tab" id="exportAttributionAudit" href="/informes/campanas/export/attributions.csv">Auditar atribuciones</a>' : ''}
                 </div>
             </div>
             <div class="${campaignDetailsVisible ? '' : 'is-hidden'}" id="campaignDetailBody">

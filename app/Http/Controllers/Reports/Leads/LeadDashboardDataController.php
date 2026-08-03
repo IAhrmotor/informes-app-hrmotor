@@ -60,14 +60,14 @@ class LeadDashboardDataController extends Controller
 
     public function kpiAudit(Request $request): JsonResponse
     {
-        abort_unless(ReportUserAccess::canExport($request), 403);
+        abort_unless(ReportUserAccess::canAudit($request), 403);
 
         return response()->json($this->dataset->kpiAudit($request));
     }
 
     public function leadAudit(Request $request): JsonResponse
     {
-        abort_unless(ReportUserAccess::canExport($request), 403);
+        abort_unless(ReportUserAccess::canAudit($request), 403);
 
         $ids = $request->input('ids', []);
         $ids = is_array($ids) ? $ids : preg_split('/[\s,;]+/', (string) $ids, -1, PREG_SPLIT_NO_EMPTY);
@@ -77,7 +77,7 @@ class LeadDashboardDataController extends Controller
 
     public function exportKpiAuditCsv(Request $request): StreamedResponse
     {
-        abort_unless(ReportUserAccess::canExport($request), 403);
+        abort_unless(ReportUserAccess::canAudit($request), 403);
 
         $payload = $this->dataset->kpiAudit($request);
         $rows = $payload['items'] ?? [];
@@ -95,7 +95,8 @@ class LeadDashboardDataController extends Controller
             'Portal_Text__c bruto',
             'Grupo portal',
             'Canal',
-            'Delegacion lead',
+            'Delegacion bruta',
+            'Delegacion normalizada',
             'Zona lead',
             'Delegacion comercial',
             'Zona comercial',
@@ -113,10 +114,10 @@ class LeadDashboardDataController extends Controller
             'Campaign acquired',
             'Acquired ID',
             'Content acquired',
-            'Fuente origen',
+            'LEA_SEL_Fuente_Origen__c bruto',
             'Medio origen',
-            'Fuente nuevo',
-            'Medio nuevo',
+            'Fuente_Nuevo__c bruto',
+            'Medio_Nuevo__c bruto',
             'Vehicle interest',
             'Converted account ID',
             'Converted opportunity ID',
@@ -145,6 +146,7 @@ class LeadDashboardDataController extends Controller
                     $row['portal_text'] ?? null,
                     $row['portal_group'] ?? null,
                     $row['channel'] ?? null,
+                    $row['lead_delegation_raw'] ?? null,
                     $row['lead_delegation'] ?? null,
                     $row['lead_zone'] ?? null,
                     $row['commercial_delegation'] ?? null,
