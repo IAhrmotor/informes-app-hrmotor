@@ -45,6 +45,8 @@ class DashboardLeadTypeFilterTest extends TestCase
         $this->assertSame(5, $this->getJson('/informes/leads/data/summary')->json('kpis.leads_totales'));
         $this->assertSame(5, $this->getJson('/informes/leads/data/summary?lead_type=all')->json('kpis.leads_totales'));
         $this->assertSame(1, $this->getJson('/informes/leads/data/summary?lead_type=Tasaci%C3%B3n')->json('kpis.leads_totales'));
+        $this->assertSame(1, $this->getJson('/informes/leads/data/summary?lead_type=Tasacion')->json('kpis.leads_totales'));
+        $this->assertSame(1, $this->getJson('/informes/leads/data/summary?lead_type=%20TASACI%C3%93N%20')->json('kpis.leads_totales'));
         $this->assertSame(2, $this->getJson('/informes/leads/data/summary?lead_type=Venta')->json('kpis.leads_totales'));
     }
 
@@ -53,7 +55,7 @@ class DashboardLeadTypeFilterTest extends TestCase
         $this->lead('00Q1', 'Tasación', ['portal_text' => 'Web']);
         $this->lead('00Q2', 'Venta', ['portal_text' => 'Meta']);
 
-        $query = '?lead_type=Tasaci%C3%B3n';
+        $query = '?lead_type=Tasacion';
 
         $this->assertSame(1, $this->getJson('/informes/leads/data/summary'.$query)->json('kpis.leads_totales'));
         $this->assertSame(1, $this->getJson('/informes/leads/data/commercials'.$query)->json('commercials.0.leads_totales'));
@@ -69,6 +71,19 @@ class DashboardLeadTypeFilterTest extends TestCase
         $filters = $this->getJson('/informes/leads/data/summary')->json('filters');
 
         $this->assertSame(['Tasación', 'Venta'], $filters['lead_types']);
+    }
+
+    public function test_respuesta_vacia_es_correcta_y_no_se_confunde_con_un_error(): void
+    {
+        $response = $this->getJson('/informes/leads/data/summary?lead_type=Tasacion');
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonPath('empty', true)
+            ->assertJsonPath('kpis.leads_totales', 0)
+            ->assertJsonPath('executive_insights_source', 'none')
+            ->assertJsonCount(0, 'executive_insights');
     }
 
     public function test_cache_key_incluye_tipo_de_lead_al_formar_parte_de_los_filtros(): void

@@ -206,15 +206,24 @@ async function reloadAllData() {
 }
 
 function renderSummary(data) {
-    document.getElementById('updatedBadge').textContent = data.datos_actualizados
+    const updatedBadge = document.getElementById('updatedBadge');
+    updatedBadge.textContent = data.datos_actualizados
         ? `Datos actualizados: ${formatDateTime(data.datos_actualizados)}`
         : 'Datos actualizados: pendiente';
+    updatedBadge.title = [
+        data.salesforce_leads_synced_at ? `Leads: ${formatDateTime(data.salesforce_leads_synced_at)}` : null,
+        data.activities_synced_at ? `Actividades: ${formatDateTime(data.activities_synced_at)}` : null,
+        data.dataset_generated_at ? `Dataset: ${formatDateTime(data.dataset_generated_at)}` : null,
+        data.dataset_cutoff_at ? `Corte reproducible: ${formatDateTime(data.dataset_cutoff_at)}` : null,
+        data.dataset_timezone ? `Zona horaria: ${data.dataset_timezone}` : null,
+    ].filter(Boolean).join('\n');
     document.getElementById('currentPeriodLabel').textContent = periodText(data.periodo_actual);
     document.getElementById('comparisonPeriodLabel').textContent = periodText(data.periodo_comparado);
 
     const empty = document.getElementById('emptyMessage');
-    empty.classList.toggle('is-hidden', Boolean(data.ok));
-    empty.textContent = data.message || 'No hay datos sincronizados para el periodo seleccionado.';
+    const hasNoData = data.empty ?? !data.ok;
+    empty.classList.toggle('is-hidden', !hasNoData);
+    empty.textContent = data.message || 'No hay leads que coincidan con el periodo y los filtros seleccionados.';
 
     renderKpis(data.kpis || {});
     renderComparison(data.comparativa || []);

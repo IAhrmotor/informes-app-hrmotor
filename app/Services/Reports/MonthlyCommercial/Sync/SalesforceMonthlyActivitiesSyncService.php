@@ -11,8 +11,7 @@ class SalesforceMonthlyActivitiesSyncService
 {
     public function __construct(
         private readonly SalesforceClient $client,
-    ) {
-    }
+    ) {}
 
     public function syncTasks(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
     {
@@ -91,17 +90,20 @@ SOQL;
 
     private function syncActivityKind(string $kind, string $soql): array
     {
-        $records = $this->client->query($soql);
+        $queried = 0;
         $saved = 0;
 
-        foreach ($records as $record) {
-            if (blank(data_get($record, 'Id')) || blank(data_get($record, 'WhoId'))) {
-                continue;
-            }
+        foreach ($this->client->queryPages($soql) as $records) {
+            $queried += count($records);
+            $values = [];
 
-            SalesforceActivity::updateOrCreate(
-                ['salesforce_id' => data_get($record, 'Id')],
-                [
+            foreach ($records as $record) {
+                if (blank(data_get($record, 'Id')) || blank(data_get($record, 'WhoId'))) {
+                    continue;
+                }
+
+                $values[] = [
+                    'salesforce_id' => data_get($record, 'Id'),
                     'lead_salesforce_id' => data_get($record, 'WhoId'),
                     'activity_kind' => $kind,
                     'owner_id' => data_get($record, 'OwnerId'),
@@ -113,16 +115,26 @@ SOQL;
                     'subject' => data_get($record, 'Subject'),
                     'type' => data_get($record, 'Type'),
                     'status' => data_get($record, 'Status'),
-                    'raw_payload' => $record,
-                ]
-            );
+                    'raw_payload' => json_encode($record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                ];
 
-            $saved++;
+                $saved++;
+            }
+
+            foreach (array_chunk($values, 500) as $chunk) {
+                SalesforceActivity::query()->upsert(
+                    $chunk,
+                    ['salesforce_id'],
+                    array_values(array_diff(array_keys($chunk[0]), ['salesforce_id']))
+                );
+            }
+
+            unset($records);
         }
 
         return [
             'soql' => $soql,
-            'queried' => count($records),
+            'queried' => $queried,
             'saved' => $saved,
         ];
     }

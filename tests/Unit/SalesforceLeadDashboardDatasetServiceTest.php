@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Models\SalesforceLead;
 use App\Services\Reports\Leads\SalesforceLeadDashboardDatasetService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -46,6 +47,7 @@ class SalesforceLeadDashboardDatasetServiceTest extends TestCase
         ]);
 
         $this->assertSame('Google Maps', $lead['portal']);
+        $this->assertSame('Fuente_Nuevo__c', $lead['portal_resolution_source']);
     }
 
     public function test_portal_de_formulario_usa_portal_text_y_fallback_fuente_origen(): void
@@ -64,7 +66,49 @@ class SalesforceLeadDashboardDatasetServiceTest extends TestCase
         ]);
 
         $this->assertSame('Web', $lead['portal']);
+        $this->assertSame('Portal_Text__c', $lead['portal_resolution_source']);
         $this->assertSame('Meta', $fallback['portal']);
+        $this->assertSame('LEA_SEL_Fuente_Origen__c', $fallback['portal_resolution_source']);
+    }
+
+    public function test_coche_nuevo_de_llamada_procede_de_fuente_nuevo_aunque_portal_text_sea_coches_net(): void
+    {
+        $lead = $this->service->decorateLead([
+            'status' => 'Potencial',
+            'medio_nuevo' => 'Llamada',
+            'fuente_nuevo' => 'Coches.net Coche Nuevo',
+            'portal_text' => 'Coches.net',
+            'fuente_origen' => 'Coches.net Coche Nuevo',
+        ]);
+
+        $this->assertSame('Coches.net Coche Nuevo', $lead['portal']);
+        $this->assertSame('Fuente_Nuevo__c', $lead['portal_resolution_source']);
+    }
+
+    public function test_auditoria_por_id_incluye_campos_brutos_resueltos_y_ausencias_locales(): void
+    {
+        SalesforceLead::create([
+            'salesforce_id' => '00Q-AUDIT',
+            'name' => 'Auditado',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Potencial',
+            'record_type_name' => ' Tasación ',
+            'medio_nuevo' => 'Llamada',
+            'fuente_nuevo' => 'Google Maps',
+            'portal_text' => 'Coches.net',
+            'fuente_origen' => 'Coches.net',
+            'is_deleted' => false,
+        ]);
+
+        $items = $this->service->leadAudit(['00Q-AUDIT', '00Q-MISSING'])['items'];
+
+        $this->assertSame('tasacion', $items[0]['record_type_normalized']);
+        $this->assertSame('Google Maps', $items[0]['portal_resolved']);
+        $this->assertSame('Fuente_Nuevo__c', $items[0]['portal_resolution_source']);
+        $this->assertSame('Coches.net', $items[0]['portal_text_raw']);
+        $this->assertSame('active_at_last_sync', $items[0]['salesforce_state']);
+        $this->assertFalse($items[1]['exists_local']);
+        $this->assertSame('not_synchronized', $items[1]['salesforce_state']);
     }
 
     public function test_potencial_sin_trabajar_si_no_tiene_actividad_o_si_ultima_es_mayor_3_dias(): void

@@ -3,7 +3,6 @@
 namespace App\Services\Reports\Leads;
 
 use App\Models\MasterPortal;
-use App\Models\MonthlyCommercialReportSnapshot;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceLeadActivitySummary;
 use App\Models\SalesforceUser;
@@ -22,12 +21,7 @@ class SalesforceLeadDashboardDatasetService
         'Comerciales Partner Community',
     ];
 
-    private const CACHE_TTL_MINUTES = 10;
-
-    private const LEAD_TYPES = [
-        'Tasación',
-        'Venta',
-    ];
+    private const CACHE_TTL_MINUTES = 30;
 
     // Dirección quiere que los no clasificados cuenten en KPIs generales por ahora.
     private const INCLUDE_UNCLASSIFIED_IN_TOTALS = true;
@@ -45,15 +39,22 @@ class SalesforceLeadDashboardDatasetService
     ];
 
     private ?Collection $commercialUsersCache = null;
+
     private ?Collection $portalMapCache = null;
+
+    private array $portalGroupResolutionCache = [];
+
     public function __construct(
         private readonly LeadDelegationNormalizer $delegationNormalizer,
         private readonly LeadDashboardAiInsightsService $aiInsights,
-    ) {
-    }
+        private readonly LeadRecordTypeNormalizer $recordTypeNormalizer,
+        private readonly LeadPortalResolver $portalResolver,
+    ) {}
 
     public function payload(Request $request, string $context = 'summary'): array
     {
+        @set_time_limit(120);
+
         $filters = $this->filters($request, $context);
         $periods = $this->periods($filters);
 
@@ -85,6 +86,61 @@ class SalesforceLeadDashboardDatasetService
             now()->addMinutes(self::CACHE_TTL_MINUTES),
             fn () => $this->buildAuditPayload($filters, $periods['current'], $metric)
         );
+    }
+
+    /** @param list<string> $salesforceIds */
+    public function leadAudit(array $salesforceIds): array
+    {
+        $ids = collect($salesforceIds)
+            ->map(fn (mixed $id) => trim((string) $id))
+            ->filter()
+            ->unique()
+            ->take(200)
+            ->values();
+        $rows = SalesforceLead::query()
+            ->whereIn('salesforce_id', $ids)
+            ->get()
+            ->keyBy('salesforce_id');
+
+        return [
+            'ok' => true,
+            'items' => $ids->map(function (string $id) use ($rows): array {
+                /** @var SalesforceLead|null $row */
+                $row = $rows->get($id);
+
+                if ($row === null) {
+                    return [
+                        'salesforce_id' => $id,
+                        'exists_local' => false,
+                        'salesforce_state' => 'not_synchronized',
+                    ];
+                }
+
+                $lead = $this->decorateLead($row);
+
+                return [
+                    'salesforce_id' => $id,
+                    'exists_local' => true,
+                    'salesforce_state' => $lead['is_deleted'] ? 'deleted_or_merged' : 'active_at_last_sync',
+                    'status' => $lead['status'],
+                    'record_type_raw' => $lead['lead_type_raw'],
+                    'record_type_normalized' => $lead['lead_type_normalized'],
+                    'channel_resolved' => $lead['canal'],
+                    'portal_resolved' => $lead['portal'],
+                    'portal_resolution_source' => $lead['portal_resolution_source'],
+                    'portal_text_raw' => $lead['portal_text'],
+                    'fuente_nuevo_raw' => $lead['fuente_nuevo'],
+                    'lea_sel_fuente_origen_raw' => $lead['fuente_origen'],
+                    'medio_nuevo_raw' => $lead['medio_nuevo'],
+                    'created_date' => $lead['created_date'],
+                    'salesforce_last_modified_at' => $lead['salesforce_last_modified_at'],
+                    'synced_at' => $lead['synced_at'],
+                    'salesforce_deleted_at' => $lead['salesforce_deleted_at'],
+                    'deletion_detection_source' => $lead['deletion_detection_source'],
+                    'local_updated_at' => $row->updated_at,
+                ];
+            })->all(),
+        ];
     }
 
     public function commercialRows(Request $request): array
@@ -201,7 +257,11 @@ class SalesforceLeadDashboardDatasetService
                 'created_date' => $this->auditDate($lead['created_date'] ?? null),
                 'status' => $lead['status'] ?? null,
                 'lead_type' => $lead['lead_type'] ?? null,
+                'lead_type_raw' => $lead['lead_type_raw'] ?? null,
+                'lead_type_normalized' => $lead['lead_type_normalized'] ?? null,
                 'portal' => $lead['portal'] ?? null,
+                'portal_resolution_source' => $lead['portal_resolution_source'] ?? null,
+                'portal_text' => $lead['portal_text'] ?? null,
                 'portal_group' => $lead['grupo_portal'] ?? null,
                 'channel' => $lead['canal'] ?? null,
                 'lead_delegation' => $lead['lead_delegation'] ?? null,
@@ -229,6 +289,11 @@ class SalesforceLeadDashboardDatasetService
                 'vehicle_interest' => $lead['vehicle_interest'] ?? null,
                 'converted_account_id' => $lead['converted_account_id'] ?? null,
                 'converted_opportunity_id' => $lead['converted_opportunity_id'] ?? null,
+                'salesforce_last_modified_at' => $lead['salesforce_last_modified_at'] ?? null,
+                'synced_at' => $lead['synced_at'] ?? null,
+                'is_deleted' => (bool) ($lead['is_deleted'] ?? false),
+                'salesforce_deleted_at' => $lead['salesforce_deleted_at'] ?? null,
+                'deletion_detection_source' => $lead['deletion_detection_source'] ?? null,
                 'is_convertido' => (bool) ($lead['is_convertido'] ?? false),
                 'is_descartado' => (bool) ($lead['is_descartado'] ?? false),
                 'is_potencial' => (bool) ($lead['is_potencial'] ?? false),
@@ -259,8 +324,17 @@ class SalesforceLeadDashboardDatasetService
         $isConverted = $status === 'Convertido';
         $isDiscarded = $status === 'Descartado';
         $isPotential = $status === 'Potencial';
-        $channel = $this->resolveChannel(data_get($lead, 'medio_nuevo'));
-        $portal = $this->resolvePortal($lead, $channel);
+        $resolvedChannel = $this->clean(data_get($lead, 'resolved_channel'));
+        $resolvedPortal = $this->clean(data_get($lead, 'resolved_portal'));
+        $resolutionSource = $this->clean(data_get($lead, 'portal_resolution_source'));
+        $portalResolution = $resolvedChannel && $resolvedPortal && $resolutionSource
+            ? ['channel' => $resolvedChannel, 'portal' => $resolvedPortal, 'source' => $resolutionSource]
+            : $this->portalResolver->resolve($lead);
+        $channel = $portalResolution['channel'];
+        $portal = $portalResolution['portal'];
+        $recordTypeRaw = $this->clean(data_get($lead, 'record_type_name'));
+        $recordTypeNormalized = $this->clean(data_get($lead, 'record_type_normalized'))
+            ?? $this->recordTypeNormalizer->normalize($recordTypeRaw);
         $leadDelegation = $this->resolveLeadDelegation($lead);
         $manager = $this->resolveSimplifiedManager($lead, $isConverted, $isDiscarded);
         $commercialUser = $manager['id'] ? $this->commercialUsers()->get($manager['id']) : null;
@@ -285,7 +359,9 @@ class SalesforceLeadDashboardDatasetService
             'lead_name' => data_get($lead, 'name'),
             'created_date' => data_get($lead, 'created_date'),
             'status' => $status,
-            'lead_type' => data_get($lead, 'record_type_name'),
+            'lead_type' => $recordTypeRaw,
+            'lead_type_raw' => $recordTypeRaw,
+            'lead_type_normalized' => $recordTypeNormalized,
             'owner_id' => data_get($lead, 'owner_id'),
             'owner_name' => data_get($lead, 'owner_name'),
             'persona_que_trabajo_id' => data_get($lead, 'persona_que_trabajo_id'),
@@ -315,6 +391,13 @@ class SalesforceLeadDashboardDatasetService
             'is_formulario' => $channel === 'Formulario',
             'canal' => $channel,
             'portal' => $portal,
+            'portal_resolution_source' => $portalResolution['source'],
+            'portal_text' => data_get($lead, 'portal_text'),
+            'synced_at' => data_get($lead, 'synced_at'),
+            'salesforce_last_modified_at' => data_get($lead, 'salesforce_last_modified_at'),
+            'is_deleted' => (bool) data_get($lead, 'is_deleted', false),
+            'salesforce_deleted_at' => data_get($lead, 'salesforce_deleted_at'),
+            'deletion_detection_source' => data_get($lead, 'deletion_detection_source'),
             'grupo_portal' => $this->portalGroup($portal),
             'lead_delegation' => $leadDelegation['delegation'],
             'lead_group' => $leadDelegation['group'],
@@ -396,16 +479,33 @@ class SalesforceLeadDashboardDatasetService
         $delegations = $this->finalizeGroups($delegationGroups, 'lead_delegation');
         $portals = $this->finalizeGroups($portalGroups, 'portal');
         $comparison = $this->compactComparison($current, $previous);
-        $aiPayload = $this->aiPayload($filters, $periods, $current, $previous, $comparison, $portals, $commercials, $delegations);
-        $executiveInsights = $this->aiInsights->generate($aiPayload);
+        $syncMetadata = $this->syncMetadata($periods['current']);
+        $hasCurrentData = $current['leads_totales'] > 0;
+        $hasAnyPeriodData = $hasCurrentData || $previous['leads_totales'] > 0;
+        $executiveInsights = $hasAnyPeriodData
+            ? $this->aiInsights->generate(
+                $this->aiPayload($filters, $periods, $current, $previous, $comparison, $portals, $commercials, $delegations)
+            )
+            : ['insights' => [], 'source' => 'none'];
+        $emptyMessage = $syncMetadata['salesforce_leads_synced_at']
+            ? 'No hay leads que coincidan con el periodo y los filtros seleccionados.'
+            : 'No hay datos de leads sincronizados.';
 
         return [
             'summary' => [
-                'ok' => $current['leads_totales'] > 0 || $previous['leads_totales'] > 0,
-                'message' => $current['leads_totales'] > 0 ? null : 'No hay datos sincronizados para el periodo seleccionado.',
+                'ok' => true,
+                'empty' => ! $hasCurrentData,
+                'message' => $hasCurrentData ? null : $emptyMessage,
                 'periodo_actual' => $this->periodPayload($periods['current']),
                 'periodo_comparado' => $this->periodPayload($periods['previous']),
-                'datos_actualizados' => $this->lastSnapshotDate()?->toDateTimeString() ?? $this->lastUpdated()?->toDateTimeString(),
+                'datos_actualizados' => $syncMetadata['dataset_cutoff_at'],
+                'salesforce_leads_synced_at' => $syncMetadata['salesforce_leads_synced_at'],
+                'activities_synced_at' => $syncMetadata['activities_synced_at'],
+                'dataset_generated_at' => $syncMetadata['dataset_generated_at'],
+                'dataset_cutoff_at' => $syncMetadata['dataset_cutoff_at'],
+                'dataset_timezone' => $syncMetadata['timezone'],
+                'dataset_period_start' => $syncMetadata['period_start'],
+                'dataset_period_end' => $syncMetadata['period_end'],
                 'kpis' => $current,
                 'comparativa' => $comparison,
                 'insights' => $executiveInsights['insights'],
@@ -434,16 +534,24 @@ class SalesforceLeadDashboardDatasetService
 
     private function baseQuery(array $period): Builder
     {
+        $leadColumns = collect((new SalesforceLead)->getFillable())
+            ->reject(fn (string $column) => $column === 'raw_payload')
+            ->map(fn (string $column) => 'salesforce_leads.'.$column)
+            ->prepend('salesforce_leads.id')
+            ->push('salesforce_leads.created_at')
+            ->push('salesforce_leads.updated_at')
+            ->all();
+
         return SalesforceLead::query()
             ->leftJoin('salesforce_lead_activity_summaries as summaries', 'summaries.lead_salesforce_id', '=', 'salesforce_leads.salesforce_id')
+            ->where('salesforce_leads.is_deleted', false)
             ->where('salesforce_leads.created_date', '>=', $period['start'])
             ->where('salesforce_leads.created_date', '<=', $period['end'])
             ->orderBy('salesforce_leads.id')
-            ->select([
-                'salesforce_leads.*',
+            ->select(array_merge($leadColumns, [
                 'summaries.total_actividades',
                 'summaries.fecha_ultima_actividad',
-            ]);
+            ]));
     }
 
     private function passesFilters(array $lead, array $filters): bool
@@ -456,7 +564,7 @@ class SalesforceLeadDashboardDatasetService
             return false;
         }
 
-        if (! $this->passesLeadTypeFilter($lead['lead_type'], $filters['lead_type'])) {
+        if (! $this->passesLeadTypeFilter($lead['lead_type_normalized'], $filters['lead_type'])) {
             return false;
         }
 
@@ -479,17 +587,19 @@ class SalesforceLeadDashboardDatasetService
         return true;
     }
 
-    private function passesLeadTypeFilter(?string $recordTypeName, ?string $filter): bool
+    private function passesLeadTypeFilter(?string $recordTypeNormalized, ?string $filter): bool
     {
         if (blank($filter) || $filter === 'all') {
             return true;
         }
 
-        if ($filter === 'Venta') {
-            return in_array($recordTypeName, ['Venta', 'Venta con cambio'], true);
+        $normalizedFilter = $this->recordTypeNormalizer->normalize($filter);
+
+        if ($normalizedFilter === LeadRecordTypeNormalizer::VENTA) {
+            return in_array($recordTypeNormalized, $this->recordTypeNormalizer->ventaFilterTypes(), true);
         }
 
-        return $recordTypeName === $filter;
+        return $normalizedFilter !== null && $recordTypeNormalized === $normalizedFilter;
     }
 
     private function resolveAuditMetric(?string $metric): string
@@ -601,28 +711,6 @@ class SalesforceLeadDashboardDatasetService
         usort($rows, fn (array $a, array $b) => ($b['leads_totales'] ?? 0) <=> ($a['leads_totales'] ?? 0));
 
         return array_values($rows);
-    }
-
-    private function resolveChannel(mixed $medioNuevo): string
-    {
-        return $this->normalizeComparable((string) $medioNuevo) === $this->normalizeComparable('Llamada')
-            ? 'Llamada'
-            : 'Formulario';
-    }
-
-    private function resolvePortal(mixed $lead, string $channel): string
-    {
-        if ($channel === 'Llamada') {
-            return $this->clean(data_get($lead, 'fuente_nuevo'))
-                ?? $this->clean(data_get($lead, 'portal_text'))
-                ?? $this->clean(data_get($lead, 'fuente_origen'))
-                ?? 'Sin clasificar';
-        }
-
-        return $this->clean(data_get($lead, 'portal_text'))
-            ?? $this->clean(data_get($lead, 'fuente_origen'))
-            ?? $this->clean(data_get($lead, 'fuente_nuevo'))
-            ?? 'Sin clasificar';
     }
 
     private function resolveLeadDelegation(mixed $lead): array
@@ -987,7 +1075,7 @@ class SalesforceLeadDashboardDatasetService
                 ->values()
                 ->all(),
             'lead_delegations' => $this->delegationNormalizer->sortLabels($rows->pluck('lead_delegation')->all()),
-            'lead_types' => self::LEAD_TYPES,
+            'lead_types' => $this->leadTypeFilterLabels(),
             'commercial_delegations' => $this->delegationNormalizer->sortLabels($commercialDelegations->all()),
             'zones' => $this->delegationNormalizer->sortLabels($zones->all()),
         ];
@@ -1043,7 +1131,7 @@ class SalesforceLeadDashboardDatasetService
                 ->values()
                 ->all(),
             'lead_delegations' => $this->delegationNormalizer->sortLabels(array_keys($options['lead_delegations'])),
-            'lead_types' => self::LEAD_TYPES,
+            'lead_types' => $this->leadTypeFilterLabels(),
             'commercial_delegations' => $this->delegationNormalizer->sortLabels($commercialDelegations->all()),
             'zones' => $this->delegationNormalizer->sortLabels($zones->all()),
         ];
@@ -1051,8 +1139,18 @@ class SalesforceLeadDashboardDatasetService
 
     private function cacheKey(array $filters, array $periods): string
     {
-        return 'lead-dashboard-v8:'.md5(json_encode([
-            'filters' => $filters,
+        $cacheFilters = $filters;
+
+        // El contexto solo cambia el resultado cuando hay un filtro de zona:
+        // comerciales filtra por zona comercial y el resto por zona del lead.
+        // Sin zona, todos los endpoints construyen el mismo dataset completo y
+        // deben reutilizarlo para no recalcularlo cuatro veces en cada recarga.
+        $cacheFilters['context'] = filled($filters['zone'])
+            ? $this->zoneFieldForContext($filters)
+            : 'shared';
+
+        return 'lead-dashboard-v9:'.md5(json_encode([
+            'filters' => $cacheFilters,
             'periods' => [
                 'current' => $this->periodPayload($periods['current']),
                 'previous' => $this->periodPayload($periods['previous']),
@@ -1061,21 +1159,19 @@ class SalesforceLeadDashboardDatasetService
         ]));
     }
 
+    /** @return list<string> */
+    private function leadTypeFilterLabels(): array
+    {
+        return [
+            $this->recordTypeNormalizer->label(LeadRecordTypeNormalizer::TASACION),
+            $this->recordTypeNormalizer->label(LeadRecordTypeNormalizer::VENTA),
+        ];
+    }
+
     private function dataVersion(): array
     {
         return [
-            'lead_count' => SalesforceLead::query()->count(),
-            'user_count' => SalesforceUser::query()->count(),
-            'summary_count' => SalesforceLeadActivitySummary::query()->count(),
-            'lead_max_id' => SalesforceLead::query()->max('id'),
-            'lead_min_salesforce_id' => SalesforceLead::query()->min('salesforce_id'),
-            'lead_max_salesforce_id' => SalesforceLead::query()->max('salesforce_id'),
-            'user_max_id' => SalesforceUser::query()->max('id'),
             'dashboard_cache_version' => Cache::get('lead_dashboard_cache_version', 1),
-            'leads' => SalesforceLead::query()->max('updated_at'),
-            'users' => SalesforceUser::query()->max('updated_at'),
-            'summaries' => SalesforceLeadActivitySummary::query()->max('updated_at'),
-            'snapshot' => MonthlyCommercialReportSnapshot::query()->max('generated_at'),
         ];
     }
 
@@ -1087,18 +1183,36 @@ class SalesforceLeadDashboardDatasetService
         ];
     }
 
-    private function lastSnapshotDate(): ?CarbonImmutable
-    {
-        $generatedAt = MonthlyCommercialReportSnapshot::query()->max('generated_at');
-
-        return $generatedAt ? CarbonImmutable::parse($generatedAt) : null;
-    }
-
     private function lastUpdated(): ?CarbonImmutable
     {
         $updated = SalesforceLead::query()->max('updated_at');
 
         return $updated ? CarbonImmutable::parse($updated) : null;
+    }
+
+    /** @return array<string, ?string> */
+    private function syncMetadata(array $period): array
+    {
+        $leadsSyncedAt = SalesforceLead::query()->max('synced_at');
+        $activitiesSyncedAt = SalesforceLeadActivitySummary::query()->max('updated_at');
+        $leadsCutoff = $leadsSyncedAt
+            ? CarbonImmutable::parse($leadsSyncedAt)
+            : $this->lastUpdated();
+        $activitiesCutoff = $activitiesSyncedAt ? CarbonImmutable::parse($activitiesSyncedAt) : null;
+        $cutoff = collect([$leadsCutoff, $activitiesCutoff])
+            ->filter()
+            ->sortBy(fn (CarbonImmutable $date) => $date->getTimestamp())
+            ->first();
+
+        return [
+            'salesforce_leads_synced_at' => $leadsCutoff?->toDateTimeString(),
+            'activities_synced_at' => $activitiesCutoff?->toDateTimeString(),
+            'dataset_generated_at' => CarbonImmutable::now()->toDateTimeString(),
+            'dataset_cutoff_at' => $cutoff?->toDateTimeString(),
+            'period_start' => CarbonImmutable::parse($period['start'])->toDateTimeString(),
+            'period_end' => CarbonImmutable::parse($period['end'])->toDateTimeString(),
+            'timezone' => (string) config('app.timezone'),
+        ];
     }
 
     private function percentage(int|float $value, int|float $total): ?float
@@ -1134,7 +1248,11 @@ class SalesforceLeadDashboardDatasetService
 
     private function portalGroup(string $portal): string
     {
-        return $this->portalMap()->get($this->normalizeComparable($portal)) ?? $portal ?: 'Sin clasificar';
+        if (array_key_exists($portal, $this->portalGroupResolutionCache)) {
+            return $this->portalGroupResolutionCache[$portal];
+        }
+
+        return $this->portalGroupResolutionCache[$portal] = $this->portalMap()->get($this->normalizeComparable($portal)) ?? $portal ?: 'Sin clasificar';
     }
 
     private function parseDate(?string $value, CarbonImmutable $fallback): CarbonImmutable

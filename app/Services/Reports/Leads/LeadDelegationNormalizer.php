@@ -7,24 +7,35 @@ use Illuminate\Support\Str;
 class LeadDelegationNormalizer
 {
     public const UNCLASSIFIED = 'Sin clasificar';
+
     public const NO_GROUP = 'Sin grupo';
+
     public const INDEPENDENT_GROUP = 'Independientes';
 
     private ?array $aliasMap = null;
+
     private ?array $delegationMeta = null;
+
+    private array $normalizationCache = [];
 
     public function normalize(?string $raw): array
     {
         $raw = $this->clean($raw);
 
+        $cacheKey = $raw ?? '';
+
+        if (array_key_exists($cacheKey, $this->normalizationCache)) {
+            return $this->normalizationCache[$cacheKey];
+        }
+
         if ($raw === null) {
-            return $this->unclassified(null);
+            return $this->normalizationCache[$cacheKey] = $this->unclassified(null);
         }
 
         $match = $this->aliasMap()[$this->key($raw)] ?? null;
 
         if ($match === null) {
-            return [
+            return $this->normalizationCache[$cacheKey] = [
                 'raw' => $raw,
                 'delegation' => self::UNCLASSIFIED,
                 'group' => self::NO_GROUP,
@@ -39,7 +50,7 @@ class LeadDelegationNormalizer
             'zone' => self::UNCLASSIFIED,
         ];
 
-        return [
+        return $this->normalizationCache[$cacheKey] = [
             'raw' => $raw,
             'delegation' => $match['delegation'],
             'group' => $meta['group'],

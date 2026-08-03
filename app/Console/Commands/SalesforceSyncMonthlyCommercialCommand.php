@@ -30,6 +30,8 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
         SalesforceMonthlyActivitiesSyncService $activitiesSync,
         SalesforceLeadActivitySummaryService $summaryService,
     ): int {
+        @ini_set('memory_limit', '512M');
+
         $days = max((int) $this->option('days'), 1);
         $periodEnd = CarbonImmutable::now();
         $periodStart = $periodEnd->subDays($days);
@@ -58,6 +60,10 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
             $this->line('Leads consultados: '.$leads['queried']);
             $this->line('Leads guardados: '.$leads['saved']);
             $this->line('Leads sincronizados: '.$leads['saved']);
+            $this->line('Leads eliminados/fusionados marcados: '.($leads['deleted'] ?? 0));
+            $this->line('  Detectados por queryAll: '.($leads['deleted_query_all'] ?? 0));
+            $this->line('  Ausentes en reconciliacion: '.($leads['deleted_missing'] ?? 0));
+            $this->line('Corte sincronizacion Leads: '.($leads['synced_at'] ?? '-'));
             foreach ($leads['warnings'] ?? [] as $warning) {
                 $this->warn($warning);
             }

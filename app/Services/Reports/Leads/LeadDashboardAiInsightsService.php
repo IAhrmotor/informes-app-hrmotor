@@ -28,7 +28,8 @@ class LeadDashboardAiInsightsService
             function () use ($payload, $fallback): array {
                 try {
                     $response = Http::withToken(config('openai.api_key'))
-                        ->timeout((int) config('openai.timeout', 30))
+                        ->connectTimeout(2)
+                        ->timeout(min((int) config('openai.timeout', 30), 5))
                         ->post('https://api.openai.com/v1/chat/completions', [
                             'model' => config('openai.model'),
                             'temperature' => 0.2,

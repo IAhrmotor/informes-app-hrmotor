@@ -13,8 +13,7 @@ class LeadDashboardDataController extends Controller
 {
     public function __construct(
         private readonly SalesforceLeadDashboardDatasetService $dataset,
-    ) {
-    }
+    ) {}
 
     public function resumen(Request $request): JsonResponse
     {
@@ -66,6 +65,16 @@ class LeadDashboardDataController extends Controller
         return response()->json($this->dataset->kpiAudit($request));
     }
 
+    public function leadAudit(Request $request): JsonResponse
+    {
+        abort_unless(ReportUserAccess::canExport($request), 403);
+
+        $ids = $request->input('ids', []);
+        $ids = is_array($ids) ? $ids : preg_split('/[\s,;]+/', (string) $ids, -1, PREG_SPLIT_NO_EMPTY);
+
+        return response()->json($this->dataset->leadAudit(array_slice($ids ?: [], 0, 200)));
+    }
+
     public function exportKpiAuditCsv(Request $request): StreamedResponse
     {
         abort_unless(ReportUserAccess::canExport($request), 403);
@@ -79,8 +88,11 @@ class LeadDashboardDataController extends Controller
             'Lead name',
             'Created date',
             'Status',
-            'Lead type',
-            'Portal',
+            'RecordType bruto',
+            'RecordType normalizado',
+            'Portal resuelto',
+            'Campo resolucion portal',
+            'Portal_Text__c bruto',
             'Grupo portal',
             'Canal',
             'Delegacion lead',
@@ -108,6 +120,11 @@ class LeadDashboardDataController extends Controller
             'Vehicle interest',
             'Converted account ID',
             'Converted opportunity ID',
+            'Salesforce LastModifiedDate',
+            'Sincronizado en local',
+            'Eliminado en Salesforce',
+            'Fecha eliminacion Salesforce',
+            'Origen deteccion eliminacion',
         ];
 
         return response()->streamDownload(function () use ($rows, $headers): void {
@@ -121,8 +138,11 @@ class LeadDashboardDataController extends Controller
                     $row['lead_name'] ?? null,
                     $row['created_date'] ?? null,
                     $row['status'] ?? null,
-                    $row['lead_type'] ?? null,
+                    $row['lead_type_raw'] ?? $row['lead_type'] ?? null,
+                    $row['lead_type_normalized'] ?? null,
                     $row['portal'] ?? null,
+                    $row['portal_resolution_source'] ?? null,
+                    $row['portal_text'] ?? null,
                     $row['portal_group'] ?? null,
                     $row['channel'] ?? null,
                     $row['lead_delegation'] ?? null,
@@ -150,6 +170,11 @@ class LeadDashboardDataController extends Controller
                     $row['vehicle_interest'] ?? null,
                     $row['converted_account_id'] ?? null,
                     $row['converted_opportunity_id'] ?? null,
+                    $row['salesforce_last_modified_at'] ?? null,
+                    $row['synced_at'] ?? null,
+                    ($row['is_deleted'] ?? false) ? 'Si' : 'No',
+                    $row['salesforce_deleted_at'] ?? null,
+                    $row['deletion_detection_source'] ?? null,
                 ]);
             }
 

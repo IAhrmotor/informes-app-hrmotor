@@ -17,9 +17,7 @@ class SalesforceMonthlyActivitiesSyncServiceTest extends TestCase
     {
         $client = new class extends SalesforceClient
         {
-            public function __construct()
-            {
-            }
+            public function __construct() {}
 
             public function query(string $soql): array
             {
@@ -58,6 +56,11 @@ class SalesforceMonthlyActivitiesSyncServiceTest extends TestCase
                         'CreatedDate' => '2026-05-02T13:00:00.000+0000',
                     ],
                 ];
+            }
+
+            public function queryPages(string $soql, bool $includeDeleted = false): \Generator
+            {
+                yield $this->query($soql);
             }
         };
 
