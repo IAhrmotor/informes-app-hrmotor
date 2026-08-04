@@ -42,6 +42,11 @@ class CampaignAttribution extends Model
         'opportunity_attribution_confidence',
         'match_status',
         'campaign_source_type',
+        'matched_source_field',
+        'matched_source_value',
+        'matched_platform_field',
+        'matched_platform_value',
+        'match_candidate_count',
     ];
 
     protected $casts = [

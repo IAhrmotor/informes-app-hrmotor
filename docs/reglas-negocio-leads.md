@@ -1,5 +1,53 @@
 # Reglas de negocio - Dashboard de Leads
 
+## Revision auditable 2026-08-04
+
+### Tipo de Lead
+
+`LeadRecordTypeNormalizer` es el unico mapping autorizado. Limpia espacios,
+convierte a minusculas, elimina tildes y acepta aliases controlados. La misma
+clave se guarda en `salesforce_leads.record_type_normalized` y se usa al
+sincronizar, construir el dataset, filtrar y exportar.
+
+- Tasacion: `tasacion`.
+- Venta: `venta` y `venta_con_cambio`.
+- `lead` y `ayvens` permanecen fuera de Venta hasta confirmacion funcional.
+
+### Sincronizacion y corte
+
+`salesforce:sync-monthly-commercial` acepta `--days` o `--from/--to` (fin
+exclusivo). La SOQL incluye `CreatedDate` o `LastModifiedDate`, por lo que una
+ventana corta tambien refresca registros antiguos modificados. Cada ejecucion
+se registra en `report_sync_runs`; una ejecucion fallida nunca se publica como
+corte valido.
+
+Se actualizan Status, RecordType, LastModifiedDate, Owner, persona que trabajo,
+propietario de descarte, portal/canal/delegacion, IsConverted y datos de
+conversion. Las eliminaciones y fusiones se detectan por `queryAll`; la
+reconciliacion de ausentes cubre hard deletes. `MasterRecordId`, cuando existe,
+identifica el registro maestro de una fusion.
+
+La cabecera expone sincronizacion de Leads y actividades, generacion, corte,
+rango, id de ejecucion y zona `Europe/Madrid`. Tambien muestra cobertura de
+`synced_at` y `LastModifiedDate`.
+
+### Auditoria
+
+- `/informes/leads/export/kpi-audit.csv`: filas que componen el KPI.
+- `/informes/leads/export/reconciliation-audit.csv`: activos, eliminados y fusionados.
+- `/informes/leads/data/lead-audit?ids[]=...`: inspeccion puntual de hasta 200 IDs.
+
+Direccion tiene permiso para estos endpoints. Para metadatos historicos:
+
+```bash
+php artisan salesforce:backfill-lead-audit-metadata --dry-run
+php artisan salesforce:backfill-lead-audit-metadata
+```
+
+El backfill local queda marcado como `legacy_local_backfill` y no demuestra un
+corte Salesforce. Para conciliaciones formales debe preferirse una nueva
+sincronizacion con rango explicito.
+
 ## 1. Objetivo
 
 Normalizar los leads comerciales para mostrar un dashboard ejecutivo en Laravel.

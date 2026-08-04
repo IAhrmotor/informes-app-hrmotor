@@ -1,3 +1,44 @@
+# Informes HR Motor
+
+Aplicacion Laravel para los paneles internos de Leads, Campanas, Reservas/Ventas,
+Llamadas, Comisiones y Stock.
+
+## Actualizacion Leads y Campanas (2026-08-04)
+
+- Los tipos de Lead se normalizan una sola vez (`trim`, minusculas, sin tildes y aliases controlados). `Tasacion` y `Tasación` resuelven a `tasacion`.
+- Venta sigue significando `venta + venta_con_cambio`. `lead` y `ayvens` quedan fuera hasta recibir confirmacion funcional.
+- La sincronizacion incremental actualiza filas existentes y propaga eliminaciones/fusiones.
+- Las cabeceras separan sincronizacion, construccion, generacion y corte en zona `Europe/Madrid`.
+- Leads cancela peticiones anteriores para impedir que una respuesta obsoleta pinte otro filtro.
+- Campanas excluye Leads eliminados y conserva el campo/valor exactos usados en cada match.
+- Direccion dispone de auditoria KPI, conciliacion de activos/eliminados/fusionados y traza de atribuciones.
+
+Despliegue minimo:
+
+```bash
+php artisan migrate --force
+php artisan optimize:clear
+npm ci
+npm run build
+php artisan salesforce:sync-monthly-commercial --days=120
+php artisan campaigns:sync-meta --days=120
+php artisan campaigns:sync-google --days=120
+php artisan campaigns:build-attribution --days=120
+```
+
+Para un historico exacto usar rango explicito con fin exclusivo:
+
+```bash
+php artisan salesforce:sync-monthly-commercial --from=2026-07-01 --to=2026-08-01
+```
+
+El scheduler usa ventanas moviles; el cron del servidor solo debe ejecutar
+`php artisan schedule:run` cada minuto. No hay que editar fechas diariamente.
+
+Documentacion: `docs/reglas-negocio-leads.md`, `docs/informe-campanas.md` y `HANDOFF.md`.
+
+---
+
 <p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
 <p align="center">

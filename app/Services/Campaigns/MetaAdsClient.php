@@ -3,8 +3,8 @@
 namespace App\Services\Campaigns;
 
 use Carbon\CarbonInterface;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class MetaAdsClient
@@ -169,6 +169,49 @@ class MetaAdsClient
             $payload = $response->json();
             $rows = array_merge($rows, $payload['data'] ?? []);
 
+            $after = data_get($payload, 'paging.cursors.after');
+            $hasNextPage = filled(data_get($payload, 'paging.next')) && filled($after);
+        } while ($hasNextPage);
+
+        return $rows;
+    }
+
+    /**
+     * Devuelve el inventario de IDs publicitarios necesario para explicar cada cruce.
+     * La inversion sigue consultandose a nivel campana para no multiplicar importes.
+     */
+    public function attributionIdentifiers(string $accountId): array
+    {
+        $apiVersion = trim((string) config('services.meta_ads.api_version', 'v25.0'));
+        $accessToken = trim((string) config('services.meta_ads.access_token'));
+        $account = str_starts_with(trim($accountId), 'act_') ? trim($accountId) : 'act_'.trim($accountId);
+
+        if (blank($accessToken)) {
+            throw new RuntimeException('Meta Ads API error: META_ACCESS_TOKEN no esta configurado.');
+        }
+
+        $url = sprintf('https://graph.facebook.com/%s/%s/ads', $apiVersion, $account);
+        $baseParams = [
+            'access_token' => $accessToken,
+            'fields' => 'id,name,adset{id,name},campaign{id,name}',
+            'limit' => 500,
+        ];
+        $rows = [];
+        $after = null;
+
+        do {
+            $params = $baseParams;
+            if (filled($after)) {
+                $params['after'] = $after;
+            }
+
+            $response = Http::timeout(120)->retry(2, 1000)->get($url, $params);
+            if ($response->failed()) {
+                throw new RuntimeException('Meta Ads identifier metadata error: '.$response->body());
+            }
+
+            $payload = $response->json();
+            $rows = array_merge($rows, $payload['data'] ?? []);
             $after = data_get($payload, 'paging.cursors.after');
             $hasNextPage = filled(data_get($payload, 'paging.next')) && filled($after);
         } while ($hasNextPage);

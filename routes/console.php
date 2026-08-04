@@ -19,3 +19,31 @@ Schedule::command('salesforce:sync-monthly-commercial --days=2')
     ->everyFifteenMinutes()
     ->timezone('Europe/Madrid')
     ->withoutOverlapping(30);
+
+// Ventana movil: no requiere editar fechas cada dia. El comando calcula
+// [ahora - 120 dias, ahora) e incluye registros antiguos modificados.
+Schedule::command('salesforce:sync-tasaciones --days=120')
+    ->dailyAt('01:00')
+    ->timezone('Europe/Madrid')
+    ->withoutOverlapping(180);
+
+// La atribucion se reconstruye despues de actualizar ambas plataformas.
+Schedule::command('campaigns:sync-meta --days=120')
+    ->dailyAt('01:30')
+    ->timezone('Europe/Madrid')
+    ->withoutOverlapping(180);
+
+Schedule::command('campaigns:sync-google --days=120')
+    ->dailyAt('01:45')
+    ->timezone('Europe/Madrid')
+    ->withoutOverlapping(180);
+
+Schedule::command('campaigns:build-attribution --days=120')
+    ->dailyAt('02:15')
+    ->timezone('Europe/Madrid')
+    ->withoutOverlapping(240);
+
+Schedule::command('reports:refresh-campaigns --days=120 --store')
+    ->dailyAt('03:15')
+    ->timezone('Europe/Madrid')
+    ->withoutOverlapping(120);

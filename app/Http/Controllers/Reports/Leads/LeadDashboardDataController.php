@@ -185,4 +185,24 @@ class LeadDashboardDataController extends Controller
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }
+
+    public function exportReconciliationAuditCsv(Request $request): StreamedResponse
+    {
+        abort_unless(ReportUserAccess::canAudit($request), 403);
+
+        $rows = $this->dataset->reconciliationAudit($request);
+        $headers = $rows === [] ? ['Lead ID'] : array_keys($rows[0]);
+
+        return response()->streamDownload(function () use ($rows, $headers): void {
+            $output = fopen('php://output', 'w');
+            fwrite($output, "\xEF\xBB\xBF");
+            fputcsv($output, $headers);
+            foreach ($rows as $row) {
+                fputcsv($output, array_map(fn ($value) => is_bool($value) ? ($value ? 'Si' : 'No') : $value, $row));
+            }
+            fclose($output);
+        }, 'leads-conciliacion-activos-eliminados.csv', [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Services\Campaigns;
 
+use App\Models\CampaignPlatformIdentifier;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -13,8 +14,7 @@ class MetaCampaignSyncService
     public function __construct(
         private readonly MetaAdsClient $client,
         private readonly CampaignMetricsRepository $metrics,
-    ) {
-    }
+    ) {}
 
     public function sync(CarbonInterface $start, CarbonInterface $end): array
     {
@@ -51,6 +51,14 @@ class MetaCampaignSyncService
             } catch (Throwable $exception) {
                 $campaigns = collect();
                 $warnings[] = "No se ha podido actualizar el estado de campanas de Meta Ads ({$accountId}). ".$exception->getMessage();
+                Log::warning(end($warnings));
+            }
+
+            try {
+                $identifiers = $this->client->attributionIdentifiers($accountId);
+                $this->replaceIdentifiers($accountId, $identifiers);
+            } catch (Throwable $exception) {
+                $warnings[] = "No se ha podido actualizar el inventario auditable de Meta Ads ({$accountId}). ".$exception->getMessage();
                 Log::warning(end($warnings));
             }
 
@@ -156,5 +164,39 @@ class MetaCampaignSyncService
             ->unique()
             ->values()
             ->all();
+    }
+
+    private function replaceIdentifiers(string $accountId, array $rows): void
+    {
+        DB::transaction(function () use ($accountId, $rows): void {
+            DB::table('campaign_platform_identifiers')
+                ->where('platform', 'meta')
+                ->whereIn('account_id', [$accountId, preg_replace('/^act_/i', '', $accountId)])
+                ->delete();
+
+            foreach (array_chunk($rows, 500) as $chunk) {
+                DB::table('campaign_platform_identifiers')->insert(array_map(function (array $row) use ($accountId): array {
+                    $payload = [
+                        'platform' => 'meta',
+                        'account_id' => preg_replace('/^act_/i', '', $accountId),
+                        'campaign_id' => (string) data_get($row, 'campaign.id'),
+                        'campaign_name' => data_get($row, 'campaign.name'),
+                        'adset_id' => (string) data_get($row, 'adset.id'),
+                        'adset_name' => data_get($row, 'adset.name'),
+                        'ad_group_id' => null,
+                        'ad_group_name' => null,
+                        'ad_id' => (string) data_get($row, 'id'),
+                        'ad_name' => data_get($row, 'name'),
+                        'raw_payload' => json_encode($row),
+                        'synced_at' => now(),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                    $payload['unique_key'] = CampaignPlatformIdentifier::uniqueKey($payload);
+
+                    return $payload;
+                }, $chunk));
+            }
+        });
     }
 }

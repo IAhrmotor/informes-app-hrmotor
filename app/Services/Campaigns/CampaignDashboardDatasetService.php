@@ -106,6 +106,11 @@ class CampaignDashboardDatasetService
                 'cla.attribution_confidence as row_attribution_confidence',
                 'cla.match_status as row_match_status',
                 'cla.campaign_source_type as row_campaign_source_type',
+                'cla.matched_source_field',
+                'cla.matched_source_value',
+                'cla.matched_platform_field',
+                'cla.matched_platform_value',
+                'cla.match_candidate_count',
                 'cla.opportunity_id',
                 'cla.created_at as attribution_built_at',
                 'cla.updated_at as attribution_updated_at',
@@ -156,6 +161,11 @@ class CampaignDashboardDatasetService
                     'match_type' => $method,
                     'match_confidence' => $row->row_attribution_confidence ?: $row->lead_attribution_confidence,
                     'match_status' => $row->row_match_status ?: $row->lead_match_status,
+                    'matched_source_field' => $row->matched_source_field,
+                    'matched_source_value' => $row->matched_source_value,
+                    'matched_platform_field' => $row->matched_platform_field,
+                    'matched_platform_value' => $row->matched_platform_value,
+                    'match_candidate_count' => (int) $row->match_candidate_count,
                     'campaign_source_type' => $row->row_campaign_source_type ?: $row->lead_campaign_source_type,
                     'campaign_type' => $row->campaign_type,
                     'lead_record_type_raw' => $row->lead_record_type_raw,
@@ -1205,6 +1215,7 @@ class CampaignDashboardDatasetService
         );
         $charts = $this->charts($rows, $filters, $period, $totals, $attributionAnalytics);
         $publicWarnings = $this->publicWarnings($totals);
+        $datasetMetadata = $this->campaignDatasetMetadata($period);
 
         return [
             'ok' => count($rows) > 0,
@@ -1215,7 +1226,14 @@ class CampaignDashboardDatasetService
                 'inicio' => $period['start'],
                 'fin' => $period['end'],
             ],
-            'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
+            'datos_actualizados' => $datasetMetadata['dataset_cutoff_at'],
+            'salesforce_leads_synced_at' => $datasetMetadata['salesforce_leads_synced_at'],
+            'meta_synced_at' => $datasetMetadata['meta_synced_at'],
+            'google_synced_at' => $datasetMetadata['google_synced_at'],
+            'attribution_built_at' => $datasetMetadata['attribution_built_at'],
+            'dataset_generated_at' => $datasetMetadata['dataset_generated_at'],
+            'dataset_cutoff_at' => $datasetMetadata['dataset_cutoff_at'],
+            'dataset_timezone' => self::REPORT_TIMEZONE,
             'kpis' => $totals,
             'warnings' => $this->warnings($rows, $totals, $period, $filters),
             'public_warnings' => $publicWarnings,
@@ -2480,6 +2498,16 @@ class CampaignDashboardDatasetService
             $warnings[] = 'Los datos de inversion no se han actualizado en las ultimas 36 horas.';
         }
 
+        $lastAttributionBuild = DB::table('campaign_lead_attributions')->max('updated_at');
+        if ($lastAttributionBuild && $lastSyncedAt && CarbonImmutable::parse($lastAttributionBuild)->lessThan($lastSyncedAt)) {
+            $warnings[] = 'Las metricas publicitarias son posteriores a la atribucion. Ejecuta campaigns:build-attribution antes de validar el panel.';
+        }
+
+        $lastLeadSync = DB::table('salesforce_leads')->max('synced_at');
+        if ($lastAttributionBuild && $lastLeadSync && CarbonImmutable::parse($lastAttributionBuild)->lessThan(CarbonImmutable::parse($lastLeadSync))) {
+            $warnings[] = 'Salesforce Leads se sincronizo despues de la atribucion. Reconstruye atribuciones para propagar cambios y eliminaciones.';
+        }
+
         return array_values(array_unique($warnings));
     }
 
@@ -2537,9 +2565,14 @@ class CampaignDashboardDatasetService
 
     private function attributionBase(array $period, array $filters)
     {
-        return DB::table('campaign_lead_attributions')
+        $query = DB::table('campaign_lead_attributions')
             ->where('lead_created_date', '>=', $period['start_at'])
             ->where('lead_created_date', '<', $period['end_at']);
+
+        $this->applyLeadAttributionFilters($query, $filters);
+        $this->applyCampaignContextFilter($query, $filters);
+
+        return $query;
     }
 
     private function diagnostics(array $rows, array $period, array $filters): array
@@ -2568,8 +2601,8 @@ class CampaignDashboardDatasetService
             'platform_campaigns' => $rowCollection->where('campaign_source_type', 'platform_campaign')->count(),
             'salesforce_origins' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
             'salesforce_campaigns_without_spend' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_campaign_without_spend')->count(),
-            'crossed_campaigns' => $rowCollection->filter(fn (array $row) => in_array($row['match_status'] ?? null, ['Cruzada por ID', 'Cruzada por nombre'], true))->count(),
-            'campaigns_without_crossing' => $rowCollection->filter(fn (array $row) => ! in_array($row['match_status'] ?? null, ['Cruzada por ID', 'Cruzada por nombre'], true))->count(),
+            'crossed_campaigns' => $rowCollection->filter(fn (array $row) => str_starts_with((string) ($row['match_status'] ?? ''), 'Cruzada por'))->count(),
+            'campaigns_without_crossing' => $rowCollection->filter(fn (array $row) => ! str_starts_with((string) ($row['match_status'] ?? ''), 'Cruzada por'))->count(),
             'leads_platform_campaigns' => $rowCollection->where('campaign_source_type', 'platform_campaign')->sum('leads_salesforce'),
             'leads_salesforce_origins' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
             'attributed_sales' => $rowCollection->sum('sales'),
@@ -2594,8 +2627,18 @@ class CampaignDashboardDatasetService
             'match_ad_id' => (clone $legacyAttributionBase)->where('attribution_method', 'ad_id_match')->count(),
             'match_adset_or_adgroup' => (clone $legacyAttributionBase)->where('attribution_method', 'adset_or_adgroup_id_match')->count(),
             'match_campaign_id' => (clone $legacyAttributionBase)->where('attribution_method', 'campaign_id_match')->count(),
-            'match_campaign_name_exact' => (clone $legacyAttributionBase)->where('attribution_method', 'campaign_name_match')->where('attribution_confidence', 'medium')->count(),
-            'match_campaign_name_flexible' => (clone $legacyAttributionBase)->where('attribution_method', 'campaign_name_match')->where('attribution_confidence', 'low')->count(),
+            'match_campaign_name_exact' => (clone $legacyAttributionBase)->where(function ($query): void {
+                $query->where('attribution_method', 'campaign_name_exact_match')
+                    ->orWhere(function ($legacy): void {
+                        $legacy->where('attribution_method', 'campaign_name_match')->where('attribution_confidence', 'medium');
+                    });
+            })->count(),
+            'match_campaign_name_flexible' => (clone $legacyAttributionBase)->where(function ($query): void {
+                $query->where('attribution_method', 'campaign_name_flexible_match')
+                    ->orWhere(function ($legacy): void {
+                        $legacy->where('attribution_method', 'campaign_name_match')->where('attribution_confidence', 'low');
+                    });
+            })->count(),
             'salesforce_only_by_campaign' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_campaign_without_spend')->count(),
             'salesforce_only_by_origin' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
         ];
@@ -2634,6 +2677,9 @@ class CampaignDashboardDatasetService
             })
             ->where("so.{$column}", '>', 0);
 
+        $this->applyLeadAttributionFilters($query, $filters, 'cla');
+        $this->applyCampaignContextFilter($query, $filters, 'cla');
+
         return $aggregate === 'sum'
             ? round((float) $query->sum("so.{$column}"), 2)
             : $query->count();
@@ -2649,6 +2695,9 @@ class CampaignDashboardDatasetService
             ->where(function ($subQuery): void {
                 $subQuery->whereNull('cla.campaign_type')->orWhere('cla.campaign_type', '<>', 'tasacion');
             });
+
+        $this->applyLeadAttributionFilters($query, $filters, 'cla');
+        $this->applyCampaignContextFilter($query, $filters, 'cla');
 
         $fallbackSql = 'NULL';
 
@@ -2842,6 +2891,15 @@ class CampaignDashboardDatasetService
     {
         $column = fn (string $field): string => $alias ? "{$alias}.{$field}" : $field;
 
+        if (Schema::hasTable('salesforce_leads') && Schema::hasColumn('salesforce_leads', 'is_deleted')) {
+            $query->whereNotExists(function ($subQuery) use ($column): void {
+                $subQuery->selectRaw('1')
+                    ->from('salesforce_leads as active_lead_guard')
+                    ->whereColumn('active_lead_guard.salesforce_id', $column('lead_id'))
+                    ->where('active_lead_guard.is_deleted', true);
+            });
+        }
+
         foreach ([
             'platform',
             'campaign_id',
@@ -2876,6 +2934,7 @@ class CampaignDashboardDatasetService
         if (filled($filters['lead_type'] ?? null)) {
             $query->whereIn($column('lead_id'), DB::table('salesforce_leads')
                 ->select('salesforce_id')
+                ->where('is_deleted', false)
                 ->where('record_type_normalized', $filters['lead_type']));
         }
 
@@ -3291,6 +3350,31 @@ class CampaignDashboardDatasetService
         $syncedAt = CampaignPlatformDailyMetric::query()->max('synced_at');
 
         return $syncedAt ? CarbonImmutable::parse($syncedAt) : null;
+    }
+
+    private function campaignDatasetMetadata(array $period): array
+    {
+        $leadSync = DB::table('salesforce_leads')
+            ->where('created_date', '>=', $period['start_at'])
+            ->where('created_date', '<', $period['end_at'])
+            ->max('synced_at');
+        $metaSync = CampaignPlatformDailyMetric::query()->where('platform', 'meta')->max('synced_at');
+        $googleSync = CampaignPlatformDailyMetric::query()->where('platform', 'google_ads')->max('synced_at');
+        $attributionBuild = DB::table('campaign_lead_attributions')->max('updated_at');
+        $cutoff = collect([$leadSync, $metaSync, $googleSync, $attributionBuild])
+            ->filter()
+            ->map(fn ($value) => CarbonImmutable::parse($value))
+            ->sortBy(fn (CarbonImmutable $value) => $value->getTimestamp())
+            ->first();
+
+        return [
+            'salesforce_leads_synced_at' => $this->reportDateTime($leadSync)?->toDateTimeString(),
+            'meta_synced_at' => $this->reportDateTime($metaSync)?->toDateTimeString(),
+            'google_synced_at' => $this->reportDateTime($googleSync)?->toDateTimeString(),
+            'attribution_built_at' => $this->reportDateTime($attributionBuild)?->toDateTimeString(),
+            'dataset_generated_at' => CarbonImmutable::now(self::REPORT_TIMEZONE)->toDateTimeString(),
+            'dataset_cutoff_at' => $cutoff?->setTimezone(self::REPORT_TIMEZONE)->toDateTimeString(),
+        ];
     }
 
     private function dataVersion(): array

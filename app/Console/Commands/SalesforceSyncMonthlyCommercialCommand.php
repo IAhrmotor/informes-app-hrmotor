@@ -10,6 +10,7 @@ use App\Services\Reports\MonthlyCommercial\Sync\SalesforceLeadActivitySummarySer
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyActivitiesSyncService;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyLeadsSyncService;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyUsersSyncService;
+use App\Services\Reports\ReportSyncRunService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -19,6 +20,8 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
 {
     protected $signature = 'salesforce:sync-monthly-commercial
         {--days=60 : Numero de dias hacia atras que se sincronizan}
+        {--from= : Fecha inicial explicita en formato Y-m-d}
+        {--to= : Fecha final exclusiva explicita en formato Y-m-d}
         {--fresh : Borra solo las tablas Salesforce mensuales nuevas antes de sincronizar}
         {--debug-soql : Imprime las queries SOQL ejecutadas}';
 
@@ -29,18 +32,30 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
         SalesforceMonthlyLeadsSyncService $leadsSync,
         SalesforceMonthlyActivitiesSyncService $activitiesSync,
         SalesforceLeadActivitySummaryService $summaryService,
+        ReportSyncRunService $syncRuns,
     ): int {
         @ini_set('memory_limit', '512M');
 
-        $days = max((int) $this->option('days'), 1);
-        $periodEnd = CarbonImmutable::now();
-        $periodStart = $periodEnd->subDays($days);
+        $periodEnd = filled($this->option('to'))
+            ? CarbonImmutable::parse($this->option('to'))->startOfDay()
+            : CarbonImmutable::now();
+        $periodStart = filled($this->option('from'))
+            ? CarbonImmutable::parse($this->option('from'))->startOfDay()
+            : $periodEnd->subDays(max((int) $this->option('days'), 1));
 
-        if ($this->option('fresh')) {
-            $this->freshNewTables();
+        if ($periodEnd->lessThanOrEqualTo($periodStart)) {
+            $this->error('El rango indicado no es valido: --to debe ser posterior a --from.');
+
+            return self::FAILURE;
         }
 
+        $syncRun = $syncRuns->start('leads_dashboard', 'salesforce', $periodStart, $periodEnd);
+
         try {
+            if ($this->option('fresh')) {
+                $this->freshNewTables();
+            }
+
             $this->info('Sincronizando Salesforce mensual comercial.');
             $this->line('Periodo inicio: '.$this->soqlDateTime($periodStart));
             $this->line('Periodo fin: '.$this->soqlDateTime($periodEnd));
@@ -89,9 +104,17 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
 
             $this->info('Sincronizacion mensual comercial completada.');
             $this->invalidateDashboardCache();
+            $syncRuns->complete($syncRun, CarbonImmutable::parse($leads['synced_at'] ?? now()), [
+                'users' => $users,
+                'leads' => $leads,
+                'tasks' => $tasks,
+                'events' => $events,
+                'summaries' => $summaries,
+            ]);
 
             return self::SUCCESS;
         } catch (Throwable $exception) {
+            $syncRuns->fail($syncRun, $exception);
             $this->error('Error sincronizando Salesforce.');
             $this->line($exception->getMessage());
 

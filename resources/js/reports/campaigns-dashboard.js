@@ -678,7 +678,7 @@ async function reloadAllData() {
 
         const campaignItems = Array.isArray(summary?.campaigns) ? summary.campaigns : [];
 
-        setUpdatedBadge(summary?.datos_actualizados);
+        setUpdatedBadge(summary?.datos_actualizados, false, summary);
         renderSummary(summary || {});
         renderFilterOptions(summary.filters || {}, campaignItems);
         campaignRows = campaignItems;
@@ -2608,7 +2608,7 @@ function setLoadingState(isLoading) {
     }
 }
 
-function setUpdatedBadge(updatedAt = null, isLoading = false) {
+function setUpdatedBadge(updatedAt = null, isLoading = false, metadata = {}) {
     const badge = document.getElementById('updatedBadge');
     if (!badge) {
         return;
@@ -2630,6 +2630,14 @@ function setUpdatedBadge(updatedAt = null, isLoading = false) {
         }).format(parsedDate);
 
     badge.textContent = `Datos actualizados: ${label}`;
+    badge.title = [
+        metadata.salesforce_leads_synced_at ? `Salesforce Leads: ${metadata.salesforce_leads_synced_at}` : null,
+        metadata.meta_synced_at ? `Meta Ads: ${metadata.meta_synced_at}` : null,
+        metadata.google_synced_at ? `Google Ads: ${metadata.google_synced_at}` : null,
+        metadata.attribution_built_at ? `Atribuciones: ${metadata.attribution_built_at}` : null,
+        metadata.dataset_generated_at ? `Dataset generado: ${metadata.dataset_generated_at}` : null,
+        metadata.dataset_timezone ? `Zona horaria: ${metadata.dataset_timezone}` : null,
+    ].filter(Boolean).join('\n');
 }
 
 function renderLoadFailure(error) {

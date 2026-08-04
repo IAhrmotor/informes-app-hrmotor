@@ -33,6 +33,26 @@ class GoogleAdsClient
 
     public function searchDailyMetrics(string $customerId, CarbonInterface $start, CarbonInterface $end): array
     {
+        return $this->search($customerId, $this->gaql($start, $end));
+    }
+
+    public function searchAttributionIdentifiers(string $customerId): array
+    {
+        return $this->search($customerId, <<<'GAQL'
+SELECT
+  campaign.id,
+  campaign.name,
+  ad_group.id,
+  ad_group.name,
+  ad_group_ad.ad.id,
+  ad_group_ad.ad.name
+FROM ad_group_ad
+WHERE ad_group_ad.status != 'REMOVED'
+GAQL);
+    }
+
+    private function search(string $customerId, string $query): array
+    {
         $token = $this->accessToken();
         $apiVersion = config('services.google_ads.api_version', 'v22');
         $url = sprintf(
@@ -53,7 +73,7 @@ class GoogleAdsClient
         $response = Http::timeout(120)
             ->withHeaders($headers)
             ->post($url, [
-                'query' => $this->gaql($start, $end),
+                'query' => $query,
             ]);
 
         if ($response->failed()) {

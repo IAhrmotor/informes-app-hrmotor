@@ -15,6 +15,7 @@ use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Mockery\MockInterface;
 use Tests\TestCase;
 
@@ -118,6 +119,52 @@ class CampaignCommandsTest extends TestCase
             'source_campaign_name' => 'Campana Salesforce',
             'campaign_type' => 'venta',
             'opportunity_id' => null,
+        ]);
+    }
+
+    public function test_builder_excluye_leads_eliminados_y_guarda_traza_exacta_del_match(): void
+    {
+        foreach ([false, true] as $deleted) {
+            SalesforceLead::query()->create([
+                'salesforce_id' => $deleted ? '00Q-deleted-campaign' : '00Q-active-campaign',
+                'name' => $deleted ? 'Eliminado' : 'Activo',
+                'created_date' => '2026-05-10 10:00:00',
+                'status' => 'Potencial',
+                'record_type_name' => 'Venta',
+                'record_type_normalized' => 'venta',
+                'campaign_acquired' => 'VENTAS_1',
+                'is_deleted' => $deleted,
+            ]);
+        }
+
+        DB::table('campaign_platform_daily_metrics')->insert([
+            'unique_key' => hash('sha256', 'metric-trace'),
+            'platform' => 'google_ads',
+            'metric_date' => '2026-05-10',
+            'account_id' => '123',
+            'campaign_id' => '456',
+            'campaign_name' => 'VENTAS 1',
+            'spend' => 10,
+            'impressions' => 1,
+            'clicks' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01')
+        );
+
+        $this->assertDatabaseMissing('campaign_lead_attributions', ['lead_id' => '00Q-deleted-campaign']);
+        $this->assertDatabaseHas('campaign_lead_attributions', [
+            'lead_id' => '00Q-active-campaign',
+            'attribution_method' => 'campaign_name_exact_match',
+            'matched_source_field' => 'Campa_a_Adquirida__c',
+            'matched_source_value' => 'VENTAS_1',
+            'matched_platform_field' => 'campaign_name',
+            'matched_platform_value' => 'VENTAS 1',
+            'match_candidate_count' => 1,
         ]);
     }
 

@@ -54,6 +54,8 @@ let leadCommercialDelegationVisibleColumns = loadVisibleColumns(
     leadCommercialDelegationColumnsStorageKey,
     leadCommercialDelegationColumnDefinitions
 );
+let leadReloadController = null;
+let latestLeadReloadRequestId = 0;
 
 document.addEventListener('DOMContentLoaded', async () => {
     bindTabs();
@@ -65,9 +67,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     initLeadCommercialZoneColumns();
     initLeadCommercialDelegationColumns();
     bindLeadCommercialSearch();
+    bindReconciliationAudit();
     toggleCustomPeriods();
     await reloadAllData();
 });
+
+function bindReconciliationAudit() {
+    document.getElementById('reconciliationAudit')?.addEventListener('click', (event) => {
+        event.currentTarget.href = `/informes/leads/export/reconciliation-audit.csv?${currentFilters()}`;
+    });
+}
 
 function bindTabs() {
     document.querySelectorAll('.main-tab[data-panel]').forEach((button) => {
@@ -180,18 +189,25 @@ function bindFilters() {
 }
 
 async function reloadAllData() {
+    leadReloadController?.abort();
+    leadReloadController = new AbortController();
+    const requestId = ++latestLeadReloadRequestId;
+    const requestOptions = { signal: leadReloadController.signal };
+    const filters = currentFilters();
     setLoadingState(true);
 
     try {
-        const summary = await fetchJson(`/informes/leads/data/summary?${currentFilters()}`);
+        const summary = await fetchJson(`/informes/leads/data/summary?${filters}`, requestOptions);
+        if (requestId !== latestLeadReloadRequestId) return;
         renderSummary(summary);
         renderFilterOptions(summary.filters || {});
 
         const [commercials, delegations, portals] = await Promise.all([
-            fetchJson(`/informes/leads/data/commercials?${currentFilters()}`),
-            fetchJson(`/informes/leads/data/delegations?${currentFilters()}`),
-            fetchJson(`/informes/leads/data/portals?${currentFilters()}`),
+            fetchJson(`/informes/leads/data/commercials?${filters}`, requestOptions),
+            fetchJson(`/informes/leads/data/delegations?${filters}`, requestOptions),
+            fetchJson(`/informes/leads/data/portals?${filters}`, requestOptions),
         ]);
+        if (requestId !== latestLeadReloadRequestId) return;
 
         renderCommercialZones(commercials.zones || []);
         renderCommercialDelegations(commercials.delegations || []);
@@ -199,9 +215,13 @@ async function reloadAllData() {
         renderDelegations(delegations.items || []);
         renderPortals(portals.items || []);
     } catch (error) {
-        showLoadError(error);
+        if (error?.name !== 'AbortError' && requestId === latestLeadReloadRequestId) {
+            showLoadError(error);
+        }
     } finally {
-        setLoadingState(false);
+        if (requestId === latestLeadReloadRequestId) {
+            setLoadingState(false);
+        }
     }
 }
 
@@ -214,7 +234,9 @@ function renderSummary(data) {
         data.salesforce_leads_synced_at ? `Leads: ${formatDateTime(data.salesforce_leads_synced_at)}` : null,
         data.activities_synced_at ? `Actividades: ${formatDateTime(data.activities_synced_at)}` : null,
         data.dataset_generated_at ? `Dataset: ${formatDateTime(data.dataset_generated_at)}` : null,
-        data.dataset_cutoff_at ? `Corte reproducible: ${formatDateTime(data.dataset_cutoff_at)}` : null,
+        data.dataset_cutoff_at ? `Corte de sincronizacion: ${formatDateTime(data.dataset_cutoff_at)}` : null,
+        data.dataset_sync_run_id ? `Ejecucion de sincronizacion: #${data.dataset_sync_run_id}` : null,
+        data.metadata_coverage ? `Cobertura: ${data.metadata_coverage.total - data.metadata_coverage.without_synced_at}/${data.metadata_coverage.total} con synced_at` : null,
         data.dataset_timezone ? `Zona horaria: ${data.dataset_timezone}` : null,
     ].filter(Boolean).join('\n');
     document.getElementById('currentPeriodLabel').textContent = periodText(data.periodo_actual);
@@ -771,8 +793,11 @@ function toggleCustomPeriods() {
     );
 }
 
-async function fetchJson(url) {
-    const response = await fetch(url, { headers: { Accept: 'application/json' } });
+async function fetchJson(url, options = {}) {
+    const response = await fetch(url, {
+        ...options,
+        headers: { Accept: 'application/json', ...(options.headers || {}) },
+    });
 
     if (!response.ok) {
         throw new Error(`Error cargando ${url}`);

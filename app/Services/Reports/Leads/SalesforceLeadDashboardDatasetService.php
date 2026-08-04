@@ -3,6 +3,7 @@
 namespace App\Services\Reports\Leads;
 
 use App\Models\MasterPortal;
+use App\Models\ReportSyncRun;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceLeadActivitySummary;
 use App\Models\SalesforceUser;
@@ -12,10 +13,13 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class SalesforceLeadDashboardDatasetService
 {
+    private const DATASET_TIMEZONE = 'Europe/Madrid';
+
     private const COMMERCIAL_PROFILES = [
         'Compra/Venta',
         'Comerciales Partner Community',
@@ -137,10 +141,68 @@ class SalesforceLeadDashboardDatasetService
                     'synced_at' => $lead['synced_at'],
                     'salesforce_deleted_at' => $lead['salesforce_deleted_at'],
                     'deletion_detection_source' => $lead['deletion_detection_source'],
+                    'salesforce_master_record_id' => $row->salesforce_master_record_id,
+                    'sync_metadata_source' => $row->sync_metadata_source,
+                    'is_converted' => (bool) $row->is_converted,
+                    'converted_date' => $row->converted_date,
+                    'converted_opportunity_id' => $row->converted_opportunity_id,
                     'local_updated_at' => $row->updated_at,
                 ];
             })->all(),
         ];
+    }
+
+    public function reconciliationAudit(Request $request): array
+    {
+        $filters = $this->filters($request, 'summary');
+        $period = $this->periods($filters)['current'];
+
+        return SalesforceLead::query()
+            ->where('created_date', '>=', $period['start'])
+            ->where('created_date', '<=', $period['end'])
+            ->orderBy('created_date')
+            ->orderBy('salesforce_id')
+            ->get()
+            ->map(function (SalesforceLead $row) use ($filters): ?array {
+                $lead = $this->decorateLead($row);
+                if (! $this->passesFilters($lead, $filters)) {
+                    return null;
+                }
+
+                return [
+                    'lead_id' => $row->salesforce_id,
+                    'created_date' => $this->auditDate($row->created_date),
+                    'last_modified_date' => $this->auditDate($row->salesforce_last_modified_at),
+                    'synced_at' => $this->auditDate($row->synced_at),
+                    'local_updated_at' => $this->auditDate($row->updated_at),
+                    'sync_metadata_source' => $row->sync_metadata_source,
+                    'salesforce_state' => $row->is_deleted
+                        ? (filled($row->salesforce_master_record_id) ? 'merged' : 'deleted')
+                        : 'active',
+                    'is_deleted' => (bool) $row->is_deleted,
+                    'deleted_at' => $this->auditDate($row->salesforce_deleted_at),
+                    'deletion_detection_source' => $row->deletion_detection_source,
+                    'master_record_id' => $row->salesforce_master_record_id,
+                    'status' => $row->status,
+                    'is_converted' => (bool) $row->is_converted,
+                    'converted_date' => $this->auditDate($row->converted_date),
+                    'converted_opportunity_id' => $row->converted_opportunity_id,
+                    'record_type_raw' => $lead['lead_type_raw'],
+                    'record_type_normalized' => $lead['lead_type_normalized'],
+                    'portal_resolved' => $lead['portal'],
+                    'portal_resolution_source' => $lead['portal_resolution_source'],
+                    'portal_text_raw' => $row->portal_text,
+                    'fuente_nuevo_raw' => $row->fuente_nuevo,
+                    'fuente_origen_raw' => $row->fuente_origen,
+                    'medio_nuevo_raw' => $row->medio_nuevo,
+                    'channel_resolved' => $lead['canal'],
+                    'delegation_raw' => $lead['lead_delegation_raw'],
+                    'delegation_normalized' => $lead['lead_delegation'],
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
     }
 
     public function commercialRows(Request $request): array
@@ -188,7 +250,7 @@ class SalesforceLeadDashboardDatasetService
 
     public function periods(array $filters): array
     {
-        $now = CarbonImmutable::now();
+        $now = CarbonImmutable::now(self::DATASET_TIMEZONE);
         $period = $filters['period'] ?: 'last_30_days';
 
         if ($period === 'custom') {
@@ -507,6 +569,9 @@ class SalesforceLeadDashboardDatasetService
                 'dataset_timezone' => $syncMetadata['timezone'],
                 'dataset_period_start' => $syncMetadata['period_start'],
                 'dataset_period_end' => $syncMetadata['period_end'],
+                'dataset_sync_run_id' => $syncMetadata['sync_run_id'],
+                'dataset_sync_run_status' => $syncMetadata['sync_run_status'],
+                'metadata_coverage' => $syncMetadata['metadata_coverage'],
                 'kpis' => $current,
                 'comparativa' => $comparison,
                 'insights' => $executiveInsights['insights'],
@@ -1191,28 +1256,51 @@ class SalesforceLeadDashboardDatasetService
         return $updated ? CarbonImmutable::parse($updated) : null;
     }
 
-    /** @return array<string, ?string> */
+    /** @return array<string, mixed> */
     private function syncMetadata(array $period): array
     {
+        $completedRun = Schema::hasTable('report_sync_runs')
+            ? ReportSyncRun::query()
+                ->where('dataset', 'leads_dashboard')
+                ->where('source', 'salesforce')
+                ->where('status', 'completed')
+                ->where('period_start_at', '<=', $period['start'])
+                ->where('period_end_at', '>=', $period['end'])
+                ->latest('completed_at')
+                ->first()
+            : null;
         $leadsSyncedAt = SalesforceLead::query()->max('synced_at');
         $activitiesSyncedAt = SalesforceLeadActivitySummary::query()->max('updated_at');
         $leadsCutoff = $leadsSyncedAt
             ? CarbonImmutable::parse($leadsSyncedAt)
             : $this->lastUpdated();
         $activitiesCutoff = $activitiesSyncedAt ? CarbonImmutable::parse($activitiesSyncedAt) : null;
-        $cutoff = collect([$leadsCutoff, $activitiesCutoff])
-            ->filter()
-            ->sortBy(fn (CarbonImmutable $date) => $date->getTimestamp())
-            ->first();
+        $cutoff = $completedRun?->source_cutoff_at
+            ? CarbonImmutable::parse($completedRun->source_cutoff_at)
+            : collect([$leadsCutoff, $activitiesCutoff])
+                ->filter()
+                ->sortBy(fn (CarbonImmutable $date) => $date->getTimestamp())
+                ->first();
+        $periodLeadQuery = SalesforceLead::query()
+            ->where('created_date', '>=', $period['start'])
+            ->where('created_date', '<=', $period['end']);
+        $periodCount = (clone $periodLeadQuery)->count();
 
         return [
             'salesforce_leads_synced_at' => $leadsCutoff?->toDateTimeString(),
             'activities_synced_at' => $activitiesCutoff?->toDateTimeString(),
-            'dataset_generated_at' => CarbonImmutable::now()->toDateTimeString(),
+            'dataset_generated_at' => CarbonImmutable::now(self::DATASET_TIMEZONE)->toDateTimeString(),
             'dataset_cutoff_at' => $cutoff?->toDateTimeString(),
             'period_start' => CarbonImmutable::parse($period['start'])->toDateTimeString(),
             'period_end' => CarbonImmutable::parse($period['end'])->toDateTimeString(),
-            'timezone' => (string) config('app.timezone'),
+            'timezone' => self::DATASET_TIMEZONE,
+            'sync_run_id' => $completedRun?->id,
+            'sync_run_status' => $completedRun?->status,
+            'metadata_coverage' => [
+                'total' => $periodCount,
+                'without_synced_at' => (clone $periodLeadQuery)->whereNull('synced_at')->count(),
+                'without_last_modified_at' => (clone $periodLeadQuery)->whereNull('salesforce_last_modified_at')->count(),
+            ],
         ];
     }
 

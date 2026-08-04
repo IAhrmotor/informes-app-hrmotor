@@ -596,3 +596,62 @@ STOCK_ALERT_EMAIL
   más filas que el rango de firma y debe vigilarse si crece el volumen.
 - Después de modificar normalizadores o fórmulas, limpiar cache y ejecutar los
   tests focalizados del informe afectado.
+
+## 14. Cierre auditoria Leads/Campanas 2026-08-04
+
+### Implementado
+
+1. Carrera de filtros de Leads resuelta con `AbortController`, id monotono de peticion y snapshot de filtros.
+2. Cortes auditables mediante `report_sync_runs`; cabeceras con componentes, generacion, corte y `Europe/Madrid`.
+3. Eliminados/fusionados fuera de Campanas al construir y al consultar.
+4. Venta centralizada: Venta + Venta con cambio; Lead/Ayvens pendientes de decision funcional.
+5. Inventario publicitario de Meta/Google y campo/valor exactos del match en ambas tablas de atribucion.
+6. Metodos separados para nombre exacto/flexible; las colisiones no se asignan arbitrariamente.
+7. Export de conciliacion de Leads y export de Campanas con traza completa.
+8. Cobertura historica visible y comando de backfill local con origen explicito.
+
+Migraciones:
+
+- `2026_08_04_090000_create_report_sync_runs_and_extend_lead_audit.php`
+- `2026_08_04_090100_add_exact_match_trace_to_campaign_attributions.php`
+- `2026_08_04_090200_create_campaign_platform_identifiers_table.php`
+
+### Verificaciones 1-12
+
+1. Tasacion con/sin tilde: unit tests.
+2. Filtro Tasacion en todos los endpoints: feature tests.
+3. Prioridad de portal llamadas/formularios: tests y ocho IDs auditados.
+4. Los cinco IDs Tasacion existen, estan normalizados y resuelven Coches.net.
+5. Coches.net Coche Nuevo: uno activo y dos eliminados; resuelven por `Fuente_Nuevo__c`.
+6. Actualizacion de Lead existente y cambio de estado/tipo/portal: test de regresion.
+7. Eliminacion, hard delete y fusion/MasterRecordId: test y export.
+8. Corte/ejecucion/zona/cobertura: esquema, payload y UI.
+9. Venta: test fija `venta + venta_con_cambio`; los 56 Lead de julio quedan fuera.
+10. Atribucion exacta/flexible/ID y traza: tests; ambiguos quedan sin cruce.
+11. Julio reconstruido localmente: 2.810 leads distintos, cero eliminados y cero leads en mas de una campana. Las 2.819 filas fisicas son varias oportunidades de la misma campana.
+12. Cambio rapido de filtros: build correcto y proteccion implementada; recomendable E2E en produccion con latencia real.
+
+El corte local actual no es el historico del correo: devuelve 6.212 Tasaciones
+activas y 115 de Coches.net. No forzar 6.195/113; hay que comparar con Salesforce
+usando el mismo corte.
+
+Cobertura local: 104.161 Leads; 39.778 historicos sin `synced_at` y 40.255 sin
+`LastModifiedDate`. Julio tiene `synced_at` completo y 101 filas sin
+`LastModifiedDate`, principalmente reconciliaciones de ausentes. El backfill
+local no debe presentarse como evidencia Salesforce.
+
+Despliegue recomendado:
+
+```bash
+php artisan migrate --force
+php artisan optimize:clear
+npm ci && npm run build
+php artisan salesforce:sync-monthly-commercial --from=2026-07-01 --to=2026-08-01
+php artisan campaigns:sync-meta --from=2026-07-01 --to=2026-08-01
+php artisan campaigns:sync-google --from=2026-07-01 --to=2026-08-01
+php artisan campaigns:build-attribution --from=2026-07-01 --to=2026-08-01
+```
+
+No ejecutar el backfill historico sin revisar antes `--dry-run`. Un token Meta
+expirado debe renovarse en `META_ACCESS_TOKEN`; el codigo no puede recuperar una
+sesion expirada.

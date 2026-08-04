@@ -268,6 +268,32 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringNotContainsString('advertising_channel_type IN', $capturedQuery);
     }
 
+    public function test_google_ads_inventario_auditable_consulta_anuncio_y_ad_group(): void
+    {
+        config()->set('services.google_ads.developer_token', 'dev-token');
+        config()->set('services.google_ads.client_id', 'client-id');
+        config()->set('services.google_ads.client_secret', 'client-secret');
+        config()->set('services.google_ads.refresh_token', 'refresh-token');
+
+        $capturedQuery = null;
+        Http::fake(function ($request) use (&$capturedQuery) {
+            if (str_contains($request->url(), 'oauth2.googleapis.com/token')) {
+                return Http::response(['access_token' => 'access-token'], 200);
+            }
+
+            $capturedQuery = $request->data()['query'] ?? null;
+
+            return Http::response([['results' => []]], 200);
+        });
+
+        app(GoogleAdsClient::class)->searchAttributionIdentifiers('1234567890');
+
+        $this->assertStringContainsString('FROM ad_group_ad', $capturedQuery);
+        $this->assertStringContainsString('ad_group.id', $capturedQuery);
+        $this->assertStringContainsString('ad_group_ad.ad.id', $capturedQuery);
+        $this->assertStringContainsString('campaign.id', $capturedQuery);
+    }
+
     public function test_venta_y_tasacion_separan_inversion_impresiones_y_clicks(): void
     {
         CampaignPlatformDailyMetric::query()->create($this->metricRow([

@@ -85,6 +85,9 @@
         </div>
         <div class="filter-actions">
             <button type="button" class="filter-reset" id="resetFilters">Limpiar filtros</button>
+            @if($reportUserCanAudit ?? false)
+                <a class="filter-reset" id="reconciliationAudit" href="/informes/leads/export/reconciliation-audit.csv">Auditar activos/eliminados</a>
+            @endif
         </div>
     </section>
 

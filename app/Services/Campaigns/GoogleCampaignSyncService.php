@@ -2,6 +2,7 @@
 
 namespace App\Services\Campaigns;
 
+use App\Models\CampaignPlatformIdentifier;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -13,8 +14,7 @@ class GoogleCampaignSyncService
     public function __construct(
         private readonly GoogleAdsClient $client,
         private readonly CampaignMetricsRepository $metrics,
-    ) {
-    }
+    ) {}
 
     public function sync(CarbonInterface $start, CarbonInterface $end): array
     {
@@ -44,6 +44,14 @@ class GoogleCampaignSyncService
                 Log::warning(end($warnings));
 
                 continue;
+            }
+
+            try {
+                $identifiers = $this->client->searchAttributionIdentifiers($customerId);
+                $this->replaceIdentifiers($customerId, $identifiers);
+            } catch (Throwable $exception) {
+                $warnings[] = "No se ha podido actualizar el inventario auditable de Google Ads ({$customerId}). ".$exception->getMessage();
+                Log::warning(end($warnings));
             }
 
             DB::transaction(function () use ($rows, $customerId, $start, $end, &$processed, &$saved): void {
@@ -93,5 +101,39 @@ class GoogleCampaignSyncService
     private function invalidateCache(): void
     {
         Cache::forever('campaign_dashboard_cache_version', ((int) Cache::get('campaign_dashboard_cache_version', 1)) + 1);
+    }
+
+    private function replaceIdentifiers(string $customerId, array $rows): void
+    {
+        DB::transaction(function () use ($customerId, $rows): void {
+            DB::table('campaign_platform_identifiers')
+                ->where('platform', 'google_ads')
+                ->where('account_id', $customerId)
+                ->delete();
+
+            foreach (array_chunk($rows, 500) as $chunk) {
+                DB::table('campaign_platform_identifiers')->insert(array_map(function (array $row) use ($customerId): array {
+                    $payload = [
+                        'platform' => 'google_ads',
+                        'account_id' => $customerId,
+                        'campaign_id' => (string) data_get($row, 'campaign.id'),
+                        'campaign_name' => data_get($row, 'campaign.name'),
+                        'adset_id' => null,
+                        'adset_name' => null,
+                        'ad_group_id' => (string) data_get($row, 'adGroup.id'),
+                        'ad_group_name' => data_get($row, 'adGroup.name'),
+                        'ad_id' => (string) data_get($row, 'adGroupAd.ad.id'),
+                        'ad_name' => data_get($row, 'adGroupAd.ad.name'),
+                        'raw_payload' => json_encode($row),
+                        'synced_at' => now(),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
+                    $payload['unique_key'] = CampaignPlatformIdentifier::uniqueKey($payload);
+
+                    return $payload;
+                }, $chunk));
+            }
+        });
     }
 }

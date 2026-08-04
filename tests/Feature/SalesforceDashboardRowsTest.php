@@ -193,6 +193,56 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertStringContainsString('Zona Madrid', $csv);
     }
 
+    public function test_export_de_conciliacion_incluye_activos_eliminados_y_fusiones(): void
+    {
+        $this->lead('00Q-active-audit', 'Potencial', ['is_deleted' => false]);
+        $this->lead('00Q-merged-audit', 'Potencial', [
+            'is_deleted' => true,
+            'salesforce_master_record_id' => '00Q-master-audit',
+            'deletion_detection_source' => 'query_all',
+        ]);
+
+        $csv = $this->get('/informes/leads/export/reconciliation-audit.csv')
+            ->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8')
+            ->streamedContent();
+
+        $this->assertStringContainsString('00Q-active-audit', $csv);
+        $this->assertStringContainsString('00Q-merged-audit', $csv);
+        $this->assertStringContainsString('00Q-master-audit', $csv);
+        $this->assertStringContainsString('merged', $csv);
+    }
+
+    public function test_backfill_historico_dry_run_no_escribe_y_ejecucion_marca_origen_local(): void
+    {
+        $this->lead('00Q-legacy-backfill', 'Potencial', [
+            'record_type_name' => 'Tasación',
+            'record_type_normalized' => null,
+            'medio_nuevo' => 'Llamada',
+            'fuente_nuevo' => 'Google Maps',
+            'resolved_portal' => null,
+            'synced_at' => null,
+            'sync_metadata_source' => null,
+        ]);
+
+        $this->artisan('salesforce:backfill-lead-audit-metadata', ['--dry-run' => true])
+            ->assertSuccessful();
+        $this->assertDatabaseHas('salesforce_leads', [
+            'salesforce_id' => '00Q-legacy-backfill',
+            'record_type_normalized' => null,
+            'sync_metadata_source' => null,
+        ]);
+
+        $this->artisan('salesforce:backfill-lead-audit-metadata')->assertSuccessful();
+        $this->assertDatabaseHas('salesforce_leads', [
+            'salesforce_id' => '00Q-legacy-backfill',
+            'record_type_normalized' => 'tasacion',
+            'resolved_portal' => 'Google Maps',
+            'portal_resolution_source' => 'Fuente_Nuevo__c',
+            'sync_metadata_source' => 'legacy_local_backfill',
+        ]);
+    }
+
     public function test_filtros_y_tabla_delegaciones_no_exponen_brutos_ni_emails(): void
     {
         $this->lead('00Q10', 'Potencial', ['delegacion_encargada_text' => 'leadsmadrid@hrmotor.com']);

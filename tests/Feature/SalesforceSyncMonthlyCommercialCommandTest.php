@@ -6,11 +6,13 @@ use App\Services\Reports\MonthlyCommercial\Sync\SalesforceLeadActivitySummarySer
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyActivitiesSyncService;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyLeadsSyncService;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyUsersSyncService;
-use Mockery;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class SalesforceSyncMonthlyCommercialCommandTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_no_termina_despues_de_usuarios(): void
     {
         $this->mock(SalesforceMonthlyUsersSyncService::class, function ($mock): void {
@@ -26,6 +28,7 @@ class SalesforceSyncMonthlyCommercialCommandTest extends TestCase
                 'soql' => 'SELECT Id FROM Lead',
                 'queried' => 2,
                 'saved' => 2,
+                'synced_at' => '2026-08-04T08:00:00+00:00',
             ]);
         });
 

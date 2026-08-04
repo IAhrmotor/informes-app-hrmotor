@@ -59,6 +59,7 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/data/kpi-audit', [LeadDashboardDataController::class, 'kpiAudit'])->name('data.kpi-audit');
             Route::get('/data/lead-audit', [LeadDashboardDataController::class, 'leadAudit'])->name('data.lead-audit');
             Route::get('/export/kpi-audit.csv', [LeadDashboardDataController::class, 'exportKpiAuditCsv'])->name('export.kpi-audit');
+            Route::get('/export/reconciliation-audit.csv', [LeadDashboardDataController::class, 'exportReconciliationAuditCsv'])->name('export.reconciliation-audit');
 
             Route::get('/data/monthly-commercial/summary', [MonthlyCommercialReportDataController::class, 'summary'])->name('data.monthly-commercial.summary');
             Route::get('/data/monthly-commercial/evolution', [MonthlyCommercialReportDataController::class, 'evolution'])->name('data.monthly-commercial.evolution');

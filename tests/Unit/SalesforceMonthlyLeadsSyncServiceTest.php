@@ -131,6 +131,19 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
     public function test_actualiza_leads_antiguos_modificados_y_marca_eliminados(): void
     {
         SalesforceLead::create([
+            'salesforce_id' => '00Q-OLD',
+            'name' => 'Lead antiguo antes del cambio',
+            'created_date' => '2025-01-01 10:00:00',
+            'status' => 'Potencial',
+            'record_type_name' => 'Venta',
+            'record_type_normalized' => 'venta',
+            'portal_text' => 'Web',
+            'resolved_portal' => 'Web',
+            'synced_at' => '2026-05-10 09:00:00',
+            'is_deleted' => false,
+        ]);
+
+        SalesforceLead::create([
             'salesforce_id' => '00Q-HARD-DELETED',
             'name' => 'Hard deleted',
             'created_date' => '2026-05-12 09:00:00',
@@ -164,6 +177,7 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
                     'Name' => 'Eliminado',
                     'CreatedDate' => '2026-01-01T10:00:00.000+0000',
                     'IsDeleted' => true,
+                    'MasterRecordId' => '00Q-MASTER',
                     'LastModifiedDate' => '2026-05-12T11:00:00.000+0000',
                     'Status' => 'Potencial',
                     'RecordType' => ['Name' => 'Venta'],
@@ -203,6 +217,7 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
             'is_deleted' => true,
             'resolved_portal' => 'Coches.net Coche Nuevo',
             'deletion_detection_source' => 'query_all',
+            'salesforce_master_record_id' => '00Q-MASTER',
         ]);
         $this->assertDatabaseHas('salesforce_leads', [
             'salesforce_id' => '00Q-HARD-DELETED',
