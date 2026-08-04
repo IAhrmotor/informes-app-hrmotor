@@ -86,6 +86,16 @@
                     </select>
                 </div>
                 <div class="filter-group">
+                    <label for="area_zone">Zona del Area Manager</label>
+                    <select id="area_zone" name="area_zone">
+                        <option value="">No aplica</option>
+                        @foreach ($areaZoneOptions as $zoneValue => $zoneLabel)
+                            <option value="{{ $zoneValue }}" @selected(old('area_zone') === $zoneValue)>{{ $zoneLabel }}</option>
+                        @endforeach
+                    </select>
+                    <small>Obligatoria para el rol Area Manager.</small>
+                </div>
+                <div class="filter-group">
                     <label for="is_active">Estado</label>
                     <select id="is_active" name="is_active">
                         <option value="1" @selected(old('is_active', '1') === '1')>Activo</option>
@@ -113,6 +123,7 @@
                         <th>Nombre</th>
                         <th>Email</th>
                         <th>Rol</th>
+                        <th>Zona</th>
                         <th>Estado</th>
                         <th>Ultimo login</th>
                         <th>Creado</th>
@@ -125,6 +136,7 @@
                             <td>{{ $user->name ?: 'Sin nombre' }}</td>
                             <td>{{ $user->email }}</td>
                             <td>{{ \App\Models\ReportUser::roleLabel($user->role) }}</td>
+                            <td>{{ \App\Models\ReportUser::areaZoneLabel($user->area_zone) ?: '-' }}</td>
                             <td>
                                 <span @class(['type-pill', 'group' => $user->is_active, 'pending' => ! $user->is_active])>
                                     {{ $user->is_active ? 'Activo' : 'Inactivo' }}
@@ -145,7 +157,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7">No hay usuarios configurados todavia.</td>
+                            <td colspan="8">No hay usuarios configurados todavia.</td>
                         </tr>
                     @endforelse
                     </tbody>

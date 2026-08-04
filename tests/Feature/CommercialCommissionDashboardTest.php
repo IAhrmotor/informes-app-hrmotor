@@ -112,7 +112,7 @@ class CommercialCommissionDashboardTest extends TestCase
             ->assertSee('Venta mensual');
     }
 
-    public function test_area_manager_y_viewer_no_autorizados_no_ven_la_tab_ni_pueden_entrar(): void
+    public function test_area_manager_puede_entrar_y_viewer_no_ve_comisiones(): void
     {
         config()->set('services.informes_auth.enabled', true);
 
@@ -130,11 +130,11 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->withSession($areaManagerSession)
             ->get('/informes/leads')
             ->assertOk()
-            ->assertDontSee('/informes/comisiones-comerciales', false);
+            ->assertSee('/informes/comisiones-comerciales', false);
 
         $this->withSession($areaManagerSession)
             ->get('/informes/comisiones-comerciales')
-            ->assertRedirect('/informes/leads');
+            ->assertOk();
 
         $this->withSession($viewerSession)
             ->get('/informes/leads')
@@ -1949,6 +1949,52 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(90.0, $row['guarantee_commission']);
         $this->assertEquals(220.0, $row['purchases_commission']);
         $this->assertEquals(580.0, $row['automatic_total']);
+    }
+
+    public function test_dashboard_area_manager_recalcula_solo_la_zona_solicitada(): void
+    {
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth('2026-01', [
+            'area_manager' => [
+                'assignments' => [
+                    'bilbao' => [
+                        'label' => 'Bilbao',
+                        'manager_key' => 'kosta-plamenov',
+                        'active' => true,
+                        'objectives' => ['deliveries' => 1, 'benefit' => 100, 'guarantee' => 10, 'purchases' => 1],
+                    ],
+                    'malaga' => [
+                        'label' => 'Malaga',
+                        'manager_key' => 'david-baeza',
+                        'active' => true,
+                        'objectives' => ['deliveries' => 1, 'benefit' => 100, 'guarantee' => 10, 'purchases' => 1],
+                    ],
+                ],
+            ],
+        ]);
+
+        foreach (['Bilbao' => 'NORTE', 'Malaga' => 'SUR'] as $delegation => $suffix) {
+            SalesforceOpportunity::query()->create([
+                'salesforce_id' => 'AM-SCOPE-'.$suffix,
+                'name' => 'Venta '.$delegation,
+                'owner_id' => '005-'.$suffix,
+                'owner_name' => 'Comercial '.$delegation,
+                'owner_is_active' => true,
+                'owner_delegation' => $delegation,
+                'delivery_store' => $delegation,
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-01-15',
+                'beneficio_financiacion_comercial' => 100,
+                'garantia_total' => 10,
+            ]);
+        }
+
+        $payload = app(AreaManagerCommissionDashboardService::class)->build('2026-01', 'Zona Norte');
+
+        $this->assertSame(['kosta-plamenov'], collect($payload['summary_rows'])->pluck('manager_key')->all());
+        $this->assertSame(1, $payload['summary_rows'][0]['delegations_count']);
+        $this->assertSame(1.0, $payload['summary_rows'][0]['deliveries_actual']);
     }
 
     public function test_dashboard_delegaciones_incluye_oportunidades_facilitea_por_nombre_en_entregas(): void

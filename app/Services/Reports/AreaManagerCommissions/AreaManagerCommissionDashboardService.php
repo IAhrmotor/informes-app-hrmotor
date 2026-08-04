@@ -5,6 +5,7 @@ namespace App\Services\Reports\AreaManagerCommissions;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceUser;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
+use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -29,10 +30,11 @@ class AreaManagerCommissionDashboardService
 
     public function __construct(
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
+        private readonly LeadDelegationNormalizer $delegationNormalizer,
     ) {
     }
 
-    public function build(?string $month): array
+    public function build(?string $month, ?string $zoneLabel = null): array
     {
         $selectedMonth = $this->resolveMonth($month);
         $periodStart = $selectedMonth->startOfMonth();
@@ -70,6 +72,15 @@ class AreaManagerCommissionDashboardService
             $settings
         );
 
+        if (filled($zoneLabel)) {
+            $delegationPayloads = $delegationPayloads
+                ->filter(fn (array $payload): bool => $this->belongsToZone(
+                    $payload['delegation_name'] ?? null,
+                    (string) $zoneLabel,
+                ))
+                ->values();
+        }
+
         $managerRows = $managerDefinitions
             ->map(function (array $manager) use ($delegationPayloads, $settings): array {
                 $managerDelegations = $delegationPayloads
@@ -77,6 +88,9 @@ class AreaManagerCommissionDashboardService
 
                 return $this->buildManagerRow($manager['key'], $manager['label'], $managerDelegations, $settings);
             })
+            ->when(filled($zoneLabel), fn (Collection $rows): Collection => $rows->filter(
+                fn (array $row): bool => (int) ($row['delegations_count'] ?? 0) > 0
+            ))
             ->sortByDesc('automatic_total')
             ->values()
             ->all();
@@ -102,18 +116,31 @@ class AreaManagerCommissionDashboardService
             'month' => $selectedMonth->format('Y-m'),
             'month_label' => $selectedMonth->translatedFormat('F Y'),
             'issues' => [],
-            'warnings' => $globalIncidents === [] ? [] : ['Revisa las incidencias globales para delegaciones sin manager o sin objetivos configurados.'],
+            'warnings' => [
+                ...($globalIncidents === [] ? [] : ['Revisa las incidencias globales para delegaciones sin manager o sin objetivos configurados.']),
+            ],
             'diagnostics' => [
                 'managers_count' => count($managerRows),
                 'delegations_count' => $delegationPayloads->filter(fn (array $payload) => ($payload['active'] ?? true) && ($payload['manager_key'] ?? '') !== '')->count(),
-                'configured_delegations_count' => $assignmentMap->count(),
-                'delivery_operations_count' => $deliveryOperations->count(),
-                'purchase_operations_count' => $purchaseOperations->count(),
+                'configured_delegations_count' => filled($zoneLabel) ? $delegationPayloads->count() : $assignmentMap->count(),
+                'delivery_operations_count' => filled($zoneLabel)
+                    ? (int) $delegationPayloads->sum(fn (array $payload): int => count($payload['details']['deliveries'] ?? []))
+                    : $deliveryOperations->count(),
+                'purchase_operations_count' => filled($zoneLabel)
+                    ? (int) $delegationPayloads->sum(fn (array $payload): int => count($payload['details']['purchases'] ?? []))
+                    : $purchaseOperations->count(),
                 'incidents_count' => count($globalIncidents),
             ],
             'summary_rows' => $managerRows,
             'global_incidents' => $globalIncidents,
         ];
+    }
+
+    private function belongsToZone(mixed $delegation, string $zoneLabel): bool
+    {
+        $normalized = $this->delegationNormalizer->normalize(is_string($delegation) ? $delegation : null);
+
+        return ($normalized['zone'] ?? null) === $zoneLabel;
     }
 
     private function buildDeliveryStatsByDelegation(Collection $operations, Collection $ownerDelegations): Collection

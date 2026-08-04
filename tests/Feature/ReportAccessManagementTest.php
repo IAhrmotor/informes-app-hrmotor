@@ -142,4 +142,45 @@ class ReportAccessManagementTest extends TestCase
             ->get('/informes/permisos-informes')
             ->assertRedirect('/informes');
     }
+
+    public function test_area_manager_accede_a_informes_operativos_y_solo_ve_su_area_en_comisiones(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        $manager = ReportUser::query()->create([
+            'name' => 'Manager Norte',
+            'email' => 'manager.area@hrmotor.com',
+            'password' => Hash::make('secret'),
+            'role' => ReportUser::ROLE_AREA_MANAGER,
+            'area_zone' => 'north',
+            'is_active' => true,
+        ]);
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $manager->id,
+            'report_user_role' => ReportUser::ROLE_AREA_MANAGER,
+            'report_user_email' => $manager->email,
+        ];
+
+        $this->withSession($session)
+            ->get('/informes/comisiones-comerciales?tab=financials')
+            ->assertOk()
+            ->assertDontSee('>Financieros<', false)
+            ->assertDontSee('Vista restringida')
+            ->assertDontSee('Buscar manager')
+            ->assertDontSee('>Estado<', false)
+            ->assertDontSee('Comisión Oscar');
+
+        $this->withSession($session)
+            ->get('/informes/leads')
+            ->assertOk();
+
+        $this->withSession($session)
+            ->get('/informes/reservas-ventas')
+            ->assertOk();
+
+        $this->withSession($session)
+            ->get('/informes/llamadas')
+            ->assertOk();
+    }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Reports\CommercialCommissions;
 use App\Http\Controllers\Controller;
 use App\Services\Reports\AreaManagerCommissions\AreaManagerCommissionDashboardService;
 use App\Services\Reports\CallCenterCommissions\CallCenterCommissionDashboardService;
+use App\Services\Reports\CommercialCommissions\AreaRestrictedCommissionScope;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use App\Services\Reports\ContactCenterCommissions\ContactCenterCommissionDashboardService;
@@ -25,12 +26,15 @@ class CommercialCommissionDashboardController extends Controller
         ContactCenterCommissionDashboardService $contactCenterDashboard,
         AreaManagerCommissionDashboardService $areaManagerDashboard,
         FinancialCommissionDashboardService $financialDashboard,
+        AreaRestrictedCommissionScope $areaScope,
     )
     {
         $selectedMonth = $request->query('month');
         $callCenterContractFrom = $request->query('call_center_contract_from');
         $callCenterContractTo = $request->query('call_center_contract_to');
-        $activeCommissionTab = $this->resolveActiveTab($request->query('tab'));
+        $isAreaRestricted = ReportUserAccess::isAreaManager($request);
+        $areaZoneLabel = ReportUserAccess::areaZoneLabel($request);
+        $activeCommissionTab = $this->resolveActiveTab($request->query('tab'), $isAreaRestricted);
 
         if (! ReportUserAccess::canViewCommercialCommissions($request)) {
             return redirect()->route('reports.leads.index');
@@ -42,6 +46,20 @@ class CommercialCommissionDashboardController extends Controller
             includeDelegationRows: $activeCommissionTab === 'delegations',
             includeDetails: $activeCommissionTab === 'summary',
         );
+
+        if ($isAreaRestricted) {
+            if ($areaZoneLabel === null) {
+                $payload['summary_rows'] = [];
+                $payload['delegation_rows'] = [];
+                $payload['issues'][] = 'El usuario Area Manager no tiene una zona configurada.';
+            } else {
+                $payload = $areaScope->commercialDashboard(
+                    $payload,
+                    $areaZoneLabel,
+                    ReportUserAccess::current($request)['email'] ?? null,
+                );
+            }
+        }
 
         $callCenterPayload = $activeCommissionTab === 'call-center'
             ? $callCenterDashboard->build(
@@ -59,7 +77,7 @@ class CommercialCommissionDashboardController extends Controller
             ? $contactCenterDashboard->build($payload['month'])
             : $this->emptyContactCenterDashboard($payload['month'], $payload['month_label']);
         $areaManagerPayload = $activeCommissionTab === 'area-manager'
-            ? $areaManagerDashboard->build($payload['month'])
+            ? $areaManagerDashboard->build($payload['month'], $isAreaRestricted ? $areaZoneLabel : null)
             : $this->emptyAreaManagerDashboard($payload['month'], $payload['month_label']);
         $financialPayload = $activeCommissionTab === 'financials'
             ? $financialDashboard->build($payload['month'])
@@ -69,6 +87,9 @@ class CommercialCommissionDashboardController extends Controller
             'activeCommissionTab' => $activeCommissionTab,
             'reportUserRole' => ReportUserAccess::role($request),
             'canSeeSyncDiagnostics' => ReportUserAccess::canSeeSyncDiagnostics($request),
+            'canBrowseAreaManagers' => ReportUserAccess::canBrowseAreaManagers($request),
+            'isAreaRestricted' => $isAreaRestricted,
+            'areaZoneLabel' => $areaZoneLabel,
             'selectedMonth' => $selectedMonth,
             'dashboard' => $payload,
             'callCenterDashboard' => $callCenterPayload,
@@ -83,6 +104,8 @@ class CommercialCommissionDashboardController extends Controller
         Request $request,
         CallCenterCommissionDashboardService $callCenterDashboard,
     ) {
+        abort_if(ReportUserAccess::isAreaManager($request), 403);
+
         $audit = $callCenterDashboard->missingCaptadorAudit(
             $request->query('month'),
             is_string($request->query('call_center_contract_from')) ? $request->query('call_center_contract_from') : null,
@@ -132,10 +155,17 @@ class CommercialCommissionDashboardController extends Controller
     public function exportDelegationDeliveriesCsv(
         Request $request,
         CommercialCommissionDashboardService $dashboard,
+        AreaRestrictedCommissionScope $areaScope,
     ) {
         $audit = $dashboard->delegationDeliveriesAudit($request->query('month'));
 
         abort_unless($audit['ready'], 409, implode(' | ', $audit['issues'] ?? ['No se pudo preparar la auditoria.']));
+
+        if (ReportUserAccess::isAreaManager($request)) {
+            $zoneLabel = ReportUserAccess::areaZoneLabel($request);
+            abort_if($zoneLabel === null, 403, 'El usuario no tiene una zona configurada.');
+            $audit['rows'] = $areaScope->delegationAuditRows($audit['rows'] ?? [], $zoneLabel);
+        }
 
         $headers = [
             'Opportunity ID',
@@ -203,8 +233,12 @@ class CommercialCommissionDashboardController extends Controller
         AreaManagerCommissionDashboardService $areaManagerDashboard,
         FinancialCommissionDashboardService $financialDashboard,
         SimpleXlsxWorkbookWriter $workbookWriter,
+        AreaRestrictedCommissionScope $areaScope,
     ) {
         abort_unless(ReportUserAccess::canViewCommercialCommissions($request), 403);
+        $isAreaRestricted = ReportUserAccess::isAreaManager($request);
+        $areaZoneLabel = ReportUserAccess::areaZoneLabel($request);
+        abort_if($isAreaRestricted && $areaZoneLabel === null, 403, 'El usuario no tiene una zona configurada.');
 
         try {
             // The export evaluates six independent dashboards. Keep only one payload
@@ -219,6 +253,13 @@ class CommercialCommissionDashboardController extends Controller
             includeDelegationRows: true,
             includeDetails: false,
         );
+        if ($isAreaRestricted) {
+            $commercialDashboard = $areaScope->commercialDashboard(
+                $commercialDashboard,
+                $areaZoneLabel,
+                ReportUserAccess::current($request)['email'] ?? null,
+            );
+        }
         $month = $commercialDashboard['month'];
         $sheets[] = $this->commissionSheet(
             'Comerciales',
@@ -236,6 +277,29 @@ class CommercialCommissionDashboardController extends Controller
         );
         unset($commercialDashboard);
         gc_collect_cycles();
+
+        if ($isAreaRestricted) {
+            $areaManagerPayload = $areaManagerDashboard->build($month, $areaZoneLabel);
+            $areaManagerRows = collect($areaManagerPayload['summary_rows'] ?? []);
+            $sheets[] = $this->commissionSheet(
+                'Area Managers',
+                'Area Manager',
+                $areaManagerRows->all(),
+                'manager_name',
+                'final_total',
+            );
+
+            unset($areaManagerPayload, $areaManagerRows);
+            gc_collect_cycles();
+
+            $path = $workbookWriter->write($sheets);
+
+            return response()
+                ->download($path, 'comisiones-'.$month.'-'.str_replace(' ', '-', mb_strtolower($areaZoneLabel)).'.xlsx', [
+                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                ])
+                ->deleteFileAfterSend(true);
+        }
 
         $callCenterPayload = $callCenterDashboard->build(
             $month,
@@ -335,13 +399,15 @@ class CommercialCommissionDashboardController extends Controller
         ];
     }
 
-    private function resolveActiveTab(mixed $value): string
+    private function resolveActiveTab(mixed $value, bool $isAreaRestricted = false): string
     {
         if ($value === 'detail') {
             return 'summary';
         }
 
-        $allowedTabs = ['summary', 'delegations', 'call-center', 'contact-center', 'area-manager', 'financials'];
+        $allowedTabs = $isAreaRestricted
+            ? ['summary', 'delegations', 'area-manager']
+            : ['summary', 'delegations', 'call-center', 'contact-center', 'area-manager', 'financials'];
 
         return in_array($value, $allowedTabs, true) ? $value : 'summary';
     }

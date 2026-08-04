@@ -65,7 +65,6 @@
         'Mes analizado' => 'Mes cerrado usado por el informe. Pivota por cv_signed_date, que viene de Fecha_firma_contrato__c.',
         'Oportunidades' => 'Conteo de salesforce_opportunities con cv_signed=true, stage_name distinto de Cerrada perdida, record_type Venta/Cambio/Tasacion y gestion_de_venta false o null.',
         'Resenas' => 'Conteo de salesforce_reviews creadas dentro del mes. Fuente Salesforce: objeto Resena__c.',
-        'Estado' => 'Indica si existen bloqueos de datos o estructura que impiden calcular el informe.',
         'Comerciales' => 'Numero de usuarios visibles en resumen. Solo perfiles Salesforce Compra/Venta y Comerciales Partner Community con actividad real del mes.',
         'Comision final' => 'Formula: max(prima ajustada - penalizaciones, 0) + producto financiacion + producto garantias.',
         'Prima ajustada' => 'Formula: prima total x tramo de entregas.',
@@ -150,11 +149,6 @@
                     <div class="kpi-label"><span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Resenas') }}">Resenas</span></div>
                     <div class="kpi-value">{{ number_format($dashboard['diagnostics']['reviews_count'], 0, ',', '.') }}</div>
                     <div class="kpi-hint">Objeto Resena__c creado dentro del mes.</div>
-                </article>
-                <article class="card campaign-kpi">
-                    <div class="kpi-label"><span class="kpi-tooltip" data-kpi-tooltip="{{ $tooltip('Estado') }}">Estado</span></div>
-                    <div class="kpi-value">{{ $dashboard['ready'] ? 'Listo para validar' : 'Pendiente de cierre' }}</div>
-                    <div class="kpi-hint">El diagnostico base ampliado solo se muestra a administradores.</div>
                 </article>
             </section>
 
@@ -246,10 +240,14 @@
                     <nav class="tabs-main commission-inner-tabs" aria-label="Vista de comisiones">
                         <a href="{{ $summaryTabUrl }}" class="main-tab{{ $activeCommissionTab === 'summary' ? ' active' : '' }}" data-commission-tab-trigger="summary" data-commission-tab-url="{{ $summaryTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'summary' ? 'true' : 'false' }}">Comerciales</a>
                         <a href="{{ $delegationsTabUrl }}" class="main-tab{{ $activeCommissionTab === 'delegations' ? ' active' : '' }}" data-commission-tab-trigger="delegations" data-commission-tab-url="{{ $delegationsTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'delegations' ? 'true' : 'false' }}">Delegaciones</a>
-                        <a href="{{ $callCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'call-center' ? ' active' : '' }}" data-commission-tab-trigger="call-center" data-commission-tab-url="{{ $callCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'call-center' ? 'true' : 'false' }}">Call Center</a>
-                        <a href="{{ $contactCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'contact-center' ? ' active' : '' }}" data-commission-tab-trigger="contact-center" data-commission-tab-url="{{ $contactCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'contact-center' ? 'true' : 'false' }}">Contact Center</a>
+                        @unless ($isAreaRestricted ?? false)
+                            <a href="{{ $callCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'call-center' ? ' active' : '' }}" data-commission-tab-trigger="call-center" data-commission-tab-url="{{ $callCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'call-center' ? 'true' : 'false' }}">Call Center</a>
+                            <a href="{{ $contactCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'contact-center' ? ' active' : '' }}" data-commission-tab-trigger="contact-center" data-commission-tab-url="{{ $contactCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'contact-center' ? 'true' : 'false' }}">Contact Center</a>
+                        @endunless
                         <a href="{{ $areaManagerTabUrl }}" class="main-tab{{ $activeCommissionTab === 'area-manager' ? ' active' : '' }}" data-commission-tab-trigger="area-manager" data-commission-tab-url="{{ $areaManagerTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'area-manager' ? 'true' : 'false' }}">Area Manager</a>
-                        <a href="{{ $financialsTabUrl }}" class="main-tab{{ $activeCommissionTab === 'financials' ? ' active' : '' }}" data-commission-tab-trigger="financials" data-commission-tab-url="{{ $financialsTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'financials' ? 'true' : 'false' }}">Financieros</a>
+                        @unless ($isAreaRestricted ?? false)
+                            <a href="{{ $financialsTabUrl }}" class="main-tab{{ $activeCommissionTab === 'financials' ? ' active' : '' }}" data-commission-tab-trigger="financials" data-commission-tab-url="{{ $financialsTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'financials' ? 'true' : 'false' }}">Financieros</a>
+                        @endunless
                     </nav>
 
                     <div @class(['is-hidden' => $activeCommissionTab !== 'summary']) data-commission-tab-panel="summary">

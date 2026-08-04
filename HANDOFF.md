@@ -67,6 +67,19 @@ sobrescribirse en `report_access_settings`:
 La gestión de usuarios, permisos, coeficientes, penalizaciones, capacidades y
 exportaciones administrativas queda reservada a admin según cada controlador.
 
+### Rol Area Manager
+
+Existe un unico rol `area_manager`; la migracion consolida los antiguos usuarios
+`area_manager_own_area` bajo ese valor. `report_users.area_zone` guarda una clave
+estable (`north`, `catalonia`, `mediterranean`, `south_center`) y es obligatoria
+para el rol. Puede acceder a Leads, Reservas/Ventas, Llamadas y Comisiones. En
+Comisiones solo abre Comerciales, Delegaciones y Area Manager; filas, totales,
+detalles, auditoria CSV y XLSX se filtran en servidor por la zona normalizada.
+La fila propia se conserva por match de email con `salesforce_users.email`; el
+equipo directo se resuelve mediante `salesforce_users.user_delegation`. El
+selector de managers solo se muestra a Administrador, Direccion y Auditor de
+comisiones.
+
 ## 4. Informe Leads
 
 ### Fuente y pivote

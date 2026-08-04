@@ -28,10 +28,12 @@
         <span>Delegaciones</span>
         <strong>{{ number_format((int) ($areaManagerDiagnostics['delegations_count'] ?? 0), 0, ',', '.') }}</strong>
     </article>
-    <article class="card campaign-context-card">
-        <span>Comisión Oscar</span>
-        <strong>{{ number_format($areaManagerOscarCommission, 2, ',', '.') }} EUR</strong>
-    </article>
+    @unless ($isAreaRestricted ?? false)
+        <article class="card campaign-context-card">
+            <span>Comisión Oscar</span>
+            <strong>{{ number_format($areaManagerOscarCommission, 2, ',', '.') }} EUR</strong>
+        </article>
+    @endunless
 </section>
 
 <section class="platform-comparison-grid commission-overview-grid call-center-overview-grid">
@@ -118,8 +120,12 @@
 </div>
 
 @if ($areaManagerSummaryRows->isNotEmpty())
-    <section class="commission-detail-shell commission-contact-center-detail-shell" data-agent-browser>
-        <aside class="card panel commission-commercial-picker">
+    <section @class([
+        'commission-contact-center-detail-shell',
+        'commission-detail-shell' => $canBrowseAreaManagers ?? false,
+    ]) data-agent-browser>
+        @if ($canBrowseAreaManagers ?? false)
+            <aside class="card panel commission-commercial-picker">
             <div class="panel-title compact">
                 <div>
                     <h2>Buscar manager</h2>
@@ -146,7 +152,8 @@
                 @endforeach
             </div>
             <div class="small is-hidden" data-agent-empty>No hay managers que coincidan con el filtro.</div>
-        </aside>
+            </aside>
+        @endif
 
         <div class="commission-commercial-panels">
             @foreach ($areaManagerSummaryRows as $row)

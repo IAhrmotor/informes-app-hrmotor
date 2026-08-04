@@ -66,6 +66,16 @@
                     </select>
                 </div>
                 <div class="filter-group">
+                    <label for="area_zone">Zona del Area Manager</label>
+                    <select id="area_zone" name="area_zone">
+                        <option value="">No aplica</option>
+                        @foreach ($areaZoneOptions as $zoneValue => $zoneLabel)
+                            <option value="{{ $zoneValue }}" @selected(old('area_zone', $managedUser->area_zone) === $zoneValue)>{{ $zoneLabel }}</option>
+                        @endforeach
+                    </select>
+                    <small>Obligatoria para el rol Area Manager.</small>
+                </div>
+                <div class="filter-group">
                     <label for="is_active">Estado</label>
                     <select id="is_active" name="is_active">
                         <option value="1" @selected((string) old('is_active', $managedUser->is_active ? '1' : '0') === '1')>Activo</option>

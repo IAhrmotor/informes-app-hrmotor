@@ -118,4 +118,50 @@ class ReportUserManagementTest extends TestCase
             'id' => $admin->id,
         ]);
     }
+
+    public function test_nuevo_area_manager_restringido_requiere_y_guarda_zona(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+
+        $admin = ReportUser::query()->create([
+            'name' => 'Admin',
+            'email' => 'admin-zonas@hrmotor.com',
+            'password' => Hash::make('secret'),
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => true,
+        ]);
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $admin->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => $admin->email,
+        ];
+
+        $this->withSession($session)
+            ->post('/informes/usuarios', [
+                'name' => 'Manager Norte',
+                'email' => 'manager.norte@hrmotor.com',
+                'password' => 'secret12',
+                'role' => ReportUser::ROLE_AREA_MANAGER,
+                'is_active' => '1',
+            ])
+            ->assertSessionHasErrors('area_zone');
+
+        $this->withSession($session)
+            ->post('/informes/usuarios', [
+                'name' => 'Manager Norte',
+                'email' => 'manager.norte@hrmotor.com',
+                'password' => 'secret12',
+                'role' => ReportUser::ROLE_AREA_MANAGER,
+                'area_zone' => 'north',
+                'is_active' => '1',
+            ])
+            ->assertRedirect('/informes/usuarios');
+
+        $this->assertDatabaseHas('report_users', [
+            'email' => 'manager.norte@hrmotor.com',
+            'role' => ReportUser::ROLE_AREA_MANAGER,
+            'area_zone' => 'north',
+        ]);
+    }
 }

@@ -103,6 +103,29 @@ class ReportUserAccess
         ], true);
     }
 
+    public static function isAreaManager(Request $request): bool
+    {
+        return self::canonicalRole(self::role($request)) === ReportUser::ROLE_AREA_MANAGER;
+    }
+
+    public static function areaZoneKey(Request $request): ?string
+    {
+        if (! self::isAreaManager($request)) {
+            return null;
+        }
+
+        $userId = $request->session()->get('report_user_id');
+
+        return $userId !== null
+            ? ReportUser::query()->whereKey($userId)->value('area_zone')
+            : null;
+    }
+
+    public static function areaZoneLabel(Request $request): ?string
+    {
+        return ReportUser::areaZoneLabel(self::areaZoneKey($request));
+    }
+
     public static function canViewCampaigns(Request $request): bool
     {
         return self::canViewReport($request, 'campaigns');
@@ -153,6 +176,13 @@ class ReportUserAccess
         return self::isAdmin($request);
     }
 
+    public static function canBrowseAreaManagers(Request $request): bool
+    {
+        return self::isAdmin($request)
+            || self::isDirector($request)
+            || self::canonicalRole(self::role($request)) === ReportUser::ROLE_COMMISSION_AUDITOR;
+    }
+
     private static function normalizeRole(string $role): string
     {
         return trim(mb_strtolower($role));
@@ -165,6 +195,15 @@ class ReportUserAccess
         // This operational role is intentionally isolated from the role hierarchy.
         if ($currentRole === ReportUser::ROLE_COMMISSION_AUDITOR) {
             return $reportKey === 'commercial-commissions';
+        }
+
+        if ($currentRole === ReportUser::ROLE_AREA_MANAGER) {
+            return in_array($reportKey, [
+                'leads',
+                'reservations-sales',
+                'calls',
+                'commercial-commissions',
+            ], true);
         }
 
         $minimumRole = self::canonicalRole(self::minimumRoleForReport($reportKey));
@@ -250,7 +289,7 @@ class ReportUserAccess
         return match (self::normalizeRole((string) $role)) {
             ReportUser::ROLE_ADMIN => ReportUser::ROLE_ADMIN,
             ReportUser::ROLE_DIRECTOR, 'direction', 'direccion' => ReportUser::ROLE_DIRECTOR,
-            ReportUser::ROLE_AREA_MANAGER => ReportUser::ROLE_AREA_MANAGER,
+            ReportUser::ROLE_AREA_MANAGER, ReportUser::LEGACY_ROLE_AREA_MANAGER_OWN_AREA => ReportUser::ROLE_AREA_MANAGER,
             ReportUser::ROLE_VIEWER => ReportUser::ROLE_VIEWER,
             ReportUser::ROLE_COMMISSION_AUDITOR => ReportUser::ROLE_COMMISSION_AUDITOR,
             default => null,

@@ -90,7 +90,8 @@ class CallCenterCommissionDashboardTest extends TestCase
 
         $this->withSession($areaManagerSession)
             ->get('/informes/comisiones-comerciales')
-            ->assertRedirect('/informes/leads');
+            ->assertOk()
+            ->assertDontSee('>Call Center<', false);
 
         $this->withSession($viewerSession)
             ->get('/informes/comisiones-comerciales')

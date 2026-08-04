@@ -3198,7 +3198,6 @@ th.num {
     display: flex;
     gap: 14px;
     align-items: end;
-    flex-wrap: wrap;
 }
 
 .commercial-commissions-report .commission-filter-form > .filter-group {
@@ -3865,7 +3864,8 @@ th.num {
 }
 
 .commercial-commissions-report .area-manager-summary-shell {
-    height: 460px;
+    height: auto;
+    max-height: 460px;
 }
 
 .commercial-commissions-report .area-manager-kpi-tabs-shell > div,

@@ -15,6 +15,26 @@ mapa de fuentes están en:
   Documentacion_general_informes_y_contraste_salesforce.md
 
 
+ACCESO RESTRINGIDO POR AREA
+===========================
+
+- Existe un unico rol `area_manager`, mostrado como `Area Manager`. Los usuarios
+  del antiguo `area_manager_own_area` se migran automaticamente a este rol.
+- Requiere asignar una zona en `report_users.area_zone`: Norte, Cataluna,
+  Mediterraneo o Sur y Centro.
+- Puede acceder a Leads, Reservas/Ventas, Llamadas y Comisiones Comerciales. En
+  comisiones solo puede abrir Comerciales, Delegaciones y Area Manager.
+- Comerciales se filtra por la zona obtenida desde
+  `salesforce_users.user_delegation`; el usuario logueado se identifica por
+  email y conserva su propia fila aunque no tenga delegacion informada.
+- Delegaciones, detalles, auditoria CSV, exportacion XLSX y el calculo de Area
+  Manager se filtran y recalculan en servidor para la zona asignada.
+- No puede consultar Call Center, Contact Center ni Financieros mediante la UI
+  ni forzando el parametro `tab`.
+- El buscador de managers solo aparece para Administrador, Direccion y Auditor
+  de comisiones.
+
+
 1. FUENTES Y OBJETOS
 ====================
 

@@ -10,6 +10,7 @@ class ReportUser extends Model
     public const ROLE_ADMIN = 'admin';
     public const ROLE_DIRECTOR = 'director';
     public const ROLE_AREA_MANAGER = 'area_manager';
+    public const LEGACY_ROLE_AREA_MANAGER_OWN_AREA = 'area_manager_own_area';
     public const ROLE_VIEWER = 'viewer';
     public const ROLE_COMMISSION_AUDITOR = 'commission_auditor';
     public const ROLE_WEIGHTS = [
@@ -25,12 +26,19 @@ class ReportUser extends Model
         self::ROLE_VIEWER => 'Viewer',
         self::ROLE_COMMISSION_AUDITOR => 'Auditor de comisiones',
     ];
+    public const AREA_ZONE_LABELS = [
+        'north' => 'Zona Norte',
+        'catalonia' => 'Zona Cataluña',
+        'mediterranean' => 'Zona Mediterraneo',
+        'south_center' => 'Zona Sur y Centro',
+    ];
 
     protected $fillable = [
         'name',
         'email',
         'password',
         'role',
+        'area_zone',
         'is_active',
         'last_login_at',
     ];
@@ -63,7 +71,7 @@ class ReportUser extends Model
 
     public function isAreaManager(): bool
     {
-        return $this->role === self::ROLE_AREA_MANAGER;
+        return in_array($this->role, [self::ROLE_AREA_MANAGER, self::LEGACY_ROLE_AREA_MANAGER_OWN_AREA], true);
     }
 
     public static function availableRoles(): array
@@ -74,6 +82,16 @@ class ReportUser extends Model
     public static function roleOptions(): array
     {
         return self::ROLE_LABELS;
+    }
+
+    public static function areaZoneOptions(): array
+    {
+        return self::AREA_ZONE_LABELS;
+    }
+
+    public static function areaZoneLabel(?string $zone): ?string
+    {
+        return self::AREA_ZONE_LABELS[$zone ?? ''] ?? null;
     }
 
     public static function roleLabel(?string $role): string

@@ -26,6 +26,7 @@ class ReportUserManagementController extends Controller
                 ->orderBy('email')
                 ->get(),
             'roleOptions' => ReportUser::roleOptions(),
+            'areaZoneOptions' => ReportUser::areaZoneOptions(),
         ]);
     }
 
@@ -40,6 +41,12 @@ class ReportUserManagementController extends Controller
             'email' => ['required', 'email', 'max:255', Rule::unique('report_users', 'email')],
             'password' => ['required', 'string', 'min:6', 'max:255'],
             'role' => ['required', 'string', Rule::in(ReportUser::availableRoles())],
+            'area_zone' => [
+                Rule::requiredIf(fn (): bool => $request->input('role') === ReportUser::ROLE_AREA_MANAGER),
+                'nullable',
+                'string',
+                Rule::in(array_keys(ReportUser::areaZoneOptions())),
+            ],
             'is_active' => ['nullable', 'boolean'],
         ]);
 
@@ -48,6 +55,7 @@ class ReportUserManagementController extends Controller
             'email' => $data['email'],
             'password' => $data['password'],
             'role' => $data['role'],
+            'area_zone' => $data['role'] === ReportUser::ROLE_AREA_MANAGER ? $data['area_zone'] : null,
             'is_active' => (bool) ($data['is_active'] ?? false),
         ]);
 
@@ -66,6 +74,7 @@ class ReportUserManagementController extends Controller
             'reportUserRole' => ReportUserAccess::role($request),
             'managedUser' => $reportUser,
             'roleOptions' => ReportUser::roleOptions(),
+            'areaZoneOptions' => ReportUser::areaZoneOptions(),
         ]);
     }
 
@@ -80,6 +89,12 @@ class ReportUserManagementController extends Controller
             'email' => ['required', 'email', 'max:255', Rule::unique('report_users', 'email')->ignore($reportUser->id)],
             'password' => ['nullable', 'string', 'min:6', 'max:255'],
             'role' => ['required', 'string', Rule::in(ReportUser::availableRoles())],
+            'area_zone' => [
+                Rule::requiredIf(fn (): bool => $request->input('role') === ReportUser::ROLE_AREA_MANAGER),
+                'nullable',
+                'string',
+                Rule::in(array_keys(ReportUser::areaZoneOptions())),
+            ],
             'is_active' => ['nullable', 'boolean'],
         ]);
 
@@ -103,6 +118,7 @@ class ReportUserManagementController extends Controller
             'name' => $data['name'] ?: null,
             'email' => $data['email'],
             'role' => $role,
+            'area_zone' => $role === ReportUser::ROLE_AREA_MANAGER ? $data['area_zone'] : null,
             'is_active' => $isActive,
         ];
 
