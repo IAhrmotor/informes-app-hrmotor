@@ -52,7 +52,7 @@ class StockRecommendationService
             $stats = &$saleStats[$delegationId];
             $stats ??= [
                 'total' => 0, 'model' => [], 'brand' => [], 'segment' => [], 'fuel' => [], 'band' => [],
-                'rotation_sum' => [], 'rotation_count' => [],
+                'rotation_sum' => [], 'rotation_count' => [], 'mileage_sum' => [], 'mileage_count' => [],
             ];
             $stats['total']++;
             foreach ([
@@ -72,13 +72,17 @@ class StockRecommendationService
                 $stats['rotation_sum'][$model] = ($stats['rotation_sum'][$model] ?? 0) + (int) $sale->rotation_days;
                 $stats['rotation_count'][$model] = ($stats['rotation_count'][$model] ?? 0) + 1;
             }
+            if ($sale->vehicle_mileage !== null && $model !== '') {
+                $stats['mileage_sum'][$model] = ($stats['mileage_sum'][$model] ?? 0) + (int) $sale->vehicle_mileage;
+                $stats['mileage_count'][$model] = ($stats['mileage_count'][$model] ?? 0) + 1;
+            }
         }
 
         $excludedDestinations = array_map(
             fn ($value): string => $this->key($value),
             config('stock.excluded_destination_keys', []),
         );
-        $eligibleDelegations = $delegations->filter(function (StockDelegation $delegation) use ($excludedDestinations, $stockStats): bool {
+        $rankingDelegations = $delegations->filter(function (StockDelegation $delegation) use ($excludedDestinations): bool {
             if (
                 ! $delegation->is_commercial
                 || $delegation->capacity_total === null
@@ -88,12 +92,13 @@ class StockRecommendationService
                 return false;
             }
 
-            return (int) $delegation->capacity_total - (int) ($stockStats[$delegation->id]['total'] ?? 0) > 0;
+            return true;
         })->values();
 
         return [
             'delegations' => $delegations->keyBy('id'),
-            'eligible_delegations' => $eligibleDelegations,
+            'ranking_delegations' => $rankingDelegations,
+            'eligible_delegations' => $rankingDelegations,
             'stock' => $stockStats,
             'sales' => $saleStats,
             'weights' => config('stock.recommendation_weights'),
@@ -109,14 +114,23 @@ class StockRecommendationService
         }
 
         $rows = [];
-        foreach ($context['eligible_delegations'] as $delegation) {
+        foreach ($context['ranking_delegations'] as $delegation) {
             if ($excludeCurrent && (int) $vehicle->stock_delegation_id === (int) $delegation->id) {
                 continue;
             }
             $rows[] = $this->profile($vehicleKeys, $delegation, $context, $compact);
         }
 
-        usort($rows, fn (array $left, array $right): int => $right['score'] <=> $left['score']);
+        usort($rows, function (array $left, array $right): int {
+            foreach (['brand_sales', 'model_sales', 'fuel_sales', 'mileage_similarity'] as $dimension) {
+                $comparison = ($right[$dimension] ?? 0) <=> ($left[$dimension] ?? 0);
+                if ($comparison !== 0) {
+                    return $comparison;
+                }
+            }
+
+            return $right['score'] <=> $left['score'];
+        });
 
         return $this->recommendationCache[$cacheKey] = $limit === null ? $rows : array_slice($rows, 0, $limit);
     }
@@ -134,7 +148,7 @@ class StockRecommendationService
         $stock = $context['stock'][$delegation->id] ?? ['total' => 0, 'model' => [], 'old_model' => [], 'similar' => []];
         $sales = $context['sales'][$delegation->id] ?? [
             'total' => 0, 'model' => [], 'brand' => [], 'segment' => [], 'fuel' => [], 'band' => [],
-            'rotation_sum' => [], 'rotation_count' => [],
+            'rotation_sum' => [], 'rotation_count' => [], 'mileage_sum' => [], 'mileage_count' => [],
         ];
         $modelKey = $vehicleKeys['model'];
         $brandKey = $vehicleKeys['brand'];
@@ -156,13 +170,20 @@ class StockRecommendationService
         $averageRotation = $rotationCount > 0
             ? round(($sales['rotation_sum'][$modelKey] ?? 0) / $rotationCount, 1)
             : null;
+        $mileageCount = $sales['mileage_count'][$modelKey] ?? 0;
+        $averageMileage = $mileageCount > 0
+            ? round(($sales['mileage_sum'][$modelKey] ?? 0) / $mileageCount)
+            : null;
+        $vehicleMileage = $vehicleKeys['mileage'];
+        $mileageSimilarity = $averageMileage !== null && $vehicleMileage !== null
+            ? max(0, 100 - min(abs($averageMileage - $vehicleMileage) / 1000, 100))
+            : 0;
 
         $score = ($modelSales * $weights['model_sale'])
             + ($brandSales * $weights['brand_sale'])
             + ($segmentSales * $weights['segment_sale'])
             + ($fuelSales * $weights['fuel_sale'])
             + ($bandSales * $weights['price_band_sale'])
-            + (min($freeCapacity, 20) * $weights['free_capacity'])
             - ($sameModelStock * $weights['same_model_stock'])
             - ($oldSameModelStock * $weights['old_same_model_stock'])
             - ($similarStock * $weights['similar_stock']);
@@ -178,6 +199,12 @@ class StockRecommendationService
             return [
                 'delegation_id' => $delegation->id,
                 'score' => $roundedScore,
+                'brand_sales' => $brandSales,
+                'model_sales' => $modelSales,
+                'fuel_sales' => $fuelSales,
+                'mileage_similarity' => round($mileageSimilarity, 1),
+                'free_capacity' => $freeCapacity,
+                'is_executable' => $freeCapacity > 0,
             ];
         }
 
@@ -210,7 +237,12 @@ class StockRecommendationService
             'similar_stock' => $similarStock,
             'old_same_model_stock' => $oldSameModelStock,
             'average_rotation' => $averageRotation,
+            'average_mileage' => $averageMileage,
+            'mileage_similarity' => round($mileageSimilarity, 1),
             'free_capacity' => $freeCapacity,
+            'is_executable' => $freeCapacity > 0,
+            'capacity_excess' => max(((int) $stock['total'] + 1) - (int) $delegation->capacity_total, 0),
+            'places_to_release' => max(((int) $stock['total'] + 1) - (int) $delegation->capacity_total, 0),
             'has_history' => $hasHistory,
             'reasons' => $reasons,
         ];
@@ -287,6 +319,7 @@ class StockRecommendationService
             'band' => $band,
             'band_key' => $this->key($band),
             'label' => trim(($vehicle->brand ?? '').' '.($vehicle->model ?? 'modelo')),
+            'mileage' => is_numeric($vehicle->mileage ?? null) ? (int) $vehicle->mileage : null,
         ];
         $keys['similar'] = implode('|', [$keys['segment'], $keys['fuel'], $keys['band_key']]);
         $keys['signature'] = implode('|', [

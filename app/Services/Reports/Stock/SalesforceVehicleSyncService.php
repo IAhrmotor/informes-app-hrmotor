@@ -11,6 +11,7 @@ class SalesforceVehicleSyncService
     public function __construct(
         private readonly SalesforceClient $client,
         private readonly StockDelegationService $delegations,
+        private readonly ?StockCatalogNormalizer $catalogNormalizer = null,
     ) {}
 
     public function sync(): array
@@ -38,6 +39,16 @@ class SalesforceVehicleSyncService
                     data_get($record, 'PRO_BUS_Delegacion__c'),
                     data_get($record, 'PRO_BUS_Delegacion__r.Name'),
                 );
+                $normalizer = $this->catalogNormalizer ?? app(StockCatalogNormalizer::class);
+                $catalog = collect([
+                    'brand' => data_get($record, 'PRO_SEL_Marca__c'),
+                    'model' => data_get($record, 'PRO_TEX_Modelo__c'),
+                    'segment' => data_get($record, 'Segmento__c'),
+                    'fuel' => data_get($record, 'PRO_SEL_Combustible__c'),
+                    'body' => data_get($record, 'PRO_SEL_Carroceria__c'),
+                    'state' => data_get($record, 'PRO_SEL_Estado__c'),
+                    'purchase_source' => data_get($record, 'Procedencia_de_compra__c'),
+                ])->map(fn (mixed $value, string $dimension): array => $normalizer->canonicalize($dimension, $value))->all();
 
                 SalesforceVehicle::updateOrCreate(
                     ['salesforce_id' => $salesforceId],
@@ -45,14 +56,14 @@ class SalesforceVehicleSyncService
                         'name' => data_get($record, 'Name'),
                         'sku' => data_get($record, 'StockKeepingUnit'),
                         'plate' => data_get($record, 'PRO_TEX_Matricula__c'),
-                        'brand' => data_get($record, 'PRO_SEL_Marca__c'),
-                        'model' => data_get($record, 'PRO_TEX_Modelo__c'),
+                        'brand' => $catalog['brand']['canonical'],
+                        'model' => $catalog['model']['canonical'],
                         'version' => data_get($record, 'PRO_TEX_Version__c'),
-                        'segment' => data_get($record, 'Segmento__c'),
-                        'fuel' => data_get($record, 'PRO_SEL_Combustible__c'),
-                        'body' => data_get($record, 'PRO_SEL_Carroceria__c'),
+                        'segment' => $catalog['segment']['canonical'],
+                        'fuel' => $catalog['fuel']['canonical'],
+                        'body' => $catalog['body']['canonical'],
                         'mileage' => $this->integer(data_get($record, 'PRO_NUM_Kilometraje__c')),
-                        'state' => data_get($record, 'PRO_SEL_Estado__c'),
+                        'state' => $catalog['state']['canonical'],
                         'stock_delegation_id' => $delegation?->id,
                         'salesforce_delegation_id' => data_get($record, 'PRO_BUS_Delegacion__c'),
                         'salesforce_delegation_name' => data_get($record, 'PRO_BUS_Delegacion__r.Name'),
@@ -64,10 +75,11 @@ class SalesforceVehicleSyncService
                         'entry_date' => data_get($record, 'PRO_FEC_Fecha_entrada__c'),
                         'buyer_id' => data_get($record, 'Comprador_oportunidad__c'),
                         'buyer_name' => data_get($record, 'Comprador_oportunidad__r.Name'),
-                        'purchase_source' => data_get($record, 'Procedencia_de_compra__c'),
+                        'purchase_source' => $catalog['purchase_source']['canonical'],
                         'is_in_stock' => true,
                         'last_seen_stock_at' => $seenAt,
                         'raw_payload' => $record,
+                        'catalog_normalization' => $catalog,
                     ],
                 );
             }

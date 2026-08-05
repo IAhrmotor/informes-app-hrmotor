@@ -92,6 +92,11 @@ class StockDashboardDatasetService
             'excluded_not_available' => 0,
             'excluded_non_operational_catalog' => 0,
             'excluded_below_review_threshold' => 0,
+            'reserved' => 0,
+            'blocked' => 0,
+            'priority_normal' => 0,
+            'priority_60_days' => 0,
+            'priority_90_days' => 0,
             'planned' => 0,
             'unallocated_by_capacity' => 0,
         ];
@@ -100,7 +105,7 @@ class StockDashboardDatasetService
             $recommendationSales = SalesforceSaleSnapshot::query()
                 ->select([
                     'id', 'signed_date', 'stock_delegation_id', 'rotation_days', 'sale_price',
-                    'vehicle_brand', 'vehicle_model', 'vehicle_segment', 'vehicle_fuel',
+                    'vehicle_brand', 'vehicle_model', 'vehicle_segment', 'vehicle_fuel', 'vehicle_mileage',
                 ])
                 ->where('is_valid', true)
                 ->where('signed_date', '>=', $today->subDays(120)->toDateString())
@@ -126,18 +131,21 @@ class StockDashboardDatasetService
                     ->filter(fn (SalesforceVehicle $vehicle): bool => $this->catalogNormalizer->isOperationalVehicle($vehicle))
                     ->map(fn (SalesforceVehicle $vehicle) => $this->vehicleRow($vehicle, $recommendationContext, $sameModelCounts, $today, true))
                     ->values();
-                $candidateRows = $evaluatedRows
-                    ->filter(fn (array $row): bool => $row['review_level'] !== 'normal')
-                    ->values();
+                $candidateRows = $evaluatedRows;
                 $recommendationReconciliation = [
                     'universe' => $stock->count(),
                     'available' => $availableStock->count(),
+                    'reserved' => $stock->where('state', 'Reservado')->count(),
+                    'blocked' => $stock->where('state', 'Bloqueado')->count(),
                     'evaluated' => $evaluatedRows->count(),
                     'candidates' => $candidateRows->count(),
                     'without_destination' => $candidateRows->filter(fn (array $row): bool => $row['recommendations'] === [])->count(),
                     'excluded_not_available' => $stock->count() - $availableStock->count(),
                     'excluded_non_operational_catalog' => $availableStock->count() - $evaluatedRows->count(),
-                    'excluded_below_review_threshold' => $evaluatedRows->where('review_level', 'normal')->count(),
+                    'excluded_below_review_threshold' => 0,
+                    'priority_normal' => $evaluatedRows->where('review_level', 'normal')->count(),
+                    'priority_60_days' => $evaluatedRows->where('review_level', 'review')->count(),
+                    'priority_90_days' => $evaluatedRows->where('review_level', 'priority')->count(),
                 ];
                 $allCandidates = $candidateRows
                     ->sort(function (array $left, array $right): int {
@@ -152,14 +160,14 @@ class StockDashboardDatasetService
                         ];
                     })
                     ->values();
-                $remainingCapacity = $recommendationContext['eligible_delegations']
+                $remainingCapacity = $recommendationContext['ranking_delegations']
                     ->mapWithKeys(function (StockDelegation $delegation) use ($recommendationContext): array {
                         $stockTotal = (int) data_get($recommendationContext, 'stock.'.$delegation->id.'.total', 0);
 
                         return [$delegation->id => max((int) $delegation->capacity_total - $stockTotal, 0)];
                     })
                     ->all();
-                $delegationNames = $recommendationContext['eligible_delegations']->pluck('canonical_name', 'id');
+                $delegationNames = $recommendationContext['ranking_delegations']->pluck('canonical_name', 'id');
                 $allCandidates = $allCandidates->map(function (array $row) use (&$remainingCapacity, $delegationNames): array {
                     $planned = null;
                     foreach ($row['recommendations'] as $recommendation) {

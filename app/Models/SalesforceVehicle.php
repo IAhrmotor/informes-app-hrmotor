@@ -38,6 +38,7 @@ class SalesforceVehicle extends Model
         'is_in_stock',
         'last_seen_stock_at',
         'raw_payload',
+        'catalog_normalization',
     ];
 
     protected $casts = [
@@ -51,6 +52,7 @@ class SalesforceVehicle extends Model
         'is_in_stock' => 'boolean',
         'last_seen_stock_at' => 'datetime',
         'raw_payload' => 'array',
+        'catalog_normalization' => 'array',
     ];
 
     public function delegation(): BelongsTo

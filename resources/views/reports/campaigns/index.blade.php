@@ -16,6 +16,7 @@
         window.reportUserRole = @json($reportUserRole ?? 'viewer');
         window.reportUserCanExport = @json($reportUserCanExport ?? false);
         window.reportUserCanAudit = @json($reportUserCanAudit ?? false);
+        window.reportUserCanSeeSourceReconciliation = @json($reportUserCanSeeSourceReconciliation ?? false);
     </script>
 </head>
 <body class="campaigns-report">

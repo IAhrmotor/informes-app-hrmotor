@@ -367,6 +367,39 @@ h2 {
     align-items: flex-end;
 }
 
+.filter-actions-with-audit {
+    align-items: stretch;
+    gap: 8px;
+    min-width: 240px;
+}
+
+.filter-actions-with-audit .filter-reset {
+    align-items: center;
+    display: inline-flex;
+    flex: 1 1 auto;
+    justify-content: center;
+    padding: 9px 13px;
+    text-decoration: none;
+    width: auto;
+}
+
+.filter-actions-with-audit .filter-audit-button {
+    background: var(--brand-primary);
+    border-color: var(--brand-primary);
+    color: #fff;
+    gap: 6px;
+}
+
+.filter-actions-with-audit .filter-audit-button::before {
+    content: "↗";
+}
+
+.filter-actions-with-audit .filter-audit-button:hover {
+    background: #111a30;
+    border-color: #111a30;
+    color: #fff;
+}
+
 .filter-reset {
     appearance: none;
     -webkit-appearance: none;
@@ -508,10 +541,11 @@ h2 {
     align-items: center;
     min-height: 30px;
     padding: 6px 12px;
-    border: 1px solid rgba(31, 41, 68, .12);
+    gap: 6px;
+    border: 1px solid rgba(229, 26, 46, .2);
     border-radius: 999px;
-    color: var(--brand-primary);
-    background: rgba(255, 255, 255, .92);
+    color: #c81426;
+    background: rgba(229, 26, 46, .045);
     font-size: 11px;
     font-weight: 700;
     text-decoration: none;
@@ -519,9 +553,66 @@ h2 {
 }
 
 .kpi-audit-link:hover {
-    border-color: rgba(31, 41, 68, .24);
-    background: rgba(31, 41, 68, .04);
+    border-color: rgba(229, 26, 46, .38);
+    background: rgba(229, 26, 46, .09);
     transform: translateY(-1px);
+}
+
+.kpi-audit-link::before {
+    content: "↗";
+    font-size: 12px;
+}
+
+.universe-definition-card {
+    min-width: min(100%, 280px);
+}
+
+.universe-definition-card small {
+    color: var(--brand-muted);
+    margin-top: 4px;
+}
+
+.data-quality-panel {
+    border-color: rgba(217, 119, 6, .22);
+}
+
+.quality-count {
+    align-items: center;
+    background: #fff7df;
+    border-radius: 999px;
+    color: #9a6500;
+    display: inline-flex;
+    font-weight: 800;
+    justify-content: center;
+    min-height: 34px;
+    min-width: 34px;
+    padding: 6px 10px;
+}
+
+.data-quality-incidents {
+    display: grid;
+    gap: 10px;
+}
+
+.data-quality-incident {
+    background: #fffbeb;
+    border: 1px solid #fde7ae;
+    border-radius: 16px;
+    display: grid;
+    gap: 6px;
+    padding: 14px 16px;
+}
+
+.data-quality-incident div,
+.data-quality-incident code,
+.data-quality-incident small {
+    overflow-wrap: anywhere;
+}
+
+.data-quality-incident span,
+.data-quality-incident small {
+    color: #78613a;
+    display: block;
 }
 
 .call-kpi {

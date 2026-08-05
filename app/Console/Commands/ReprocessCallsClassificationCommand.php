@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\SalesforceCall;
+use App\Models\SalesforceCallClassificationHistory;
 use App\Models\SalesforceUser;
 use App\Services\Reports\Calls\CallClassificationRules;
 use App\Services\Reports\Calls\CallDescriptionParser;
@@ -12,10 +13,15 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Carbon\CarbonImmutable;
 
 class ReprocessCallsClassificationCommand extends Command
 {
-    protected $signature = 'reports:reprocess-calls-classification';
+    protected $signature = 'reports:reprocess-calls-classification
+        {--from= : Inicio inclusivo YYYY-MM-DD}
+        {--to= : Fin inclusivo YYYY-MM-DD}
+        {--dry-run : Simula sin modificar datos}
+        {--reason= : Motivo auditable obligatorio al ejecutar}';
 
     protected $description = 'Recalcula origen, portal, equipo operativo, delegacion y zona de llamadas ya sincronizadas.';
 
@@ -26,20 +32,38 @@ class ReprocessCallsClassificationCommand extends Command
         LeadDelegationNormalizer $delegationNormalizer,
     ): int
     {
+        $from = $this->dateOption('from');
+        $to = $this->dateOption('to');
+        if ($from === null || $to === null || $from->greaterThan($to)) {
+            $this->error('Debes indicar un periodo explícito válido con --from=YYYY-MM-DD --to=YYYY-MM-DD.');
+
+            return self::FAILURE;
+        }
+        $dryRun = (bool) $this->option('dry-run');
+        $reason = trim((string) $this->option('reason'));
+        if (! $dryRun && mb_strlen($reason) < 10) {
+            $this->error('Al ejecutar cambios debes indicar --reason con al menos 10 caracteres.');
+
+            return self::FAILURE;
+        }
         $before = $this->originCounts();
         $updated = 0;
         $users = $this->salesforceUsers();
 
         SalesforceCall::query()
+            ->where('created_date', '>=', $from->startOfDay())
+            ->where('created_date', '<', $to->addDay()->startOfDay())
             ->orderBy('id')
-            ->chunkById(1000, function ($calls) use ($portalNormalizer, $parser, $rules, $delegationNormalizer, $users, &$updated): void {
+            ->chunkById(1000, function ($calls) use ($portalNormalizer, $parser, $rules, $delegationNormalizer, $users, &$updated, $dryRun, $reason): void {
                 $updates = [];
+                $history = [];
 
                 foreach ($calls as $call) {
                     $parsed = $parser->parse($call->description);
                     $portal = $portalNormalizer->normalize($call->portales_raw);
                     $origin = $portal['origin'];
-                    $callStatus = $this->classifyStatus($call->result_raw, $call->call_status);
+                    $classificationResult = $parsed['result_raw'] ?? $call->result_raw;
+                    $callStatus = $this->classifyStatus($classificationResult, $call->call_status);
                     $duration = is_numeric($call->call_duration_seconds)
                         ? (int) $call->call_duration_seconds
                         : (int) $call->parsed_duration_seconds;
@@ -68,6 +92,7 @@ class ReprocessCallsClassificationCommand extends Command
                         'included_in_dashboard' => filled($call->call_object),
                         'dashboard_exclusion_reason' => filled($call->call_object) ? null : 'missing_call_object',
                         'classification_rule_version' => CallClassificationRules::VERSION,
+                        'classified_at' => now(),
                         'call_origin' => $origin,
                         'portal_resolved' => $portal['portal'],
                         'portal_resolution_source' => $portal['source'],
@@ -88,12 +113,41 @@ class ReprocessCallsClassificationCommand extends Command
                         ]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                         'updated_at' => now(),
                     ];
+                    $new = end($updates);
+                    $history[] = [
+                        'salesforce_call_id' => $call->id,
+                        'task_salesforce_id' => $call->salesforce_id,
+                        'previous_rule_version' => $call->classification_rule_version,
+                        'new_rule_version' => CallClassificationRules::VERSION,
+                        'change_source' => 'manual_reprocess',
+                        'reason' => $reason,
+                        'raw_values' => json_encode([
+                            'result_raw' => $call->result_raw,
+                            'description' => $call->description,
+                            'call_object' => $call->call_object,
+                            'duration_salesforce' => $call->call_duration_seconds,
+                            'duration_parsed' => $call->parsed_duration_seconds,
+                            'portal_raw' => $call->portales_raw,
+                        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                        'previous_classification' => json_encode($this->classificationSnapshot($call), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                        'new_classification' => json_encode($this->classificationSnapshot((object) $new), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                        'classified_at' => now(),
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ];
                 }
 
+                if ($dryRun) {
+                    $updated += count($updates);
+
+                    return;
+                }
+                SalesforceCallClassificationHistory::query()->insert($history);
                 SalesforceCall::query()->upsert($updates, ['salesforce_id'], [
                     'included_in_dashboard',
                     'dashboard_exclusion_reason',
                     'classification_rule_version',
+                    'classified_at',
                     'call_origin',
                     'portal_resolved',
                     'portal_resolution_source',
@@ -116,10 +170,12 @@ class ReprocessCallsClassificationCommand extends Command
                 $updated += count($updates);
             });
 
-        $this->invalidateDashboardCache();
+        if (! $dryRun) {
+            $this->invalidateDashboardCache();
+        }
         $after = $this->originCounts();
 
-        $this->info('Reproceso de clasificacion de llamadas completado.');
+        $this->info($dryRun ? 'Simulación completada; no se modificaron datos.' : 'Reproceso de clasificación de llamadas completado.');
         $this->line('Procesadas: '.$updated);
         $this->newLine();
         $this->table(['Origen', 'Antes', 'Despues'], collect(['commercial_direct', 'portal', 'switchboard', 'otros'])
@@ -137,6 +193,26 @@ class ReprocessCallsClassificationCommand extends Command
         $this->line('Zona Sin clasificar restante: '.SalesforceCall::query()->where('zone', LeadDelegationNormalizer::UNCLASSIFIED)->count());
 
         return self::SUCCESS;
+    }
+
+    private function dateOption(string $name): ?CarbonImmutable
+    {
+        try {
+            $value = trim((string) $this->option($name));
+
+            return $value !== '' ? CarbonImmutable::createFromFormat('!Y-m-d', $value) : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function classificationSnapshot(object $call): array
+    {
+        return collect([
+            'call_status', 'is_answered', 'is_lost', 'is_overflow', 'overflow_reason',
+            'call_origin', 'portal_resolved', 'operational_team', 'delegation', 'zone',
+            'adjusted_duration_seconds', 'included_in_dashboard', 'dashboard_exclusion_reason',
+        ])->mapWithKeys(fn (string $field): array => [$field => data_get($call, $field)])->all();
     }
 
     private function delegationZone(

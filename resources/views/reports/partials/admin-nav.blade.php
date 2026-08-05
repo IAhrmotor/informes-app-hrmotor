@@ -10,7 +10,7 @@
 
 <nav class="tabs-main admin-nav" aria-label="Administracion de informes">
     @foreach ($adminLinks as $link)
-        @if (\Illuminate\Support\Facades\Route::has($link['route']))
+        @if (\Illuminate\Support\Facades\Route::has($link['route']) && (\App\Support\ReportUserAccess::canManageReportUsers(request()) || $link['key'] === 'commission-penalties'))
             <a
                 href="{{ route($link['route']) }}"
                 @class(['main-tab', 'active' => $currentAdminPage === $link['key']])

@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Support\ReportUserAccess;
 
 class CallDashboardDatasetService
 {
@@ -65,13 +66,19 @@ class CallDashboardDatasetService
             ->pluck('salesforce_id')
             ->flip();
 
-        return DB::table('salesforce_calls')
+        $auditQuery = DB::table('salesforce_calls')
             ->where('created_date', '>=', $period['start'])
-            ->where('created_date', '<', $period['end'])
+            ->where('created_date', '<', $period['end']);
+        $this->applyAccessScope($auditQuery, $filters);
+
+        return $auditQuery
             ->orderBy('created_date')
             ->orderBy('salesforce_id')
             ->get()
             ->map(function ($row) use ($includedIds): array {
+                $parseDebug = is_string($row->parse_debug ?? null)
+                    ? (json_decode($row->parse_debug, true) ?: [])
+                    : (array) ($row->parse_debug ?? []);
                 $includedByUniverse = (bool) ($row->included_in_dashboard ?? true);
                 $includedByFilters = $includedByUniverse && $includedIds->has($row->salesforce_id);
                 $rawDuration = (int) ($row->call_duration_seconds ?? $row->parsed_duration_seconds ?? 0);
@@ -88,6 +95,7 @@ class CallDashboardDatasetService
                         ? 'included'
                         : ($row->dashboard_exclusion_reason ?: 'dashboard_filter'),
                     'result_original' => $row->result_raw,
+                    'answered_by_raw' => data_get($parseDebug, 'parsed.answered_by_raw'),
                     'result_interpreted' => $row->call_status,
                     'duration_initial_seconds' => $rawDuration,
                     'seconds_deducted' => max(0, $rawDuration - $adjustedDuration),
@@ -99,6 +107,8 @@ class CallDashboardDatasetService
                     'operational_user_id' => $row->operational_user_id,
                     'operational_user_name' => $row->operational_user_name,
                     'classification_rule_version' => $row->classification_rule_version ?: 'legacy_unversioned',
+                    'classified_at' => $row->classified_at,
+                    'classification_raw_values' => data_get($parseDebug, 'parsed', []),
                 ];
             })
             ->values()
@@ -454,8 +464,22 @@ class CallDashboardDatasetService
         if ($includeUser && $filters['user'] !== '') {
             $this->applyUserFilter($query, $filters, $period);
         }
+        $this->applyAccessScope($query, $filters);
 
         return $query;
+    }
+
+    private function applyAccessScope(QueryBuilder $query, array $filters): void
+    {
+        if (filled($filters['access_commercial'] ?? null)) {
+            $query->where('operational_user_id', $filters['access_commercial']);
+        }
+        if (filled($filters['access_delegation'] ?? null)) {
+            $query->whereRaw($this->effectiveDelegationSql().' = ?', [$filters['access_delegation']]);
+        }
+        if (filled($filters['access_zone'] ?? null)) {
+            $query->whereRaw($this->effectiveZoneSql().' = ?', [$filters['access_zone']]);
+        }
     }
 
     private function applyUserFilter(QueryBuilder $query, array $filters, array $period): void
@@ -1131,6 +1155,9 @@ class CallDashboardDatasetService
             'zone' => $request->string('zone')->toString(),
             'portal' => $request->string('portal')->toString(),
             'user' => $request->string('user')->toString(),
+            'access_commercial' => ReportUserAccess::salesforceUserId($request),
+            'access_delegation' => ReportUserAccess::delegationName($request),
+            'access_zone' => ReportUserAccess::isAreaManager($request) ? ReportUserAccess::areaZoneLabel($request) : null,
         ];
     }
 

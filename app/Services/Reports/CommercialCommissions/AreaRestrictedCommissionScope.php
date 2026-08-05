@@ -44,6 +44,51 @@ class AreaRestrictedCommissionScope
             ->all();
     }
 
+    public function delegationAuditRowsByDelegation(array $rows, string $delegationName): array
+    {
+        return collect($rows)
+            ->filter(fn (array $row): bool => $this->sameDelegation($row['delegation_calculated'] ?? null, $delegationName))
+            ->values()
+            ->all();
+    }
+
+    public function delegationDashboard(array $payload, string $delegationName): array
+    {
+        $candidateRows = collect($payload['summary_rows'] ?? []);
+        $visibleIds = SalesforceUser::query()
+            ->whereIn('salesforce_id', $candidateRows->pluck('commercial_id')->filter()->all())
+            ->get(['salesforce_id', 'user_delegation'])
+            ->filter(fn (SalesforceUser $user): bool => $this->sameDelegation($user->user_delegation, $delegationName))
+            ->pluck('salesforce_id');
+        $summaryRows = $candidateRows->filter(
+            fn (array $row): bool => $visibleIds->contains((string) ($row['commercial_id'] ?? ''))
+        )->values();
+        $delegationRows = collect($payload['delegation_rows'] ?? [])->filter(
+            fn (array $row): bool => $this->sameDelegation($row['delegation_name'] ?? null, $delegationName)
+        )->values();
+        $payload['summary_rows'] = $summaryRows->all();
+        $payload['delegation_rows'] = $delegationRows->all();
+        $payload['diagnostics'] = $this->scopedDiagnostics($payload['diagnostics'] ?? [], $summaryRows, $delegationRows);
+
+        return $payload;
+    }
+
+    public function commercialDashboardByUser(array $payload, string $salesforceUserId): array
+    {
+        $summaryRows = collect($payload['summary_rows'] ?? [])->where('commercial_id', $salesforceUserId)->values();
+        $payload['summary_rows'] = $summaryRows->all();
+        $payload['delegation_rows'] = [];
+        $payload['diagnostics'] = $this->scopedDiagnostics($payload['diagnostics'] ?? [], $summaryRows, collect());
+
+        return $payload;
+    }
+
+    private function sameDelegation(mixed $actual, string $expected): bool
+    {
+        return $this->delegationNormalizer->normalize(is_string($actual) ? $actual : null)['delegation']
+            === $this->delegationNormalizer->normalize($expected)['delegation'];
+    }
+
     public function belongsToZone(mixed $delegation, string $zoneLabel): bool
     {
         $normalized = $this->delegationNormalizer->normalize(is_string($delegation) ? $delegation : null);

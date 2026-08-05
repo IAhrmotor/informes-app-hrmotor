@@ -4,6 +4,7 @@ namespace App\Services\Reports\FinancialCommissions;
 
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
+use App\Services\Reports\CommercialCommissions\CommissionMonthResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
@@ -70,12 +71,13 @@ class FinancialCommissionDashboardService
 
     public function __construct(
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
+        private readonly CommissionMonthResolver $monthResolver,
     ) {
     }
 
     public function build(?string $month): array
     {
-        $selectedMonth = $this->formulaConfig->resolveSelectedMonth($month);
+        $selectedMonth = $this->monthResolver->resolve($month);
         $periodStart = $selectedMonth->startOfMonth();
         $periodEnd = $periodStart->addMonth();
         $settings = $this->formulaConfig->forMonth($selectedMonth);

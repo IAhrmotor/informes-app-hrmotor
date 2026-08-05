@@ -37,26 +37,44 @@
             <div>
                 <h2>Vehículos propuestos para traslado</h2>
                 <div class="small">
-                    Desde {{ config('stock.review_days', 60) }} días: revisión. Desde {{ config('stock.priority_days', 90) }} días o exceso del mismo modelo: prioritario.
-                    Se analizan {{ number_format($recommendationAvailableTotal,0,',','.') }} disponibles.
+                    Se analizan todos los disponibles. Desde {{ config('stock.review_days', 60) }} días: prioridad 60; desde {{ config('stock.priority_days', 90) }} días o exceso del mismo modelo: prioridad 90.
+                    Los destinos se ordenan teóricamente y la capacidad se aplica después al plan conjunto.
                     <strong>Mostrando {{ number_format($recommendationDisplayed,0,',','.') }} de {{ number_format($recommendationTotal,0,',','.') }} candidatos.</strong>
                 </div>
             </div>
         </div>
-        <div class="stock-quality-grid">
+        <div class="stock-recommendation-legend" aria-label="Conciliación del plan de traslados">
             @foreach ([
-                ['Universo filtrado', $recommendationReconciliation['universe'] ?? 0],
-                ['Disponibles', $recommendationReconciliation['available'] ?? 0],
-                ['Evaluados', $recommendationReconciliation['evaluated'] ?? 0],
-                ['Candidatos', $recommendationReconciliation['candidates'] ?? 0],
-                ['Sin destino con capacidad', $recommendationReconciliation['without_destination'] ?? 0],
-                ['Asignados en el plan', $recommendationReconciliation['planned'] ?? 0],
-                ['Sin asignar por capacidad', $recommendationReconciliation['unallocated_by_capacity'] ?? 0],
-                ['Excluidos: no disponibles', $recommendationReconciliation['excluded_not_available'] ?? 0],
-                ['Excluidos: catalogo no operativo', $recommendationReconciliation['excluded_non_operational_catalog'] ?? 0],
-                ['Excluidos: sin criterio de revision', $recommendationReconciliation['excluded_below_review_threshold'] ?? 0],
-            ] as [$label, $value])
-                <div class="stock-quality-item"><span>{{ $label }}</span><strong>{{ number_format($value, 0, ',', '.') }}</strong></div>
+                ['Contexto de stock', [
+                    ['Stock total', $recommendationReconciliation['universe'] ?? 0, 'neutral'],
+                    ['Disponibles', $recommendationReconciliation['available'] ?? 0, 'positive'],
+                    ['Reservados', $recommendationReconciliation['reserved'] ?? 0, 'neutral'],
+                    ['Bloqueados', $recommendationReconciliation['blocked'] ?? 0, 'neutral'],
+                ]],
+                ['Evaluación y plan', [
+                    ['Disponibles evaluados', $recommendationReconciliation['evaluated'] ?? 0, 'positive'],
+                    ['Asignados en el plan', $recommendationReconciliation['planned'] ?? 0, 'positive'],
+                    ['Sin alternativas', $recommendationReconciliation['without_destination'] ?? 0, 'warning'],
+                    ['Sin asignar por capacidad', $recommendationReconciliation['unallocated_by_capacity'] ?? 0, 'warning'],
+                    ['Catálogo no operativo', $recommendationReconciliation['excluded_non_operational_catalog'] ?? 0, 'warning'],
+                ]],
+                ['Prioridad', [
+                    ['Normal', $recommendationReconciliation['priority_normal'] ?? 0, 'neutral'],
+                    ['60 días', $recommendationReconciliation['priority_60_days'] ?? 0, 'priority-60'],
+                    ['90 días', $recommendationReconciliation['priority_90_days'] ?? 0, 'priority-90'],
+                ]],
+            ] as [$groupLabel, $items])
+                <section class="stock-legend-group">
+                    <h3>{{ $groupLabel }}</h3>
+                    <div class="stock-legend-items">
+                        @foreach ($items as [$label, $value, $tone])
+                            <div class="stock-quality-item stock-quality-{{ $tone }}">
+                                <span>{{ $label }}</span>
+                                <strong>{{ number_format($value, 0, ',', '.') }}</strong>
+                            </div>
+                        @endforeach
+                    </div>
+                </section>
             @endforeach
         </div>
         <form method="GET" action="{{ route('reports.stock.index') }}" class="stock-inline-filter" data-live-plate-form>
@@ -96,11 +114,12 @@
                         <td data-sort-value="{{ data_get($row,'recommendations.0.delegation') }}">
                             @forelse($row['recommendations'] as $index=>$recommendation)
                                 <details class="stock-inline-recommendation">
-                                    <summary><b>{{ $index+1 }}. {{ $recommendation['delegation'] }}</b><span>{{ $recommendation['free_capacity'] }} plazas</span></summary>
+                                    <summary><b>{{ $index+1 }}. {{ $recommendation['delegation'] }}</b><span>{{ $recommendation['is_executable'] ? $recommendation['free_capacity'].' plazas' : 'No ejecutable' }}</span></summary>
+                                    @unless($recommendation['is_executable'])<small>Exceso previsto: {{ $recommendation['capacity_excess'] }} · liberar {{ $recommendation['places_to_release'] }} plaza(s)</small>@endunless
                                     <ul>@foreach($recommendation['reasons'] as $reason)<li>{{ $reason }}</li>@endforeach</ul>
                                 </details>
                             @empty
-                                <span class="stock-tag muted">Sin destino con capacidad</span>
+                                <span class="stock-tag muted">Sin alternativas comparables</span>
                             @endforelse
                         </td>
                     </tr>

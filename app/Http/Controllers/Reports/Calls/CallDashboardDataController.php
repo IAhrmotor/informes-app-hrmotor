@@ -38,7 +38,7 @@ class CallDashboardDataController extends Controller
 
     public function audit(Request $request): JsonResponse
     {
-        abort_unless(ReportUserAccess::canAudit($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'calls'), 403);
 
         $items = $this->dataset->auditRows($request);
 
@@ -47,7 +47,7 @@ class CallDashboardDataController extends Controller
 
     public function exportAuditCsv(Request $request): StreamedResponse
     {
-        abort_unless(ReportUserAccess::canAudit($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'calls'), 403);
         $rows = $this->dataset->auditRows($request);
         $headers = $rows === [] ? ['Task ID'] : array_keys($rows[0]);
 

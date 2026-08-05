@@ -31,7 +31,11 @@ class CallsAbandonedIsLostNotOverflowTest extends TestCase
             'operational_team' => 'contact_center',
         ]);
 
-        $this->artisan('reports:reprocess-calls-classification')->assertExitCode(0);
+        $this->artisan('reports:reprocess-calls-classification', [
+            '--from' => '2026-05-01',
+            '--to' => '2026-05-31',
+            '--reason' => 'Regresion de clasificacion ABANDONED.',
+        ])->assertExitCode(0);
 
         $call = SalesforceCall::where('salesforce_id', 'abandoned')->firstOrFail();
 

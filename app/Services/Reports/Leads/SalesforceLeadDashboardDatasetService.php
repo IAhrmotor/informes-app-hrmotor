@@ -15,6 +15,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use App\Support\ReportUserAccess;
 
 class SalesforceLeadDashboardDatasetService
 {
@@ -93,7 +94,7 @@ class SalesforceLeadDashboardDatasetService
     }
 
     /** @param list<string> $salesforceIds */
-    public function leadAudit(array $salesforceIds): array
+    public function leadAudit(array $salesforceIds, ?Request $request = null): array
     {
         $ids = collect($salesforceIds)
             ->map(fn (mixed $id) => trim((string) $id))
@@ -106,9 +107,11 @@ class SalesforceLeadDashboardDatasetService
             ->get()
             ->keyBy('salesforce_id');
 
+        $accessFilters = $request ? $this->filters($request, 'summary') : null;
+
         return [
             'ok' => true,
-            'items' => $ids->map(function (string $id) use ($rows): array {
+            'items' => $ids->map(function (string $id) use ($rows, $accessFilters): ?array {
                 /** @var SalesforceLead|null $row */
                 $row = $rows->get($id);
 
@@ -121,6 +124,9 @@ class SalesforceLeadDashboardDatasetService
                 }
 
                 $lead = $this->decorateLead($row);
+                if ($accessFilters !== null && ! $this->passesAccessScope($lead, $accessFilters)) {
+                    return null;
+                }
 
                 return [
                     'salesforce_id' => $id,
@@ -148,7 +154,7 @@ class SalesforceLeadDashboardDatasetService
                     'converted_opportunity_id' => $row->converted_opportunity_id,
                     'local_updated_at' => $row->updated_at,
                 ];
-            })->all(),
+            })->filter()->values()->all(),
         ];
     }
 
@@ -163,8 +169,11 @@ class SalesforceLeadDashboardDatasetService
             ->orderBy('created_date')
             ->orderBy('salesforce_id')
             ->get()
-            ->map(function (SalesforceLead $row) use ($filters): array {
+            ->map(function (SalesforceLead $row) use ($filters): ?array {
                 $lead = $this->decorateLead($row);
+                if (! $this->passesAccessScope($lead, $filters)) {
+                    return null;
+                }
                 $exclusionReasons = $this->auditFilterExclusionReasons($lead, $filters);
                 if ($row->is_deleted) {
                     array_unshift($exclusionReasons, filled($row->salesforce_master_record_id) ? 'merged' : 'deleted');
@@ -192,6 +201,10 @@ class SalesforceLeadDashboardDatasetService
                     'effective_commercial_name' => $lead['gestor_nombre'],
                     'commercial_delegation' => $lead['commercial_delegation'],
                     'commercial_zone' => $lead['commercial_zone'],
+                    'commercial_is_eligible' => ! $lead['is_without_eligible_commercial'],
+                    'without_eligible_commercial' => $lead['is_without_eligible_commercial'],
+                    'without_commercial_delegation' => $lead['is_without_commercial_delegation'],
+                    'unclassified' => $lead['is_unclassified'],
                     'is_converted' => (bool) $row->is_converted,
                     'converted_date' => $this->auditDate($row->converted_date),
                     'converted_opportunity_id' => $row->converted_opportunity_id,
@@ -209,7 +222,7 @@ class SalesforceLeadDashboardDatasetService
                     'included_in_active_dataset' => $included,
                     'inclusion_exclusion_reason' => $included ? 'included' : implode('|', $exclusionReasons),
                 ];
-            })
+            })->filter()
             ->values()
             ->all();
     }
@@ -239,6 +252,10 @@ class SalesforceLeadDashboardDatasetService
 
     public function filters(Request $request, string $context = 'summary'): array
     {
+        $accessDelegation = ReportUserAccess::delegationName($request);
+        $accessCommercial = ReportUserAccess::salesforceUserId($request);
+        $accessZone = ReportUserAccess::isAreaManager($request) ? ReportUserAccess::areaZoneLabel($request) : null;
+
         return [
             'context' => $context,
             'period' => $request->string('period')->toString() ?: 'last_30_days',
@@ -254,6 +271,9 @@ class SalesforceLeadDashboardDatasetService
             'zone' => $request->string('zone')->toString(),
             'commercial' => $request->string('commercial')->toString(),
             'exposition_mode' => $request->string('exposition_mode')->toString() ?: 'with',
+            'access_delegation' => $accessDelegation,
+            'access_commercial' => $accessCommercial,
+            'access_zone' => $accessZone,
         ];
     }
 
@@ -340,6 +360,10 @@ class SalesforceLeadDashboardDatasetService
                 'lead_zone' => $lead['lead_zone'] ?? null,
                 'commercial_delegation' => $lead['commercial_delegation'] ?? null,
                 'commercial_zone' => $lead['commercial_zone'] ?? null,
+                'commercial_is_eligible' => ! ($lead['is_without_eligible_commercial'] ?? true),
+                'without_eligible_commercial' => (bool) ($lead['is_without_eligible_commercial'] ?? false),
+                'without_commercial_delegation' => (bool) ($lead['is_without_commercial_delegation'] ?? false),
+                'unclassified' => (bool) ($lead['is_unclassified'] ?? false),
                 'gestor_id' => $lead['gestor_id'] ?? null,
                 'gestor_nombre' => $lead['gestor_nombre'] ?? null,
                 'owner_id' => $lead['owner_id'] ?? null,
@@ -411,6 +435,9 @@ class SalesforceLeadDashboardDatasetService
         $manager = $this->resolveSimplifiedManager($lead, $isConverted, $isDiscarded);
         $commercialUser = $manager['id'] ? $this->commercialUsers()->get($manager['id']) : null;
         $commercialDelegation = $this->normalizeCommercialDelegation(data_get($commercialUser, 'user_delegation'));
+        $withoutEligibleCommercial = $commercialUser === null;
+        $withoutCommercialDelegation = ! $withoutEligibleCommercial && ! $commercialDelegation['is_classified'];
+        $unclassified = ! $leadDelegation['is_classified'];
 
         $totalActivities = (int) (data_get($summary, 'total_actividades') ?? 0);
         $lastActivity = data_get($summary, 'fecha_ultima_actividad');
@@ -485,6 +512,9 @@ class SalesforceLeadDashboardDatasetService
             'gestor_id' => $manager['id'],
             'gestor_nombre' => data_get($commercialUser, 'name') ?? $manager['name'],
             'gestor_es_comercial' => $commercialUser !== null,
+            'is_without_eligible_commercial' => $withoutEligibleCommercial,
+            'is_without_commercial_delegation' => $withoutCommercialDelegation,
+            'is_unclassified' => $unclassified,
             'is_exposicion' => Str::lower($portal) === Str::lower('Exposición'),
             'total_actividades' => $totalActivities,
             'fecha_ultima_actividad' => $lastActivityAt,
@@ -512,6 +542,9 @@ class SalesforceLeadDashboardDatasetService
             &$filterOptions,
             $filters,
         ): void {
+            if (! $this->passesAccessScope($lead, $filters)) {
+                return;
+            }
             $this->collectFilterOptions($filterOptions, $lead);
 
             if (! $this->passesFilters($lead, $filters)) {
@@ -631,6 +664,9 @@ class SalesforceLeadDashboardDatasetService
 
     private function passesFilters(array $lead, array $filters): bool
     {
+        if (! $this->passesAccessScope($lead, $filters)) {
+            return false;
+        }
         if ($filters['portal'] && $lead['portal'] !== $filters['portal']) {
             return false;
         }
@@ -656,6 +692,23 @@ class SalesforceLeadDashboardDatasetService
         }
 
         if ($filters['exposition_mode'] === 'without' && $lead['is_exposicion']) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function passesAccessScope(array $lead, array $filters): bool
+    {
+        if (filled($filters['access_commercial'] ?? null) && $lead['gestor_id'] !== $filters['access_commercial']) {
+            return false;
+        }
+        if (filled($filters['access_zone'] ?? null) && $lead['commercial_zone'] !== $filters['access_zone']) {
+            return false;
+        }
+        if (filled($filters['access_delegation'] ?? null)
+            && $lead['commercial_delegation'] !== $filters['access_delegation']
+            && $lead['lead_delegation'] !== $filters['access_delegation']) {
             return false;
         }
 
@@ -876,6 +929,9 @@ class SalesforceLeadDashboardDatasetService
         $bucket['potenciales'] += $lead['is_potencial'] ? 1 : 0;
         $bucket['potenciales_sin_trabajar'] += $lead['is_potencial_sin_trabajar'] ? 1 : 0;
         $bucket['leads_unassigned'] += $lead['is_lead_sin_asignar'] ? 1 : 0;
+        $bucket['without_eligible_commercial'] += $lead['is_without_eligible_commercial'] ? 1 : 0;
+        $bucket['without_commercial_delegation'] += $lead['is_without_commercial_delegation'] ? 1 : 0;
+        $bucket['unclassified'] += $lead['is_unclassified'] ? 1 : 0;
         $bucket['gestionados'] += $lead['is_gestionado'] ? 1 : 0;
         $bucket['llamadas'] += $lead['is_llamada'] ? 1 : 0;
         $bucket['formularios'] += $lead['is_formulario'] ? 1 : 0;
@@ -891,6 +947,9 @@ class SalesforceLeadDashboardDatasetService
             'potenciales_pct' => $this->percentage($bucket['potenciales'], $total),
             'potenciales_sin_trabajar_pct' => $this->percentage($bucket['potenciales_sin_trabajar'], $total),
             'leads_unassigned_pct' => $this->percentage($bucket['leads_unassigned'], $total),
+            'without_eligible_commercial_pct' => $this->percentage($bucket['without_eligible_commercial'], $total),
+            'without_commercial_delegation_pct' => $this->percentage($bucket['without_commercial_delegation'], $total),
+            'unclassified_pct' => $this->percentage($bucket['unclassified'], $total),
             'gestionados_pct' => $this->percentage($bucket['gestionados'], $total),
             'llamadas_pct' => $this->percentage($bucket['llamadas'], $total),
             'formularios_pct' => $this->percentage($bucket['formularios'], $total),
@@ -906,6 +965,9 @@ class SalesforceLeadDashboardDatasetService
             'potenciales' => 0,
             'potenciales_sin_trabajar' => 0,
             'leads_unassigned' => 0,
+            'without_eligible_commercial' => 0,
+            'without_commercial_delegation' => 0,
+            'unclassified' => 0,
             'gestionados' => 0,
             'llamadas' => 0,
             'formularios' => 0,
@@ -921,6 +983,9 @@ class SalesforceLeadDashboardDatasetService
             ['key' => 'potenciales', 'label' => 'Potenciales'],
             ['key' => 'potenciales_sin_trabajar', 'label' => 'Potenciales sin trabajar'],
             ['key' => 'leads_unassigned', 'label' => 'Leads sin asignar'],
+            ['key' => 'without_eligible_commercial', 'label' => 'Sin comercial elegible'],
+            ['key' => 'without_commercial_delegation', 'label' => 'Sin delegación comercial'],
+            ['key' => 'unclassified', 'label' => 'Sin clasificar'],
             ['key' => 'gestionados', 'label' => 'Gestionados', 'percent_key' => 'gestionados_pct'],
             ['key' => 'llamadas', 'label' => 'Llamadas', 'percent_key' => 'llamadas_pct'],
             ['key' => 'formularios', 'label' => 'Formularios', 'percent_key' => 'formularios_pct'],

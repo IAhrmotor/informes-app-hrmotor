@@ -4,6 +4,8 @@ namespace App\Services\Reports\Stock;
 
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use App\Models\StockCatalogAlias;
+use App\Models\StockCatalogValue;
 
 class StockCatalogNormalizer
 {
@@ -14,6 +16,48 @@ class StockCatalogNormalizer
     private array $displayCache = [];
 
     private ?array $excludedTermKeys = null;
+    private array $canonicalCache = [];
+    private array $officialCatalogCache = [];
+    private array $aliasCatalogCache = [];
+
+    public const FIELD_BY_DIMENSION = [
+        'brand' => 'PRO_SEL_Marca__c', 'model' => 'PRO_TEX_Modelo__c', 'segment' => 'Segmento__c',
+        'fuel' => 'PRO_SEL_Combustible__c', 'body' => 'PRO_SEL_Carroceria__c',
+        'state' => 'PRO_SEL_Estado__c', 'purchase_source' => 'Procedencia_de_compra__c',
+    ];
+
+    public function canonicalize(string $dimension, mixed $value): array
+    {
+        $raw = $this->display($value);
+        $normalized = $this->key($value);
+        $field = self::FIELD_BY_DIMENSION[$dimension] ?? null;
+        if ($raw === null || $field === null) {
+            return ['raw' => $raw, 'normalized' => $normalized ?: null, 'canonical' => $raw, 'rule' => 'raw_no_salesforce_catalog'];
+        }
+        $cacheKey = $field.'|'.$normalized;
+        if (isset($this->canonicalCache[$cacheKey])) {
+            return $this->canonicalCache[$cacheKey];
+        }
+        $officialCatalog = $this->officialCatalogCache[$field] ??= StockCatalogValue::query()
+            ->where('field_api_name', $field)
+            ->where('is_active', true)
+            ->get()
+            ->keyBy(fn (StockCatalogValue $item): string => $this->key($item->api_value));
+        $official = $officialCatalog->get($normalized)
+            ?? $officialCatalog->first(fn (StockCatalogValue $item): bool => $this->key($item->label) === $normalized);
+
+        $aliases = $this->aliasCatalogCache[$field] ??= StockCatalogAlias::query()
+            ->where('field_api_name', $field)
+            ->with('catalogValue')
+            ->get()
+            ->keyBy('normalized_key');
+        $alias = $official ? null : $aliases->get($normalized);
+        $aliasOfficial = $alias?->catalogValue?->is_active ? $alias->catalogValue : null;
+        $canonical = $official?->api_value ?? $aliasOfficial?->api_value ?? $raw;
+        $rule = $official ? 'salesforce_active_value' : ($aliasOfficial ? $alias->rule_name : 'unmapped_raw_value');
+
+        return $this->canonicalCache[$cacheKey] = compact('raw', 'normalized', 'canonical', 'rule');
+    }
 
     public function key(mixed $value): string
     {

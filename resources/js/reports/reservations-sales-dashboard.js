@@ -138,6 +138,7 @@ function renderSummary(data) {
         : 'Datos actualizados: pendiente';
     document.getElementById('currentPeriodLabel').textContent = periodText(data.periodo_actual);
     document.getElementById('comparisonPeriodLabel').textContent = periodText(data.periodo_comparado);
+    document.getElementById('universeDateLabel').textContent = data.universe_date_label || '-';
 
     const empty = document.getElementById('emptyMessage');
     empty.classList.toggle('is-hidden', Boolean(data.ok));
@@ -146,6 +147,27 @@ function renderSummary(data) {
     renderKpis(data.kpis || {});
     renderComparison(data.comparativa || []);
     renderInsights(data.executive_insights || data.insights || []);
+    renderDataQuality(data.data_quality || {});
+}
+
+function renderDataQuality(quality) {
+    const panel = document.getElementById('reservationsDataQualityPanel');
+    const root = document.getElementById('reservationsDataQualityIncidents');
+    const incidents = quality.incidents || [];
+
+    panel?.classList.toggle('is-hidden', incidents.length === 0);
+    if (!root) return;
+    document.getElementById('reservationsDataQualityCount').textContent = formatNumber(quality.duplicate_event_groups || incidents.length);
+    root.innerHTML = incidents.map((incident) => `
+        <article class="data-quality-incident">
+            <div>
+                <strong>${incident.type === 'sale' ? 'Venta duplicada' : 'Reserva duplicada'} · ${escapeHtml(incident.vehicle_plate || incident.vehicle_id || 'Vehículo sin referencia visible')}</strong>
+                <span>${escapeHtml(incident.event_date || 'Sin fecha')} · ${formatNumber((incident.opportunity_ids || []).length)} oportunidades</span>
+            </div>
+            <code>${escapeHtml((incident.opportunity_ids || []).join(', '))}</code>
+            ${incident.conflicting_fields?.length ? `<small>Desglose en incidencia por conflicto en: ${escapeHtml(incident.conflicting_fields.join(', '))}</small>` : '<small>Atribución común; se contabiliza una sola vez.</small>'}
+        </article>
+    `).join('');
 }
 
 function renderKpis(kpis) {
@@ -578,7 +600,7 @@ function setLoadingState(isLoading) {
         document.getElementById('updatedBadge').textContent = 'Cargando fotografía local...';
         document.getElementById('emptyMessage')?.classList.add('is-hidden');
         [
-            'kpiGrid',
+            'summaryKpis',
             'comparisonRows',
             'insights',
             'commercialZoneRows',
@@ -589,6 +611,7 @@ function setLoadingState(isLoading) {
             const element = document.getElementById(id);
             if (element) element.innerHTML = '';
         });
+        document.getElementById('reservationsDataQualityPanel')?.classList.add('is-hidden');
     }
 
     document.querySelector('main')?.classList.toggle('dashboard-is-loading', isLoading);

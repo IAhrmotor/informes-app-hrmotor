@@ -3,6 +3,7 @@
 namespace App\Services\Reports\Calls;
 
 use App\Models\SalesforceCall;
+use App\Models\SalesforceCallClassificationHistory;
 use App\Models\SalesforceUser;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
@@ -211,7 +212,8 @@ SOQL;
         );
         $includedInDashboard = filled(data_get($record, 'CallObject'));
 
-        return SalesforceCall::updateOrCreate(
+        $existing = SalesforceCall::query()->where('salesforce_id', data_get($record, 'Id'))->first();
+        $call = SalesforceCall::updateOrCreate(
             ['salesforce_id' => data_get($record, 'Id')],
             [
                 'subject' => data_get($record, 'Subject'),
@@ -232,6 +234,7 @@ SOQL;
                 'included_in_dashboard' => $includedInDashboard,
                 'dashboard_exclusion_reason' => $includedInDashboard ? null : 'missing_call_object',
                 'classification_rule_version' => CallClassificationRules::VERSION,
+                'classified_at' => now(),
                 'call_duration_seconds' => is_numeric(data_get($record, 'CallDurationInSeconds')) ? (int) data_get($record, 'CallDurationInSeconds') : null,
                 'parsed_duration_seconds' => $parsed['parsed_duration_seconds'],
                 'adjusted_duration_seconds' => $this->adjustedDuration($duration, $portal['origin']),
@@ -279,6 +282,40 @@ SOQL;
                 ],
             ]
         );
+
+        $sourceChanged = $existing !== null
+            && (string) $existing->last_modified_date !== (string) $call->last_modified_date;
+        if ($sourceChanged) {
+            SalesforceCallClassificationHistory::query()->create([
+                'salesforce_call_id' => $call->id,
+                'task_salesforce_id' => $call->salesforce_id,
+                'previous_rule_version' => $existing->classification_rule_version,
+                'new_rule_version' => CallClassificationRules::VERSION,
+                'change_source' => 'salesforce_source_modified',
+                'reason' => 'Salesforce modificó el registro original; se reclasificó durante la sincronización.',
+                'raw_values' => [
+                    'result_raw' => $parsed['result_raw'] ?? null,
+                    'answered_by_raw' => $parsed['answered_by_raw'] ?? null,
+                    'call_object' => data_get($record, 'CallObject'),
+                    'description' => data_get($record, 'Description'),
+                    'last_modified_date' => data_get($record, 'LastModifiedDate'),
+                ],
+                'previous_classification' => $this->classificationSnapshot($existing),
+                'new_classification' => $this->classificationSnapshot($call),
+                'classified_at' => now(),
+            ]);
+        }
+
+        return $call;
+    }
+
+    private function classificationSnapshot(SalesforceCall $call): array
+    {
+        return collect([
+            'call_status', 'is_answered', 'is_lost', 'is_overflow', 'overflow_reason',
+            'call_origin', 'portal_resolved', 'operational_team', 'delegation', 'zone',
+            'adjusted_duration_seconds', 'included_in_dashboard', 'dashboard_exclusion_reason',
+        ])->mapWithKeys(fn (string $field): array => [$field => $call->{$field}])->all();
     }
 
     private function resolvePortal(array $record, Collection $leadMatches): array

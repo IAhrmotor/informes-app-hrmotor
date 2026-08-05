@@ -13,6 +13,10 @@ class StockSaleValidityService
 
     public const REASON_DUPLICATE_VALID_VEHICLE = 'duplicate_valid_vehicle';
 
+    public const REASON_DUPLICATE_NOT_SELECTED = 'duplicate_not_selected';
+
+    public const REASON_DUPLICATE_AMBIGUOUS = 'duplicate_ambiguous';
+
     public function reconcile(): array
     {
         $opportunities = SalesforceOpportunity::query()
@@ -39,15 +43,40 @@ class StockSaleValidityService
             }
         }
 
-        $duplicateIds = collect($validByVehicle)
-            ->filter(fn (array $ids): bool => count($ids) > 1)
-            ->flatten()
-            ->map(fn ($id): int => (int) $id)
-            ->flip();
+        $duplicateResolutions = [];
+        foreach ($validByVehicle as $snapshotIds) {
+            if (count($snapshotIds) <= 1) {
+                continue;
+            }
+            $candidates = $snapshots->whereIn('id', $snapshotIds);
+            $latestDate = $candidates->max(fn (SalesforceSaleSnapshot $snapshot): string => $snapshot->signed_date?->format('Y-m-d') ?? '');
+            $latest = $candidates->filter(fn (SalesforceSaleSnapshot $snapshot): bool => ($snapshot->signed_date?->format('Y-m-d') ?? '') === $latestDate);
+            if ($latestDate === '' || $latest->count() !== 1) {
+                foreach ($candidates as $candidate) {
+                    $duplicateResolutions[$candidate->id] = [
+                        'reason' => self::REASON_DUPLICATE_AMBIGUOUS,
+                        'selected' => null,
+                        'detail' => 'same_latest_signed_date',
+                    ];
+                }
+                continue;
+            }
+            $selected = $latest->first();
+            foreach ($candidates as $candidate) {
+                if ($candidate->is($selected)) {
+                    continue;
+                }
+                $duplicateResolutions[$candidate->id] = [
+                    'reason' => self::REASON_DUPLICATE_NOT_SELECTED,
+                    'selected' => $selected->opportunity_salesforce_id,
+                    'detail' => 'latest_signed_date_selected',
+                ];
+            }
+        }
         $result = [
             'valid' => 0,
             'invalid' => 0,
-            'duplicates' => $duplicateIds->count(),
+            'duplicates' => count($duplicateResolutions),
             'unchecked' => 0,
         ];
 
@@ -60,8 +89,9 @@ class StockSaleValidityService
             }
 
             $reason = $baseReasons[$snapshot->id] ?? null;
-            if ($reason === null && $duplicateIds->has($snapshot->id)) {
-                $reason = self::REASON_DUPLICATE_VALID_VEHICLE;
+            $duplicateResolution = $reason === null ? ($duplicateResolutions[$snapshot->id] ?? null) : null;
+            if ($duplicateResolution !== null) {
+                $reason = $duplicateResolution['reason'];
             }
             $isValid = $reason === null;
             $updates = [
@@ -69,6 +99,8 @@ class StockSaleValidityService
                 'is_valid' => $isValid,
                 'validity_checked_at' => now(),
                 'invalid_reason' => $reason,
+                'selected_opportunity_salesforce_id' => $duplicateResolution['selected'] ?? null,
+                'duplicate_resolution_reason' => $duplicateResolution['detail'] ?? null,
             ];
             if ($isValid) {
                 $updates['invalidated_at'] = null;
@@ -86,7 +118,7 @@ class StockSaleValidityService
     public function duplicateVehicleIds(): Collection
     {
         return SalesforceSaleSnapshot::query()
-            ->where('invalid_reason', self::REASON_DUPLICATE_VALID_VEHICLE)
+            ->whereIn('invalid_reason', [self::REASON_DUPLICATE_NOT_SELECTED, self::REASON_DUPLICATE_AMBIGUOUS])
             ->whereNotNull('vehicle_salesforce_id')
             ->pluck('vehicle_salesforce_id')
             ->unique()

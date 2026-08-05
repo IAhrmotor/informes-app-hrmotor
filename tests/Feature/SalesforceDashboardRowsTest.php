@@ -54,6 +54,11 @@ class SalesforceDashboardRowsTest extends TestCase
         $worker = collect($response->json('items'))->firstWhere('comercial', 'Comercial Worker');
         $this->assertSame('Torrejón', $worker['commercial_delegation']);
         $this->assertSame('Zona Sur y Centro', $worker['zone']);
+
+        $quality = $this->getJson('/informes/leads/data/summary')->assertOk()->json('kpis');
+        $this->assertSame(2, $quality['without_eligible_commercial']);
+        $this->assertSame(0, $quality['without_commercial_delegation']);
+        $this->assertArrayHasKey('unclassified', $quality);
     }
 
     public function test_portales_agrupa_y_calcula_llamadas_formularios_conversion_y_descarte_sin_grupo_visible(): void
@@ -148,7 +153,7 @@ class SalesforceDashboardRowsTest extends TestCase
             ->assertHeader('content-type', 'text/csv; charset=UTF-8');
     }
 
-    public function test_direccion_puede_auditar_leads_pero_no_usar_exports_generales_de_admin(): void
+    public function test_direccion_puede_auditar_y_exportar_leads(): void
     {
         config()->set('services.informes_auth.enabled', true);
 
@@ -169,7 +174,7 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->withSession($session)
             ->get('/informes/leads')
             ->assertOk()
-            ->assertSee('window.reportUserCanExport = false', false)
+            ->assertSee('window.reportUserCanExport = true', false)
             ->assertSee('window.reportUserCanAudit = true', false);
 
         $payload = $this->withSession($session)

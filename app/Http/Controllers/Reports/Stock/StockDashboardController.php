@@ -63,6 +63,8 @@ class StockDashboardController extends Controller
             'activeStockTab' => $activeTab,
             'latestSnapshotDate' => StockDailySnapshot::query()->max('snapshot_date'),
             'saleSnapshotsCount' => SalesforceSaleSnapshot::query()->count(),
+            'stockDatasetCutoff' => SalesforceVehicle::query()->where('is_in_stock', true)->max('last_seen_stock_at'),
+            'stockRuleVersion' => '2026-08-05.1',
             'quality' => $quality,
         ]);
     }

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ReportUser extends Model
 {
@@ -13,9 +14,17 @@ class ReportUser extends Model
     public const LEGACY_ROLE_AREA_MANAGER_OWN_AREA = 'area_manager_own_area';
     public const ROLE_VIEWER = 'viewer';
     public const ROLE_COMMISSION_AUDITOR = 'commission_auditor';
+    public const ROLE_DELEGATION_MANAGER = 'delegation_manager';
+    public const ROLE_MARKETING = 'marketing';
+    public const ROLE_FINANCIAL = 'financial';
+    public const ROLE_COMMERCIAL = 'commercial';
     public const ROLE_WEIGHTS = [
         self::ROLE_VIEWER => 10,
         self::ROLE_AREA_MANAGER => 20,
+        self::ROLE_DELEGATION_MANAGER => 20,
+        self::ROLE_MARKETING => 20,
+        self::ROLE_FINANCIAL => 20,
+        self::ROLE_COMMERCIAL => 10,
         self::ROLE_DIRECTOR => 30,
         self::ROLE_ADMIN => 40,
     ];
@@ -25,6 +34,10 @@ class ReportUser extends Model
         self::ROLE_AREA_MANAGER => 'Area Manager',
         self::ROLE_VIEWER => 'Viewer',
         self::ROLE_COMMISSION_AUDITOR => 'Auditor de comisiones',
+        self::ROLE_DELEGATION_MANAGER => 'Responsable de delegación',
+        self::ROLE_MARKETING => 'Marketing',
+        self::ROLE_FINANCIAL => 'Financiero',
+        self::ROLE_COMMERCIAL => 'Comercial',
     ];
     public const AREA_ZONE_LABELS = [
         'north' => 'Zona Norte',
@@ -39,6 +52,8 @@ class ReportUser extends Model
         'password',
         'role',
         'area_zone',
+        'master_delegation_id',
+        'salesforce_user_id',
         'is_active',
         'last_login_at',
     ];
@@ -72,6 +87,11 @@ class ReportUser extends Model
     public function isAreaManager(): bool
     {
         return in_array($this->role, [self::ROLE_AREA_MANAGER, self::LEGACY_ROLE_AREA_MANAGER_OWN_AREA], true);
+    }
+
+    public function masterDelegation(): BelongsTo
+    {
+        return $this->belongsTo(MasterDelegation::class);
     }
 
     public static function availableRoles(): array

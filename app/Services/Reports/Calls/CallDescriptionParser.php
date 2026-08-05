@@ -21,6 +21,7 @@ class CallDescriptionParser
         }
 
         return [
+            'answered_by_raw' => $answeredBy,
             'result_raw' => $this->clean($result),
             'type_raw' => $this->field($description, 'Tipo'),
             'client_phone' => $this->field($description, 'Telefono cliente') ?? $this->field($description, 'Teléfono cliente'),
@@ -52,7 +53,7 @@ class CallDescriptionParser
 
     private function answeredBy(string $description): ?string
     {
-        if (! preg_match('/Respondido por\s+(.+?)(?:\s+atencion al cliente|\s+atención al cliente|$)/iu', $description, $matches)) {
+        if (! preg_match('/Respondido por\s*:?\s+(.+?)(?:\s+atencion al cliente|\s+atención al cliente|$)/iu', $description, $matches)) {
             return null;
         }
 

@@ -13,7 +13,7 @@ class StockRecommendationServiceTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_recomienda_tres_destinos_explicados_y_excluye_tiendas_sin_capacidad(): void
+    public function test_recomienda_destinos_teoricos_y_marca_la_viabilidad_por_capacidad(): void
     {
         $origin = $this->delegation('Origen', 10);
         $full = $this->delegation('Completa', 1);
@@ -45,7 +45,10 @@ class StockRecommendationServiceTest extends TestCase
         $recommendations = $service->recommend($vehicle, $context);
 
         $this->assertSame('Destino bueno', $recommendations[0]['delegation']);
-        $this->assertNotContains('Completa', collect($recommendations)->pluck('delegation')->all());
+        $fullRecommendation = collect($recommendations)->firstWhere('delegation', 'Completa');
+        $this->assertNotNull($fullRecommendation);
+        $this->assertFalse($fullRecommendation['is_executable']);
+        $this->assertSame(1, $fullRecommendation['places_to_release']);
         $this->assertNotEmpty($recommendations[0]['reasons']);
         $this->assertSame(3, $recommendations[0]['model_sales']);
         $this->assertSame(10, $recommendations[0]['free_capacity']);

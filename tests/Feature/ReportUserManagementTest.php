@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\ReportUser;
+use App\Models\MasterDelegation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -162,6 +163,38 @@ class ReportUserManagementTest extends TestCase
             'email' => 'manager.norte@hrmotor.com',
             'role' => ReportUser::ROLE_AREA_MANAGER,
             'area_zone' => 'north',
+        ]);
+    }
+
+    public function test_responsable_de_delegacion_requiere_una_delegacion_activa(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+        $admin = ReportUser::query()->create([
+            'email' => 'admin-delegation@hrmotor.com', 'password' => 'secret12',
+            'role' => ReportUser::ROLE_ADMIN, 'is_active' => true,
+        ]);
+        $delegation = MasterDelegation::query()->create([
+            'delegation_name' => 'HR MOTOR TORREJON', 'commercial_group' => 'Madrid', 'is_active' => true,
+        ]);
+        $session = [
+            'informes_authenticated' => true, 'report_user_id' => $admin->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN, 'report_user_email' => $admin->email,
+        ];
+        $payload = [
+            'email' => 'responsable@hrmotor.com', 'password' => 'secret12',
+            'role' => ReportUser::ROLE_DELEGATION_MANAGER, 'is_active' => '1',
+        ];
+
+        $this->withSession($session)->post('/informes/usuarios', $payload)
+            ->assertSessionHasErrors('master_delegation_id');
+        $this->withSession($session)->post('/informes/usuarios', [
+            ...$payload, 'master_delegation_id' => $delegation->id,
+        ])->assertRedirect('/informes/usuarios');
+
+        $this->assertDatabaseHas('report_users', [
+            'email' => 'responsable@hrmotor.com',
+            'role' => ReportUser::ROLE_DELEGATION_MANAGER,
+            'master_delegation_id' => $delegation->id,
         ]);
     }
 }

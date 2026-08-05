@@ -40,14 +40,14 @@ class CampaignDashboardDataController extends Controller
 
     public function kpiAudit(Request $request): JsonResponse
     {
-        abort_unless(ReportUserAccess::canAudit($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'campaigns'), 403);
 
         return $this->jsonResponse($this->dataset->kpiAudit($request));
     }
 
     public function attributionAudit(Request $request): JsonResponse
     {
-        abort_unless(ReportUserAccess::canAudit($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'campaigns'), 403);
 
         $items = $this->dataset->attributionAuditRows($request);
 
@@ -56,7 +56,7 @@ class CampaignDashboardDataController extends Controller
 
     public function exportCampaignsCsv(Request $request): StreamedResponse
     {
-        abort_unless(ReportUserAccess::canExport($request), 403);
+        abort_unless(ReportUserAccess::canExportReport($request, 'campaigns'), 403);
 
         $rows = $this->dataset->exportRows($request);
         $headers = [
@@ -147,7 +147,7 @@ class CampaignDashboardDataController extends Controller
 
     public function exportKpiAuditCsv(Request $request): StreamedResponse
     {
-        abort_unless(ReportUserAccess::canAudit($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'campaigns'), 403);
 
         $payload = $this->dataset->kpiAudit($request);
         $rows = $payload['items'] ?? [];
@@ -252,7 +252,7 @@ class CampaignDashboardDataController extends Controller
 
     public function exportAttributionsCsv(Request $request): StreamedResponse
     {
-        abort_unless(ReportUserAccess::canAudit($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'campaigns'), 403);
 
         $rows = $this->dataset->attributionAuditRows($request);
         $headers = [
@@ -274,6 +274,10 @@ class CampaignDashboardDataController extends Controller
             'Campo plataforma que hizo match',
             'Valor plataforma que hizo match',
             'Numero de candidatos',
+            'Candidatos considerados',
+            'Primer contacto conocido',
+            'Atribucion ambigua',
+            'Version de reglas',
             'Origen de campaña',
             'Tipo de campaña',
             'RecordType Lead bruto',
@@ -313,6 +317,10 @@ class CampaignDashboardDataController extends Controller
                     $row['matched_platform_field'],
                     $row['matched_platform_value'],
                     $row['match_candidate_count'],
+                    json_encode($row['attribution_candidates'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    $row['first_touch_at'],
+                    $row['is_ambiguous'] ? 'Si' : 'No',
+                    $row['attribution_rule_version'],
                     $row['campaign_source_type'],
                     $row['campaign_type'],
                     $row['lead_record_type_raw'],

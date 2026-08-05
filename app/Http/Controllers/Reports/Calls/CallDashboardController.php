@@ -11,7 +11,7 @@ class CallDashboardController extends Controller
     public function index(Request $request)
     {
         return view('reports.calls.index', [
-            'reportUserCanAudit' => ReportUserAccess::canAudit($request),
+            'reportUserCanAudit' => ReportUserAccess::canAuditReport($request, 'calls'),
         ]);
     }
 }

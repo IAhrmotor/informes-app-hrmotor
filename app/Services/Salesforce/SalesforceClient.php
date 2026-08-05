@@ -117,6 +117,24 @@ class SalesforceClient
         }
     }
 
+    public function describe(string $object): array
+    {
+        $auth = $this->authService->accessToken();
+        $response = Http::withToken($auth['access_token'])->timeout((int) config('salesforce.timeout', 120))
+            ->acceptJson()->get($this->sObjectUrl($auth, $object).'/describe');
+        if ($response->status() === 401) {
+            $this->authService->clearToken();
+            $auth = $this->authService->accessToken();
+            $response = Http::withToken($auth['access_token'])->timeout((int) config('salesforce.timeout', 120))
+                ->acceptJson()->get($this->sObjectUrl($auth, $object).'/describe');
+        }
+        if (! $response->successful()) {
+            throw new RuntimeException('Error describiendo '.$object.' en Salesforce: '.$response->status().' '.$this->sanitizeBody($response->body()));
+        }
+
+        return $response->json() ?? [];
+    }
+
     private function sendCreate(array $auth, string $object, array $fields): Response
     {
         return Http::withToken($auth['access_token'])

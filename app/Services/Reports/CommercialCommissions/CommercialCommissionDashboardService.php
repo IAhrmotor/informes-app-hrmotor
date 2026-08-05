@@ -102,6 +102,7 @@ class CommercialCommissionDashboardService
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
         private readonly CommercialCommissionDelegationReviewsService $delegationReviews,
         private readonly CommercialFinancingPenaltyService $financingPenalties,
+        private readonly CommissionMonthResolver $monthResolver,
     ) {
     }
 
@@ -112,7 +113,8 @@ class CommercialCommissionDashboardService
         bool $includeDetails = true,
     ): array
     {
-        $selectedMonth = $this->resolveMonth($month);
+        $monthContext = $this->monthResolver->resolveWithContext($month);
+        $selectedMonth = $monthContext['month'];
         $periodStart = $selectedMonth->startOfMonth();
         $periodEnd = $periodStart->addMonth();
         $formulaSettings = $this->formulaConfig->forMonth($selectedMonth);
@@ -120,6 +122,9 @@ class CommercialCommissionDashboardService
         $diagnostics = $this->diagnostics($selectedMonth, $periodStart, $periodEnd, $blockingIssues, $formulaSettings);
         $financingPenaltyLedger = $this->financingPenalties->forMonth($selectedMonth);
         $warnings = $this->warnings($diagnostics);
+        if ($monthContext['warning'] !== null) {
+            array_unshift($warnings, $monthContext['warning']);
+        }
 
         if (($financingPenaltyLedger['unmatched_rows'] ?? []) !== []) {
             $warnings[] = 'Hay '.count($financingPenaltyLedger['unmatched_rows']).' penalizaciones de cancelacion sin match por email con Salesforce. No se han aplicado.';
@@ -136,6 +141,8 @@ class CommercialCommissionDashboardService
             'ready' => $blockingIssues === [],
             'month' => $selectedMonth->format('Y-m'),
             'month_label' => $selectedMonth->translatedFormat('F Y'),
+            'month_is_current' => $monthContext['is_current'],
+            'economic_status' => $monthContext['status'],
             'last_updated_label' => $this->lastUpdatedLabel(),
             'issues' => $blockingIssues,
             'warnings' => $warnings,
@@ -151,7 +158,7 @@ class CommercialCommissionDashboardService
      */
     public function delegationDeliveriesAudit(?string $month): array
     {
-        $selectedMonth = $this->resolveMonth($month);
+        $selectedMonth = $this->monthResolver->resolve($month);
         $periodStart = $selectedMonth->startOfMonth();
         $periodEnd = $periodStart->addMonth();
         $issues = $this->blockingIssues($selectedMonth);
@@ -216,6 +223,38 @@ class CommercialCommissionDashboardService
             'month' => $selectedMonth->format('Y-m'),
             'issues' => [],
             'rows' => $rows,
+        ];
+    }
+
+    /** @return array{month: string, rule: string, rows: array<int, array<string, mixed>>} */
+    public function reviewAudit(?string $month): array
+    {
+        $selectedMonth = $this->monthResolver->resolve($month);
+        $periodStart = $selectedMonth->startOfMonth();
+        $periodEnd = $periodStart->addMonth();
+
+        return [
+            'month' => $selectedMonth->format('Y-m'),
+            'rule' => 'Reseñas cuyo CreatedDate está dentro del mes, atribuidas por OwnerId. El porcentaje divide esas reseñas entre las operaciones elegibles del comercial en el mismo mes; puede superar el 100 % si existen varias reseñas por operación o reseñas sin correspondencia uno-a-uno con ese universo.',
+            'rows' => $this->monthlyReviews($periodStart, $periodEnd)
+                ->get()
+                ->sortBy([['created_date', 'asc'], ['salesforce_id', 'asc']])
+                ->map(fn (SalesforceReview $review): array => [
+                    'review_id' => $review->salesforce_id,
+                    'created_date' => $review->created_date?->toIso8601String(),
+                    'owner_id' => $review->owner_id,
+                    'owner_name' => $review->owner_name,
+                    'opportunity_id' => $review->opportunity_salesforce_id,
+                    'opportunity_name' => $review->opportunity_name,
+                    'opportunity_owner_id' => $review->opportunity_owner_id,
+                    'opportunity_owner_name' => $review->opportunity_owner_name,
+                    'opportunity_record_type' => $review->opportunity_record_type_name,
+                    'opportunity_signed_date' => $review->opportunity_cv_signed_date?->toDateString(),
+                    'inclusion_reason' => 'review_created_in_selected_month',
+                    'source' => 'Salesforce Resena__c',
+                ])
+                ->values()
+                ->all(),
         ];
     }
 
@@ -2058,15 +2097,6 @@ class CommercialCommissionDashboardService
     private function sqlPlaceholders(int $count): string
     {
         return implode(', ', array_fill(0, $count, '?'));
-    }
-
-    private function resolveMonth(?string $month): CarbonImmutable
-    {
-        if (is_string($month) && preg_match('/^\d{4}-\d{2}$/', $month) === 1) {
-            return CarbonImmutable::createFromFormat('Y-m', $month)->startOfMonth();
-        }
-
-        return CarbonImmutable::now()->subMonthNoOverflow()->startOfMonth();
     }
 
     private function lastUpdatedLabel(): ?string

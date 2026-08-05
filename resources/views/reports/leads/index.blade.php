@@ -83,10 +83,10 @@
                 <option value="without">Excluir</option>
             </select>
         </div>
-        <div class="filter-actions">
+        <div class="filter-actions filter-actions-with-audit">
             <button type="button" class="filter-reset" id="resetFilters">Limpiar filtros</button>
             @if($reportUserCanAudit ?? false)
-                <a class="filter-reset" id="reconciliationAudit" href="/informes/leads/export/reconciliation-audit.csv">Auditar activos/eliminados</a>
+                <a class="filter-reset filter-audit-button" id="reconciliationAudit" href="/informes/leads/export/reconciliation-audit.csv">Auditar activos/eliminados</a>
             @endif
         </div>
     </section>

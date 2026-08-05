@@ -102,6 +102,19 @@
                         <option value="0" @selected(old('is_active') === '0')>Inactivo</option>
                     </select>
                 </div>
+                <div class="filter-group">
+                    <label for="master_delegation_id">Delegación responsable</label>
+                    <select id="master_delegation_id" name="master_delegation_id">
+                        <option value="">No aplica</option>
+                        @foreach($delegationOptions as $delegation)<option value="{{ $delegation->id }}" @selected((string) old('master_delegation_id') === (string) $delegation->id)>{{ $delegation->delegation_name }}</option>@endforeach
+                    </select>
+                    <small>Obligatoria para Responsable de delegación.</small>
+                </div>
+                <div class="filter-group">
+                    <label for="salesforce_user_id">Salesforce User ID</label>
+                    <input id="salesforce_user_id" name="salesforce_user_id" value="{{ old('salesforce_user_id') }}" maxlength="18">
+                    <small>Obligatorio para Comercial; es su identidad estable.</small>
+                </div>
                 <div class="filter-actions report-user-create-action">
                     <button type="submit" class="main-tab active">Crear usuario</button>
                 </div>
@@ -136,7 +149,7 @@
                             <td>{{ $user->name ?: 'Sin nombre' }}</td>
                             <td>{{ $user->email }}</td>
                             <td>{{ \App\Models\ReportUser::roleLabel($user->role) }}</td>
-                            <td>{{ \App\Models\ReportUser::areaZoneLabel($user->area_zone) ?: '-' }}</td>
+                            <td>{{ \App\Models\ReportUser::areaZoneLabel($user->area_zone) ?: ($user->masterDelegation?->delegation_name ?: '-') }}</td>
                             <td>
                                 <span @class(['type-pill', 'group' => $user->is_active, 'pending' => ! $user->is_active])>
                                     {{ $user->is_active ? 'Activo' : 'Inactivo' }}

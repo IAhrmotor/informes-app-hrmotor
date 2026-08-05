@@ -2,6 +2,7 @@
 
 namespace App\Services\Reports\ContactCenterCommissions;
 
+use App\Services\Reports\CommercialCommissions\CommissionMonthResolver;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
 use Carbon\CarbonImmutable;
@@ -12,6 +13,8 @@ use Illuminate\Support\Str;
 
 class ContactCenterCommissionDashboardService
 {
+    public function __construct(private readonly CommissionMonthResolver $monthResolver) {}
+
     private const CLOSURE_DAY = 10;
 
     private const OPPORTUNITY_COMMISSION = 5.0;
@@ -848,23 +851,9 @@ class ContactCenterCommissionDashboardService
 
     private function resolveMonth(?string $month): array
     {
-        $lastClosedMonth = CarbonImmutable::now()->startOfMonth()->subMonth();
+        $context = $this->monthResolver->resolveWithContext($month);
 
-        if (! preg_match('/^\d{4}-\d{2}$/', (string) $month)) {
-            return [$lastClosedMonth, null];
-        }
-
-        try {
-            $selectedMonth = CarbonImmutable::createFromFormat('Y-m', (string) $month)->startOfMonth();
-        } catch (\Throwable) {
-            return [$lastClosedMonth, null];
-        }
-
-        if ($selectedMonth->greaterThanOrEqualTo(CarbonImmutable::now()->startOfMonth())) {
-            return [$lastClosedMonth, 'Solo se permiten meses cerrados. Se ha cargado automaticamente el ultimo mes cerrado disponible.'];
-        }
-
-        return [$selectedMonth, null];
+        return [$context['month'], $context['warning']];
     }
 
     private function closureEndExclusive(CarbonImmutable $selectedMonth): CarbonImmutable

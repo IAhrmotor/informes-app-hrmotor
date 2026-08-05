@@ -64,7 +64,7 @@
     $kpiTooltips = [
         'Mes analizado' => 'Mes cerrado usado por el informe. Pivota por cv_signed_date, que viene de Fecha_firma_contrato__c.',
         'Oportunidades' => 'Conteo de salesforce_opportunities con cv_signed=true, stage_name distinto de Cerrada perdida, record_type Venta/Cambio/Tasacion y gestion_de_venta false o null.',
-        'Resenas' => 'Conteo de salesforce_reviews creadas dentro del mes. Fuente Salesforce: objeto Resena__c.',
+        'Resenas' => 'Regla actual: reseñas cuyo CreatedDate cae dentro del mes, atribuidas por OwnerId. El porcentaje divide esas reseñas entre las operaciones elegibles del comercial del mismo mes. Puede superar el 100 % si hay varias reseñas por operación o si ambos universos no tienen relación uno-a-uno.',
         'Comerciales' => 'Numero de usuarios visibles en resumen. Solo perfiles Salesforce Compra/Venta y Comerciales Partner Community con actividad real del mes.',
         'Comision final' => 'Formula: max(prima ajustada - penalizaciones, 0) + producto financiacion + producto garantias.',
         'Prima ajustada' => 'Formula: prima total x tramo de entregas.',
@@ -81,6 +81,13 @@
         'Prod. garantias' => 'Producto calculado por tramos sobre Garant_a_Total__c.',
     ];
     $tooltip = static fn (string $label): string => $kpiTooltips[$label] ?? '';
+    $closureStatusLabels = [
+        'provisional' => 'Provisional',
+        'pending_approval' => 'Pendiente de aprobación',
+        'definitive' => 'Definitivo',
+        'reopened' => 'Reabierto',
+    ];
+    $closureStatus = $commissionClosure['status'] ?? 'provisional';
 @endphp
 <body class="campaigns-report commercial-commissions-report">
 <div class="wrap">
@@ -110,8 +117,82 @@
                     <div class="filter-actions commission-filter-actions">
                         <button type="submit" class="main-tab">Cargar informe</button>
                         <a id="commissionExport" href="{{ $commissionExportUrl }}" class="main-tab active">Exportar comisiones</a>
+                        @if ($canAuditEconomicReviews)
+                            <a href="{{ route('reports.commercial-commissions.export.reviews-audit', ['month' => $dashboard['month']]) }}" class="main-tab">Auditar reseñas</a>
+                        @endif
                     </div>
                 </form>
+            </section>
+
+            @if ($canSeeUniverseReconciliation)
+            <section class="card panel commission-universe-panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Conciliacion del universo</h2>
+                        <div class="small">Los IDs y motivos se conservan en los detalles y exportaciones del bloque activo.</div>
+                    </div>
+                </div>
+                <div class="commission-formula-strip">
+                    <span><strong>{{ number_format($universeReconciliation['base'], 0, ',', '.') }}</strong> {{ $universeReconciliation['baseLabel'] }}</span>
+                    <span>− <strong>{{ number_format($universeReconciliation['excluded'], 0, ',', '.') }}</strong> {{ $universeReconciliation['excludedLabel'] }}</span>
+                    <span>+ <strong>{{ number_format($universeReconciliation['included'], 0, ',', '.') }}</strong> {{ $universeReconciliation['includedLabel'] }}</span>
+                    <span>= <strong>{{ number_format($universeReconciliation['shown'], 0, ',', '.') }}</strong> {{ $universeReconciliation['shownLabel'] }}</span>
+                </div>
+                @foreach ($universeReconciliation['notes'] as $note)
+                    <div class="small">{{ $note }}</div>
+                @endforeach
+            </section>
+            @endif
+
+            <section class="card panel commission-closure-panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Estado económico del mes</h2>
+                        <div class="small">El estado se comparte entre todas las pestañas y exportaciones del mes {{ $dashboard['month'] }}.</div>
+                    </div>
+                    <span class="type-pill {{ $closureStatus === 'definitive' ? 'group' : 'pending' }}">
+                        {{ $closureStatusLabels[$closureStatus] ?? $closureStatus }}
+                    </span>
+                </div>
+                <div class="campaign-diagnostics commission-diagnostics-grid">
+                    <div class="diagnostic-item"><span>Mes</span><strong>{{ $commissionClosure['month'] ?? $dashboard['month'] }}</strong></div>
+                    <div class="diagnostic-item"><span>Corte de datos</span><strong>{{ $commissionClosure['data_cutoff_at'] ?? 'Pendiente' }}</strong></div>
+                    <div class="diagnostic-item"><span>Versión de fórmulas</span><strong>{{ $commissionClosure['formula_version'] ?? '-' }}</strong></div>
+                    <div class="diagnostic-item"><span>Fotografía</span><strong>{{ (int) ($commissionClosure['snapshot_version'] ?? 0) }}</strong></div>
+                </div>
+
+                @if ($canManageEconomicClosures ?? false)
+                    @if ($closureStatus !== 'definitive')
+                        <form method="POST" action="{{ route('reports.commercial-commissions.closure.prepare') }}" class="commission-filter-form">
+                            @csrf
+                            <input type="hidden" name="month" value="{{ $dashboard['month'] }}">
+                            <div class="filter-actions">
+                                @foreach (['sales' => 'Ventas', 'purchases' => 'Compras', 'cancellations' => 'Cancelaciones', 'reviews' => 'Reseñas', 'adjustments' => 'Ajustes'] as $component => $label)
+                                    <label><input type="checkbox" name="components[{{ $component }}]" value="1" @checked(data_get($commissionClosure, 'component_statuses.'.$component))> {{ $label }} incorporados</label>
+                                @endforeach
+                                <button type="submit" class="main-tab">Preparar cierre</button>
+                            </div>
+                        </form>
+                    @endif
+
+                    @if ($closureStatus === 'pending_approval')
+                        <form method="POST" action="{{ route('reports.commercial-commissions.closure.approve') }}">
+                            @csrf
+                            <input type="hidden" name="month" value="{{ $dashboard['month'] }}">
+                            <button type="submit" class="main-tab active">Aprobar como definitivo</button>
+                        </form>
+                    @elseif ($closureStatus === 'definitive')
+                        <form method="POST" action="{{ route('reports.commercial-commissions.closure.reopen') }}" class="commission-filter-form">
+                            @csrf
+                            <input type="hidden" name="month" value="{{ $dashboard['month'] }}">
+                            <div class="filter-group">
+                                <label for="closure_reopen_reason">Motivo obligatorio de reapertura</label>
+                                <input id="closure_reopen_reason" name="reason" type="text" minlength="10" required>
+                            </div>
+                            <button type="submit" class="filter-reset">Reabrir mes</button>
+                        </form>
+                    @endif
+                @endif
             </section>
 
             @if ($errors->has('export'))
@@ -232,6 +313,9 @@
                         @unless ($isAreaRestricted ?? false)
                             <a href="{{ $financialsTabUrl }}" class="main-tab{{ $activeCommissionTab === 'financials' ? ' active' : '' }}" data-commission-tab-trigger="financials" data-commission-tab-url="{{ $financialsTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'financials' ? 'true' : 'false' }}">Financieros</a>
                         @endunless
+                        @if ($canManageFinancingPenalties ?? false)
+                            <a href="{{ route('reports.commission-penalties.index') }}" class="main-tab">Penalizaciones financieras</a>
+                        @endif
                     </nav>
 
                     <div @class(['is-hidden' => $activeCommissionTab !== 'summary']) data-commission-tab-panel="summary">
@@ -436,9 +520,11 @@
                             Entregas: oportunidades con contrato CV firmado y fecha de firma en el mes, no cerradas perdidas, de tipo Venta o Cambio; tambien se incluye cualquier oportunidad cuyo nombre contenga Facilitea. La delegacion se obtiene de Tienda de entrega-compra.
                         </div>
 
-                        <div class="filter-actions commission-filter-actions">
-                            <a class="main-tab" href="{{ $delegationDeliveriesAuditUrl }}">Descargar CSV de auditoria de entregas</a>
-                        </div>
+                        @if ($canAuditDelegationDeliveries)
+                            <div class="filter-actions commission-filter-actions">
+                                <a class="main-tab" href="{{ $delegationDeliveriesAuditUrl }}">Descargar CSV de auditoria de entregas</a>
+                            </div>
+                        @endif
 
                         <div class="commission-delegation-table-wrap">
                             <div class="table-scrollbar-top" id="commissionDelegationTableScrollTop" aria-hidden="true">

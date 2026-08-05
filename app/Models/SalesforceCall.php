@@ -26,6 +26,7 @@ class SalesforceCall extends Model
         'included_in_dashboard',
         'dashboard_exclusion_reason',
         'classification_rule_version',
+        'classified_at',
         'call_duration_seconds',
         'parsed_duration_seconds',
         'adjusted_duration_seconds',
@@ -74,6 +75,7 @@ class SalesforceCall extends Model
         'is_overflow' => 'boolean',
         'included_in_dashboard' => 'boolean',
         'raw_payload' => 'array',
+        'classified_at' => 'datetime',
         'parse_debug' => 'array',
     ];
 }

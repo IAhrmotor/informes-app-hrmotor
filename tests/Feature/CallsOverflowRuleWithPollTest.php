@@ -53,7 +53,11 @@ class CallsOverflowRuleWithPollTest extends TestCase
             'result_raw' => 'ANSWERED',
         ]);
 
-        $this->artisan('reports:reprocess-calls-classification')->assertExitCode(0);
+        $this->artisan('reports:reprocess-calls-classification', [
+            '--from' => '2026-05-01',
+            '--to' => '2026-05-31',
+            '--reason' => 'Regresion de clasificacion con opcion de teclado.',
+        ])->assertExitCode(0);
 
         $expected = [
             'case-a' => true,

@@ -14,6 +14,7 @@ class ReservationsSalesDashboardDatasetService
 {
     private const CACHE_TTL_MINUTES = 10;
     private const OPPORTUNITY_TYPES = ['Tasación', 'Venta'];
+    private const DATA_QUALITY_INCIDENT = 'Incidencia de datos';
 
     public function __construct(
         private readonly LeadDelegationNormalizer $delegationNormalizer,
@@ -69,7 +70,7 @@ class ReservationsSalesDashboardDatasetService
         $periods = $this->periods($filters);
 
         return Cache::remember(
-            'reservas-ventas-dashboard-v4:'.md5(json_encode([
+            'reservas-ventas-dashboard-v5:'.md5(json_encode([
                 'filters' => $filters,
                 'periods' => $this->periodPayloads($periods),
                 'version' => $this->dataVersion(),
@@ -110,6 +111,9 @@ class ReservationsSalesDashboardDatasetService
                 'executive_insights_source' => $insights['source'],
                 'insights' => $insights['insights'],
                 'filters' => $current['filters'],
+                'universe_date_criterion' => $filters['date_criterion'],
+                'universe_date_label' => $this->dateCriterionLabel($filters['date_criterion']),
+                'data_quality' => $current['data_quality'],
             ],
             'commercial_zones' => $current['zones'],
             'commercial_delegations' => $current['delegations'],
@@ -120,11 +124,11 @@ class ReservationsSalesDashboardDatasetService
 
     private function buildAuditPayload(array $filters, array $period, string $metric): array
     {
-        $items = [];
+        $opportunities = [];
 
         $this->auditQuery($filters, $period, $metric)
             ->orderBy('id')
-            ->chunkById(1000, function (Collection $rows) use (&$items, $filters, $metric): void {
+            ->chunkById(1000, function (Collection $rows) use (&$opportunities, $filters): void {
                 foreach ($rows as $opportunity) {
                     $row = $this->decorate($opportunity);
 
@@ -132,9 +136,54 @@ class ReservationsSalesDashboardDatasetService
                         continue;
                     }
 
-                    $items[] = $this->decorateAuditOpportunity($opportunity, $metric, $filters['date_criterion']);
+                    $opportunities[] = $opportunity;
                 }
             });
+
+        $qualityByOpportunity = [];
+        $deduplicatedTotal = count($opportunities);
+        if (in_array($metric, ['reservas_vivas', 'reservas_vivas_actuales_salesforce', 'cv_firmados'], true)) {
+            $eventMetric = str_starts_with($metric, 'reservas_vivas') ? 'reservas_vivas' : 'cv_firmados';
+            $groups = $this->metricEventGroups(
+                array_map(fn (SalesforceOpportunity $opportunity) => $this->decorate($opportunity), $opportunities),
+                $eventMetric,
+            );
+            $deduplicatedTotal = count($groups);
+            foreach ($groups as $groupKey => $groupRows) {
+                $opportunityIds = collect($groupRows)->pluck('opportunity_id')->filter()->sort()->values()->all();
+                $countedId = $opportunityIds[0] ?? null;
+                $conflicts = collect(['owner_id', 'owner_name', 'commercial_delegation', 'delivery_store', 'zone', 'portal'])
+                    ->filter(fn (string $field) => $this->hasConflictingValues($groupRows, $field))
+                    ->values()
+                    ->all();
+                foreach ($groupRows as $groupRow) {
+                    $qualityByOpportunity[$groupRow['opportunity_id']] = [
+                        'duplicate_group_key' => $groupKey,
+                        'duplicate_group_size' => count($groupRows),
+                        'counted_in_kpi' => $groupRow['opportunity_id'] === $countedId,
+                        'quality_status' => count($groupRows) > 1 ? 'duplicate_event' : 'valid',
+                        'affected_opportunity_ids' => $opportunityIds,
+                        'conflicting_fields' => $conflicts,
+                        'breakdown_status' => $conflicts === [] ? 'common_attribution' : 'data_quality_incident',
+                    ];
+                }
+            }
+        }
+
+        $items = array_map(function (SalesforceOpportunity $opportunity) use ($metric, $filters, $qualityByOpportunity): array {
+            return array_merge(
+                $this->decorateAuditOpportunity($opportunity, $metric, $filters['date_criterion']),
+                $qualityByOpportunity[$opportunity->salesforce_id] ?? [
+                    'duplicate_group_key' => null,
+                    'duplicate_group_size' => 1,
+                    'counted_in_kpi' => true,
+                    'quality_status' => 'valid',
+                    'affected_opportunity_ids' => [$opportunity->salesforce_id],
+                    'conflicting_fields' => [],
+                    'breakdown_status' => 'common_attribution',
+                ],
+            );
+        }, $opportunities);
 
         usort($items, fn (array $a, array $b) => [$a['metric_date'] ?? '', $a['opportunity_id'] ?? ''] <=> [$b['metric_date'] ?? '', $b['opportunity_id'] ?? '']);
 
@@ -143,7 +192,8 @@ class ReservationsSalesDashboardDatasetService
             'metric' => $metric,
             'metric_label' => $this->auditMetricLabel($metric),
             'periodo_actual' => $this->periodPayload($period),
-            'total' => count($items),
+            'total' => $deduplicatedTotal,
+            'audit_rows' => count($items),
             'items' => $items,
         ];
     }
@@ -156,10 +206,11 @@ class ReservationsSalesDashboardDatasetService
         $commercials = [];
         $portals = [];
         $filterOptions = $this->emptyFilterOptionsAccumulator();
+        $cohortRows = [];
 
         $this->baseQuery($filters, $period)
             ->orderBy('id')
-            ->chunkById(1000, function (Collection $rows) use (&$bucket, &$zones, &$delegations, &$commercials, &$portals, &$filterOptions, $filters): void {
+            ->chunkById(1000, function (Collection $rows) use (&$cohortRows, &$filterOptions, $filters): void {
                 foreach ($rows as $opportunity) {
                     $row = $this->decorate($opportunity);
 
@@ -169,16 +220,31 @@ class ReservationsSalesDashboardDatasetService
                         continue;
                     }
 
-                    $this->addToBucket($bucket, $row);
-                    $this->addGroup($zones, $row['zone'], $row['zone'], [], $row);
-                    $this->addGroup($delegations, $row['commercial_delegation'].'|'.$row['zone'], $row['commercial_delegation'], ['zone' => $row['zone']], $row);
-                    $this->addGroup($commercials, $row['owner_id'], $row['owner_name'] ?: $row['owner_id'], [
-                        'commercial_delegation' => $row['commercial_delegation'],
-                        'zone' => $row['zone'],
-                    ], $row);
-                    $this->addGroup($portals, $row['portal'], $row['portal'], [], $row);
+                    $cohortRows[] = $row;
                 }
             });
+
+        foreach ($cohortRows as $row) {
+            $baseRow = array_merge($row, ['is_reserva_viva' => false, 'is_cv_firmado' => false]);
+            $this->addToBucket($bucket, $baseRow);
+            $this->addGroup($zones, $row['zone'], $row['zone'], [], $baseRow);
+            $this->addGroup($delegations, $row['commercial_delegation'].'|'.$row['zone'], $row['commercial_delegation'], ['zone' => $row['zone']], $baseRow);
+            $this->addGroup($commercials, (string) $row['owner_id'], $row['owner_name'] ?: $row['owner_id'], [
+                'commercial_delegation' => $row['commercial_delegation'],
+                'zone' => $row['zone'],
+            ], $baseRow);
+            $this->addGroup($portals, $row['portal'], $row['portal'], [], $baseRow);
+        }
+
+        $reservationGroups = $this->metricEventGroups($cohortRows, 'reservas_vivas');
+        $reservationQualityGroups = $this->metricEventGroups($cohortRows, 'reservation_events');
+        $signedGroups = $this->metricEventGroups($cohortRows, 'cv_firmados');
+        $this->addDeduplicatedMetric($bucket, $zones, $delegations, $commercials, $portals, $reservationGroups, 'reservas_vivas');
+        $this->addDeduplicatedMetric($bucket, $zones, $delegations, $commercials, $portals, $signedGroups, 'cv_firmados');
+        $incidents = array_values(array_merge(
+            $this->duplicateIncidents($reservationQualityGroups, 'reservation'),
+            $this->duplicateIncidents($signedGroups, 'sale'),
+        ));
 
         return [
             'bucket' => $this->finalizeBucket($bucket),
@@ -187,6 +253,10 @@ class ReservationsSalesDashboardDatasetService
             'commercials' => $this->finalizeGroups($commercials, 'comercial'),
             'portals' => $this->finalizeGroups($portals, 'portal'),
             'filters' => $this->filterOptionsFromAccumulator($filterOptions),
+            'data_quality' => [
+                'duplicate_event_groups' => count($incidents),
+                'incidents' => $incidents,
+            ],
         ];
     }
 
@@ -225,7 +295,16 @@ class ReservationsSalesDashboardDatasetService
 
     private function globalLiveReservations(array $filters): int
     {
-        return $this->globalLiveReservationsQuery($filters)->count();
+        $rows = [];
+        $this->globalLiveReservationsQuery($filters)
+            ->orderBy('id')
+            ->chunkById(1000, function (Collection $opportunities) use (&$rows): void {
+                foreach ($opportunities as $opportunity) {
+                    $rows[] = $this->decorate($opportunity);
+                }
+            });
+
+        return count($this->metricEventGroups($rows, 'reservas_vivas'));
     }
 
     private function globalLiveReservationsQuery(array $filters)
@@ -266,12 +345,20 @@ class ReservationsSalesDashboardDatasetService
         $portal = $this->portalNormalizer->normalize($opportunity->portal_resolved);
 
         return [
+            'opportunity_id' => $opportunity->salesforce_id,
+            'vehicle_identity' => $this->vehicleIdentity($opportunity),
+            'vehicle_id' => $opportunity->vehicle_interest_id,
+            'vehicle_plate' => $opportunity->vehicle_plate,
+            'reservation_date' => $this->auditDate($opportunity->reservation_date),
+            'cv_signed_date' => $this->auditDate($opportunity->cv_signed_date),
             'owner_id' => $opportunity->owner_id,
             'owner_name' => $opportunity->owner_name,
+            'delivery_store' => $opportunity->delivery_store,
             'commercial_delegation' => $delegation['delegation'],
             'zone' => $delegation['zone'],
             'portal' => $portal['is_valid_final'] ? $portal['portal'] : OpportunityPortalNormalizer::UNCLASSIFIED,
             'is_reserva_viva' => $reservation && ! $cvSigned && ! $isClosedLost,
+            'has_reservation_event' => $reservation && filled($opportunity->reservation_date),
             'is_caida' => $isClosedLost,
             'is_cv_firmado' => $cvSigned && ! $isClosedLost,
         ];
@@ -287,6 +374,8 @@ class ReservationsSalesDashboardDatasetService
             'metric_date' => $this->auditMetricDate($opportunity, $metric, $dateCriterion),
             'opportunity_id' => $opportunity->salesforce_id,
             'opportunity_name' => $opportunity->name,
+            'vehicle_id' => $opportunity->vehicle_interest_id,
+            'vehicle_plate' => $opportunity->vehicle_plate,
             'created_date' => $this->auditDate($opportunity->created_date),
             'close_date' => $this->auditDate($opportunity->close_date),
             'reservation_date' => $this->auditDate($opportunity->reservation_date),
@@ -295,6 +384,7 @@ class ReservationsSalesDashboardDatasetService
             'stage_name' => $opportunity->stage_name,
             'owner_id' => $opportunity->owner_id,
             'owner_name' => $opportunity->owner_name,
+            'delivery_store' => $opportunity->delivery_store,
             'commercial_delegation' => $row['commercial_delegation'],
             'zone' => $row['zone'],
             'account_id' => $opportunity->account_id,
@@ -403,6 +493,122 @@ class ReservationsSalesDashboardDatasetService
     {
         $groups[$key] ??= ['key' => $key, 'label' => $label, 'extra' => $extra, 'bucket' => $this->emptyBucket()];
         $this->addToBucket($groups[$key]['bucket'], $row);
+    }
+
+    private function metricEventGroups(array $rows, string $metric): array
+    {
+        $dateKey = in_array($metric, ['reservas_vivas', 'reservation_events'], true) ? 'reservation_date' : 'cv_signed_date';
+        $flag = match ($metric) {
+            'reservas_vivas' => 'is_reserva_viva',
+            'reservation_events' => 'has_reservation_event',
+            default => 'is_cv_firmado',
+        };
+        $groups = [];
+
+        foreach ($rows as $row) {
+            if (! ($row[$flag] ?? false)) {
+                continue;
+            }
+
+            $identity = $row['vehicle_identity'] ?: 'opportunity:'.$row['opportunity_id'];
+            $date = $row[$dateKey] ?: 'undated:'.$row['opportunity_id'];
+            $groups[$identity.'|'.$date][] = $row;
+        }
+
+        return $groups;
+    }
+
+    private function addDeduplicatedMetric(
+        array &$bucket,
+        array &$zones,
+        array &$delegations,
+        array &$commercials,
+        array &$portals,
+        array $eventGroups,
+        string $metric,
+    ): void {
+        foreach ($eventGroups as $eventRows) {
+            $bucket[$metric]++;
+
+            $zone = $this->commonValue($eventRows, 'zone');
+            $delegation = $this->commonValue($eventRows, 'commercial_delegation');
+            $ownerId = $this->commonValue($eventRows, 'owner_id');
+            $ownerName = $this->commonValue($eventRows, 'owner_name');
+            $portal = $this->commonValue($eventRows, 'portal');
+
+            $zoneLabel = $zone ?? self::DATA_QUALITY_INCIDENT;
+            $this->addMetricGroup($zones, $zoneLabel, $zoneLabel, [], $metric);
+
+            $delegationLabel = $delegation ?? self::DATA_QUALITY_INCIDENT;
+            $delegationZone = $zone ?? self::DATA_QUALITY_INCIDENT;
+            $this->addMetricGroup($delegations, $delegationLabel.'|'.$delegationZone, $delegationLabel, ['zone' => $delegationZone], $metric);
+
+            $commercialAmbiguous = $ownerId === null || $ownerName === null;
+            $commercialKey = $commercialAmbiguous ? self::DATA_QUALITY_INCIDENT : (string) $ownerId;
+            $commercialLabel = $commercialAmbiguous ? self::DATA_QUALITY_INCIDENT : ($ownerName ?: $ownerId);
+            $this->addMetricGroup($commercials, $commercialKey, $commercialLabel, [
+                'commercial_delegation' => $commercialAmbiguous ? self::DATA_QUALITY_INCIDENT : $delegationLabel,
+                'zone' => $commercialAmbiguous ? self::DATA_QUALITY_INCIDENT : $delegationZone,
+            ], $metric);
+
+            $portalLabel = $portal ?? self::DATA_QUALITY_INCIDENT;
+            $this->addMetricGroup($portals, $portalLabel, $portalLabel, [], $metric);
+        }
+    }
+
+    private function addMetricGroup(array &$groups, string $key, string $label, array $extra, string $metric): void
+    {
+        $groups[$key] ??= ['key' => $key, 'label' => $label, 'extra' => $extra, 'bucket' => $this->emptyBucket()];
+        $groups[$key]['bucket'][$metric]++;
+    }
+
+    private function commonValue(array $rows, string $key): mixed
+    {
+        $values = collect($rows)
+            ->map(fn (array $row) => $row[$key] ?? null)
+            ->map(fn ($value) => is_string($value) ? trim($value) : $value)
+            ->uniqueStrict()
+            ->values();
+
+        return $values->count() === 1 ? $values->first() : null;
+    }
+
+    private function hasConflictingValues(array $rows, string $key): bool
+    {
+        return collect($rows)
+            ->map(fn (array $row) => $row[$key] ?? null)
+            ->map(fn ($value) => is_string($value) ? trim($value) : $value)
+            ->uniqueStrict()
+            ->count() > 1;
+    }
+
+    private function duplicateIncidents(array $eventGroups, string $eventType): array
+    {
+        $incidents = [];
+
+        foreach ($eventGroups as $groupKey => $rows) {
+            if (count($rows) < 2) {
+                continue;
+            }
+
+            $conflictingFields = collect(['owner_id', 'owner_name', 'commercial_delegation', 'delivery_store', 'zone', 'portal'])
+                ->filter(fn (string $field) => $this->hasConflictingValues($rows, $field))
+                ->values()
+                ->all();
+            $first = $rows[0];
+            $incidents[] = [
+                'type' => $eventType,
+                'vehicle_id' => $first['vehicle_id'],
+                'vehicle_plate' => $first['vehicle_plate'],
+                'event_date' => $eventType === 'reservation' ? $first['reservation_date'] : $first['cv_signed_date'],
+                'opportunity_ids' => collect($rows)->pluck('opportunity_id')->filter()->values()->all(),
+                'conflicting_fields' => $conflictingFields,
+                'breakdown_status' => $conflictingFields === [] ? 'common_attribution' : 'data_quality_incident',
+                'group_key' => $groupKey,
+            ];
+        }
+
+        return $incidents;
     }
 
     private function finalizeGroups(array $groups, string $labelKey): array
@@ -584,6 +790,27 @@ class ReservationsSalesDashboardDatasetService
             'cv_signed_date' => 'cv_signed_date',
             default => 'created_date',
         };
+    }
+
+    private function dateCriterionLabel(string $criterion): string
+    {
+        return match ($criterion) {
+            'reservation_date' => 'Fecha de reserva',
+            'cv_signed_date' => 'Fecha de firma del contrato',
+            default => 'Fecha de creación',
+        };
+    }
+
+    private function vehicleIdentity(SalesforceOpportunity $opportunity): ?string
+    {
+        $vehicleId = trim((string) $opportunity->vehicle_interest_id);
+        if ($vehicleId !== '') {
+            return 'vehicle:'.mb_strtolower($vehicleId);
+        }
+
+        $plate = preg_replace('/[^\pL\pN]+/u', '', mb_strtoupper(trim((string) $opportunity->vehicle_plate)));
+
+        return $plate !== '' ? 'plate:'.$plate : null;
     }
 
     private function resolveAuditMetric(?string $metric): string

@@ -2,7 +2,7 @@
 
 URL: `/informes/campanas`
 
-La V1 cruza inversion cacheada de Meta Ads / Google Ads con leads Salesforce atribuidos y oportunidades locales. La vista de Direccion pivota sobre el lead: inversion, impresiones y clicks se filtran por fecha publicitaria; los leads se filtran por fecha de creacion; oportunidades, reservas, ventas y compras se cuentan como resultados posteriores de esos leads dentro de la ventana de atribucion seleccionada. Si no hay credenciales de Ads, los comandos no fallan y el informe carga con datos disponibles y avisos internos para admin.
+La V1 cruza inversion cacheada de Meta Ads / Google Ads con leads Salesforce atribuidos y oportunidades locales. La vista pivota sobre el lead: inversion, impresiones y clicks se filtran por fecha publicitaria; los leads se filtran por fecha de creacion. No se aplica ventana de 30, 60 o 90 dias: `--window` se conserva solo como compatibilidad sin efecto. Si no hay credenciales de Ads, los comandos no fallan y el informe carga con datos disponibles y avisos internos para admin.
 
 ## Variables de entorno
 
@@ -51,8 +51,8 @@ php -d memory_limit=512M artisan salesforce:sync-campaign-leads --months=12 --fr
 php -d memory_limit=512M artisan salesforce:sync-opportunities --months=12 --fresh -vvv
 php artisan campaigns:sync-meta --months=12
 php artisan campaigns:sync-google --months=12
-php -d memory_limit=512M artisan campaigns:build-attribution --months=12 --window=30
-php artisan reports:refresh-campaigns --months=12 --window=30 --store
+php -d memory_limit=512M artisan campaigns:build-attribution --months=12
+php artisan reports:refresh-campaigns --months=12 --store
 ```
 
 ## Nota de importe vendido
@@ -80,6 +80,16 @@ Cada atribucion guarda `matched_source_field/value`,
 `matched_platform_field/value` y `match_candidate_count`. Si una clave devuelve
 varias campanas, no se elige la primera: queda como ambigua y sin cruce.
 
+La precedencia first touch es relacion explicita Lead convertido, identificadores
+publicitarios inequivocos, campana original del Lead, primera campana inequivoca
+de la cuenta y finalmente Salesforce-only. Se guardan candidatos, primer contacto,
+confianza, ambiguedad y version de reglas. Cada entidad cuenta una vez.
+
+Las campanas se clasifican por plataforma, cuenta e ID como `real`, `test` o
+`pending_review`. Un nombre con `prueba` o `test` solo crea una sugerencia; no
+sale de KPIs ejecutivos hasta que Direccion/IT guarda una clasificacion explicita
+con motivo y usuario.
+
 Meta y Google mantienen el inventario de IDs de anuncio, adset/ad group y
 campana en `campaign_platform_identifiers`; la inversion sigue agregada por
 campana para no duplicar importes. El builder excluye Leads eliminados y
@@ -100,3 +110,11 @@ La sección `Conciliación por origen` reconstruye por entidades distintas:
 
 Las campañas a revisar se ordenan por inversión, de forma que una campaña con
 gasto alto y atribución cero no quede detrás de incidencias de poco impacto.
+# Cambios de atribucion 2026-08-05
+
+- `--window` se conserva solo por compatibilidad y no limita temporalmente la atribucion.
+- First touch: oportunidad convertida explicita; IDs publicitarios inequivocos; campana original inequivoca; primera campana inequivoca de cuenta; Salesforce-only; ambiguo/sin atribuir.
+- Una oportunidad se reclama una vez. Varias campanas con la misma precedencia generan `campaign_unresolved_attributions`; no se elige por fecha de modificacion ni se duplica.
+- `campaign_operational_classifications` clasifica por plataforma/cuenta/ID como real, test o pendiente. El nombre solo marca candidato; solo `test` guardado queda fuera de KPIs, rankings y recomendaciones.
+- La traza guarda candidatos, first touch, ambiguedad y version de regla. Tipo de campana y RecordType real del Lead permanecen como filtros distintos.
+- Prioridad de revision: fallo de medicion/cero leads, inversion sin resultado, coste fuera de benchmark con muestra y caida del funnel; dentro de cada nivel manda la inversion.

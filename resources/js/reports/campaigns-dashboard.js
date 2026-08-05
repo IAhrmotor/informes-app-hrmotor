@@ -797,6 +797,12 @@ function renderSourceReconciliation(reconciliation) {
     const root = document.getElementById('salesforceReconciliation');
     if (!root) return;
 
+    if (!window.reportUserCanSeeSourceReconciliation) {
+        root.classList.add('is-hidden');
+        root.innerHTML = '';
+        return;
+    }
+
     const definitions = [
         ['Leads', reconciliation.leads],
         ['Oportunidades', reconciliation.opportunities],

@@ -3,6 +3,22 @@
 Aplicacion Laravel para los paneles internos de Leads, Campanas, Reservas/Ventas,
 Llamadas, Comisiones y Stock.
 
+## Auditoria funcional y tecnica (2026-08-05)
+
+- Comisiones usa una unica resolucion de mes en las seis pestanas y exportaciones. El mes actual es siempre provisional. Los cierres definitivos requieren aprobacion de Direccion/IT, guardan snapshot, corte, formula y eventos de reapertura; los ajustes se aplican al siguiente mes abierto.
+- Stock evalua todos los vehiculos Disponibles, usa Disponible/Reservado/Bloqueado como contexto, separa ranking teorico de capacidad ejecutable y construye un plan conjunto sin sobreasignar plazas. Los duplicados de venta se resuelven por fecha de firma y los empates quedan ambiguos.
+- Leads muestra Sin comercial elegible, Sin delegacion comercial y Sin clasificar sin retirar registros validos del total. Eliminados y fusionados quedan fuera del dataset activo y dentro de la conciliacion.
+- Llamadas limita el universo a Tasks de llamada con `CallObject`, conserva `ABANDONED` como perdida, versiona la clasificacion y registra historial. El reprocesado exige periodo, motivo o `--dry-run`.
+- Campanas separa pago, Salesforce-only, prueba, pendiente, ambiguo y sin atribuir. La exclusion de pruebas depende de clasificacion persistente por ID, no del nombre. El first touch ambiguo no se adjudica arbitrariamente.
+- Roles disponibles: Administrador/IT, Direccion, Area Manager, Responsable de delegacion, Marketing, Financiero y Comercial. Los ambitos usan zona, ID de delegacion y Salesforce User ID.
+- Reservas/Ventas usa el criterio de fecha como cohorte comun para todos los KPIs y contabiliza una sola reserva/firma por vehiculo y fecha. Los conflictos de atribucion se muestran como incidencias y permanecen auditables por Opportunity ID.
+- Las conciliaciones internas de Campanas y Comisiones solo se muestran a Administrador/IT; el Auditor de comisiones puede gestionar los ficheros de penalizaciones financieras.
+- Verificacion local: suite completa con 393 pruebas y 2.667 aserciones correctas;
+  tras el enlace final de Penalizaciones, regresion de permisos 8/8 (55
+  aserciones). Build Vite correcto.
+
+Despliegue y rollback: `docs/despliegue-auditoria-2026-08-05.md`.
+
 ## Actualizacion Leads y Campanas (2026-08-04)
 
 - Los tipos de Lead se normalizan una sola vez (`trim`, minusculas, sin tildes y aliases controlados). `Tasacion` y `Tasación` resuelven a `tasacion`.
@@ -36,6 +52,7 @@ El scheduler usa ventanas moviles; el cron del servidor solo debe ejecutar
 `php artisan schedule:run` cada minuto. No hay que editar fechas diariamente.
 
 Documentacion: `docs/reglas-negocio-leads.md`, `docs/informe-campanas.md` y `HANDOFF.md`.
+Reservas/Ventas: `docs/informe-reservas-ventas.md`.
 
 ---
 
@@ -158,7 +175,8 @@ El proyecto se organiza en tres capas:
 ## Trazabilidad técnica de los dashboards
 
 - Reservas/Ventas separa conversión por fila y participación por columna; las
-  conclusiones utilizan conversión.
+  conclusiones utilizan conversión. El selector define una cohorte unica y los
+  eventos duplicados por vehiculo/fecha cuentan una vez con alerta auditable.
 - Leads, Reservas/Ventas y Llamadas cancelan peticiones anteriores y no mantienen
   resultados obsoletos visibles al cambiar filtros.
 - Llamadas conserva el universo bruto `Task Type=Call`, marca las exclusiones sin

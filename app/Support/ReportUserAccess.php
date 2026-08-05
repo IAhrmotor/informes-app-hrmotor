@@ -108,17 +108,47 @@ class ReportUserAccess
         return self::canonicalRole(self::role($request)) === ReportUser::ROLE_AREA_MANAGER;
     }
 
+    public static function reportUser(Request $request): ?ReportUser
+    {
+        if ($request->attributes->has('resolved_report_user')) {
+            return $request->attributes->get('resolved_report_user');
+        }
+
+        $id = $request->session()->get('report_user_id');
+        $user = $id ? ReportUser::query()->with('masterDelegation')->find($id) : null;
+        $request->attributes->set('resolved_report_user', $user);
+
+        return $user;
+    }
+
+    public static function delegationId(Request $request): ?int
+    {
+        return self::canonicalRole(self::role($request)) === ReportUser::ROLE_DELEGATION_MANAGER
+            ? self::reportUser($request)?->master_delegation_id
+            : null;
+    }
+
+    public static function delegationName(Request $request): ?string
+    {
+        return self::canonicalRole(self::role($request)) === ReportUser::ROLE_DELEGATION_MANAGER
+            ? self::reportUser($request)?->masterDelegation?->delegation_name
+            : null;
+    }
+
+    public static function salesforceUserId(Request $request): ?string
+    {
+        return self::canonicalRole(self::role($request)) === ReportUser::ROLE_COMMERCIAL
+            ? self::reportUser($request)?->salesforce_user_id
+            : null;
+    }
+
     public static function areaZoneKey(Request $request): ?string
     {
         if (! self::isAreaManager($request)) {
             return null;
         }
 
-        $userId = $request->session()->get('report_user_id');
-
-        return $userId !== null
-            ? ReportUser::query()->whereKey($userId)->value('area_zone')
-            : null;
+        return self::reportUser($request)?->area_zone;
     }
 
     public static function areaZoneLabel(Request $request): ?string
@@ -163,7 +193,7 @@ class ReportUserAccess
 
     public static function canExport(Request $request): bool
     {
-        return self::isAdmin($request);
+        return self::isAdmin($request) || self::isDirector($request);
     }
 
     public static function canAudit(Request $request): bool
@@ -171,9 +201,34 @@ class ReportUserAccess
         return self::isAdmin($request) || self::isDirector($request);
     }
 
+    public static function canExportReport(Request $request, string $reportKey): bool
+    {
+        if (self::isAdmin($request) || self::isDirector($request)) {
+            return true;
+        }
+
+        return self::isExplicitFunctionalRole($request) && self::canViewReport($request, $reportKey);
+    }
+
+    public static function canAuditReport(Request $request, string $reportKey): bool
+    {
+        return self::canExportReport($request, $reportKey);
+    }
+
     public static function canSeeSyncDiagnostics(Request $request): bool
     {
         return self::isAdmin($request);
+    }
+
+    public static function canManageEconomicClosures(Request $request): bool
+    {
+        return self::isAdmin($request) || self::isDirector($request);
+    }
+
+    public static function canManageFinancingPenalties(Request $request): bool
+    {
+        return self::isAdmin($request)
+            || self::canonicalRole(self::role($request)) === ReportUser::ROLE_COMMISSION_AUDITOR;
     }
 
     public static function canBrowseAreaManagers(Request $request): bool
@@ -186,6 +241,18 @@ class ReportUserAccess
     private static function normalizeRole(string $role): string
     {
         return trim(mb_strtolower($role));
+    }
+
+    private static function isExplicitFunctionalRole(Request $request): bool
+    {
+        return in_array(self::canonicalRole(self::role($request)), [
+            ReportUser::ROLE_AREA_MANAGER,
+            ReportUser::ROLE_DELEGATION_MANAGER,
+            ReportUser::ROLE_MARKETING,
+            ReportUser::ROLE_FINANCIAL,
+            ReportUser::ROLE_COMMERCIAL,
+            ReportUser::ROLE_COMMISSION_AUDITOR,
+        ], true);
     }
 
     public static function canViewReport(Request $request, string $reportKey): bool
@@ -204,6 +271,19 @@ class ReportUserAccess
                 'calls',
                 'commercial-commissions',
             ], true);
+        }
+
+        if ($currentRole === ReportUser::ROLE_DELEGATION_MANAGER) {
+            return in_array($reportKey, ['leads', 'calls', 'commercial-commissions'], true);
+        }
+        if ($currentRole === ReportUser::ROLE_MARKETING) {
+            return in_array($reportKey, ['leads', 'campaigns'], true);
+        }
+        if ($currentRole === ReportUser::ROLE_FINANCIAL) {
+            return $reportKey === 'commercial-commissions';
+        }
+        if ($currentRole === ReportUser::ROLE_COMMERCIAL) {
+            return in_array($reportKey, ['leads', 'calls', 'commercial-commissions'], true);
         }
 
         $minimumRole = self::canonicalRole(self::minimumRoleForReport($reportKey));
@@ -292,6 +372,10 @@ class ReportUserAccess
             ReportUser::ROLE_AREA_MANAGER, ReportUser::LEGACY_ROLE_AREA_MANAGER_OWN_AREA => ReportUser::ROLE_AREA_MANAGER,
             ReportUser::ROLE_VIEWER => ReportUser::ROLE_VIEWER,
             ReportUser::ROLE_COMMISSION_AUDITOR => ReportUser::ROLE_COMMISSION_AUDITOR,
+            ReportUser::ROLE_DELEGATION_MANAGER => ReportUser::ROLE_DELEGATION_MANAGER,
+            ReportUser::ROLE_MARKETING => ReportUser::ROLE_MARKETING,
+            ReportUser::ROLE_FINANCIAL => ReportUser::ROLE_FINANCIAL,
+            ReportUser::ROLE_COMMERCIAL => ReportUser::ROLE_COMMERCIAL,
             default => null,
         };
     }

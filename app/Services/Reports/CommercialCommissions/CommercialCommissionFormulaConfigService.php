@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Schema;
 
 class CommercialCommissionFormulaConfigService
 {
+    public const VERSION = '2026-08-05.1';
+
     private const AREA_MANAGER_DEFINITIONS = [
         'david-baeza' => 'David Baeza',
         'nicolas-fernandez' => 'Nicolas Fernandez',

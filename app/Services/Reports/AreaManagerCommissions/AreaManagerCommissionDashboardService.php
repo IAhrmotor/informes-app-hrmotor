@@ -5,6 +5,7 @@ namespace App\Services\Reports\AreaManagerCommissions;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceUser;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
+use App\Services\Reports\CommercialCommissions\CommissionMonthResolver;
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -30,13 +31,14 @@ class AreaManagerCommissionDashboardService
 
     public function __construct(
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
+        private readonly CommissionMonthResolver $monthResolver,
         private readonly LeadDelegationNormalizer $delegationNormalizer,
     ) {
     }
 
     public function build(?string $month, ?string $zoneLabel = null): array
     {
-        $selectedMonth = $this->resolveMonth($month);
+        $selectedMonth = $this->monthResolver->resolve($month);
         $periodStart = $selectedMonth->startOfMonth();
         $periodEnd = $periodStart->addMonth();
         $settings = $this->formulaConfig->forMonth($selectedMonth);
@@ -570,15 +572,6 @@ class AreaManagerCommissionDashboardService
             Str::of((string) $opportunity->name)->lower()->toString(),
             'facilitea'
         );
-    }
-
-    private function resolveMonth(?string $month): CarbonImmutable
-    {
-        if (is_string($month) && preg_match('/^\d{4}-\d{2}$/', $month) === 1) {
-            return CarbonImmutable::createFromFormat('Y-m', $month)->startOfMonth();
-        }
-
-        return CarbonImmutable::now()->subMonthNoOverflow()->startOfMonth();
     }
 
     private function blockingIssues(): array

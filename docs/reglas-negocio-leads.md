@@ -39,7 +39,9 @@ rango, id de ejecucion y zona `Europe/Madrid`. Tambien muestra cobertura de
   de inclusión/exclusión para los filtros solicitados.
 - `/informes/leads/data/lead-audit?ids[]=...`: inspeccion puntual de hasta 200 IDs.
 
-Direccion tiene permiso para estos endpoints. Para metadatos historicos:
+Direccion e IT tienen acceso completo. Marketing y los roles operativos autorizados
+pueden exportar o auditar exclusivamente las filas de su ambito de zona,
+delegacion o Salesforce User ID. Para metadatos historicos:
 
 ```bash
 php artisan salesforce:backfill-lead-audit-metadata --dry-run
@@ -342,3 +344,11 @@ Debe mostrar:
 Incidencia
 Registros
 Acción
+# Calidad y conciliacion 2026-08-05
+
+- Comercial elegible: usuario activo con perfil `Compra/Venta` o `Comerciales Partner Community`.
+- Prioridad: Convertido (persona que trabajo, propietario); Descartado (propietario al descarte, persona que trabajo, propietario actual); resto (propietario actual).
+- La falta de delegacion no invalida al comercial. Se muestran por separado `Sin comercial elegible`, `Sin delegacion comercial` y `Sin clasificar`; todos siguen en Leads totales.
+- El filtro Venta solo incluye Venta y Venta con cambio.
+- El periodo se basa en `CreatedDate`. Eliminados y IDs sustituidos por fusion no suman; `MasterRecordId` y la causa se conservan en el CSV de conciliacion.
+- Los ambitos de Area Manager, Responsable de delegacion y Comercial se aplican en servidor tambien a JSON y auditorias.

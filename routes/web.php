@@ -6,6 +6,7 @@ use App\Http\Controllers\Reports\Calls\CallDashboardDataController;
 use App\Http\Controllers\Reports\Campaigns\CampaignDashboardController;
 use App\Http\Controllers\Reports\Campaigns\CampaignDashboardDataController;
 use App\Http\Controllers\Reports\CommercialCommissions\CommercialCommissionDashboardController;
+use App\Http\Controllers\Reports\CommercialCommissions\CommercialCommissionClosureController;
 use App\Http\Controllers\Reports\CommercialCommissions\CommercialCommissionFormulaSettingsController;
 use App\Http\Controllers\Reports\CommercialCommissions\CommercialFinancingPenaltyImportController;
 use App\Http\Controllers\Reports\Leads\LeadDashboardController;
@@ -101,6 +102,7 @@ Route::middleware('reports.auth')->group(function () {
         ->middleware('report.access:campaigns')
         ->group(function () {
             Route::get('/', [CampaignDashboardController::class, 'index'])->name('index');
+            Route::post('/classifications', [CampaignDashboardController::class, 'classify'])->name('classifications.store');
             Route::get('/data/summary', [CampaignDashboardDataController::class, 'summary'])->name('data.summary');
             Route::get('/data/campaigns', [CampaignDashboardDataController::class, 'campaigns'])->name('data.campaigns');
             Route::get('/data/rankings', [CampaignDashboardDataController::class, 'rankings'])->name('data.rankings');
@@ -119,6 +121,12 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/export/comisiones.xlsx', [CommercialCommissionDashboardController::class, 'exportCommissionsXlsx'])->name('export.commissions');
             Route::get('/export/call-center-missing-captador.csv', [CommercialCommissionDashboardController::class, 'exportCallCenterMissingCaptadorCsv'])->name('export.call-center-missing-captador');
             Route::get('/export/delegation-deliveries.csv', [CommercialCommissionDashboardController::class, 'exportDelegationDeliveriesCsv'])->name('export.delegation-deliveries');
+            Route::get('/export/reviews-audit.csv', [CommercialCommissionDashboardController::class, 'exportReviewsAuditCsv'])->name('export.reviews-audit');
+            Route::get('/data/closure', [CommercialCommissionClosureController::class, 'status'])->name('closure.status');
+            Route::post('/closure/prepare', [CommercialCommissionClosureController::class, 'prepare'])->name('closure.prepare');
+            Route::post('/closure/approve', [CommercialCommissionClosureController::class, 'approve'])->name('closure.approve');
+            Route::post('/closure/reopen', [CommercialCommissionClosureController::class, 'reopen'])->name('closure.reopen');
+            Route::post('/adjustments', [CommercialCommissionClosureController::class, 'storeAdjustment'])->name('adjustments.store');
         });
 
     Route::prefix('informes/stock')

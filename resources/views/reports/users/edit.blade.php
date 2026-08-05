@@ -83,6 +83,19 @@
                     </select>
                 </div>
                 <div class="filter-group">
+                    <label for="master_delegation_id">Delegación responsable</label>
+                    <select id="master_delegation_id" name="master_delegation_id">
+                        <option value="">No aplica</option>
+                        @foreach($delegationOptions as $delegation)<option value="{{ $delegation->id }}" @selected((string) old('master_delegation_id', $managedUser->master_delegation_id) === (string) $delegation->id)>{{ $delegation->delegation_name }}</option>@endforeach
+                    </select>
+                    <small>Obligatoria para Responsable de delegación.</small>
+                </div>
+                <div class="filter-group">
+                    <label for="salesforce_user_id">Salesforce User ID</label>
+                    <input id="salesforce_user_id" name="salesforce_user_id" value="{{ old('salesforce_user_id', $managedUser->salesforce_user_id) }}" maxlength="18">
+                    <small>Obligatorio para Comercial.</small>
+                </div>
+                <div class="filter-group">
                     <label>Ultimo login</label>
                     <input type="text" value="{{ optional($managedUser->last_login_at)->format('d/m/Y H:i') ?: 'Nunca' }}" disabled>
                 </div>

@@ -4,6 +4,7 @@ namespace App\Services\Campaigns;
 
 use App\Models\CampaignAttribution;
 use App\Models\CampaignPlatformDailyMetric;
+use App\Models\CampaignOperationalClassification;
 use App\Services\Reports\Leads\LeadRecordTypeNormalizer;
 use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
@@ -111,6 +112,10 @@ class CampaignDashboardDatasetService
                 'cla.matched_platform_field',
                 'cla.matched_platform_value',
                 'cla.match_candidate_count',
+                'cla.attribution_candidates',
+                'cla.first_touch_at',
+                'cla.is_ambiguous',
+                'cla.attribution_rule_version',
                 'cla.opportunity_id',
                 'cla.created_at as attribution_built_at',
                 'cla.updated_at as attribution_updated_at',
@@ -166,6 +171,10 @@ class CampaignDashboardDatasetService
                     'matched_platform_field' => $row->matched_platform_field,
                     'matched_platform_value' => $row->matched_platform_value,
                     'match_candidate_count' => (int) $row->match_candidate_count,
+                    'attribution_candidates' => $this->decodeJsonList($row->attribution_candidates),
+                    'first_touch_at' => $row->first_touch_at,
+                    'is_ambiguous' => (bool) $row->is_ambiguous,
+                    'attribution_rule_version' => $row->attribution_rule_version,
                     'campaign_source_type' => $row->row_campaign_source_type ?: $row->lead_campaign_source_type,
                     'campaign_type' => $row->campaign_type,
                     'lead_record_type_raw' => $row->lead_record_type_raw,
@@ -305,6 +314,7 @@ class CampaignDashboardDatasetService
         $metricRows = $this->metricRows($filters, $period);
         $attributionRows = $this->attributionRows($filters, $period);
         $allCampaigns = $this->mergeRows($metricRows, $attributionRows, $filters);
+        $allCampaigns = $this->applyOperationalClassifications($allCampaigns);
         $benchmarks = $this->benchmarks($this->platformRows($allCampaigns));
 
         $allCampaigns = array_map(function (array $row) use ($benchmarks): array {
@@ -314,12 +324,22 @@ class CampaignDashboardDatasetService
         }, $allCampaigns);
 
         $campaigns = $this->mainCampaignRows($allCampaigns, $filters);
+        $executiveCampaigns = array_values(array_filter($campaigns, fn (array $row): bool => ($row['operational_classification'] ?? 'pending_review') !== 'test'));
 
         usort($campaigns, fn (array $a, array $b) => ($b['spend'] <=> $a['spend']) ?: ($b['leads_salesforce'] <=> $a['leads_salesforce']));
+        usort($executiveCampaigns, fn (array $a, array $b) => ($b['spend'] <=> $a['spend']) ?: ($b['leads_salesforce'] <=> $a['leads_salesforce']));
 
-        $attributionAnalytics = $this->attributionAnalytics($campaigns, $filters, $period);
-        $summary = $this->summaryFromRows($campaigns, $allCampaigns, $filters, $period, $attributionAnalytics, $includeDiagnostics, $includeFilters);
-        $rankings = $this->rankingsFromRows($campaigns, $filters);
+        $attributionAnalytics = $this->attributionAnalytics($executiveCampaigns, $filters, $period);
+        $summary = $this->summaryFromRows($executiveCampaigns, $allCampaigns, $filters, $period, $attributionAnalytics, $includeDiagnostics, $includeFilters);
+        $summary['campaign_universes'] = [
+            'paid' => array_values(array_filter($campaigns, fn (array $row): bool => in_array($row['platform'] ?? null, ['google_ads', 'meta'], true) && ($row['operational_classification'] ?? null) !== 'test')),
+            'salesforce_only' => array_values(array_filter($campaigns, fn (array $row): bool => ($row['platform'] ?? null) === 'salesforce')),
+            'test' => array_values(array_filter($campaigns, fn (array $row): bool => ($row['operational_classification'] ?? null) === 'test')),
+            'pending_review' => array_values(array_filter($campaigns, fn (array $row): bool => ($row['operational_classification'] ?? null) === 'pending_review')),
+            'ambiguous' => array_values(array_filter($campaigns, fn (array $row): bool => str_contains(mb_strtolower((string) ($row['match_status'] ?? '')), 'ambigu'))),
+            'unattributed' => array_values(array_filter($campaigns, fn (array $row): bool => blank($row['campaign_id'] ?? null) && blank($row['campaign_name'] ?? null))),
+        ];
+        $rankings = $this->rankingsFromRows($executiveCampaigns, $filters);
 
         return [
             'summary' => $summary,
@@ -333,6 +353,7 @@ class CampaignDashboardDatasetService
         $metricRows = $this->metricRows($filters, $period);
         $attributionRows = $this->attributionRows($filters, $period);
         $allCampaigns = $this->mergeRows($metricRows, $attributionRows, $filters);
+        $allCampaigns = $this->applyOperationalClassifications($allCampaigns);
         $benchmarks = $this->benchmarks($this->platformRows($allCampaigns));
 
         $allCampaigns = array_map(function (array $row) use ($benchmarks): array {
@@ -342,6 +363,39 @@ class CampaignDashboardDatasetService
         }, $allCampaigns);
 
         return $this->mainCampaignRows($allCampaigns, $filters);
+    }
+
+    private function applyOperationalClassifications(array $rows): array
+    {
+        $classifications = CampaignOperationalClassification::query()->get()->keyBy(
+            fn (CampaignOperationalClassification $row): string => implode('|', [$row->platform, $row->account_id, $row->campaign_id])
+        );
+
+        return array_map(function (array $row) use ($classifications): array {
+            $campaignId = trim((string) ($row['campaign_id'] ?? ''));
+            $key = implode('|', [(string) ($row['platform'] ?? ''), (string) ($row['account_id'] ?? ''), $campaignId]);
+            $saved = $campaignId !== '' ? $classifications->get($key) : null;
+            $row['operational_classification'] = $saved?->classification ?? 'pending_review';
+            $row['operational_classification_reason'] = $saved?->reason ?? 'Pendiente de clasificación explícita por ID';
+            $row['test_name_candidate'] = preg_match('/(?:^|[^a-z])(prueba|test)(?:[^a-z]|$)/i', (string) ($row['campaign_name'] ?? '')) === 1;
+
+            return $row;
+        }, $rows);
+    }
+
+    private function decodeJsonList(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (! is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function kpiAuditRows(array $visibleRows, array $filters, array $period, string $metric): array

@@ -72,7 +72,11 @@ class CallsOverflowClassificationTest extends TestCase
             'operational_team' => 'commercial',
         ]);
 
-        $this->artisan('reports:reprocess-calls-classification')->assertExitCode(0);
+        $this->artisan('reports:reprocess-calls-classification', [
+            '--from' => '2026-05-01',
+            '--to' => '2026-05-31',
+            '--reason' => 'Regresion de clasificacion de desbordes.',
+        ])->assertExitCode(0);
 
         $this->assertTrue(SalesforceCall::where('salesforce_id', 'case-a')->firstOrFail()->is_overflow);
         $this->assertTrue(SalesforceCall::where('salesforce_id', 'case-b')->firstOrFail()->is_overflow);

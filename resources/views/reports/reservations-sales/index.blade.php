@@ -123,6 +123,22 @@
                     <span>Periodo comparado</span>
                     <strong id="comparisonPeriodLabel">-</strong>
                 </div>
+                <div class="card period-card universe-definition-card">
+                    <span>Fecha que define el universo</span>
+                    <strong id="universeDateLabel">-</strong>
+                    <small>Los resultados posteriores se miden sobre esta misma cohorte.</small>
+                </div>
+            </section>
+
+            <section class="card panel data-quality-panel is-hidden" id="reservationsDataQualityPanel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Alertas de calidad del dato</h2>
+                        <div class="small">Eventos repetidos por vehículo y fecha. Cada grupo cuenta una sola vez en el KPI.</div>
+                    </div>
+                    <span class="quality-count" id="reservationsDataQualityCount">0</span>
+                </div>
+                <div class="data-quality-incidents" id="reservationsDataQualityIncidents"></div>
             </section>
 
             <section class="kpis dashboard-kpis" id="summaryKpis"></section>

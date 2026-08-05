@@ -55,7 +55,11 @@ class CallsReprocessClassificationCommandTest extends TestCase
             'direction' => 'inbound',
         ]);
 
-        $this->artisan('reports:reprocess-calls-classification')->assertExitCode(0);
+        $this->artisan('reports:reprocess-calls-classification', [
+            '--from' => '2026-05-01',
+            '--to' => '2026-05-31',
+            '--reason' => 'Prueba de regresión controlada',
+        ])->assertExitCode(0);
 
         $direct = SalesforceCall::where('salesforce_id', 'legacy-switchboard')->firstOrFail();
         $portal = SalesforceCall::where('salesforce_id', 'portal-web')->firstOrFail();
@@ -73,5 +77,52 @@ class CallsReprocessClassificationCommandTest extends TestCase
         $this->assertSame('Atención al Cliente', $portal->zone);
         $this->assertSame(0, SalesforceCall::where('call_origin', 'switchboard')->count());
         $this->assertGreaterThan(1, Cache::get('salesforce_calls_dashboard_cache_version'));
+        $this->assertDatabaseCount('salesforce_call_classification_history', 2);
+    }
+
+    public function test_exige_periodo_y_el_modo_simulacion_no_modifica(): void
+    {
+        $this->artisan('reports:reprocess-calls-classification')->assertExitCode(1);
+
+        SalesforceCall::create([
+            'salesforce_id' => 'dry-call',
+            'created_date' => '2026-05-20 10:00:00',
+            'call_status' => 'not_answered',
+            'result_raw' => 'ANSWERED',
+        ]);
+
+        $this->artisan('reports:reprocess-calls-classification', [
+            '--from' => '2026-05-01', '--to' => '2026-05-31', '--dry-run' => true,
+        ])->assertExitCode(0);
+
+        $this->assertSame('not_answered', SalesforceCall::where('salesforce_id', 'dry-call')->value('call_status'));
+        $this->assertDatabaseCount('salesforce_call_classification_history', 0);
+    }
+
+    public function test_reprocesado_considera_respondido_por_como_atendida_sin_pisar_abandoned(): void
+    {
+        foreach ([
+            'answered-by' => ['description' => "Respondido por: Agente Uno", 'result_raw' => null],
+            'abandoned' => ['description' => "Resultado: ABANDONED\nRespondido por: Agente Uno", 'result_raw' => 'ABANDONED'],
+        ] as $id => $values) {
+            SalesforceCall::query()->create([
+                'salesforce_id' => $id,
+                'created_date' => '2026-05-20 10:00:00',
+                'description' => $values['description'],
+                'result_raw' => $values['result_raw'],
+                'call_status' => 'not_answered',
+                'is_answered' => false,
+                'is_lost' => true,
+            ]);
+        }
+
+        $this->artisan('reports:reprocess-calls-classification', [
+            '--from' => '2026-05-01',
+            '--to' => '2026-05-31',
+            '--reason' => 'Validacion de Respondido por en historico.',
+        ])->assertExitCode(0);
+
+        $this->assertTrue((bool) SalesforceCall::query()->where('salesforce_id', 'answered-by')->value('is_answered'));
+        $this->assertFalse((bool) SalesforceCall::query()->where('salesforce_id', 'abandoned')->value('is_answered'));
     }
 }

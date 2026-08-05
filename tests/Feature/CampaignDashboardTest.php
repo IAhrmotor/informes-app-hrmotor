@@ -209,7 +209,7 @@ class CampaignDashboardTest extends TestCase
             ->assertOk()
             ->assertDontSee('diagnosticsOpen', false)
             ->assertDontSee('campaignDiagnosticsModal', false)
-            ->assertSee('window.reportUserCanExport = false', false)
+            ->assertSee('window.reportUserCanExport = true', false)
             ->assertSee('window.reportUserCanAudit = true', false);
 
         $this->withSession($directorSession)
@@ -220,7 +220,7 @@ class CampaignDashboardTest extends TestCase
 
         $this->withSession($directorSession)
             ->get('/informes/campanas/export/campaigns.csv?'.$this->query())
-            ->assertForbidden();
+            ->assertOk();
 
         $this->withSession($directorSession)
             ->getJson('/informes/campanas/data/kpi-audit?'.$this->query().'&metric=leads_salesforce')
@@ -266,6 +266,53 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('campaign.advertising_channel_type', $capturedQuery);
         $this->assertStringContainsString('metrics.cost_micros', $capturedQuery);
         $this->assertStringNotContainsString('advertising_channel_type IN', $capturedQuery);
+    }
+
+    public function test_una_campana_sugerida_por_nombre_solo_sale_del_kpi_tras_clasificacion_explicita(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'campaign_id' => 'campaign-test-explicit',
+            'campaign_name' => 'promotion-prueba',
+            'spend' => 250,
+        ]));
+
+        $before = $this->getJson('/informes/campanas/data/summary?'.$this->query().'&campaign_status=')
+            ->assertOk()
+            ->json();
+        $this->assertSame(250, $before['kpis']['spend']);
+        $this->assertTrue($before['campaigns'][0]['test_name_candidate']);
+        $this->assertSame('pending_review', $before['campaigns'][0]['operational_classification']);
+
+        config()->set('services.informes_auth.enabled', true);
+        $admin = ReportUser::query()->create([
+            'name' => 'IT Auditor',
+            'email' => 'it-auditor@example.test',
+            'password' => 'secret-password',
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => true,
+        ]);
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $admin->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => $admin->email,
+        ];
+
+        $this->withSession($session)->postJson('/informes/campanas/classifications', [
+            'platform' => 'meta',
+            'account_id' => 'act_1',
+            'campaign_id' => 'campaign-test-explicit',
+            'classification' => 'test',
+            'reason' => 'Campana de prueba confirmada por Marketing.',
+        ])->assertOk();
+
+        $after = $this->withSession($session)
+            ->getJson('/informes/campanas/data/summary?'.$this->query().'&campaign_status=')
+            ->assertOk()
+            ->json();
+        $this->assertSame(0, $after['kpis']['spend']);
+        $this->assertCount(1, $after['campaign_universes']['test']);
+        $this->assertSame($admin->id, DB::table('campaign_operational_classifications')->value('classified_by'));
     }
 
     public function test_google_ads_inventario_auditable_consulta_anuncio_y_ad_group(): void

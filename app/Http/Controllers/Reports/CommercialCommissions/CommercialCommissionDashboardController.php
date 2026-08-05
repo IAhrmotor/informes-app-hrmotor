@@ -8,6 +8,7 @@ use App\Services\Reports\CallCenterCommissions\CallCenterCommissionDashboardServ
 use App\Services\Reports\CommercialCommissions\AreaRestrictedCommissionScope;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
+use App\Services\Reports\CommercialCommissions\CommercialCommissionClosureService;
 use App\Services\Reports\ContactCenterCommissions\ContactCenterCommissionDashboardService;
 use App\Services\Reports\FinancialCommissions\FinancialCommissionDashboardService;
 use App\Support\ReportUserAccess;
@@ -15,6 +16,7 @@ use App\Support\SimpleXlsxWorkbookWriter;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use App\Models\ReportUser;
 
 class CommercialCommissionDashboardController extends Controller
 {
@@ -27,6 +29,7 @@ class CommercialCommissionDashboardController extends Controller
         AreaManagerCommissionDashboardService $areaManagerDashboard,
         FinancialCommissionDashboardService $financialDashboard,
         AreaRestrictedCommissionScope $areaScope,
+        CommercialCommissionClosureService $closureService,
     )
     {
         $selectedMonth = $request->query('month');
@@ -34,7 +37,15 @@ class CommercialCommissionDashboardController extends Controller
         $callCenterContractTo = $request->query('call_center_contract_to');
         $isAreaRestricted = ReportUserAccess::isAreaManager($request);
         $areaZoneLabel = ReportUserAccess::areaZoneLabel($request);
-        $activeCommissionTab = $this->resolveActiveTab($request->query('tab'), $isAreaRestricted);
+        $role = ReportUserAccess::role($request);
+        $delegationScope = ReportUserAccess::delegationName($request);
+        $commercialScope = ReportUserAccess::salesforceUserId($request);
+        $activeCommissionTab = match ($role) {
+            ReportUser::ROLE_FINANCIAL => 'financials',
+            ReportUser::ROLE_DELEGATION_MANAGER => 'delegations',
+            ReportUser::ROLE_COMMERCIAL => 'summary',
+            default => $this->resolveActiveTab($request->query('tab'), $isAreaRestricted),
+        };
 
         if (! ReportUserAccess::canViewCommercialCommissions($request)) {
             return redirect()->route('reports.leads.index');
@@ -46,6 +57,14 @@ class CommercialCommissionDashboardController extends Controller
             includeDelegationRows: $activeCommissionTab === 'delegations',
             includeDetails: $activeCommissionTab === 'summary',
         );
+        $commissionClosure = $closureService->status($payload['month']);
+        $frozenSnapshot = $closureService->definitiveSnapshot($payload['month']);
+        if ($frozenSnapshot !== null) {
+            $payload = $frozenSnapshot['commercials'];
+            $payload['economic_status'] = 'definitive';
+            $payload['dataset_cutoff_at'] = $commissionClosure['data_cutoff_at'];
+            $payload['formula_version'] = $commissionClosure['formula_version'];
+        }
 
         if ($isAreaRestricted) {
             if ($areaZoneLabel === null) {
@@ -60,13 +79,21 @@ class CommercialCommissionDashboardController extends Controller
                 );
             }
         }
+        if ($role === ReportUser::ROLE_DELEGATION_MANAGER) {
+            abort_if($delegationScope === null, 403, 'El responsable no tiene delegación configurada.');
+            $payload = $areaScope->delegationDashboard($payload, $delegationScope);
+        }
+        if ($role === ReportUser::ROLE_COMMERCIAL) {
+            abort_if($commercialScope === null, 403, 'El comercial no tiene Salesforce User ID configurado.');
+            $payload = $areaScope->commercialDashboardByUser($payload, $commercialScope);
+        }
 
         $callCenterPayload = $activeCommissionTab === 'call-center'
-            ? $callCenterDashboard->build(
+            ? ($frozenSnapshot['call_center'] ?? $callCenterDashboard->build(
                 $payload['month'],
                 is_string($callCenterContractFrom) ? $callCenterContractFrom : null,
                 is_string($callCenterContractTo) ? $callCenterContractTo : null
-            )
+            ))
             : $this->emptyCallCenterDashboard(
                 $payload['month'],
                 $payload['month_label'],
@@ -74,14 +101,25 @@ class CommercialCommissionDashboardController extends Controller
                 is_string($callCenterContractTo) ? $callCenterContractTo : null
             );
         $contactCenterPayload = $activeCommissionTab === 'contact-center'
-            ? $contactCenterDashboard->build($payload['month'])
+            ? ($frozenSnapshot['contact_center'] ?? $contactCenterDashboard->build($payload['month']))
             : $this->emptyContactCenterDashboard($payload['month'], $payload['month_label']);
         $areaManagerPayload = $activeCommissionTab === 'area-manager'
-            ? $areaManagerDashboard->build($payload['month'], $isAreaRestricted ? $areaZoneLabel : null)
+            ? (($isAreaRestricted
+                ? data_get($frozenSnapshot, 'area_manager_by_zone.'.ReportUserAccess::areaZoneKey($request))
+                : ($frozenSnapshot['area_manager'] ?? null))
+                ?? $areaManagerDashboard->build($payload['month'], $isAreaRestricted ? $areaZoneLabel : null))
             : $this->emptyAreaManagerDashboard($payload['month'], $payload['month_label']);
         $financialPayload = $activeCommissionTab === 'financials'
-            ? $financialDashboard->build($payload['month'])
+            ? ($frozenSnapshot['financials'] ?? $financialDashboard->build($payload['month']))
             : $this->emptyFinancialDashboard($payload['month'], $payload['month_label']);
+        $universeReconciliation = $this->universeReconciliation(
+            $activeCommissionTab,
+            $payload,
+            $callCenterPayload,
+            $contactCenterPayload,
+            $areaManagerPayload,
+            $financialPayload,
+        );
 
         return view('reports.commercial-commissions.index', [
             'activeCommissionTab' => $activeCommissionTab,
@@ -96,15 +134,101 @@ class CommercialCommissionDashboardController extends Controller
             'contactCenterDashboard' => $contactCenterPayload,
             'areaManagerDashboard' => $areaManagerPayload,
             'financialDashboard' => $financialPayload,
-            'formulaSettings' => $formulaConfig->forMonth($payload['month']),
+            'formulaSettings' => $frozenSnapshot['formula_settings'] ?? $formulaConfig->forMonth($payload['month']),
+            'commissionClosure' => $commissionClosure,
+            'canManageEconomicClosures' => ReportUserAccess::canManageEconomicClosures($request),
+            'canManageFinancingPenalties' => ReportUserAccess::canManageFinancingPenalties($request),
+            'canSeeUniverseReconciliation' => ReportUserAccess::isAdmin($request),
+            'canAuditEconomicReviews' => ReportUserAccess::canAudit($request),
+            'canAuditDelegationDeliveries' => in_array($role, [
+                ReportUser::ROLE_ADMIN,
+                ReportUser::ROLE_DIRECTOR,
+                ReportUser::ROLE_AREA_MANAGER,
+                ReportUser::ROLE_DELEGATION_MANAGER,
+            ], true),
+            'universeReconciliation' => $universeReconciliation,
         ]);
+    }
+
+    private function universeReconciliation(
+        string $tab,
+        array $commercials,
+        array $callCenter,
+        array $contactCenter,
+        array $areaManager,
+        array $financials,
+    ): array {
+        return match ($tab) {
+            'delegations' => $this->bridge(
+                (int) data_get($commercials, 'diagnostics.opportunities_total', 0),
+                max(0, (int) data_get($commercials, 'diagnostics.opportunities_total', 0)
+                    - (int) data_get($commercials, 'diagnostics.sales_count', 0)),
+                0,
+                (int) data_get($commercials, 'diagnostics.sales_count', 0),
+                'Oportunidades del mes', 'No son entregas validas de Delegaciones', 'Inclusiones especiales', 'Entregas mostradas'
+            ),
+            'call-center' => $this->bridge(
+                (int) data_get($callCenter, 'diagnostics.monthly_opportunities', 0),
+                0,
+                (int) data_get($callCenter, 'diagnostics.monthly_tasaciones', 0),
+                (int) data_get($callCenter, 'diagnostics.monthly_opportunities', 0)
+                    + (int) data_get($callCenter, 'diagnostics.monthly_tasaciones', 0),
+                'Oportunidades procesadas', 'Exclusiones previas segun reglas actuales', 'Incluye tasaciones sincronizadas', 'Registros fuente evaluados'
+            ),
+            'contact-center' => $this->bridge(
+                (int) data_get($contactCenter, 'diagnostics.appointments_count', 0),
+                0,
+                (int) data_get($contactCenter, 'diagnostics.sales_without_appointment_count', 0),
+                (int) data_get($contactCenter, 'diagnostics.appointments_count', 0)
+                    + (int) data_get($contactCenter, 'diagnostics.sales_without_appointment_count', 0),
+                'Citas del mes', 'Exclusiones previas segun reglas actuales', 'Ventas sin cita vinculable', 'Apariciones auditables'
+            ),
+            'area-manager' => $this->bridge(
+                (int) data_get($areaManager, 'diagnostics.delivery_operations_count', 0),
+                0,
+                (int) data_get($areaManager, 'diagnostics.purchase_operations_count', 0),
+                (int) data_get($areaManager, 'diagnostics.delivery_operations_count', 0)
+                    + (int) data_get($areaManager, 'diagnostics.purchase_operations_count', 0),
+                'Entregas', 'Exclusiones previas segun reglas actuales', 'Compras', 'Apariciones evaluadas'
+            ),
+            'financials' => $this->bridge(
+                (int) data_get($financials, 'diagnostics.eligible_operations_count', 0),
+                0,
+                0,
+                (int) data_get($financials, 'diagnostics.eligible_operations_count', 0),
+                'Operaciones elegibles', 'Exclusiones del universo general', 'Inclusiones especiales', 'Operaciones mostradas',
+                [(int) data_get($financials, 'diagnostics.profitability_excluded_operations_count', 0).' excluidas solo del bloque de rentabilidad']
+            ),
+            default => $this->bridge(
+                (int) data_get($commercials, 'diagnostics.opportunities_total', 0),
+                max(0, (int) data_get($commercials, 'diagnostics.opportunities_total', 0)
+                    - (int) data_get($commercials, 'diagnostics.operations_count', 0)),
+                0,
+                (int) data_get($commercials, 'diagnostics.operations_count', 0),
+                'Base comun del mes', 'Exclusiones de Comerciales', 'Inclusiones especiales', 'Operaciones mostradas'
+            ),
+        };
+    }
+
+    private function bridge(
+        int $base,
+        int $excluded,
+        int $included,
+        int $shown,
+        string $baseLabel,
+        string $excludedLabel,
+        string $includedLabel,
+        string $shownLabel,
+        array $notes = [],
+    ): array {
+        return compact('base', 'excluded', 'included', 'shown', 'baseLabel', 'excludedLabel', 'includedLabel', 'shownLabel', 'notes');
     }
 
     public function exportCallCenterMissingCaptadorCsv(
         Request $request,
         CallCenterCommissionDashboardService $callCenterDashboard,
     ) {
-        abort_if(ReportUserAccess::isAreaManager($request), 403);
+        abort_unless(ReportUserAccess::isAdmin($request) || ReportUserAccess::isDirector($request), 403);
 
         $audit = $callCenterDashboard->missingCaptadorAudit(
             $request->query('month'),
@@ -157,6 +281,13 @@ class CommercialCommissionDashboardController extends Controller
         CommercialCommissionDashboardService $dashboard,
         AreaRestrictedCommissionScope $areaScope,
     ) {
+        $role = ReportUserAccess::role($request);
+        abort_unless(in_array($role, [
+            ReportUser::ROLE_ADMIN,
+            ReportUser::ROLE_DIRECTOR,
+            ReportUser::ROLE_AREA_MANAGER,
+            ReportUser::ROLE_DELEGATION_MANAGER,
+        ], true), 403);
         $audit = $dashboard->delegationDeliveriesAudit($request->query('month'));
 
         abort_unless($audit['ready'], 409, implode(' | ', $audit['issues'] ?? ['No se pudo preparar la auditoria.']));
@@ -165,6 +296,11 @@ class CommercialCommissionDashboardController extends Controller
             $zoneLabel = ReportUserAccess::areaZoneLabel($request);
             abort_if($zoneLabel === null, 403, 'El usuario no tiene una zona configurada.');
             $audit['rows'] = $areaScope->delegationAuditRows($audit['rows'] ?? [], $zoneLabel);
+        }
+        if ($role === ReportUser::ROLE_DELEGATION_MANAGER) {
+            $delegation = ReportUserAccess::delegationName($request);
+            abort_if($delegation === null, 403);
+            $audit['rows'] = $areaScope->delegationAuditRowsByDelegation($audit['rows'] ?? [], $delegation);
         }
 
         $headers = [
@@ -225,6 +361,37 @@ class CommercialCommissionDashboardController extends Controller
         ]);
     }
 
+    public function exportReviewsAuditCsv(
+        Request $request,
+        CommercialCommissionDashboardService $dashboard,
+        CommercialCommissionClosureService $closures,
+    ) {
+        abort_unless(ReportUserAccess::canAudit($request), 403);
+        $month = $request->query('month');
+        $snapshot = $closures->definitiveSnapshot($month);
+        $audit = $snapshot['review_audit'] ?? $dashboard->reviewAudit($month);
+        $filename = 'auditoria-resenas-'.$audit['month'].'.csv';
+
+        return response()->streamDownload(function () use ($audit): void {
+            $output = fopen('php://output', 'wb');
+            fwrite($output, "\xEF\xBB\xBF");
+            fputcsv($output, ['Regla', $audit['rule']], ';');
+            fputcsv($output, [
+                'Review ID', 'CreatedDate', 'Owner ID', 'Owner', 'Opportunity ID', 'Opportunity',
+                'Opportunity Owner ID', 'Opportunity Owner', 'Record Type', 'Fecha firma', 'Motivo', 'Fuente',
+            ], ';');
+            foreach ($audit['rows'] as $row) {
+                fputcsv($output, [
+                    $row['review_id'], $row['created_date'], $row['owner_id'], $row['owner_name'],
+                    $row['opportunity_id'], $row['opportunity_name'], $row['opportunity_owner_id'],
+                    $row['opportunity_owner_name'], $row['opportunity_record_type'],
+                    $row['opportunity_signed_date'], $row['inclusion_reason'], $row['source'],
+                ], ';');
+            }
+            fclose($output);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
     public function exportCommissionsXlsx(
         Request $request,
         CommercialCommissionDashboardService $dashboard,
@@ -234,8 +401,10 @@ class CommercialCommissionDashboardController extends Controller
         FinancialCommissionDashboardService $financialDashboard,
         SimpleXlsxWorkbookWriter $workbookWriter,
         AreaRestrictedCommissionScope $areaScope,
+        CommercialCommissionClosureService $closureService,
     ) {
         abort_unless(ReportUserAccess::canViewCommercialCommissions($request), 403);
+        $role = ReportUserAccess::role($request);
         $isAreaRestricted = ReportUserAccess::isAreaManager($request);
         $areaZoneLabel = ReportUserAccess::areaZoneLabel($request);
         abort_if($isAreaRestricted && $areaZoneLabel === null, 403, 'El usuario no tiene una zona configurada.');
@@ -247,18 +416,52 @@ class CommercialCommissionDashboardController extends Controller
             @set_time_limit(120);
 
             $sheets = [];
-            $commercialDashboard = $dashboard->build(
+        if ($role === ReportUser::ROLE_FINANCIAL) {
+            $financialPayload = $financialDashboard->build($request->query('month'));
+            $month = $financialPayload['month'];
+            $frozenSnapshot = $closureService->definitiveSnapshot($month);
+            $financialPayload = $frozenSnapshot['financials'] ?? $financialPayload;
+            $sheets[] = $this->commissionSheet(
+                'Financieros',
+                'Zona financiera',
+                $financialPayload['summary_rows'] ?? [],
+                'zone_name',
+                'final_commission',
+            );
+            $path = $workbookWriter->write($sheets);
+
+            return response()
+                ->download($path, 'comisiones-'.$month.'-financieros.xlsx', [
+                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                ])
+                ->deleteFileAfterSend(true);
+        }
+        $commercialDashboard = $dashboard->build(
             $request->query('month'),
             includeSummaryRows: true,
             includeDelegationRows: true,
             includeDetails: false,
         );
+        $frozenSnapshot = $closureService->definitiveSnapshot($commercialDashboard['month']);
+        if ($frozenSnapshot !== null) {
+            $commercialDashboard = $frozenSnapshot['commercials'];
+        }
         if ($isAreaRestricted) {
             $commercialDashboard = $areaScope->commercialDashboard(
                 $commercialDashboard,
                 $areaZoneLabel,
                 ReportUserAccess::current($request)['email'] ?? null,
             );
+        }
+        if ($role === ReportUser::ROLE_DELEGATION_MANAGER) {
+            $delegation = ReportUserAccess::delegationName($request);
+            abort_if($delegation === null, 403);
+            $commercialDashboard = $areaScope->delegationDashboard($commercialDashboard, $delegation);
+        }
+        if ($role === ReportUser::ROLE_COMMERCIAL) {
+            $salesforceUserId = ReportUserAccess::salesforceUserId($request);
+            abort_if($salesforceUserId === null, 403);
+            $commercialDashboard = $areaScope->commercialDashboardByUser($commercialDashboard, $salesforceUserId);
         }
         $month = $commercialDashboard['month'];
         $sheets[] = $this->commissionSheet(
@@ -279,7 +482,8 @@ class CommercialCommissionDashboardController extends Controller
         gc_collect_cycles();
 
         if ($isAreaRestricted) {
-            $areaManagerPayload = $areaManagerDashboard->build($month, $areaZoneLabel);
+            $areaManagerPayload = data_get($frozenSnapshot, 'area_manager_by_zone.'.ReportUserAccess::areaZoneKey($request))
+                ?? $areaManagerDashboard->build($month, $areaZoneLabel);
             $areaManagerRows = collect($areaManagerPayload['summary_rows'] ?? []);
             $sheets[] = $this->commissionSheet(
                 'Area Managers',
@@ -301,7 +505,17 @@ class CommercialCommissionDashboardController extends Controller
                 ->deleteFileAfterSend(true);
         }
 
-        $callCenterPayload = $callCenterDashboard->build(
+        if (in_array($role, [ReportUser::ROLE_DELEGATION_MANAGER, ReportUser::ROLE_COMMERCIAL], true)) {
+            $path = $workbookWriter->write($sheets);
+
+            return response()
+                ->download($path, 'comisiones-'.$month.'-'.$role.'.xlsx', [
+                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                ])
+                ->deleteFileAfterSend(true);
+        }
+
+        $callCenterPayload = $frozenSnapshot['call_center'] ?? $callCenterDashboard->build(
             $month,
             is_string($request->query('call_center_contract_from')) ? $request->query('call_center_contract_from') : null,
             is_string($request->query('call_center_contract_to')) ? $request->query('call_center_contract_to') : null,
@@ -317,7 +531,7 @@ class CommercialCommissionDashboardController extends Controller
         unset($callCenterPayload);
         gc_collect_cycles();
 
-        $contactCenterPayload = $contactCenterDashboard->build($month, includeDetails: false);
+        $contactCenterPayload = $frozenSnapshot['contact_center'] ?? $contactCenterDashboard->build($month, includeDetails: false);
         $sheets[] = $this->commissionSheet(
             'Contact Center',
             'Agente / captador',
@@ -328,7 +542,7 @@ class CommercialCommissionDashboardController extends Controller
         unset($contactCenterPayload);
         gc_collect_cycles();
 
-        $areaManagerPayload = $areaManagerDashboard->build($month);
+        $areaManagerPayload = $frozenSnapshot['area_manager'] ?? $areaManagerDashboard->build($month);
         $areaManagerRows = collect($areaManagerPayload['summary_rows'] ?? []);
         $sheets[] = $this->commissionSheet(
             'Area Managers',
@@ -346,7 +560,7 @@ class CommercialCommissionDashboardController extends Controller
         unset($areaManagerPayload, $areaManagerRows);
         gc_collect_cycles();
 
-        $financialPayload = $financialDashboard->build($month);
+        $financialPayload = $frozenSnapshot['financials'] ?? $financialDashboard->build($month);
         $sheets[] = $this->commissionSheet(
             'Financieros',
             'Zona financiera',

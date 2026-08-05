@@ -14,6 +14,8 @@ de código ni valores deducidos de una captura.
 
 ## Reservas / Ventas
 
+- El selector temporal y los empates de vehiculo/fecha ya estan definidos e
+  implementados; consultar `docs/informe-reservas-ventas.md`.
 - Benchmark de las conclusiones: objetivo, media ponderada, media simple o periodo
   anterior. Hasta entonces no se usa un benchmark para emitir recomendaciones.
 

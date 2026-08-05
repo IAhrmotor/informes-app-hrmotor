@@ -52,7 +52,7 @@
     "src": "_instrument-sans-600-normal-DMks36a2.woff"
   },
   "resources/css/app.css": {
-    "file": "assets/app-nCpsVaxB.css",
+    "file": "assets/app-BP3U4GK1.css",
     "name": "app",
     "names": [
       "app.css"
@@ -61,7 +61,7 @@
     "isEntry": true
   },
   "resources/css/reports/leads-dashboard.css": {
-    "file": "assets/leads-dashboard-DgnHC_pi.css",
+    "file": "assets/leads-dashboard-NS6PaOjv.css",
     "name": "leads-dashboard",
     "names": [
       "leads-dashboard.css"
@@ -70,7 +70,7 @@
     "isEntry": true
   },
   "resources/css/reports/stock-dashboard.css": {
-    "file": "assets/stock-dashboard-BsUxWQ6k.css",
+    "file": "assets/stock-dashboard-CG-hvHJu.css",
     "name": "stock-dashboard",
     "names": [
       "stock-dashboard.css"
@@ -91,7 +91,7 @@
     "isEntry": true
   },
   "resources/js/reports/campaigns-dashboard.js": {
-    "file": "assets/campaigns-dashboard-BYL43qA_.js",
+    "file": "assets/campaigns-dashboard-BCKPy2rh.js",
     "name": "campaigns-dashboard",
     "src": "resources/js/reports/campaigns-dashboard.js",
     "isEntry": true
@@ -103,13 +103,13 @@
     "isEntry": true
   },
   "resources/js/reports/leads-dashboard.js": {
-    "file": "assets/leads-dashboard-CACR_nZu.js",
+    "file": "assets/leads-dashboard-CdTzqd9U.js",
     "name": "leads-dashboard",
     "src": "resources/js/reports/leads-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/reservations-sales-dashboard.js": {
-    "file": "assets/reservations-sales-dashboard-5tv-I0Cc.js",
+    "file": "assets/reservations-sales-dashboard-tyEyThlf.js",
     "name": "reservations-sales-dashboard",
     "src": "resources/js/reports/reservations-sales-dashboard.js",
     "isEntry": true

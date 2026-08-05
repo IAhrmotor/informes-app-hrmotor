@@ -49,6 +49,8 @@ class ReservationsSalesDashboardDataController extends Controller
             'Metrica',
             'Opportunity ID',
             'Opportunity name',
+            'Vehicle ID',
+            'Vehicle plate',
             'Fecha metrica',
             'Created date',
             'Close date',
@@ -58,6 +60,7 @@ class ReservationsSalesDashboardDataController extends Controller
             'Stage',
             'Owner ID',
             'Owner name',
+            'Delivery store',
             'Delegacion comercial',
             'Zona comercial',
             'Account ID',
@@ -74,6 +77,13 @@ class ReservationsSalesDashboardDataController extends Controller
             'Reserva viva',
             'Oportunidad caida',
             'CV firmado',
+            'Estado calidad',
+            'Grupo duplicado',
+            'Tamano grupo',
+            'Contado en KPI',
+            'Oportunidades afectadas',
+            'Campos en conflicto',
+            'Estado desglose',
         ];
 
         return response()->streamDownload(function () use ($rows, $headers): void {
@@ -85,6 +95,8 @@ class ReservationsSalesDashboardDataController extends Controller
                     $row['metric_label'] ?? null,
                     $row['opportunity_id'] ?? null,
                     $row['opportunity_name'] ?? null,
+                    $row['vehicle_id'] ?? null,
+                    $row['vehicle_plate'] ?? null,
                     $row['metric_date'] ?? null,
                     $row['created_date'] ?? null,
                     $row['close_date'] ?? null,
@@ -94,6 +106,7 @@ class ReservationsSalesDashboardDataController extends Controller
                     $row['stage_name'] ?? null,
                     $row['owner_id'] ?? null,
                     $row['owner_name'] ?? null,
+                    $row['delivery_store'] ?? null,
                     $row['commercial_delegation'] ?? null,
                     $row['zone'] ?? null,
                     $row['account_id'] ?? null,
@@ -110,6 +123,13 @@ class ReservationsSalesDashboardDataController extends Controller
                     ($row['is_reserva_viva'] ?? false) ? '1' : '0',
                     ($row['is_caida'] ?? false) ? '1' : '0',
                     ($row['is_cv_firmado'] ?? false) ? '1' : '0',
+                    $row['quality_status'] ?? null,
+                    $row['duplicate_group_key'] ?? null,
+                    $row['duplicate_group_size'] ?? 1,
+                    ($row['counted_in_kpi'] ?? false) ? '1' : '0',
+                    implode('|', $row['affected_opportunity_ids'] ?? []),
+                    implode('|', $row['conflicting_fields'] ?? []),
+                    $row['breakdown_status'] ?? null,
                 ]);
             }
 

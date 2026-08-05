@@ -31,27 +31,25 @@ class StockSaleValidityServiceTest extends TestCase
         $this->assertSame(1, app(StockDashboardDatasetService::class)->build([], 'summary')['summary']['sales']);
     }
 
-    public function test_no_elige_arbitrariamente_entre_dos_ventas_validas_del_mismo_vehiculo(): void
+    public function test_elige_la_venta_con_fecha_de_firma_mas_reciente(): void
     {
         $first = $this->opportunity('006-first', 'Contrato', '01t-duplicate');
         $second = $this->opportunity('006-second', 'Cerrada ganada', '01t-duplicate');
-        $firstSnapshot = $this->snapshot($first, 18000);
-        $secondSnapshot = $this->snapshot($second, 18500);
+        $firstSnapshot = $this->snapshot($first, 18000, '2026-07-20');
+        $secondSnapshot = $this->snapshot($second, 18500, '2026-07-22');
         $service = app(StockSaleValidityService::class);
 
         $result = $service->reconcile();
 
-        $this->assertSame(0, $result['valid']);
-        $this->assertSame(2, $result['duplicates']);
+        $this->assertSame(1, $result['valid']);
+        $this->assertSame(1, $result['duplicates']);
         $this->assertSame(
-            StockSaleValidityService::REASON_DUPLICATE_VALID_VEHICLE,
+            StockSaleValidityService::REASON_DUPLICATE_NOT_SELECTED,
             $firstSnapshot->fresh()->invalid_reason,
         );
-        $this->assertSame(
-            StockSaleValidityService::REASON_DUPLICATE_VALID_VEHICLE,
-            $secondSnapshot->fresh()->invalid_reason,
-        );
-        $this->assertSame(0, app(StockDashboardDatasetService::class)->build([], 'summary')['summary']['sales']);
+        $this->assertSame('006-second', $firstSnapshot->fresh()->selected_opportunity_salesforce_id);
+        $this->assertTrue($secondSnapshot->fresh()->is_valid);
+        $this->assertSame(1, app(StockDashboardDatasetService::class)->build([], 'summary')['summary']['sales']);
 
         $second->update(['stage_name' => 'Cerrada perdida']);
         $service->reconcile();
@@ -66,6 +64,22 @@ class StockSaleValidityServiceTest extends TestCase
         $this->assertSame(1, app(StockDashboardDatasetService::class)->build([], 'summary')['summary']['sales']);
     }
 
+    public function test_fecha_de_firma_empatada_marca_todas_las_ventas_como_ambiguas(): void
+    {
+        $first = $this->opportunity('006-tie-a', 'Contrato', '01t-tie');
+        $second = $this->opportunity('006-tie-b', 'Contrato', '01t-tie');
+        $firstSnapshot = $this->snapshot($first, 18000, '2026-07-20');
+        $secondSnapshot = $this->snapshot($second, 19000, '2026-07-20');
+
+        $result = app(StockSaleValidityService::class)->reconcile();
+
+        $this->assertSame(0, $result['valid']);
+        $this->assertSame(2, $result['duplicates']);
+        $this->assertSame(StockSaleValidityService::REASON_DUPLICATE_AMBIGUOUS, $firstSnapshot->fresh()->invalid_reason);
+        $this->assertSame(StockSaleValidityService::REASON_DUPLICATE_AMBIGUOUS, $secondSnapshot->fresh()->invalid_reason);
+        $this->assertNull($firstSnapshot->fresh()->selected_opportunity_salesforce_id);
+    }
+
     private function opportunity(string $id, string $stage, string $vehicleId): SalesforceOpportunity
     {
         return SalesforceOpportunity::query()->create([
@@ -78,12 +92,12 @@ class StockSaleValidityServiceTest extends TestCase
         ]);
     }
 
-    private function snapshot(SalesforceOpportunity $opportunity, int $price): SalesforceSaleSnapshot
+    private function snapshot(SalesforceOpportunity $opportunity, int $price, string $signedDate = '2026-07-20'): SalesforceSaleSnapshot
     {
         return SalesforceSaleSnapshot::query()->create([
             'opportunity_salesforce_id' => $opportunity->salesforce_id,
             'record_type' => 'Venta',
-            'signed_date' => '2026-07-20',
+            'signed_date' => $signedDate,
             'vehicle_salesforce_id' => $opportunity->vehicle_interest_id,
             'sale_price' => $price,
             'is_valid' => true,

@@ -13,6 +13,7 @@ use Throwable;
 
 class CampaignAttributionBuilderService
 {
+    private const ATTRIBUTION_RULE_VERSION = '2026-08-05.1';
     private const LEAD_CHUNK_SIZE = 1000;
 
     private const UPSERT_CHUNK_SIZE = 25;
@@ -780,13 +781,44 @@ class CampaignAttributionBuilderService
                 return $lead ? ['lead' => $lead, 'method' => $row['method']] : null;
             })
             ->filter()
-            ->sortByDesc(fn (array $row): string => sprintf(
-                '%01d|%02d|%s',
-                isset($primaryAssignments[(string) $row['lead']->salesforce_id]) ? 0 : 1,
-                $this->leadAttributionPriority($row['lead']),
-                CarbonImmutable::parse($row['lead']->created_date)->format('YmdHis')
-            ))
             ->values();
+
+        $highestPriority = (int) $candidateRows->max(fn (array $row): int => $this->leadAttributionPriority($row['lead']));
+        $precedenceCandidates = $candidateRows
+            ->filter(fn (array $row): bool => $this->leadAttributionPriority($row['lead']) === $highestPriority)
+            ->sortBy(fn (array $row): string => CarbonImmutable::parse($row['lead']->created_date)->format('YmdHis'))
+            ->values();
+        $campaignSignatures = $precedenceCandidates
+            ->map(fn (array $row): string => implode('|', [
+                $this->normalizer->compactKey($row['lead']->acquired_id),
+                $this->normalizer->compactKey($row['lead']->content_acquired),
+                $this->normalizer->key($row['lead']->campaign_acquired),
+            ]))
+            ->filter(fn (string $signature): bool => trim($signature, '|') !== '')
+            ->unique();
+
+        if ($campaignSignatures->count() > 1) {
+            DB::table('campaign_unresolved_attributions')->updateOrInsert(
+                ['entity_type' => 'opportunity', 'entity_salesforce_id' => $opportunity->salesforce_id],
+                [
+                    'status' => 'ambiguous',
+                    'reason' => 'Varias campañas de first touch con la misma precedencia',
+                    'candidates' => json_encode($precedenceCandidates->map(fn (array $row): array => [
+                        'lead_id' => $row['lead']->salesforce_id,
+                        'lead_created_at' => $row['lead']->created_date,
+                        'campaign_acquired' => $row['lead']->campaign_acquired,
+                        'acquired_id' => $row['lead']->acquired_id,
+                        'content_acquired' => $row['lead']->content_acquired,
+                    ])->all(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                    'rule_version' => self::ATTRIBUTION_RULE_VERSION,
+                    'evaluated_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+                ],
+            );
+
+            return;
+        }
+
+        $candidateRows = $precedenceCandidates;
 
         $candidateRow = $candidateRows->first();
         $candidate = $candidateRow['lead'] ?? null;
@@ -794,6 +826,11 @@ class CampaignAttributionBuilderService
         if (! $candidate) {
             return;
         }
+
+        DB::table('campaign_unresolved_attributions')
+            ->where('entity_type', 'opportunity')
+            ->where('entity_salesforce_id', $opportunity->salesforce_id)
+            ->delete();
 
         $this->storeOpportunityAssignment(
             $primaryAssignments,
@@ -973,6 +1010,10 @@ class CampaignAttributionBuilderService
                     'matched_platform_field',
                     'matched_platform_value',
                     'match_candidate_count',
+                    'attribution_candidates',
+                    'first_touch_at',
+                    'is_ambiguous',
+                    'attribution_rule_version',
                     'updated_at',
                 ]
             );
@@ -1010,6 +1051,10 @@ class CampaignAttributionBuilderService
                     'matched_platform_field' => $row['matched_platform_field'],
                     'matched_platform_value' => $row['matched_platform_value'],
                     'match_candidate_count' => $row['match_candidate_count'],
+                    'attribution_candidates' => $row['attribution_candidates'],
+                    'first_touch_at' => $row['first_touch_at'],
+                    'is_ambiguous' => $row['is_ambiguous'],
+                    'attribution_rule_version' => $row['attribution_rule_version'],
                     'lead_status' => $row['lead_status'],
                     'lead_delegation' => $row['lead_delegation'],
                     'lead_zone' => $row['lead_zone'],
@@ -1087,6 +1132,14 @@ class CampaignAttributionBuilderService
             'matched_platform_field' => $campaign['matched_platform_field'] ?? null,
             'matched_platform_value' => $campaign['matched_platform_value'] ?? null,
             'match_candidate_count' => $campaign['match_candidate_count'] ?? 0,
+            'attribution_candidates' => json_encode($campaign['candidates'] ?? [[
+                'campaign_id' => $campaign['campaign_id'] ?? null,
+                'campaign_name' => $campaign['campaign_name'] ?? null,
+                'method' => $campaign['method'] ?? null,
+            ]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'first_touch_at' => $lead->created_date,
+            'is_ambiguous' => false,
+            'attribution_rule_version' => self::ATTRIBUTION_RULE_VERSION,
             'created_at' => $now,
             'updated_at' => $now,
         ];

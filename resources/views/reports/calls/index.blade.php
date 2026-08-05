@@ -59,10 +59,10 @@
             <label for="user">Usuario/agente</label>
             <select id="user"><option value="">Todos</option></select>
         </div>
-        <div class="filter-actions">
+        <div class="filter-actions filter-actions-with-audit">
             <button type="button" class="filter-reset" id="resetFilters">Limpiar filtros</button>
             @if ($reportUserCanAudit ?? false)
-                <a class="filter-reset" id="callsAuditExport" href="/informes/llamadas/export/audit.csv">Auditar llamadas</a>
+                <a class="filter-reset filter-audit-button" id="callsAuditExport" href="/informes/llamadas/export/audit.csv">Auditar llamadas</a>
             @endif
         </div>
     </section>

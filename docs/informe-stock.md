@@ -18,8 +18,8 @@ La suma de los cinco tramos temporales y `Sin fecha de entrada` debe coincidir
 con el stock total filtrado. Los vehículos sin fecha siguen apareciendo además
 en Calidad del dato.
 
-Los umbrales operativos de las recomendaciones se mantienen configurables en
-`config/stock.php`: revisión desde 60 días y prioridad desde 90 días.
+Los umbrales de 60 y 90 dias son niveles de urgencia. No excluyen vehiculos:
+todo Disponible operativo entra en la evaluacion.
 
 ## Resumen
 
@@ -58,6 +58,10 @@ candidatos se recorren por prioridad y antigüedad, se asigna el destino con may
 score que conserve plaza y se descuenta esa plaza para los vehículos siguientes.
 La pantalla diferencia asignados y no asignados por falta de capacidad.
 
+La cabecera presenta periodo, fuente y corte en una sola banda de contexto; la
+version de reglas deja de ocupar una pill visual. La conciliacion del plan se
+agrupa en tres bloques: contexto de stock, evaluacion/plan y prioridades.
+
 ## Rendimiento de carga
 
 - Capacidades no construye el dataset de stock y ventas.
@@ -67,3 +71,11 @@ La pantalla diferencia asignados y no asignados por falta de capacidad.
   hidratación Eloquent completa.
 - Recomendaciones evalúa todos los candidatos con perfiles compactos antes de
   paginar; los motivos completos se materializan para la página visible.
+# Cambios de auditoria 2026-08-05
+
+- Contexto: todo el stock Disponible, Reservado y Bloqueado. Traslados: solo Disponible.
+- Todos los disponibles se evaluan; 60/90 dias son prioridades, no filtros de entrada.
+- Cada vehiculo conserva tres destinos teoricos. Una alternativa completa indica exceso y plazas a liberar; el plan ejecutable consume capacidad virtual y no crea movimientos ni reservas persistentes.
+- Venta valida: Venta/Cambio, contrato firmado, fecha de firma y etapa distinta de Cerrada perdida. Entre varias ventas validas gana la firma mas reciente; empate exacto implica `duplicate_ambiguous` y ninguna suma.
+- Los picklists canonicos proceden de `Product2/describe` mediante `stock:sync-salesforce-catalog`. Alias locales solo pueden apuntar a un valor Salesforce activo. `salesforce_vehicles.catalog_normalization` conserva bruto, normalizado, canonico y regla.
+- Matriculacion no participa todavia: falta confirmar su API Name exacto en metadata Salesforce.

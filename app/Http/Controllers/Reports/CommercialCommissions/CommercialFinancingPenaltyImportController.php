@@ -19,7 +19,7 @@ class CommercialFinancingPenaltyImportController extends Controller
 {
     public function index(Request $request): View|RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
+        if (! ReportUserAccess::canManageFinancingPenalties($request)) {
             return redirect()->route('reports.index');
         }
 
@@ -80,7 +80,7 @@ class CommercialFinancingPenaltyImportController extends Controller
 
     public function store(Request $request, CommercialFinancingPenaltyImportService $importer): RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
+        if (! ReportUserAccess::canManageFinancingPenalties($request)) {
             return redirect()->route('reports.index');
         }
 

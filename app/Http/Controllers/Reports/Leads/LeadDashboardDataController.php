@@ -60,24 +60,24 @@ class LeadDashboardDataController extends Controller
 
     public function kpiAudit(Request $request): JsonResponse
     {
-        abort_unless(ReportUserAccess::canAudit($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'leads'), 403);
 
         return response()->json($this->dataset->kpiAudit($request));
     }
 
     public function leadAudit(Request $request): JsonResponse
     {
-        abort_unless(ReportUserAccess::canAudit($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'leads'), 403);
 
         $ids = $request->input('ids', []);
         $ids = is_array($ids) ? $ids : preg_split('/[\s,;]+/', (string) $ids, -1, PREG_SPLIT_NO_EMPTY);
 
-        return response()->json($this->dataset->leadAudit(array_slice($ids ?: [], 0, 200)));
+        return response()->json($this->dataset->leadAudit(array_slice($ids ?: [], 0, 200), $request));
     }
 
     public function exportKpiAuditCsv(Request $request): StreamedResponse
     {
-        abort_unless(ReportUserAccess::canAudit($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'leads'), 403);
 
         $payload = $this->dataset->kpiAudit($request);
         $rows = $payload['items'] ?? [];
@@ -188,7 +188,7 @@ class LeadDashboardDataController extends Controller
 
     public function exportReconciliationAuditCsv(Request $request): StreamedResponse
     {
-        abort_unless(ReportUserAccess::canAudit($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'leads'), 403);
 
         $rows = $this->dataset->reconciliationAudit($request);
         $headers = $rows === [] ? ['Lead ID'] : array_keys($rows[0]);

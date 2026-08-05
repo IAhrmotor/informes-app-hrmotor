@@ -1,9 +1,42 @@
 # Handoff del proyecto
 
-Fecha: 2026-07-31
+Fecha: 2026-08-05
 Proyecto: `informes-app-hrmotor`
 
 ## 1. Estado general
+
+### Lote de auditoria 2026-08-05
+
+Se implementaron cierres economicos reproducibles, mes comun de Comisiones, universo completo y plan con capacidad de Stock, calidad comercial de Leads, historial de clasificacion de Llamadas, first touch y clasificacion explicita de Campanas y permisos por ambito. Las migraciones nuevas van de `2026_08_05_090000` a `2026_08_05_140000`.
+
+Comisiones expone el puente del universo de la pestana activa y congela tambien
+las variantes por zona de Area Manager. Los XLSX se limitan en servidor por rol;
+Marketing puede auditar Leads/Campanas, mientras Comercial, Responsable y Area
+Manager quedan recortados por Salesforce User ID, delegacion o zona.
+
+Reservas/Ventas ya usa una cohorte unica definida por el selector de fecha. Las
+reservas y firmas repetidas para el mismo vehiculo y fecha cuentan una vez; si
+los desgloses discrepan se presentan como `Incidencia de datos` y el CSV conserva
+todas las Opportunity IDs. La regla esta en
+`docs/informe-reservas-ventas.md`. No se incorporo matriculacion al ranking de
+Stock: el repositorio no contiene un API Name verificable para fecha/ano de
+matriculacion.
+
+Riesgos de historico: no ejecutar reprocesados globales implicitamente. Llamadas requiere rango y simulacion/motivo; Campanas recalcula first touch solo mediante comando explicito; cierres definitivos permanecen congelados hasta reapertura auditada.
+
+Pendiente de validacion externa: confirmar mediante `Product2/describe` el API
+Name de matriculacion antes de incorporarlo al ranking. Las correcciones de
+Salesforce posteriores a un cierre no alteran el snapshot: si implican dinero,
+Direccion debe registrar el importe en el libro de ajustes del siguiente mes
+abierto o reabrir el cierre con motivo. No se estima automaticamente un importe
+porque no existe una regla segura para traducir cualquier cambio de fuente.
+
+Este lote posterior no añade migraciones ni backfill. Tambien restringe las
+conciliaciones internas a Administrador/IT, habilita Penalizaciones para Auditor
+de comisiones y reorganiza la cabecera y la leyenda de recomendaciones de Stock.
+Verificacion: suite completa `393 passed / 2667 assertions`; tras el enlace
+final de Penalizaciones, `ReportAccessManagementTest` dio `8 passed / 55
+assertions`. `npm run build` correcto.
 
 Aplicación Laravel interna para HR Motor que sincroniza y consolida Salesforce,
 Google Ads y Meta Ads en seis informes:
