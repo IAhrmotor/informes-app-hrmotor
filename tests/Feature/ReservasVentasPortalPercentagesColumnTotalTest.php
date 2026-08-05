@@ -19,7 +19,7 @@ class ReservasVentasPortalPercentagesColumnTotalTest extends TestCase
         config(['openai.enabled' => false]);
     }
 
-    public function test_portales_calculan_porcentajes_sobre_total_de_su_columna(): void
+    public function test_portales_separan_conversion_y_participacion(): void
     {
         $this->opportunities('006-web-reserva', 111, ['portal_resolved' => 'Web', 'stage_name' => 'Reserva', 'reservation' => true]);
         $this->opportunities('006-web-caida', 30, ['portal_resolved' => 'Web', 'stage_name' => 'Cerrada Perdida']);
@@ -36,16 +36,22 @@ class ReservasVentasPortalPercentagesColumnTotalTest extends TestCase
         $this->assertSame(111, $web['reservas_vivas']);
         $this->assertSame(30, $web['oportunidades_caidas']);
         $this->assertSame(20, $web['cv_firmados']);
-        $this->assertSame(32.27, (float) $web['reservas_vivas_pct']);
-        $this->assertSame(25.0, (float) $web['oportunidades_caidas_pct']);
-        $this->assertSame(25.0, (float) $web['cv_firmados_pct']);
+        $this->assertSame(68.94, (float) $web['reservas_vivas_pct']);
+        $this->assertSame(18.63, (float) $web['oportunidades_caidas_pct']);
+        $this->assertSame(12.42, (float) $web['cv_firmados_pct']);
+        $this->assertSame(32.27, (float) $web['reservas_vivas_participation_pct']);
+        $this->assertSame(25.0, (float) $web['oportunidades_caidas_participation_pct']);
+        $this->assertSame(25.0, (float) $web['cv_firmados_participation_pct']);
 
         $this->assertSame(233, $coches['reservas_vivas']);
         $this->assertSame(90, $coches['oportunidades_caidas']);
         $this->assertSame(60, $coches['cv_firmados']);
-        $this->assertSame(67.73, (float) $coches['reservas_vivas_pct']);
-        $this->assertSame(75.0, (float) $coches['oportunidades_caidas_pct']);
-        $this->assertSame(75.0, (float) $coches['cv_firmados_pct']);
+        $this->assertSame(60.84, (float) $coches['reservas_vivas_pct']);
+        $this->assertSame(23.5, (float) $coches['oportunidades_caidas_pct']);
+        $this->assertSame(15.67, (float) $coches['cv_firmados_pct']);
+        $this->assertSame(67.73, (float) $coches['reservas_vivas_participation_pct']);
+        $this->assertSame(75.0, (float) $coches['oportunidades_caidas_participation_pct']);
+        $this->assertSame(75.0, (float) $coches['cv_firmados_participation_pct']);
     }
 
     private function opportunities(string $prefix, int $count, array $attributes = []): void

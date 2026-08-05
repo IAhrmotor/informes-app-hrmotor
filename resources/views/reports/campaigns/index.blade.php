@@ -156,6 +156,7 @@
             <div class="notice" id="loadingMessage">Cargando datos de campañas...</div>
             <div class="notice is-hidden" id="emptyMessage">No hay campañas de plataforma para el periodo seleccionado.</div>
             <div id="warnings"></div>
+            <section class="card panel is-hidden" id="salesforceReconciliation"></section>
             <div class="campaign-legacy-context" aria-hidden="true">
                 <span id="periodLabel"></span>
                 <span id="pivotLabel"></span>

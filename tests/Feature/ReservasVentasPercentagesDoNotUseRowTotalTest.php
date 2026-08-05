@@ -19,7 +19,7 @@ class ReservasVentasPercentagesDoNotUseRowTotalTest extends TestCase
         config(['openai.enabled' => false]);
     }
 
-    public function test_porcentajes_de_tablas_no_usan_oportunidades_totales_de_la_fila(): void
+    public function test_conversion_usa_total_de_fila_y_participacion_usa_total_de_columna(): void
     {
         $this->opportunities('006-web-reserva', 111, ['portal_resolved' => 'Web', 'stage_name' => 'Reserva', 'reservation' => true]);
         $this->opportunities('006-web-neutra', 3689, ['portal_resolved' => 'Web']);
@@ -30,8 +30,8 @@ class ReservasVentasPercentagesDoNotUseRowTotalTest extends TestCase
 
         $this->assertSame(3800, $row['oportunidades_totales']);
         $this->assertSame(111, $row['reservas_vivas']);
-        $this->assertSame(32.27, (float) $row['reservas_vivas_pct']);
-        $this->assertNotSame(round((111 / 3800) * 100, 2), (float) $row['reservas_vivas_pct']);
+        $this->assertSame(2.92, (float) $row['reservas_vivas_pct']);
+        $this->assertSame(32.27, (float) $row['reservas_vivas_participation_pct']);
     }
 
     private function opportunities(string $prefix, int $count, array $attributes = []): void

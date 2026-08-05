@@ -61,6 +61,9 @@
         </div>
         <div class="filter-actions">
             <button type="button" class="filter-reset" id="resetFilters">Limpiar filtros</button>
+            @if ($reportUserCanAudit ?? false)
+                <a class="filter-reset" id="callsAuditExport" href="/informes/llamadas/export/audit.csv">Auditar llamadas</a>
+            @endif
         </div>
     </section>
 
@@ -92,8 +95,9 @@
 
     <main>
         <section id="panel-resumen" class="tab-panel active">
-            <div class="notice" id="loadingMessage">Cargando datos de Salesforce...</div>
+            <div class="notice" id="loadingMessage">Cargando fotografía local...</div>
             <div class="notice is-hidden" id="emptyMessage">No hay llamadas sincronizadas para el periodo seleccionado.</div>
+            <section class="card panel is-hidden" id="callsReconciliation"></section>
 
             <section class="period-strip">
                 <div class="card period-card">

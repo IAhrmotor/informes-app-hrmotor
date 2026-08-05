@@ -14,7 +14,9 @@ class CallNoCsvDependencyTest extends TestCase
 
         $content = $files->map(fn (string $file) => file_get_contents($file))->implode("\n");
 
-        $this->assertStringNotContainsString('csv', strtolower($content));
+        $this->assertStringNotContainsString('FromCsv', $content);
+        $this->assertStringNotContainsString('storage_path(', $content);
+        $this->assertStringNotContainsString('fgetcsv(', strtolower($content));
         $this->assertStringNotContainsString('LeadRaw', $content);
         $this->assertStringNotContainsString('leads_raw', $content);
     }

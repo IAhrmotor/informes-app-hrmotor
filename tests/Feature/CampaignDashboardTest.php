@@ -971,6 +971,9 @@ class CampaignDashboardTest extends TestCase
         $this->getJson('/informes/campanas/data/summary?'.$this->query())
             ->assertOk()
             ->assertJsonPath('kpis.leads_salesforce', 1)
+            ->assertJsonPath('source_reconciliation.leads.platform', 0)
+            ->assertJsonPath('source_reconciliation.leads.salesforce_only', 1)
+            ->assertJsonPath('source_reconciliation.leads.total_distinct', 1)
             ->assertJsonPath('diagnostics.salesforce_only_by_campaign', 1);
     }
 
@@ -1662,6 +1665,29 @@ class CampaignDashboardTest extends TestCase
 
         $this->assertSame([], $summary['review_campaigns']);
         $this->assertSame([], $summary['rankings']['review_campaigns']);
+    }
+
+    public function test_campaigns_review_prioritizes_economic_impact_for_zero_attribution(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'campaign_id' => 'low-spend-zero-leads',
+            'campaign_name' => 'Zero leads low spend',
+            'spend' => 200,
+            'clicks' => 20,
+        ]));
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'campaign_id' => 'high-spend-zero-leads',
+            'campaign_name' => 'Zero leads high spend',
+            'spend' => 12000,
+            'clicks' => 800,
+        ]));
+
+        $summary = $this->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->json();
+
+        $this->assertSame('high-spend-zero-leads', $summary['review_campaigns'][0]['campaign_id']);
+        $this->assertSame(12000.0, (float) $summary['review_campaigns'][0]['economic_impact']);
     }
 
     public function test_sales_and_purchases_count_distinct_opportunities_inside_campaign(): void

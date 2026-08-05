@@ -16,10 +16,9 @@ class DashboardCompactColumnsTest extends TestCase
         $this->assertStringContainsString('formatCountPercent(row.gestionados, row.gestionados_pct)', $js);
         $this->assertStringContainsString('formatCountPercent(row.llamadas, row.llamadas_pct)', $js);
         $this->assertStringContainsString('formatCountPercent(row.formularios, row.formularios_pct)', $js);
-        $this->assertStringNotContainsString('% conversión</th>', $blade);
-        $this->assertStringNotContainsString('% descarte</th>', $blade);
-        $this->assertStringNotContainsString('% gestionados</th>', $blade);
-        $this->assertStringNotContainsString('% llamadas</th>', $blade);
-        $this->assertStringNotContainsString('% formularios</th>', $blade);
+        $this->assertStringContainsString('data-column="conversion_pct">% convertidos</th>', $blade);
+        $this->assertStringContainsString('data-column="descarte_pct">% descartados</th>', $blade);
+        $this->assertStringContainsString('data-column="gestionados_pct">% gestionados</th>', $blade);
+        $this->assertStringContainsString('class="num is-hidden" data-column="conversion_pct"', $blade);
     }
 }

@@ -33,6 +33,9 @@ class ReservasVentasZeroColumnTotalTest extends TestCase
         $this->assertSame(0.0, (float) $row['reservas_vivas_pct']);
         $this->assertSame(0.0, (float) $row['oportunidades_caidas_pct']);
         $this->assertSame(0.0, (float) $row['cv_firmados_pct']);
+        $this->assertSame(0.0, (float) $row['reservas_vivas_participation_pct']);
+        $this->assertSame(0.0, (float) $row['oportunidades_caidas_participation_pct']);
+        $this->assertSame(0.0, (float) $row['cv_firmados_participation_pct']);
     }
 
     private function opportunities(string $prefix, int $count, array $attributes = []): void

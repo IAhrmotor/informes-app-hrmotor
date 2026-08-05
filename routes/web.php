@@ -92,6 +92,8 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/data/agents', [CallDashboardDataController::class, 'agents'])->name('data.agents');
             Route::get('/data/delegations', [CallDashboardDataController::class, 'delegations'])->name('data.delegations');
             Route::get('/data/portals', [CallDashboardDataController::class, 'portals'])->name('data.portals');
+            Route::get('/data/audit', [CallDashboardDataController::class, 'audit'])->name('data.audit');
+            Route::get('/export/audit.csv', [CallDashboardDataController::class, 'exportAuditCsv'])->name('export.audit');
         });
 
     Route::prefix('informes/campanas')

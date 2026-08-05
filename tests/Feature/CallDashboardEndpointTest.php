@@ -38,6 +38,51 @@ class CallDashboardEndpointTest extends TestCase
         $this->getJson('/informes/llamadas/data/portals')->assertOk()->assertJsonPath('items.0.portal', 'Web');
     }
 
+    public function test_equipos_incluyen_fila_sin_equipo_y_concilian_con_atendidas(): void
+    {
+        $this->callRow(['salesforce_id' => '00T-operational']);
+        $this->callRow([
+            'salesforce_id' => '00T-unassigned',
+            'operational_team' => 'system',
+            'owner_team' => 'system',
+        ]);
+
+        $summary = $this->getJson('/informes/llamadas/data/summary')->assertOk()->json('kpis');
+        $teams = collect($this->getJson('/informes/llamadas/data/agents')->assertOk()->json('teams'));
+
+        $this->assertSame(2, $summary['answered']);
+        $this->assertSame(2, $teams->sum('answered'));
+        $this->assertSame(1, $teams->firstWhere('team_label', 'Sin equipo')['answered']);
+    }
+
+    public function test_auditoria_identifica_task_fuera_del_universo_por_call_object(): void
+    {
+        $this->callRow([
+            'salesforce_id' => '00T-included',
+            'call_object' => 'a-call-object',
+            'included_in_dashboard' => true,
+            'classification_rule_version' => '2026-08-04.1',
+        ]);
+        $this->callRow([
+            'salesforce_id' => '00T-excluded',
+            'call_object' => null,
+            'included_in_dashboard' => false,
+            'dashboard_exclusion_reason' => 'missing_call_object',
+        ]);
+
+        $this->getJson('/informes/llamadas/data/summary')
+            ->assertOk()
+            ->assertJsonPath('kpis.total_calls', 1);
+        $items = collect($this->getJson('/informes/llamadas/data/audit')->assertOk()->json('items'));
+
+        $this->assertCount(2, $items);
+        $this->assertSame('included', $items->firstWhere('task_id', '00T-included')['inclusion_exclusion_reason']);
+        $this->assertSame('missing_call_object', $items->firstWhere('task_id', '00T-excluded')['inclusion_exclusion_reason']);
+        $this->get('/informes/llamadas/export/audit.csv')
+            ->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8');
+    }
+
     private function callRow(array $overrides = []): void
     {
         SalesforceCall::create(array_merge([

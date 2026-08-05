@@ -145,7 +145,6 @@ FROM Task
 WHERE
     IsDeleted = false
     AND Type = 'Call'
-    AND CallObject != null
     AND CreatedDate >= {$startDateTime}
     AND CreatedDate < {$endDateTime}
 ORDER BY CreatedDate DESC
@@ -210,6 +209,7 @@ SOQL;
             $parsed['poll_value'] ?? null,
             $parsed['result_raw'] ?? null,
         );
+        $includedInDashboard = filled(data_get($record, 'CallObject'));
 
         return SalesforceCall::updateOrCreate(
             ['salesforce_id' => data_get($record, 'Id')],
@@ -229,6 +229,9 @@ SOQL;
                 'who_type' => $this->whoType(data_get($record, 'WhoId')),
                 'what_id' => data_get($record, 'WhatId'),
                 'call_object' => data_get($record, 'CallObject'),
+                'included_in_dashboard' => $includedInDashboard,
+                'dashboard_exclusion_reason' => $includedInDashboard ? null : 'missing_call_object',
+                'classification_rule_version' => CallClassificationRules::VERSION,
                 'call_duration_seconds' => is_numeric(data_get($record, 'CallDurationInSeconds')) ? (int) data_get($record, 'CallDurationInSeconds') : null,
                 'parsed_duration_seconds' => $parsed['parsed_duration_seconds'],
                 'adjusted_duration_seconds' => $this->adjustedDuration($duration, $portal['origin']),

@@ -43,6 +43,22 @@
                 </div>
             </div>
         </div>
+        <div class="stock-quality-grid">
+            @foreach ([
+                ['Universo filtrado', $recommendationReconciliation['universe'] ?? 0],
+                ['Disponibles', $recommendationReconciliation['available'] ?? 0],
+                ['Evaluados', $recommendationReconciliation['evaluated'] ?? 0],
+                ['Candidatos', $recommendationReconciliation['candidates'] ?? 0],
+                ['Sin destino con capacidad', $recommendationReconciliation['without_destination'] ?? 0],
+                ['Asignados en el plan', $recommendationReconciliation['planned'] ?? 0],
+                ['Sin asignar por capacidad', $recommendationReconciliation['unallocated_by_capacity'] ?? 0],
+                ['Excluidos: no disponibles', $recommendationReconciliation['excluded_not_available'] ?? 0],
+                ['Excluidos: catalogo no operativo', $recommendationReconciliation['excluded_non_operational_catalog'] ?? 0],
+                ['Excluidos: sin criterio de revision', $recommendationReconciliation['excluded_below_review_threshold'] ?? 0],
+            ] as [$label, $value])
+                <div class="stock-quality-item"><span>{{ $label }}</span><strong>{{ number_format($value, 0, ',', '.') }}</strong></div>
+            @endforeach
+        </div>
         <form method="GET" action="{{ route('reports.stock.index') }}" class="stock-inline-filter" data-live-plate-form>
             @foreach(request()->except(['candidate_plate', 'recommendation_page']) as $name => $value)
                 @if(is_scalar($value))<input type="hidden" name="{{ $name }}" value="{{ $value }}">@endif
@@ -55,7 +71,7 @@
             <div class="table-scroll stock-overflow-table stock-candidate-scroll" data-stock-scroll-body>
             <table id="stock-recommendations-table" class="stock-table stock-recommendations-table" data-sortable-table>
                 <thead><tr>
-                    @foreach ([['Vehículo','text'],['Delegación actual','text'],['Días','number'],['Mismo modelo','number'],['Prioridad','text'],['Top 3 destinos','text']] as $index=>[$label,$type])
+                    @foreach ([['Vehículo','text'],['Delegación actual','text'],['Días','number'],['Mismo modelo','number'],['Prioridad','text'],['Destino del plan','text'],['Top 3 destinos','text']] as $index=>[$label,$type])
                         <th aria-sort="none"><button type="button" class="stock-sort-button" data-sort-index="{{ $index }}" data-sort-type="{{ $type }}">{{ $label }} <span>↕</span></button></th>
                     @endforeach
                 </tr></thead>
@@ -69,6 +85,14 @@
                         <td data-sort-value="{{ $row['days'] }}">{{ $row['days'] ?? '—' }}</td>
                         <td data-sort-value="{{ $row['same_model_stock'] }}">{{ $row['same_model_stock'] }}</td>
                         <td data-sort-value="{{ $row['review_level'] }}"><span @class(['stock-tag','danger'=>$row['review_level']==='priority','warning'=>$row['review_level']==='review'])>{{ $row['review_level']==='priority'?'Prioritario':($row['review_level']==='review'?'Revisión':'Normal') }}</span></td>
+                        <td data-sort-value="{{ data_get($row, 'planned_destination.delegation') }}">
+                            @if(data_get($row, 'planned_destination.delegation'))
+                                <strong>{{ data_get($row, 'planned_destination.delegation') }}</strong>
+                                <small>Asignación conjunta · score {{ data_get($row, 'planned_destination.score') }}</small>
+                            @else
+                                <span class="stock-tag warning">Sin plaza en el plan</span>
+                            @endif
+                        </td>
                         <td data-sort-value="{{ data_get($row,'recommendations.0.delegation') }}">
                             @forelse($row['recommendations'] as $index=>$recommendation)
                                 <details class="stock-inline-recommendation">
@@ -81,7 +105,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="6">No hay vehículos disponibles para los filtros seleccionados.</td></tr>
+                    <tr><td colspan="7">No hay vehículos disponibles para los filtros seleccionados.</td></tr>
                 @endforelse
                 </tbody>
             </table>

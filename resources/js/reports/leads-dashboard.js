@@ -769,8 +769,22 @@ function setLoadingState(isLoading) {
     loading?.classList.toggle('is-hidden', !isLoading);
 
     if (isLoading) {
-        document.getElementById('updatedBadge').textContent = 'Cargando datos de Salesforce...';
+        document.getElementById('updatedBadge').textContent = 'Cargando fotografía local...';
         document.getElementById('emptyMessage')?.classList.add('is-hidden');
+        [
+            'kpiGrid',
+            'comparisonRows',
+            'insights',
+            'actionableInsights',
+            'commercialZoneRows',
+            'commercialDelegationRows',
+            'commercialRows',
+            'delegationRows',
+            'portalRows',
+        ].forEach((id) => {
+            const element = document.getElementById(id);
+            if (element) element.innerHTML = '';
+        });
     }
 }
 

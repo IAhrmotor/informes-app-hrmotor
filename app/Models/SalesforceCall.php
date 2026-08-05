@@ -23,6 +23,9 @@ class SalesforceCall extends Model
         'who_type',
         'what_id',
         'call_object',
+        'included_in_dashboard',
+        'dashboard_exclusion_reason',
+        'classification_rule_version',
         'call_duration_seconds',
         'parsed_duration_seconds',
         'adjusted_duration_seconds',
@@ -69,6 +72,7 @@ class SalesforceCall extends Model
         'is_answered' => 'boolean',
         'is_lost' => 'boolean',
         'is_overflow' => 'boolean',
+        'included_in_dashboard' => 'boolean',
         'raw_payload' => 'array',
         'parse_debug' => 'array',
     ];

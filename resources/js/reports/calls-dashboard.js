@@ -1,5 +1,7 @@
 const fmt = new Intl.NumberFormat('es-ES');
 const tableSortState = new Map();
+let callsReloadController = null;
+let latestCallsReloadRequestId = 0;
 
 document.addEventListener('DOMContentLoaded', async () => {
     bindTabs();
@@ -78,19 +80,27 @@ function bindResetFilters() {
 }
 
 async function reloadAllData() {
+    callsReloadController?.abort();
+    callsReloadController = new AbortController();
+    const requestId = ++latestCallsReloadRequestId;
+    const requestOptions = { signal: callsReloadController.signal };
+    const filters = currentFilters();
     setLoadingState(true);
+    const auditExport = document.getElementById('callsAuditExport');
+    if (auditExport) auditExport.href = `/informes/llamadas/export/audit.csv?${filters}`;
 
     try {
-        const filters = currentFilters();
-        const summary = await fetchJson(`/informes/llamadas/data/summary?${filters}`);
+        const summary = await fetchJson(`/informes/llamadas/data/summary?${filters}`, requestOptions);
+        if (requestId !== latestCallsReloadRequestId) return;
         renderSummary(summary);
         renderFilterOptions(summary.filters || {});
 
         const [agents, delegations, portals] = await Promise.all([
-            fetchJson(`/informes/llamadas/data/agents?${currentFilters()}`),
-            fetchJson(`/informes/llamadas/data/delegations?${currentFilters()}`),
-            fetchJson(`/informes/llamadas/data/portals?${currentFilters()}`),
+            fetchJson(`/informes/llamadas/data/agents?${filters}`, requestOptions),
+            fetchJson(`/informes/llamadas/data/delegations?${filters}`, requestOptions),
+            fetchJson(`/informes/llamadas/data/portals?${filters}`, requestOptions),
         ]);
+        if (requestId !== latestCallsReloadRequestId) return;
 
         renderCommercialAgents(agents.commercials || []);
         renderSupportAgents('customerServiceRows', agents.customer_service || [], 'No hay datos de Atencion al Cliente para los filtros seleccionados.');
@@ -100,9 +110,13 @@ async function reloadAllData() {
         renderDelegations(delegations.delegations || delegations.items || []);
         renderPortals(portals.items || []);
     } catch (error) {
-        showLoadError(error);
+        if (error?.name !== 'AbortError' && requestId === latestCallsReloadRequestId) {
+            showLoadError(error);
+        }
     } finally {
-        setLoadingState(false);
+        if (requestId === latestCallsReloadRequestId) {
+            setLoadingState(false);
+        }
     }
 }
 
@@ -112,6 +126,7 @@ function renderSummary(data) {
         : 'Datos actualizados: pendiente';
     document.getElementById('currentPeriodLabel').textContent = periodText(data.periodo_actual);
     document.getElementById('comparisonPeriodLabel').textContent = periodText(data.periodo_comparado);
+    renderCallsReconciliation(data.reconciliation || {}, data.classification_rule_version);
 
     const empty = document.getElementById('emptyMessage');
     empty.classList.toggle('is-hidden', Boolean(data.ok));
@@ -121,6 +136,29 @@ function renderSummary(data) {
     renderDashboardVisuals(data);
     renderComparison(data.comparativa || []);
     renderInsights(data.insights || []);
+}
+
+function renderCallsReconciliation(reconciliation, ruleVersion) {
+    const root = document.getElementById('callsReconciliation');
+    if (!root) return;
+    const raw = Number(reconciliation.raw_type_call_tasks || 0);
+    const included = Number(reconciliation.dashboard_call_object_tasks || 0);
+    const excluded = Number(reconciliation.excluded_without_call_object || 0);
+    root.classList.toggle('is-hidden', raw === 0 && included === 0 && excluded === 0);
+    root.innerHTML = `
+        <div class="panel-title">
+            <div>
+                <h2>Conciliacion del universo de llamadas</h2>
+                <div class="small">Task Type=Call - sin CallObject = llamadas integradas analizadas.</div>
+            </div>
+        </div>
+        <div class="campaign-diagnostics">
+            <div class="diagnostic-item"><span>Tasks tipo Call</span><strong>${formatNumber(raw)}</strong></div>
+            <div class="diagnostic-item"><span>Excluidas sin CallObject</span><strong>${formatNumber(excluded)}</strong></div>
+            <div class="diagnostic-item"><span>Incluidas en dashboard</span><strong>${formatNumber(included)}</strong></div>
+            <div class="diagnostic-item"><span>Version de reglas</span><strong>${escapeHtml(ruleVersion || 'legacy')}</strong></div>
+        </div>
+    `;
 }
 
 function renderKpis(kpis) {
@@ -567,8 +605,25 @@ function setLoadingState(isLoading) {
     document.getElementById('loadingMessage')?.classList.toggle('is-hidden', !isLoading);
 
     if (isLoading) {
-        document.getElementById('updatedBadge').textContent = 'Cargando datos de Salesforce...';
+        document.getElementById('updatedBadge').textContent = 'Cargando fotografía local...';
         document.getElementById('emptyMessage')?.classList.add('is-hidden');
+        [
+            'teamBars',
+            'callsReconciliation',
+            'insights',
+            'comparisonRows',
+            'commercialRows',
+            'customerServiceRows',
+            'contactCenterRows',
+            'appraiserRows',
+            'zoneRows',
+            'delegationRows',
+            'portalRows',
+        ].forEach((id) => {
+            const element = document.getElementById(id);
+            if (element) element.innerHTML = '';
+            if (id === 'callsReconciliation') element?.classList.add('is-hidden');
+        });
     }
 }
 
@@ -588,8 +643,11 @@ function toggleCustomPeriods() {
     document.getElementById('customPeriods')?.classList.toggle('is-hidden', document.getElementById('period')?.value !== 'custom');
 }
 
-async function fetchJson(url) {
-    const response = await fetch(url, { headers: { Accept: 'application/json' } });
+async function fetchJson(url, options = {}) {
+    const response = await fetch(url, {
+        ...options,
+        headers: { Accept: 'application/json', ...(options.headers || {}) },
+    });
 
     if (!response.ok) {
         throw new Error(`Error cargando ${url}`);

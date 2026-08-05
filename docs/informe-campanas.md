@@ -90,3 +90,13 @@ metodo, campos y valores del match, RecordType, Opportunity y fechas. La
 cabecera separa sincronizacion de Salesforce, Meta y Google, construccion,
 generacion y corte. Si las fuentes son posteriores al builder, el panel solicita
 reconstruir atribuciones.
+
+La sección `Conciliación por origen` reconstruye por entidades distintas:
+
+- atribuciones procedentes de Google/Meta;
+- atribuciones `Salesforce-only`;
+- total distinto;
+- solapamientos entre ambos universos.
+
+Las campañas a revisar se ordenan por inversión, de forma que una campaña con
+gasto alto y atribución cero no quede detrás de incidencias de poco impacto.

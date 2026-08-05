@@ -1,7 +1,7 @@
 @php
     $currentReport = $currentReport ?? 'leads';
     $currentAdminPage = $currentAdminPage ?? null;
-    $updatedBadgeText = $updatedBadgeText ?? 'Cargando datos de Salesforce...';
+    $updatedBadgeText = $updatedBadgeText ?? 'Cargando fotografía local...';
     $adminLinks = [
         ['key' => 'users', 'label' => 'Usuarios', 'route' => 'reports.users.index'],
         ['key' => 'access-settings', 'label' => 'Permisos', 'route' => 'reports.access-settings.index'],

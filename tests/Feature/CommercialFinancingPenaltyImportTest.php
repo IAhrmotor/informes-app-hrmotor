@@ -10,7 +10,6 @@ use App\Models\SalesforceUser;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use App\Services\Reports\CommercialCommissions\CommercialFinancingPenaltyImportService;
 use App\Services\Reports\CommercialCommissions\CommercialFinancingPenaltyService;
-use App\Services\Reports\CommercialCommissions\Import\CommercialFinancingPenaltyImportException;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -58,14 +57,26 @@ class CommercialFinancingPenaltyImportTest extends TestCase
         ]);
     }
 
-    public function test_rechaza_archivo_sin_email_comercial(): void
+    public function test_importa_formato_legacy_con_id_y_nombre_sin_email(): void
     {
-        $this->expectException(CommercialFinancingPenaltyImportException::class);
+        SalesforceUser::create([
+            'salesforce_id' => '005-COMMERCIAL',
+            'name' => 'Comercial Uno',
+            'email' => 'comercial@hrmotor.com',
+            'profile_name' => 'Compra/Venta',
+            'is_active' => true,
+        ]);
 
         app(CommercialFinancingPenaltyImportService::class)->import($this->xlsxUpload([
             ['Mes comision', 'Nombre comercial', 'ID comercial', 'descontar comercial 4%'],
             ['2026-06', 'Comercial Uno', '005-COMMERCIAL', 100],
         ]), null);
+
+        $this->assertDatabaseHas('commercial_financing_penalties', [
+            'salesforce_user_id' => '005-COMMERCIAL',
+            'commercial_email' => 'comercial@hrmotor.com',
+            'amount' => -100,
+        ]);
     }
 
     public function test_resta_la_penalizacion_del_total_final_del_comercial(): void

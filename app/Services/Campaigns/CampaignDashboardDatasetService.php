@@ -1242,6 +1242,7 @@ class CampaignDashboardDatasetService
             'daily_results' => $charts['daily_reservations_sales'],
             'platform_comparison' => $charts['platforms'],
             'review_campaigns' => $this->reviewCampaigns($rows, $filters),
+            'source_reconciliation' => $this->sourceReconciliation($filters, $period),
             'diagnostics' => $includeDiagnostics ? $this->diagnostics($allRows, $period, $filters) : [],
             'filters' => $includeFilters ? $this->filterOptionsCached() : [],
         ];
@@ -2391,7 +2392,7 @@ class CampaignDashboardDatasetService
                 return null;
             })
             ->filter()
-            ->sortByDesc(fn (array $row) => $row['value'] ?? 0)
+            ->sortByDesc(fn (array $row) => $row['economic_impact'] ?? 0)
             ->take(8)
             ->values()
             ->all();
@@ -2411,7 +2412,55 @@ class CampaignDashboardDatasetService
             'value' => $value,
             'cost_per_result' => $costPerResult,
             'result_count' => $resultCount,
+            'economic_impact' => round((float) ($row['spend'] ?? 0), 2),
+            'spend' => round((float) ($row['spend'] ?? 0), 2),
         ];
+    }
+
+    private function sourceReconciliation(array $filters, array $period): array
+    {
+        $query = DB::table('campaign_lead_attributions as cla')
+            ->where('cla.lead_created_date', '>=', $period['start_at'])
+            ->where('cla.lead_created_date', '<', $period['end_at']);
+        $filtersWithoutSource = array_merge($filters, ['campaign_source_type' => '']);
+        $this->applyLeadAttributionFilters($query, $filtersWithoutSource, 'cla');
+        $this->applyCampaignContextFilter($query, $filtersWithoutSource, 'cla');
+
+        $sets = [
+            'platform' => ['leads' => [], 'opportunities' => [], 'results' => []],
+            'salesforce_only' => ['leads' => [], 'opportunities' => [], 'results' => []],
+        ];
+        foreach ($query->get([
+            'cla.lead_id', 'cla.opportunity_id', 'cla.platform', 'cla.campaign_type',
+            'cla.has_opportunity', 'cla.has_sale', 'cla.has_purchase',
+        ]) as $row) {
+            $source = $row->platform === 'salesforce' ? 'salesforce_only' : 'platform';
+            if (filled($row->lead_id)) {
+                $sets[$source]['leads'][(string) $row->lead_id] = true;
+            }
+            if ((bool) $row->has_opportunity && filled($row->opportunity_id)) {
+                $sets[$source]['opportunities'][(string) $row->opportunity_id] = true;
+            }
+            $isResult = ($row->campaign_type === 'tasacion' && (bool) $row->has_purchase)
+                || ($row->campaign_type !== 'tasacion' && (bool) $row->has_sale);
+            if ($isResult && filled($row->opportunity_id)) {
+                $sets[$source]['results'][(string) $row->opportunity_id] = true;
+            }
+        }
+
+        $result = [];
+        foreach (['leads', 'opportunities', 'results'] as $metric) {
+            $platform = array_keys($sets['platform'][$metric]);
+            $salesforceOnly = array_keys($sets['salesforce_only'][$metric]);
+            $result[$metric] = [
+                'platform' => count($platform),
+                'salesforce_only' => count($salesforceOnly),
+                'total_distinct' => count(array_unique(array_merge($platform, $salesforceOnly))),
+                'overlap' => count(array_intersect($platform, $salesforceOnly)),
+            ];
+        }
+
+        return $result;
     }
 
     private function top(array $rows, string $key, bool $ascending = false, bool $requireValue = false): array

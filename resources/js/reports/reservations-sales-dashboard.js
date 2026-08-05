@@ -1,5 +1,7 @@
 const fmt = new Intl.NumberFormat('es-ES');
 const tableSortState = new Map();
+let reservationsReloadController = null;
+let latestReservationsReloadRequestId = 0;
 const reservationsCommercialColumnsStorageKey = 'reservationsCommercialColumns';
 const reservationsCommercialColumnDefinitions = [
     { key: 'comercial', label: 'Comercial', alwaysVisible: true },
@@ -8,10 +10,13 @@ const reservationsCommercialColumnDefinitions = [
     { key: 'oportunidades_totales', label: 'Oportunidades totales', alwaysVisible: true },
     { key: 'reservas_vivas', label: 'Reservas vivas', alwaysVisible: true },
     { key: 'reservas_vivas_pct', label: '% reservas vivas' },
+    { key: 'reservas_vivas_participation_pct', label: '% participacion reservas' },
     { key: 'oportunidades_caidas', label: 'Oportunidades caidas', alwaysVisible: true },
     { key: 'oportunidades_caidas_pct', label: '% oportunidades caidas' },
+    { key: 'oportunidades_caidas_participation_pct', label: '% participacion caidas' },
     { key: 'cv_firmados', label: 'Contratos CV firmados', alwaysVisible: true },
     { key: 'cv_firmados_pct', label: '% contratos CV firmados' },
+    { key: 'cv_firmados_participation_pct', label: '% participacion CV' },
 ];
 let reservationsCommercialVisibleColumns = loadVisibleColumns(
     reservationsCommercialColumnsStorageKey,
@@ -93,27 +98,37 @@ function bindFilters() {
 }
 
 async function reloadAllData() {
+    reservationsReloadController?.abort();
+    reservationsReloadController = new AbortController();
+    const requestId = ++latestReservationsReloadRequestId;
+    const requestOptions = { signal: reservationsReloadController.signal };
     setLoadingState(true);
 
     try {
         const filters = currentFilters();
-        const summary = await fetchJson(`/informes/reservas-ventas/data/summary?${filters}`);
+        const summary = await fetchJson(`/informes/reservas-ventas/data/summary?${filters}`, requestOptions);
+        if (requestId !== latestReservationsReloadRequestId) return;
         renderSummary(summary);
         renderFilterOptions(summary.filters || {});
 
         const [commercials, portals] = await Promise.all([
-            fetchJson(`/informes/reservas-ventas/data/commercials?${filters}`),
-            fetchJson(`/informes/reservas-ventas/data/portals?${filters}`),
+            fetchJson(`/informes/reservas-ventas/data/commercials?${filters}`, requestOptions),
+            fetchJson(`/informes/reservas-ventas/data/portals?${filters}`, requestOptions),
         ]);
+        if (requestId !== latestReservationsReloadRequestId) return;
 
         renderCommercialZones(commercials.zones || []);
         renderCommercialDelegations(commercials.delegations || []);
         renderCommercials(commercials.commercials || commercials.items || []);
         renderPortals(portals.items || []);
     } catch (error) {
-        showLoadError(error);
+        if (error?.name !== 'AbortError' && requestId === latestReservationsReloadRequestId) {
+            showLoadError(error);
+        }
     } finally {
-        setLoadingState(false);
+        if (requestId === latestReservationsReloadRequestId) {
+            setLoadingState(false);
+        }
     }
 }
 
@@ -217,9 +232,9 @@ function renderCommercialZones(rows) {
     renderRows('commercialZoneRows', rows, [
         [(row) => row.zone || '-'],
         [(row) => formatNumber(row.oportunidades_totales), true],
-        [(row) => formatCountPercent(row.reservas_vivas, row.reservas_vivas_pct), true, (row) => row.reservas_vivas, true],
-        [(row) => formatCountPercent(row.oportunidades_caidas, row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas, true],
-        [(row) => formatCountPercent(row.cv_firmados, row.cv_firmados_pct), true, (row) => row.cv_firmados, true],
+        [(row) => formatCountConversionParticipation(row.reservas_vivas, row.reservas_vivas_pct, row.reservas_vivas_participation_pct), true, (row) => row.reservas_vivas, true],
+        [(row) => formatCountConversionParticipation(row.oportunidades_caidas, row.oportunidades_caidas_pct, row.oportunidades_caidas_participation_pct), true, (row) => row.oportunidades_caidas, true],
+        [(row) => formatCountConversionParticipation(row.cv_firmados, row.cv_firmados_pct, row.cv_firmados_participation_pct), true, (row) => row.cv_firmados, true],
     ], 'No hay datos de zonas para los filtros seleccionados.');
 }
 
@@ -228,9 +243,9 @@ function renderCommercialDelegations(rows) {
         [(row) => row.commercial_delegation || '-'],
         [(row) => row.zone || '-'],
         [(row) => formatNumber(row.oportunidades_totales), true],
-        [(row) => formatCountPercent(row.reservas_vivas, row.reservas_vivas_pct), true, (row) => row.reservas_vivas, true],
-        [(row) => formatCountPercent(row.oportunidades_caidas, row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas, true],
-        [(row) => formatCountPercent(row.cv_firmados, row.cv_firmados_pct), true, (row) => row.cv_firmados, true],
+        [(row) => formatCountConversionParticipation(row.reservas_vivas, row.reservas_vivas_pct, row.reservas_vivas_participation_pct), true, (row) => row.reservas_vivas, true],
+        [(row) => formatCountConversionParticipation(row.oportunidades_caidas, row.oportunidades_caidas_pct, row.oportunidades_caidas_participation_pct), true, (row) => row.oportunidades_caidas, true],
+        [(row) => formatCountConversionParticipation(row.cv_firmados, row.cv_firmados_pct, row.cv_firmados_participation_pct), true, (row) => row.cv_firmados, true],
     ], 'No hay datos de delegaciones para los filtros seleccionados.');
 }
 
@@ -242,10 +257,13 @@ function renderCommercials(rows) {
         [(row) => formatNumber(row.oportunidades_totales), true, (row) => row.oportunidades_totales, false, 'oportunidades_totales'],
         [(row) => formatCountPercent(row.reservas_vivas, row.reservas_vivas_pct), true, (row) => row.reservas_vivas, true, 'reservas_vivas'],
         [(row) => formatPercent(row.reservas_vivas_pct), true, (row) => row.reservas_vivas_pct, false, 'reservas_vivas_pct'],
+        [(row) => formatPercent(row.reservas_vivas_participation_pct), true, (row) => row.reservas_vivas_participation_pct, false, 'reservas_vivas_participation_pct'],
         [(row) => formatCountPercent(row.oportunidades_caidas, row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas, true, 'oportunidades_caidas'],
         [(row) => formatPercent(row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas_pct, false, 'oportunidades_caidas_pct'],
+        [(row) => formatPercent(row.oportunidades_caidas_participation_pct), true, (row) => row.oportunidades_caidas_participation_pct, false, 'oportunidades_caidas_participation_pct'],
         [(row) => formatCountPercent(row.cv_firmados, row.cv_firmados_pct), true, (row) => row.cv_firmados, true, 'cv_firmados'],
         [(row) => formatPercent(row.cv_firmados_pct), true, (row) => row.cv_firmados_pct, false, 'cv_firmados_pct'],
+        [(row) => formatPercent(row.cv_firmados_participation_pct), true, (row) => row.cv_firmados_participation_pct, false, 'cv_firmados_participation_pct'],
     ], 'No hay datos de comerciales para los filtros seleccionados.', (row) => ({
         'data-search': `${row.comercial || ''} ${row.commercial_id || row.group_key || ''}`.trim(),
     }));
@@ -258,9 +276,9 @@ function renderPortals(rows) {
     renderRows('portalRows', rows, [
         [(row) => row.portal || '-'],
         [(row) => formatNumber(row.oportunidades_totales), true],
-        [(row) => formatCountPercent(row.reservas_vivas, row.reservas_vivas_pct), true, (row) => row.reservas_vivas, true],
-        [(row) => formatCountPercent(row.oportunidades_caidas, row.oportunidades_caidas_pct), true, (row) => row.oportunidades_caidas, true],
-        [(row) => formatCountPercent(row.cv_firmados, row.cv_firmados_pct), true, (row) => row.cv_firmados, true],
+        [(row) => formatCountConversionParticipation(row.reservas_vivas, row.reservas_vivas_pct, row.reservas_vivas_participation_pct), true, (row) => row.reservas_vivas, true],
+        [(row) => formatCountConversionParticipation(row.oportunidades_caidas, row.oportunidades_caidas_pct, row.oportunidades_caidas_participation_pct), true, (row) => row.oportunidades_caidas, true],
+        [(row) => formatCountConversionParticipation(row.cv_firmados, row.cv_firmados_pct, row.cv_firmados_participation_pct), true, (row) => row.cv_firmados, true],
     ], 'No hay datos de portales para los filtros seleccionados.');
 }
 
@@ -557,9 +575,23 @@ function setLoadingState(isLoading) {
     loading?.classList.toggle('is-hidden', !isLoading);
 
     if (isLoading) {
-        document.getElementById('updatedBadge').textContent = 'Cargando datos de Salesforce...';
+        document.getElementById('updatedBadge').textContent = 'Cargando fotografía local...';
         document.getElementById('emptyMessage')?.classList.add('is-hidden');
+        [
+            'kpiGrid',
+            'comparisonRows',
+            'insights',
+            'commercialZoneRows',
+            'commercialDelegationRows',
+            'commercialRows',
+            'portalRows',
+        ].forEach((id) => {
+            const element = document.getElementById(id);
+            if (element) element.innerHTML = '';
+        });
     }
+
+    document.querySelector('main')?.classList.toggle('dashboard-is-loading', isLoading);
 }
 
 function showLoadError(error) {
@@ -581,8 +613,11 @@ function toggleCustomPeriods() {
     );
 }
 
-async function fetchJson(url) {
-    const response = await fetch(url, { headers: { Accept: 'application/json' } });
+async function fetchJson(url, options = {}) {
+    const response = await fetch(url, {
+        ...options,
+        headers: { Accept: 'application/json', ...(options.headers || {}) },
+    });
 
     if (!response.ok) {
         throw new Error(`Error cargando ${url}`);
@@ -647,6 +682,12 @@ function formatPercent(value) {
 
 function formatCountPercent(count, percent) {
     return `<span class="metric-value">${escapeHtml(formatNumber(count))}</span><span class="metric-percent">(${escapeHtml(formatPercent(percent))})</span>`;
+}
+
+function formatCountConversionParticipation(count, conversion, participation) {
+    return `<span class="metric-value">${escapeHtml(formatNumber(count))}</span>`
+        + `<span class="metric-percent">Conversion ${escapeHtml(formatPercent(conversion))}</span>`
+        + `<span class="metric-percent">Participacion ${escapeHtml(formatPercent(participation))}</span>`;
 }
 
 function formatComparisonValue(row, key) {

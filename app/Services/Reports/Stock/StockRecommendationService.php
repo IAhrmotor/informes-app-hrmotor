@@ -100,10 +100,10 @@ class StockRecommendationService
         ];
     }
 
-    public function recommend(SalesforceVehicle $vehicle, array $context, bool $excludeCurrent = true, bool $compact = false): array
+    public function recommend(SalesforceVehicle $vehicle, array $context, bool $excludeCurrent = true, bool $compact = false, ?int $limit = 3): array
     {
         $vehicleKeys = $this->vehicleKeys($vehicle);
-        $cacheKey = $vehicleKeys['signature'].'|'.($excludeCurrent ? (int) $vehicle->stock_delegation_id : 0).'|'.($compact ? 'compact' : 'full');
+        $cacheKey = $vehicleKeys['signature'].'|'.($excludeCurrent ? (int) $vehicle->stock_delegation_id : 0).'|'.($compact ? 'compact' : 'full').'|'.($limit ?? 'all');
         if (array_key_exists($cacheKey, $this->recommendationCache)) {
             return $this->recommendationCache[$cacheKey];
         }
@@ -118,7 +118,7 @@ class StockRecommendationService
 
         usort($rows, fn (array $left, array $right): int => $right['score'] <=> $left['score']);
 
-        return $this->recommendationCache[$cacheKey] = array_slice($rows, 0, 3);
+        return $this->recommendationCache[$cacheKey] = $limit === null ? $rows : array_slice($rows, 0, $limit);
     }
 
     public function currentProfile(SalesforceVehicle $vehicle, array $context, bool $compact = false): ?array

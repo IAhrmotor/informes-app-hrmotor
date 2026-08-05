@@ -25,7 +25,7 @@ class SalesforceLeadDashboardDatasetService
         'Comerciales Partner Community',
     ];
 
-    private const CACHE_TTL_MINUTES = 30;
+    private const CACHE_TTL_MINUTES = 10;
 
     // Dirección quiere que los no clasificados cuenten en KPIs generales por ahora.
     private const INCLUDE_UNCLASSIFIED_IN_TOTALS = true;
@@ -163,11 +163,13 @@ class SalesforceLeadDashboardDatasetService
             ->orderBy('created_date')
             ->orderBy('salesforce_id')
             ->get()
-            ->map(function (SalesforceLead $row) use ($filters): ?array {
+            ->map(function (SalesforceLead $row) use ($filters): array {
                 $lead = $this->decorateLead($row);
-                if (! $this->passesFilters($lead, $filters)) {
-                    return null;
+                $exclusionReasons = $this->auditFilterExclusionReasons($lead, $filters);
+                if ($row->is_deleted) {
+                    array_unshift($exclusionReasons, filled($row->salesforce_master_record_id) ? 'merged' : 'deleted');
                 }
+                $included = $exclusionReasons === [];
 
                 return [
                     'lead_id' => $row->salesforce_id,
@@ -184,6 +186,12 @@ class SalesforceLeadDashboardDatasetService
                     'deletion_detection_source' => $row->deletion_detection_source,
                     'master_record_id' => $row->salesforce_master_record_id,
                     'status' => $row->status,
+                    'owner_id' => $lead['owner_id'],
+                    'owner_name' => $lead['owner_name'],
+                    'effective_commercial_id' => $lead['gestor_id'],
+                    'effective_commercial_name' => $lead['gestor_nombre'],
+                    'commercial_delegation' => $lead['commercial_delegation'],
+                    'commercial_zone' => $lead['commercial_zone'],
                     'is_converted' => (bool) $row->is_converted,
                     'converted_date' => $this->auditDate($row->converted_date),
                     'converted_opportunity_id' => $row->converted_opportunity_id,
@@ -198,9 +206,10 @@ class SalesforceLeadDashboardDatasetService
                     'channel_resolved' => $lead['canal'],
                     'delegation_raw' => $lead['lead_delegation_raw'],
                     'delegation_normalized' => $lead['lead_delegation'],
+                    'included_in_active_dataset' => $included,
+                    'inclusion_exclusion_reason' => $included ? 'included' : implode('|', $exclusionReasons),
                 ];
             })
-            ->filter()
             ->values()
             ->all();
     }
@@ -666,6 +675,36 @@ class SalesforceLeadDashboardDatasetService
         }
 
         return $normalizedFilter !== null && $recordTypeNormalized === $normalizedFilter;
+    }
+
+    /** @return array<int, string> */
+    private function auditFilterExclusionReasons(array $lead, array $filters): array
+    {
+        $reasons = [];
+
+        if ($filters['portal'] && $lead['portal'] !== $filters['portal']) {
+            $reasons[] = 'portal_filter';
+        }
+        if ($filters['lead_delegation'] && $lead['lead_delegation'] !== $filters['lead_delegation']) {
+            $reasons[] = 'lead_delegation_filter';
+        }
+        if (! $this->passesLeadTypeFilter($lead['lead_type_normalized'], $filters['lead_type'])) {
+            $reasons[] = 'lead_type_filter';
+        }
+        if ($filters['commercial_delegation'] && $lead['commercial_delegation'] !== $filters['commercial_delegation']) {
+            $reasons[] = 'commercial_delegation_filter';
+        }
+        if ($filters['zone'] && $lead['commercial_zone'] !== $filters['zone']) {
+            $reasons[] = 'zone_filter';
+        }
+        if ($filters['commercial'] && $lead['gestor_id'] !== $filters['commercial']) {
+            $reasons[] = 'commercial_filter';
+        }
+        if ($filters['exposition_mode'] === 'without' && $lead['is_exposicion']) {
+            $reasons[] = 'exposition_filter';
+        }
+
+        return $reasons;
     }
 
     private function resolveAuditMetric(?string $metric): string

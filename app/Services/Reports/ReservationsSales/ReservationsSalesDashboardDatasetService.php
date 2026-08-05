@@ -100,6 +100,10 @@ class ReservationsSalesDashboardDatasetService
                 'periodo_actual' => $this->periodPayload($periods['current']),
                 'periodo_comparado' => $this->periodPayload($periods['previous']),
                 'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
+                'dataset_cutoff_at' => $this->lastUpdated()?->toDateTimeString(),
+                'dataset_generated_at' => CarbonImmutable::now()->toDateTimeString(),
+                'dataset_source' => 'local_snapshot',
+                'dataset_timezone' => config('app.timezone'),
                 'kpis' => $current['bucket'],
                 'comparativa' => $comparison,
                 'executive_insights' => $insights['insights'],
@@ -406,7 +410,7 @@ class ReservationsSalesDashboardDatasetService
         $rows = [];
 
         foreach ($groups as $group) {
-            $rows[] = array_merge($group['extra'], $group['bucket'], [
+            $rows[] = array_merge($group['extra'], $this->finalizeBucket($group['bucket']), [
                 'group_key' => $group['key'],
                 $labelKey => $group['label'],
                 'nombre' => $group['label'],
@@ -432,9 +436,9 @@ class ReservationsSalesDashboardDatasetService
         ];
 
         return array_map(fn (array $row) => array_merge($row, [
-            'reservas_vivas_pct' => $this->columnPercentage($row['reservas_vivas'], $totals['reservas_vivas']),
-            'oportunidades_caidas_pct' => $this->columnPercentage($row['oportunidades_caidas'], $totals['oportunidades_caidas']),
-            'cv_firmados_pct' => $this->columnPercentage($row['cv_firmados'], $totals['cv_firmados']),
+            'reservas_vivas_participation_pct' => $this->columnPercentage($row['reservas_vivas'], $totals['reservas_vivas']),
+            'oportunidades_caidas_participation_pct' => $this->columnPercentage($row['oportunidades_caidas'], $totals['oportunidades_caidas']),
+            'cv_firmados_participation_pct' => $this->columnPercentage($row['cv_firmados'], $totals['cv_firmados']),
         ]), $rows);
     }
 
@@ -493,6 +497,11 @@ class ReservationsSalesDashboardDatasetService
                 'criterio_fecha' => $filters['date_criterion'],
             ],
             'kpis' => $bucket,
+            'definiciones_porcentaje' => [
+                'conversion_fila' => 'metrica / oportunidades_totales de la misma fila',
+                'participacion_columna' => 'metrica de la fila / total de la metrica entre todas las filas',
+                'benchmark' => 'pendiente de definicion funcional; no se usa para ordenar ni concluir',
+            ],
             'comparativa' => [
                 'reservas_delta_pp' => data_get(collect($comparison)->firstWhere('key', 'reservas_vivas'), 'diferencia_pct_puntos'),
                 'caidas_delta_pp' => data_get(collect($comparison)->firstWhere('key', 'oportunidades_caidas'), 'diferencia_pct_puntos'),

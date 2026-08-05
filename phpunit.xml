@@ -18,6 +18,7 @@
         </include>
     </source>
     <php>
+        <ini name="memory_limit" value="512M"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_CONFIG_CACHE" value="bootstrap/cache/testing-config.php"/>
         <env name="APP_PACKAGES_CACHE" value="bootstrap/cache/testing-packages.php"/>

@@ -83,6 +83,18 @@ class StockDashboardDatasetService
         $recommendationDisplayed = 0;
         $recommendationPage = 1;
         $recommendationPages = 1;
+        $recommendationReconciliation = [
+            'universe' => 0,
+            'available' => 0,
+            'evaluated' => 0,
+            'candidates' => 0,
+            'without_destination' => 0,
+            'excluded_not_available' => 0,
+            'excluded_non_operational_catalog' => 0,
+            'excluded_below_review_threshold' => 0,
+            'planned' => 0,
+            'unallocated_by_capacity' => 0,
+        ];
         $newVehicleRecommendations = null;
         if (in_array($section, ['recommendations', 'vehicles'], true)) {
             $recommendationSales = SalesforceSaleSnapshot::query()
@@ -109,11 +121,25 @@ class StockDashboardDatasetService
                     ->values();
             }
             if ($section === 'recommendations') {
-                $allCandidates = $operationalStock
-                    ->where('state', 'Disponible')
-                    ->pipe(fn (Collection $vehicles): Collection => $this->filterByPlate($vehicles, $input['candidate_plate'] ?? null))
+                $availableStock = $stock->where('state', 'Disponible')->values();
+                $evaluatedRows = $availableStock
+                    ->filter(fn (SalesforceVehicle $vehicle): bool => $this->catalogNormalizer->isOperationalVehicle($vehicle))
                     ->map(fn (SalesforceVehicle $vehicle) => $this->vehicleRow($vehicle, $recommendationContext, $sameModelCounts, $today, true))
+                    ->values();
+                $candidateRows = $evaluatedRows
                     ->filter(fn (array $row): bool => $row['review_level'] !== 'normal')
+                    ->values();
+                $recommendationReconciliation = [
+                    'universe' => $stock->count(),
+                    'available' => $availableStock->count(),
+                    'evaluated' => $evaluatedRows->count(),
+                    'candidates' => $candidateRows->count(),
+                    'without_destination' => $candidateRows->filter(fn (array $row): bool => $row['recommendations'] === [])->count(),
+                    'excluded_not_available' => $stock->count() - $availableStock->count(),
+                    'excluded_non_operational_catalog' => $availableStock->count() - $evaluatedRows->count(),
+                    'excluded_below_review_threshold' => $evaluatedRows->where('review_level', 'normal')->count(),
+                ];
+                $allCandidates = $candidateRows
                     ->sort(function (array $left, array $right): int {
                         $priority = ['priority' => 2, 'review' => 1, 'normal' => 0];
 
@@ -126,16 +152,55 @@ class StockDashboardDatasetService
                         ];
                     })
                     ->values();
-                $recommendationTotal = $allCandidates->count();
+                $remainingCapacity = $recommendationContext['eligible_delegations']
+                    ->mapWithKeys(function (StockDelegation $delegation) use ($recommendationContext): array {
+                        $stockTotal = (int) data_get($recommendationContext, 'stock.'.$delegation->id.'.total', 0);
+
+                        return [$delegation->id => max((int) $delegation->capacity_total - $stockTotal, 0)];
+                    })
+                    ->all();
+                $delegationNames = $recommendationContext['eligible_delegations']->pluck('canonical_name', 'id');
+                $allCandidates = $allCandidates->map(function (array $row) use (&$remainingCapacity, $delegationNames): array {
+                    $planned = null;
+                    foreach ($row['recommendations'] as $recommendation) {
+                        $delegationId = (int) ($recommendation['delegation_id'] ?? 0);
+                        if (($remainingCapacity[$delegationId] ?? 0) <= 0) {
+                            continue;
+                        }
+                        $remainingCapacity[$delegationId]--;
+                        $planned = [
+                            'delegation_id' => $delegationId,
+                            'delegation' => $delegationNames->get($delegationId, (string) $delegationId),
+                            'score' => $recommendation['score'] ?? null,
+                        ];
+                        break;
+                    }
+                    $row['planned_destination'] = $planned;
+
+                    return $row;
+                })->values();
+                $recommendationReconciliation['planned'] = $allCandidates->whereNotNull('planned_destination')->count();
+                $recommendationReconciliation['unallocated_by_capacity'] = $allCandidates->whereNull('planned_destination')->count();
+                $matchingCandidateIds = $this->filterByPlate(
+                    $candidateRows->pluck('_vehicle'),
+                    $input['candidate_plate'] ?? null,
+                )->pluck('salesforce_id')->flip();
+                $visibleCandidates = $allCandidates
+                    ->filter(fn (array $row): bool => $matchingCandidateIds->has($row['id']))
+                    ->values();
+                $recommendationTotal = $visibleCandidates->count();
                 $perPage = max((int) config('stock.recommendation_page_size', 150), 1);
                 $recommendationPages = max((int) ceil($recommendationTotal / $perPage), 1);
                 $recommendationPage = min(
                     max((int) ($input['recommendation_page'] ?? 1), 1),
                     $recommendationPages,
                 );
-                $recommendationRows = $allCandidates
+                $recommendationRows = $visibleCandidates
                     ->forPage($recommendationPage, $perPage)
-                    ->map(fn (array $row): array => $this->vehicleRow($row['_vehicle'], $recommendationContext, $sameModelCounts, $today))
+                    ->map(fn (array $row): array => array_merge(
+                        $this->vehicleRow($row['_vehicle'], $recommendationContext, $sameModelCounts, $today),
+                        ['planned_destination' => $row['planned_destination']],
+                    ))
                     ->values();
                 $recommendationDisplayed = $recommendationRows->count();
             }
@@ -186,6 +251,7 @@ class StockDashboardDatasetService
             'recommendationPage' => $recommendationPage,
             'recommendationPages' => $recommendationPages,
             'recommendationAvailableTotal' => $stock->where('state', 'Disponible')->count(),
+            'recommendationReconciliation' => $recommendationReconciliation,
             'newVehicleRecommendations' => $newVehicleRecommendations,
         ];
     }
@@ -211,6 +277,18 @@ class StockDashboardDatasetService
             'recommendationPage' => 1,
             'recommendationPages' => 1,
             'recommendationAvailableTotal' => 0,
+            'recommendationReconciliation' => [
+                'universe' => 0,
+                'available' => 0,
+                'evaluated' => 0,
+                'candidates' => 0,
+                'without_destination' => 0,
+                'excluded_not_available' => 0,
+                'excluded_non_operational_catalog' => 0,
+                'excluded_below_review_threshold' => 0,
+                'planned' => 0,
+                'unallocated_by_capacity' => 0,
+            ],
             'newVehicleRecommendations' => null,
         ];
     }
@@ -538,7 +616,7 @@ class StockDashboardDatasetService
         }
         $isOperational = $this->catalogNormalizer->isOperationalVehicle($vehicle);
         $recommendations = $vehicle->state === 'Disponible' && $isOperational
-            ? $this->recommendations->recommend($vehicle, $context, true, $compactRecommendations)
+            ? $this->recommendations->recommend($vehicle, $context, true, $compactRecommendations, $compactRecommendations ? null : 3)
             : [];
         $currentProfile = $this->recommendations->currentProfile($vehicle, $context, $compactRecommendations);
         if (

@@ -3,11 +3,15 @@
 namespace App\Http\Controllers\Reports\Calls;
 
 use App\Http\Controllers\Controller;
+use App\Support\ReportUserAccess;
+use Illuminate\Http\Request;
 
 class CallDashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        return view('reports.calls.index');
+        return view('reports.calls.index', [
+            'reportUserCanAudit' => ReportUserAccess::canAudit($request),
+        ]);
     }
 }

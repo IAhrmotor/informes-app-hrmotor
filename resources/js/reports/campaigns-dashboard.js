@@ -789,7 +789,38 @@ function renderSummary(data) {
     renderCharts(data.charts || {});
     renderPlatformComparison(data.platform_comparison || []);
     renderReviewCampaigns(data.review_campaigns || []);
+    renderSourceReconciliation(data.source_reconciliation || {});
     renderDiagnostics(data.diagnostics || {});
+}
+
+function renderSourceReconciliation(reconciliation) {
+    const root = document.getElementById('salesforceReconciliation');
+    if (!root) return;
+
+    const definitions = [
+        ['Leads', reconciliation.leads],
+        ['Oportunidades', reconciliation.opportunities],
+        ['Resultados', reconciliation.results],
+    ].filter(([, row]) => row);
+
+    root.classList.toggle('is-hidden', definitions.length === 0);
+    root.innerHTML = definitions.length ? `
+        <div class="panel-title">
+            <div>
+                <h2>Conciliacion por origen</h2>
+                <div class="small">Plataformas + Salesforce-only = total distinto; los solapamientos se muestran aparte.</div>
+            </div>
+        </div>
+        <div class="campaign-diagnostics">
+            ${definitions.map(([label, row]) => `
+                <div class="diagnostic-item">
+                    <span>${escapeHtml(label)}</span>
+                    <strong>${formatNumber(row.platform)} + ${formatNumber(row.salesforce_only)} = ${formatNumber(row.total_distinct)}</strong>
+                    <small>Solapamientos: ${formatNumber(row.overlap)}</small>
+                </div>
+            `).join('')}
+        </div>
+    ` : '';
 }
 
 function renderWarnings(warnings) {

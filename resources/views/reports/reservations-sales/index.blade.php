@@ -101,7 +101,7 @@
 
     <main>
         <section id="panel-resumen" class="tab-panel active">
-            <div class="notice" id="loadingMessage">Cargando datos de Salesforce...</div>
+            <div class="notice" id="loadingMessage">Cargando fotografía local...</div>
             <div class="notice is-hidden" id="emptyMessage">No hay oportunidades sincronizadas para el periodo seleccionado.</div>
 
             <section class="card panel">
@@ -225,10 +225,13 @@
                             <th class="num" data-column="oportunidades_totales">Oportunidades totales</th>
                             <th class="num" data-column="reservas_vivas">Reservas vivas</th>
                             <th class="num is-hidden" data-column="reservas_vivas_pct">% reservas vivas</th>
+                            <th class="num is-hidden" data-column="reservas_vivas_participation_pct">% participacion reservas</th>
                             <th class="num" data-column="oportunidades_caidas">Oportunidades caidas</th>
                             <th class="num is-hidden" data-column="oportunidades_caidas_pct">% oportunidades caidas</th>
+                            <th class="num is-hidden" data-column="oportunidades_caidas_participation_pct">% participacion caidas</th>
                             <th class="num" data-column="cv_firmados">Contratos CV firmados</th>
                             <th class="num is-hidden" data-column="cv_firmados_pct">% contratos CV firmados</th>
+                            <th class="num is-hidden" data-column="cv_firmados_participation_pct">% participacion CV</th>
                         </tr>
                         </thead>
                         <tbody id="commercialRows"></tbody>

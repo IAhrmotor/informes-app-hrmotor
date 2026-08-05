@@ -213,23 +213,7 @@
                 </section>
             @endif
 
-            @if (
-                $summaryRows->isNotEmpty()
-                || $delegationRows->isNotEmpty()
-                || $callCenterSummaryRows->isNotEmpty()
-                || $contactCenterSummaryRows->isNotEmpty()
-                || $areaManagerSummaryRows->isNotEmpty()
-                || $financialSummaryRows->isNotEmpty()
-                || ! empty($callCenterDashboard['issues'])
-                || ! empty($callCenterDashboard['warnings'])
-                || ! empty($contactCenterDashboard['issues'])
-                || ! empty($contactCenterDashboard['warnings'])
-                || ! empty($areaManagerDashboard['issues'])
-                || ! empty($areaManagerDashboard['warnings'])
-                || ! empty($financialDashboard['issues'])
-                || ! empty($financialDashboard['warnings'])
-            )
-                <section class="card panel">
+            <section class="card panel">
                     <div class="panel-title">
                         <div>
                             <h2>Comerciales</h2>
@@ -1009,8 +993,7 @@
                             @include('reports.commercial-commissions.partials.financial-tab')
                         </section>
                     </div>
-                </section>
-            @endif
+            </section>
         </section>
     </main>
 </div>

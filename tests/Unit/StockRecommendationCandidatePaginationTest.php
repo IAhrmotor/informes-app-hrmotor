@@ -69,6 +69,8 @@ class StockRecommendationCandidatePaginationTest extends TestCase
         $this->assertSame(150, $firstPage['recommendationDisplayed']);
         $this->assertSame(2, $firstPage['recommendationPages']);
         $this->assertSame(110, $secondPage['recommendationDisplayed']);
+        $this->assertSame(260, $firstPage['recommendationReconciliation']['planned']);
+        $this->assertSame(0, $firstPage['recommendationReconciliation']['unallocated_by_capacity']);
         $this->assertTrue($firstPage['recommendationRows']->every(fn (array $row): bool => $row['state'] === 'Disponible'));
         $this->assertTrue($firstPage['recommendationRows']->every(fn (array $row): bool => count($row['recommendations']) === 3));
         $this->assertTrue($firstPage['recommendationRows']->every(function (array $row): bool {

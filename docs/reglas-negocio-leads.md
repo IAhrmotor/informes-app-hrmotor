@@ -34,7 +34,9 @@ rango, id de ejecucion y zona `Europe/Madrid`. Tambien muestra cobertura de
 ### Auditoria
 
 - `/informes/leads/export/kpi-audit.csv`: filas que componen el KPI.
-- `/informes/leads/export/reconciliation-audit.csv`: activos, eliminados y fusionados.
+- `/informes/leads/export/reconciliation-audit.csv`: activos, eliminados y
+  fusionados, propietario, comercial efectivo, delegaciones y motivo explícito
+  de inclusión/exclusión para los filtros solicitados.
 - `/informes/leads/data/lead-audit?ids[]=...`: inspeccion puntual de hasta 200 IDs.
 
 Direccion tiene permiso para estos endpoints. Para metadatos historicos:
@@ -47,6 +49,10 @@ php artisan salesforce:backfill-lead-audit-metadata
 El backfill local queda marcado como `legacy_local_backfill` y no demuestra un
 corte Salesforce. Para conciliaciones formales debe preferirse una nueva
 sincronizacion con rango explicito.
+
+El cliente cancela las peticiones anteriores al cambiar filtros, valida el
+identificador de la respuesta y vacía las secciones obsoletas durante la carga.
+La interfaz indica que consulta una fotografía local, no Salesforce en directo.
 
 ## 1. Objetivo
 

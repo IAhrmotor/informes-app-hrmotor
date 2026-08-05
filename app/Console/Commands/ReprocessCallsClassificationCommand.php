@@ -33,6 +33,8 @@ class ReprocessCallsClassificationCommand extends Command
         SalesforceCall::query()
             ->orderBy('id')
             ->chunkById(1000, function ($calls) use ($portalNormalizer, $parser, $rules, $delegationNormalizer, $users, &$updated): void {
+                $updates = [];
+
                 foreach ($calls as $call) {
                     $parsed = $parser->parse($call->description);
                     $portal = $portalNormalizer->normalize($call->portales_raw);
@@ -61,7 +63,11 @@ class ReprocessCallsClassificationCommand extends Command
                     $pollValue = $parsed['poll_value'];
                     $isOverflow = $rules->isOverflow($origin, $callStatus, $portal['portal'], $team, $pollValue, $call->result_raw);
 
-                    $call->forceFill([
+                    $updates[] = [
+                        'salesforce_id' => $call->salesforce_id,
+                        'included_in_dashboard' => filled($call->call_object),
+                        'dashboard_exclusion_reason' => filled($call->call_object) ? null : 'missing_call_object',
+                        'classification_rule_version' => CallClassificationRules::VERSION,
                         'call_origin' => $origin,
                         'portal_resolved' => $portal['portal'],
                         'portal_resolution_source' => $portal['source'],
@@ -77,13 +83,37 @@ class ReprocessCallsClassificationCommand extends Command
                         'zone' => $delegationZone['zone'],
                         'is_overflow' => $isOverflow,
                         'overflow_reason' => $rules->overflowReason($origin, $callStatus, $portal['portal'], $team, $pollValue, $call->result_raw),
-                        'parse_debug' => array_merge($call->parse_debug ?? [], [
+                        'parse_debug' => json_encode(array_merge($call->parse_debug ?? [], [
                             'reprocessed_poll_value' => $pollValue,
-                        ]),
-                    ])->save();
-
-                    $updated++;
+                        ]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                        'updated_at' => now(),
+                    ];
                 }
+
+                SalesforceCall::query()->upsert($updates, ['salesforce_id'], [
+                    'included_in_dashboard',
+                    'dashboard_exclusion_reason',
+                    'classification_rule_version',
+                    'call_origin',
+                    'portal_resolved',
+                    'portal_resolution_source',
+                    'poll_value',
+                    'call_status',
+                    'is_answered',
+                    'is_lost',
+                    'adjusted_duration_seconds',
+                    'operational_team',
+                    'normalized_user_key',
+                    'owner_team',
+                    'delegation',
+                    'zone',
+                    'is_overflow',
+                    'overflow_reason',
+                    'parse_debug',
+                    'updated_at',
+                ]);
+
+                $updated += count($updates);
             });
 
         $this->invalidateDashboardCache();

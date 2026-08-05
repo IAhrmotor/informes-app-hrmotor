@@ -49,8 +49,14 @@ de contexto. Las operaciones individuales vendidas no se muestran en esta vista.
 ## Recomendaciones
 
 El selector Modelo del simulador depende de la Marca seleccionada. La tabla de
-candidatos se denomina `Vehículos propuestos para traslado`; sus reglas de
-cálculo y paginación no cambian.
+candidatos se denomina `Vehículos propuestos para traslado`. El cálculo se hace
+sobre todo el universo antes de paginar y muestra la conciliación de universo,
+disponibles, evaluados, candidatos y exclusiones.
+
+Además del Top 3 explicativo por vehículo, se genera un plan conjunto. Los
+candidatos se recorren por prioridad y antigüedad, se asigna el destino con mayor
+score que conserve plaza y se descuenta esa plaza para los vehículos siguientes.
+La pantalla diferencia asignados y no asignados por falta de capacidad.
 
 ## Rendimiento de carga
 

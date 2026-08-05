@@ -130,8 +130,11 @@ Contact Center. Esto no cambia el pivote del dashboard de Leads.
 - `Reservas vivas actuales Salesforce` no lleva filtro temporal.
 - El portal se resuelve por Opportunity, lead relacionado, fuente, fallbacks y
   finalmente `Sin clasificar`.
-- Los porcentajes de tablas agrupadas son participación sobre el total de cada
-  columna, no porcentaje sobre el total de la fila.
+- Las tablas agrupadas separan dos conceptos: conversión de la fila
+  (`métrica / oportunidades de la fila`) y participación sobre el total de la
+  columna. Las conclusiones y rankings usan la conversión, no la participación.
+- Las cargas cancelan peticiones anteriores y vacían los resultados obsoletos
+  mientras se reconstruyen todas las secciones.
 
 ### Archivos y auditoría
 
@@ -144,7 +147,9 @@ Contact Center. Esto no cambia el pivote del dashboard de Leads.
 
 ### Fuente y pivote
 
-- Salesforce `Task` con `Type = Call` y `CallObject != null`.
+- Salesforce `Task` con `Type = Call`. Se conservan localmente tanto las filas
+  con `CallObject` como las excluidas sin `CallObject`; solo las primeras entran
+  en el dashboard.
 - `User` para perfil/delegación.
 - `Lead` para recuperar portal cuando `WhoId` es Lead.
 - Local: `salesforce_calls`.
@@ -159,8 +164,17 @@ Contact Center. Esto no cambia el pivote del dashboard de Leads.
   especial de Web/Google Maps y opción de teclado;
 - clasificación de equipos y usuarios mediante alias canónicos;
 - identidades de sistema no entran en vistas operativas.
+- las atendidas fuera de equipos operativos aparecen en la fila `Sin equipo`;
+- cada sincronización/reproceso guarda `classification_rule_version`;
+- la pantalla muestra el puente Tasks tipo Call - sin CallObject = universo del
+  dashboard.
 
-No existe todavía exportación específica de auditoría KPI para Llamadas.
+Auditoría:
+
+- JSON: `/informes/llamadas/data/audit`
+- CSV: `/informes/llamadas/export/audit.csv`
+- incluye Task ID, resultado bruto/interpretado, duración inicial/ajustada,
+  segundos descontados, portal, equipo, inclusión/exclusión y versión de regla.
 
 ### Archivos
 
@@ -193,6 +207,9 @@ No existe todavía exportación específica de auditoría KPI para Llamadas.
 - compra requiere contrato firmado válido y tipo Tasación;
 - importe vendido prioriza `OPO_FOR_Importe_total__c`;
 - campañas `Tasador` exacto, `ren2click` y `hrrenting` se excluyen.
+- `Campañas a revisar` se prioriza por inversión/impacto económico;
+- el resumen muestra la conciliación de Leads, oportunidades y resultados entre
+  plataforma y Salesforce-only, incluyendo solapamientos.
 
 ### Archivos y auditoría
 
@@ -215,6 +232,11 @@ Pestañas, en orden:
 4. Contact Center
 5. Area Manager
 6. Financieros
+
+La navegación de las seis pestañas permanece visible aunque el bloque activo no
+tenga filas. Los datasets pesados de Call Center, Contact Center, Area Manager y
+Financieros se construyen bajo demanda para la pestaña solicitada, conservando
+el mismo parámetro `month` en sus enlaces.
 
 El export `comisiones-YYYY-MM.xlsx` genera hojas para esos seis bloques. Cada hoja
 contiene entidad y comisión final; Area Managers añade `Oscar` con el 40% de la
@@ -408,6 +430,11 @@ Fuentes:
   supera en 40 puntos;
 - se calculan todos los candidatos antes de paginar: 150 por página; la vista de
   Vehículos limita el detalle a 250 filas;
+- la pantalla concilia universo, disponibles, evaluados, candidatos y motivos de
+  exclusión;
+- el plan conjunto asigna un único destino por candidato en orden de prioridad y
+  consume la capacidad restante, por lo que nunca propone más plazas de las
+  disponibles; el Top 3 continúa visible como explicación/alternativas;
 - el barrido global de recomendaciones usa perfiles compactos; tras paginar se
   generan las explicaciones completas de las 150 filas visibles;
 - rankings normalizan variantes de catálogo y se ordenan por unidades vendidas;
@@ -590,7 +617,11 @@ STOCK_ALERT_EMAIL
   reseñas, incluida una credencial. Deben eliminarse del código, rotarse y
   configurarse exclusivamente mediante `INTERNAL_REVIEWS_*`. No copiar esos
   valores a documentación, incidencias ni commits nuevos.
-- Llamadas no tiene aún exportación dedicada de auditoría KPI.
+- Llamadas dispone de auditoría JSON/CSV con universo bruto, motivo de
+  inclusión o exclusión, interpretación del resultado, ajuste de duración,
+  portal, equipo y versión de reglas. Tras desplegar su migración hay que
+  ejecutar `reports:reprocess-calls-classification`; el comando procesa por
+  lotes de 1.000 para evitar escrituras individuales.
 - El bloque 2 de Financieros depende de `Inter_s_elegido__c`. Si Salesforce lo
   devuelve vacío, queda a cero por diseño; no fijar importes manuales.
 - Para diferencias de Delegaciones, comparar IDs del CSV auditable antes de

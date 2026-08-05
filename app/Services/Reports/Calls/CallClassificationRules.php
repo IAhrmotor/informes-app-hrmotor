@@ -6,6 +6,8 @@ use Illuminate\Support\Str;
 
 class CallClassificationRules
 {
+    public const VERSION = '2026-08-04.1';
+
     public const CUSTOMER_SERVICE_LABEL = 'Atención al Cliente';
     public const CONTACT_CENTER_LABEL = 'Contact Center';
     public const APPRAISER_LABEL = 'Tasadores';

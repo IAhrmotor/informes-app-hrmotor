@@ -11,7 +11,7 @@ class DashboardUiPhaseOneTest extends TestCase
         $response = $this->get('/informes/leads');
 
         $response->assertOk();
-        $response->assertSee('Cargando datos de Salesforce...');
+        $response->assertSee('Cargando fotografía local...');
         $response->assertSee('leadDelegation');
         $response->assertSee('Tipo de Lead');
         $response->assertSee('Tasación');

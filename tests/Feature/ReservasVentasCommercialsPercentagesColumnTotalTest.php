@@ -19,7 +19,7 @@ class ReservasVentasCommercialsPercentagesColumnTotalTest extends TestCase
         config(['openai.enabled' => false]);
     }
 
-    public function test_zonas_delegaciones_y_comerciales_calculan_porcentajes_sobre_total_de_su_columna(): void
+    public function test_zonas_delegaciones_y_comerciales_separan_conversion_y_participacion(): void
     {
         $this->commercialMetrics('juan', 'Comercial Juan', 'Alcobendas', 40, 12, 8);
         $this->commercialMetrics('ana', 'Comercial Ana', 'Bilbao', 304, 108, 72);
@@ -34,9 +34,12 @@ class ReservasVentasCommercialsPercentagesColumnTotalTest extends TestCase
             $this->assertSame(40, $row['reservas_vivas']);
             $this->assertSame(12, $row['oportunidades_caidas']);
             $this->assertSame(8, $row['cv_firmados']);
-            $this->assertSame(11.63, (float) $row['reservas_vivas_pct']);
-            $this->assertSame(10.0, (float) $row['oportunidades_caidas_pct']);
-            $this->assertSame(10.0, (float) $row['cv_firmados_pct']);
+            $this->assertSame(66.67, (float) $row['reservas_vivas_pct']);
+            $this->assertSame(20.0, (float) $row['oportunidades_caidas_pct']);
+            $this->assertSame(13.33, (float) $row['cv_firmados_pct']);
+            $this->assertSame(11.63, (float) $row['reservas_vivas_participation_pct']);
+            $this->assertSame(10.0, (float) $row['oportunidades_caidas_participation_pct']);
+            $this->assertSame(10.0, (float) $row['cv_firmados_participation_pct']);
         }
     }
 

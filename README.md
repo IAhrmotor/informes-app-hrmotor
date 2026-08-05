@@ -155,6 +155,34 @@ El proyecto se organiza en tres capas:
 2. Datos normalizados: leads ya clasificados para reporting.
 3. Presentación: dashboards, tablas, gráficos y filtros.
 
+## Trazabilidad técnica de los dashboards
+
+- Reservas/Ventas separa conversión por fila y participación por columna; las
+  conclusiones utilizan conversión.
+- Leads, Reservas/Ventas y Llamadas cancelan peticiones anteriores y no mantienen
+  resultados obsoletos visibles al cambiar filtros.
+- Llamadas conserva el universo bruto `Task Type=Call`, marca las exclusiones sin
+  `CallObject`, versiona la clasificación y permite exportar la conciliación.
+- Campañas muestra el puente Plataforma + Salesforce-only y prioriza las alertas
+  por inversión.
+- Stock evalúa todo el universo antes de paginar y genera un plan conjunto que
+  consume la capacidad de los destinos.
+- Comisiones mantiene visibles sus seis pestañas aunque el mes no tenga filas y
+  carga bajo demanda los bloques especializados sin cambiar el mes seleccionado.
+
+Tras desplegar estos cambios hay que ejecutar migraciones y reprocesar la
+clasificación histórica de llamadas:
+
+```bash
+php artisan migrate --force
+php artisan reports:reprocess-calls-classification
+php artisan optimize:clear
+npm ci && npm run build
+```
+
+Las decisiones funcionales que no deben inferirse desde código están recogidas
+en `docs/decisiones-negocio-pendientes.md`.
+
 ## Campos normalizados principales
 
 Cada lead debe poder resolverse a:

@@ -119,7 +119,7 @@
 
     <main>
         <section id="panel-resumen" class="tab-panel active">
-            <div class="notice" id="loadingMessage">Cargando datos de Salesforce...</div>
+            <div class="notice" id="loadingMessage">Cargando fotografía local...</div>
             <div class="notice is-hidden" id="emptyMessage">No hay datos sincronizados para el periodo seleccionado.</div>
 
             <section class="card panel">

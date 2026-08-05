@@ -57,6 +57,54 @@ class CallDashboardDatasetService
         return $this->rememberEndpoint('portals', $filters, $periods, fn () => $this->buildPortalPayload($filters, $periods));
     }
 
+    public function auditRows(Request $request): array
+    {
+        $filters = $this->filters($request);
+        $period = $this->periods($filters)['current'];
+        $includedIds = $this->baseFilteredQuery($filters, $period, false)
+            ->pluck('salesforce_id')
+            ->flip();
+
+        return DB::table('salesforce_calls')
+            ->where('created_date', '>=', $period['start'])
+            ->where('created_date', '<', $period['end'])
+            ->orderBy('created_date')
+            ->orderBy('salesforce_id')
+            ->get()
+            ->map(function ($row) use ($includedIds): array {
+                $includedByUniverse = (bool) ($row->included_in_dashboard ?? true);
+                $includedByFilters = $includedByUniverse && $includedIds->has($row->salesforce_id);
+                $rawDuration = (int) ($row->call_duration_seconds ?? $row->parsed_duration_seconds ?? 0);
+                $adjustedDuration = (int) ($row->adjusted_duration_seconds ?? 0);
+
+                return [
+                    'task_id' => $row->salesforce_id,
+                    'created_date' => $row->created_date,
+                    'last_modified_date' => $row->last_modified_date,
+                    'call_object' => $row->call_object,
+                    'included_in_dashboard_universe' => $includedByUniverse,
+                    'included_by_current_filters' => $includedByFilters,
+                    'inclusion_exclusion_reason' => $includedByFilters
+                        ? 'included'
+                        : ($row->dashboard_exclusion_reason ?: 'dashboard_filter'),
+                    'result_original' => $row->result_raw,
+                    'result_interpreted' => $row->call_status,
+                    'duration_initial_seconds' => $rawDuration,
+                    'seconds_deducted' => max(0, $rawDuration - $adjustedDuration),
+                    'duration_adjusted_seconds' => $adjustedDuration,
+                    'portal_raw' => $row->portales_raw,
+                    'portal_resolved' => $row->portal_resolved,
+                    'portal_resolution_source' => $row->portal_resolution_source,
+                    'team_resolved' => $row->operational_team ?: 'unassigned',
+                    'operational_user_id' => $row->operational_user_id,
+                    'operational_user_name' => $row->operational_user_name,
+                    'classification_rule_version' => $row->classification_rule_version ?: 'legacy_unversioned',
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
     public function payload(Request $request): array
     {
         $summary = $this->summary($request);
@@ -101,13 +149,32 @@ class CallDashboardDatasetService
         $previous = $this->summaryBucket($filters, $periods['previous']);
         $charts = $this->summaryCharts($filters, $periods['current'], $current);
         $rankings = $this->summaryRankings($filters, $periods['current']);
+        $rawUniverse = DB::table('salesforce_calls')
+            ->where('created_date', '>=', $periods['current']['start'])
+            ->where('created_date', '<', $periods['current']['end'])
+            ->count();
+        $dashboardUniverse = DB::table('salesforce_calls')
+            ->where('included_in_dashboard', true)
+            ->where('created_date', '>=', $periods['current']['start'])
+            ->where('created_date', '<', $periods['current']['end'])
+            ->count();
+        $cutoff = $this->lastUpdated()?->toDateTimeString();
 
         return [
             'ok' => $current['total_calls'] > 0 || $previous['total_calls'] > 0,
             'message' => $current['total_calls'] > 0 ? null : 'No hay llamadas sincronizadas para el periodo seleccionado.',
             'periodo_actual' => $this->periodPayload($periods['current']),
             'periodo_comparado' => $this->periodPayload($periods['previous']),
-            'datos_actualizados' => $this->lastUpdated()?->toDateTimeString(),
+            'datos_actualizados' => $cutoff,
+            'dataset_cutoff_at' => $cutoff,
+            'dataset_generated_at' => CarbonImmutable::now()->toDateTimeString(),
+            'dataset_source' => 'local_snapshot',
+            'classification_rule_version' => CallClassificationRules::VERSION,
+            'reconciliation' => [
+                'raw_type_call_tasks' => $rawUniverse,
+                'dashboard_call_object_tasks' => $dashboardUniverse,
+                'excluded_without_call_object' => max($rawUniverse - $dashboardUniverse, 0),
+            ],
             'kpis' => $current,
             'comparativa' => $this->comparison($current, $previous),
             'charts' => $charts,
@@ -182,6 +249,17 @@ class CallDashboardDatasetService
             $this->addAggregatedGroup($groups, $team, $this->teamLabel($team), [
                 'team' => $team,
             ], $this->bucketFromRow($row), 0);
+        }
+
+        $unassigned = $this->baseFilteredQuery($filters, $period)
+            ->whereRaw('NOT '.$this->operationalTeamConditionSql())
+            ->selectRaw($this->metricsSelectSql())
+            ->first();
+        $unassignedBucket = $this->bucketFromRow($unassigned);
+        if (($unassignedBucket['total_calls'] ?? 0) > 0) {
+            $this->addAggregatedGroup($groups, 'unassigned', 'Sin equipo', [
+                'team' => 'unassigned',
+            ], $unassignedBucket, 0);
         }
 
         return $this->finalizeGroups($groups, 'team_label');
@@ -333,6 +411,7 @@ class CallDashboardDatasetService
     private function applyBaseFilters(QueryBuilder $query, array $filters, array $period, bool $includeUser = true): QueryBuilder
     {
         $query
+            ->where('included_in_dashboard', true)
             ->where('created_date', '>=', $period['start'])
             ->where('created_date', '<', $period['end']);
 
@@ -349,7 +428,11 @@ class CallDashboardDatasetService
         }
 
         if ($filters['team'] !== '') {
-            $query->whereRaw($this->effectiveTeamSql().' = ?', [$filters['team']]);
+            if ($filters['team'] === 'unassigned') {
+                $query->whereRaw('NOT '.$this->operationalTeamConditionSql());
+            } else {
+                $query->whereRaw($this->effectiveTeamSql().' = ?', [$filters['team']]);
+            }
         }
 
         if ($filters['origin'] !== '') {
@@ -454,6 +537,8 @@ class CallDashboardDatasetService
 
         if ($filters !== null && $period !== null) {
             $query = $this->applyBaseFilters($query, $filters, $period, false);
+        } else {
+            $query->where('included_in_dashboard', true);
         }
 
         return $query
@@ -1095,7 +1180,7 @@ class CallDashboardDatasetService
             'calls-dashboard:filters:'.md5((string) $this->dataVersion()),
             now()->addMinutes(self::CACHE_TTL_MINUTES),
             fn () => [
-                'teams' => collect(['commercial', 'customer_service', 'contact_center', 'appraiser'])
+                'teams' => collect(['commercial', 'customer_service', 'contact_center', 'appraiser', 'unassigned'])
                     ->map(fn (string $id) => ['id' => $id, 'name' => $this->teamLabel($id)])
                     ->all(),
                 'directions' => [
@@ -1121,6 +1206,7 @@ class CallDashboardDatasetService
                     ->merge($this->distinctColumnValues('zone'))
                     ->all()),
                 'portals' => $this->sortLabels(DB::table('salesforce_calls')
+                    ->where('included_in_dashboard', true)
                     ->where('call_origin', 'portal')
                     ->where(function (QueryBuilder $query): void {
                         $query->whereNull('portal_resolved')
@@ -1142,6 +1228,7 @@ class CallDashboardDatasetService
     {
         return DB::table('salesforce_calls')
             ->selectRaw($column.' as label')
+            ->where('included_in_dashboard', true)
             ->whereNotNull($column)
             ->where($column, '<>', '')
             ->groupBy($column)
@@ -1193,6 +1280,7 @@ class CallDashboardDatasetService
             'customer_service' => 'Atencion al Cliente',
             'contact_center' => 'Contact Center',
             'appraiser' => 'Tasadores',
+            'unassigned' => 'Sin equipo',
             'system' => 'Sistema / Sin agente',
             default => 'Sin clasificar',
         };
