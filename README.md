@@ -1,273 +1,157 @@
 # Informes HR Motor
 
-Aplicacion Laravel para los paneles internos de Leads, Campanas, Reservas/Ventas,
-Llamadas, Comisiones y Stock.
+Aplicación Laravel de inteligencia de negocio para Leads, Reservas/Ventas,
+Llamadas, Campañas, Comisiones y Stock. Consolida fotografías locales de
+Salesforce, Google Ads y Meta Ads; los dashboards no dependen de consultas en
+vivo a Salesforce durante el render.
 
-## Auditoria funcional y tecnica (2026-08-05)
+## Estado funcional
 
-- Comisiones usa una unica resolucion de mes en las seis pestanas y exportaciones. El mes actual es siempre provisional. Los cierres definitivos requieren aprobacion de Direccion/IT, guardan snapshot, corte, formula y eventos de reapertura; los ajustes se aplican al siguiente mes abierto.
-- Stock evalua todos los vehiculos Disponibles, usa Disponible/Reservado/Bloqueado como contexto, separa ranking teorico de capacidad ejecutable y construye un plan conjunto sin sobreasignar plazas. Los duplicados de venta se resuelven por fecha de firma y los empates quedan ambiguos.
-- Leads muestra Sin comercial elegible, Sin delegacion comercial y Sin clasificar sin retirar registros validos del total. Eliminados y fusionados quedan fuera del dataset activo y dentro de la conciliacion.
-- Llamadas limita el universo a Tasks de llamada con `CallObject`, conserva `ABANDONED` como perdida, versiona la clasificacion y registra historial. El reprocesado exige periodo, motivo o `--dry-run`.
-- Campanas separa pago, Salesforce-only, prueba, pendiente, ambiguo y sin atribuir. La exclusion de pruebas depende de clasificacion persistente por ID, no del nombre. El first touch ambiguo no se adjudica arbitrariamente.
-- Roles disponibles: Administrador/IT, Direccion, Area Manager, Responsable de delegacion, Marketing, Financiero y Comercial. Los ambitos usan zona, ID de delegacion y Salesforce User ID.
-- Reservas/Ventas usa el criterio de fecha como cohorte comun para todos los KPIs y contabiliza una sola reserva/firma por vehiculo y fecha. Los conflictos de atribucion se muestran como incidencias y permanecen auditables por Opportunity ID.
-- Las conciliaciones internas de Campanas y Comisiones solo se muestran a Administrador/IT; el Auditor de comisiones puede gestionar los ficheros de penalizaciones financieras.
-- Verificacion local: suite completa con 393 pruebas y 2.667 aserciones correctas;
-  tras el enlace final de Penalizaciones, regresion de permisos 8/8 (55
-  aserciones). Build Vite correcto.
+- Leads normaliza tipos y portales de forma centralizada, separa delegación del
+  Lead y del comercial, muestra calidad comercial y excluye eliminados/fusionados
+  de KPIs activos sin perder auditoría.
+- Reservas/Ventas usa el selector de fecha como cohorte común y deduplica una
+  reserva o firma por vehículo/fecha, mostrando conflictos por Opportunity ID.
+- Llamadas limita el universo a Tasks con `CallObject`, versiona la
+  clasificación, conserva historial y solo permite reprocesados manuales con
+  período y simulación o motivo.
+- Campañas separa pago, Salesforce-only, pruebas, pendientes, ambiguos y sin
+  atribuir. First touch no duplica entidades y las pruebas solo se excluyen por
+  clasificación persistida por ID.
+- Comisiones comparte mes entre seis pestañas y exports. El mes actual es
+  provisional; los definitivos conservan snapshot, corte, fórmulas, aprobación,
+  reapertura y ajustes.
+- Stock evalúa todo el Disponible, usa Disponible/Reservado/Bloqueado para
+  capacidad, presenta Top 3 teórico y genera un plan conjunto sin sobreasignar
+  plazas ni crear órdenes logísticas.
 
-Despliegue y rollback: `docs/despliegue-auditoria-2026-08-05.md`.
+Las decisiones todavía abiertas están en
+[docs/decisiones-negocio-pendientes.md](docs/decisiones-negocio-pendientes.md).
 
-## Actualizacion Leads y Campanas (2026-08-04)
+## Documentación
 
-- Los tipos de Lead se normalizan una sola vez (`trim`, minusculas, sin tildes y aliases controlados). `Tasacion` y `Tasación` resuelven a `tasacion`.
-- Venta sigue significando `venta + venta_con_cambio`. `lead` y `ayvens` quedan fuera hasta recibir confirmacion funcional.
-- La sincronizacion incremental actualiza filas existentes y propaga eliminaciones/fusiones.
-- Las cabeceras separan sincronizacion, construccion, generacion y corte en zona `Europe/Madrid`.
-- Leads cancela peticiones anteriores para impedir que una respuesta obsoleta pinte otro filtro.
-- Campanas excluye Leads eliminados y conserva el campo/valor exactos usados en cada match.
-- Direccion dispone de auditoria KPI, conciliacion de activos/eliminados/fusionados y traza de atribuciones.
+- General y contraste Salesforce:
+  [docs/Documentacion_general_informes_y_contraste_salesforce.md](docs/Documentacion_general_informes_y_contraste_salesforce.md)
+- Handoff técnico: [docs/HANDOFF.md](docs/HANDOFF.md)
+- Leads: [docs/reglas-negocio-leads.md](docs/reglas-negocio-leads.md)
+- Reservas/Ventas: [docs/informe-reservas-ventas.md](docs/informe-reservas-ventas.md)
+- Llamadas: [docs/informe-llamadas.md](docs/informe-llamadas.md)
+- Campañas: [docs/informe-campanas.md](docs/informe-campanas.md)
+- Comisiones: [docs/informe-comisiones.md](docs/informe-comisiones.md)
+- Stock: [docs/informe-stock.md](docs/informe-stock.md)
+- Despliegue y rollback:
+  [docs/despliegue-auditoria-2026-08-05.md](docs/despliegue-auditoria-2026-08-05.md)
 
-Despliegue minimo:
+## Arquitectura
+
+```text
+Salesforce / Google Ads / Meta Ads / ficheros autorizados
+  -> comandos y servicios de sincronización
+  -> tablas locales y snapshots
+  -> normalización, clasificación y atribución
+  -> servicios de dataset
+  -> controladores JSON/exports y Blade/JavaScript
+```
+
+Principios:
+
+- reglas funcionales centralizadas y reutilizadas por sync, dataset, filtros y
+  exports;
+- límites de período superiores exclusivos salvo que el comando documente lo
+  contrario;
+- auditoría por ID y motivo, sin ajustes manuales para cuadrar agregados;
+- filtros y permisos aplicados en servidor;
+- cierres económicos congelados, separados de informes operativos mutables;
+- consultas por lotes, selección de columnas, caché y paginación para evitar
+  N+1 y cargas completas innecesarias.
+
+## Roles
+
+| Rol | Acceso funcional actual |
+|---|---|
+| Administrador/IT | Acceso completo, configuración, conciliaciones internas y administración. |
+| Dirección | Informes autorizados, exports y auditorías; puede aprobar/reabrir cierres. |
+| Área Manager | Leads, Reservas/Ventas, Llamadas y Comisiones, limitado a su zona. |
+| Responsable de delegación | Leads, Llamadas y Comisiones, limitado a su delegación; asignarla es obligatorio. |
+| Marketing | Leads y Campañas. |
+| Financiero | Comisiones, limitado a la vista financiera autorizada. |
+| Comercial | Leads, Llamadas y Comisiones, limitado a su Salesforce User ID. |
+| Auditor de comisiones | Comisiones y carga de Penalizaciones financieras; sin usuarios, fórmulas ni cierres. |
+
+Los mínimos configurables de cada informe se almacenan en
+`report_access_settings`. Los roles funcionales explícitos y sus ámbitos no se
+amplían por cambiar un mínimo visual.
+
+## Desarrollo local
+
+Requisitos: PHP 8.4, Composer, Node.js/npm y una base de datos compatible con la
+configuración Laravel del entorno.
 
 ```bash
+composer install
+copy .env.example .env
+php artisan key:generate
+php artisan migrate
+npm ci
+npm run build
+php artisan serve
+```
+
+Las credenciales y secretos se configuran únicamente en `.env`. No deben
+guardarse en documentación, commits, logs ni respuestas JSON.
+
+## Scheduler
+
+El servidor debe ejecutar `php artisan schedule:run` cada minuto. Laravel
+coordina las ventanas móviles y `withoutOverlapping`; no hay que editar fechas
+del cron diariamente.
+
+Programación principal (`Europe/Madrid`):
+
+- Leads incremental: cada 15 minutos, `--days=2`.
+- Tasaciones: 01:00, `--days=120`.
+- Meta Ads: 01:30, `--days=120`.
+- Google Ads: 01:45, `--days=120`.
+- Atribución de campañas: 02:15, `--days=120`.
+- Snapshot de campañas: 03:15.
+- Stock: 03:30.
+
+## Despliegue
+
+No ejecutar desde herramientas de desarrollo contra producción sin el proceso de
+cambio aprobado. Secuencia base:
+
+```bash
+php artisan down
 php artisan migrate --force
 php artisan optimize:clear
 npm ci
 npm run build
-php artisan salesforce:sync-monthly-commercial --days=120
-php artisan campaigns:sync-meta --days=120
-php artisan campaigns:sync-google --days=120
-php artisan campaigns:build-attribution --days=120
+php artisan up
 ```
 
-Para un historico exacto usar rango explicito con fin exclusivo:
+Los backfills y reprocesados no forman parte automáticamente del despliegue.
+Deben ejecutarse con rango explícito, simulación cuando exista, export previo y
+conciliación por ID. Consultar la guía de despliegue antes de usar comandos de
+Llamadas, Campañas o Stock.
+
+## Verificación
 
 ```bash
-php artisan salesforce:sync-monthly-commercial --from=2026-07-01 --to=2026-08-01
+php artisan test
+npm run build
 ```
 
-El scheduler usa ventanas moviles; el cron del servidor solo debe ejecutar
-`php artisan schedule:run` cada minuto. No hay que editar fechas diariamente.
-
-Documentacion: `docs/reglas-negocio-leads.md`, `docs/informe-campanas.md` y `HANDOFF.md`.
-Reservas/Ventas: `docs/informe-reservas-ventas.md`.
-
----
-
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
-
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
-
-## About Laravel
-
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
-
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
-```
-
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
-
-## Contributing
-
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
-
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
-
-# Informes Salesforce IA - Dashboard Comercial
-
-## Contexto funcional
-
-Este proyecto sustituye progresivamente el informe mensual comercial enviado por email/PDF por un front interactivo en Laravel.
-
-El objetivo principal es que Dirección pueda consultar los datos comerciales de leads desde una pantalla visual con:
-
-- KPIs generales.
-- Evolución frente al periodo anterior.
-- Portales.
-- Delegaciones.
-- Comerciales.
-- Procedencia de leads.
-- Llamadas frente a formularios.
-- Conversión con Exposición y sin Exposición.
-- Calidad de dato pendiente.
-- Tablas filtrables.
-- Gráficos.
-- Comparativa entre periodos.
-
-El informe completo debe vivir en el front. El email podrá mantenerse como aviso o resumen, pero no como fuente principal de consulta.
-
-## Objetivo de la herramienta
-
-La herramienta debe permitir analizar:
-
-- Qué entra por cada portal.
-- Qué parte es llamada y qué parte es formulario.
-- Qué entra por cada delegación.
-- Qué portales alimentan cada delegación.
-- Qué comerciales gestionan mejor o peor.
-- Conversión con y sin Exposición.
-- Calidad de dato pendiente.
-- Comparativas entre periodos.
-
-## Pestañas previstas
-
-1. Resumen Dirección.
-2. KPIs clave.
-3. Procedencia por portal.
-4. Detalle de portal.
-5. Delegaciones.
-6. Comerciales.
-7. Comparativa entre periodos.
-8. Calidad de dato.
-
-## Principio técnico
-
-La lógica de negocio no debe vivir en Blade.
-
-El proyecto se organiza en tres capas:
-
-1. Datos brutos: leads importados desde Salesforce o fuente intermedia.
-2. Datos normalizados: leads ya clasificados para reporting.
-3. Presentación: dashboards, tablas, gráficos y filtros.
-
-## Trazabilidad técnica de los dashboards
-
-- Reservas/Ventas separa conversión por fila y participación por columna; las
-  conclusiones utilizan conversión. El selector define una cohorte unica y los
-  eventos duplicados por vehiculo/fecha cuentan una vez con alerta auditable.
-- Leads, Reservas/Ventas y Llamadas cancelan peticiones anteriores y no mantienen
-  resultados obsoletos visibles al cambiar filtros.
-- Llamadas conserva el universo bruto `Task Type=Call`, marca las exclusiones sin
-  `CallObject`, versiona la clasificación y permite exportar la conciliación.
-- Campañas muestra el puente Plataforma + Salesforce-only y prioriza las alertas
-  por inversión.
-- Stock evalúa todo el universo antes de paginar y genera un plan conjunto que
-  consume la capacidad de los destinos.
-- Comisiones mantiene visibles sus seis pestañas aunque el mes no tenga filas y
-  carga bajo demanda los bloques especializados sin cambiar el mes seleccionado.
-
-Tras desplegar estos cambios hay que ejecutar migraciones y reprocesar la
-clasificación histórica de llamadas:
-
-```bash
-php artisan migrate --force
-php artisan reports:reprocess-calls-classification
-php artisan optimize:clear
-npm ci && npm run build
-```
-
-Las decisiones funcionales que no deben inferirse desde código están recogidas
-en `docs/decisiones-negocio-pendientes.md`.
-
-## Campos normalizados principales
-
-Cada lead debe poder resolverse a:
-
-- canal_direccion
-- portal_original
-- grupo_portal
-- delegacion_real
-- grupo_comercial
-- es_exposicion
-- convertido
-- descartado
-- potencial
-- calidad_dato_estado
-- calidad_dato_incidencia
-
-## Reglas críticas
-
-### Canal
-
-Si `Medio_Nuevo__c = "Llamada"`:
-
-- Canal = Llamada.
-
-En cualquier otro caso:
-
-- Canal = Formulario.
-
-No se debe usar `LEA_SEL_Medio_Origen__c` como campo principal para detectar llamadas.
-
-### Portal
-
-Si el canal es Llamada:
-
-- Portal = `Fuente_Nuevo__c`.
-
-Si el canal es Formulario:
-
-- Portal = campo de portal usado en el informe actual.
-- Prioridad inicial: `Portal`, `LEA_SEL_Fuente_Origen__c`, `Fuente_Nuevo__c`.
-
-### Exposición
-
-Si `Portal = "Exposición"`:
-
-- es_exposicion = true.
-
-Todos los KPIs principales deben poder verse:
-
-- Con Exposición.
-- Sin Exposición.
-- Solo Exposición.
-
-## Stack inicial
-
-- Laravel.
-- Blade.
-- Vite.
-- CSS propio inicial.
-- JavaScript sencillo.
-- MariaDB/MySQL.
-- PHPUnit para tests iniciales.
-
-## Desarrollo local
-
-Instalar dependencias:
-
-```bash
-composer install
-npm install
+Última verificación de código registrada antes de esta actualización documental:
+393 pruebas y 2.667 aserciones correctas; las regresiones finales específicas de
+permisos y Reservas/Ventas también fueron correctas.
+
+## Seguridad
+
+- Autenticación configurable mediante `INFORMES_AUTH_ENABLED`.
+- CSRF obligatorio en mutaciones web.
+- Autorización de pantallas, JSON, exports, filas y columnas sensibles.
+- Principio de mínimo privilegio y ámbitos estables: Salesforce User ID,
+  delegación normalizada y zona configurada.
+- Prohibido incluir tokens de Meta/Google/Salesforce, contraseñas, PII o datos
+  financieros reales en documentación y mensajes de error.

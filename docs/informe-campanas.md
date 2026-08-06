@@ -1,73 +1,76 @@
-# Informe de campanas digitales
+# Informe de Campañas
 
-URL: `/informes/campanas`
+Actualizado: 2026-08-06. URL: `/informes/campanas`.
 
-La V1 cruza inversion cacheada de Meta Ads / Google Ads con leads Salesforce atribuidos y oportunidades locales. La vista pivota sobre el lead: inversion, impresiones y clicks se filtran por fecha publicitaria; los leads se filtran por fecha de creacion. No se aplica ventana de 30, 60 o 90 dias: `--window` se conserva solo como compatibilidad sin efecto. Si no hay credenciales de Ads, los comandos no fallan y el informe carga con datos disponibles y avisos internos para admin.
+## Fuentes y períodos
 
-## Variables de entorno
+- Google Ads y Meta Ads: inversión, impresiones, clics y métricas diarias.
+- Salesforce: Leads, Opportunities y campaña original.
+- Tablas principales: `campaign_platform_daily_metrics`,
+  `campaign_platform_identifiers`, `campaign_salesforce_leads`,
+  `campaign_lead_attributions`, `campaign_unresolved_attributions` y
+  `campaign_operational_classifications`.
 
-No se deben hardcodear credenciales. Configurar en `.env`:
+Se muestran por separado:
 
-```dotenv
-INFORMES_AUTH_ENABLED=true
-INFORMES_AUTH_EMAIL=admin@hrmotor.com
-INFORMES_AUTH_PASSWORD=definir_password_seguro
-INFORMES_AUTH_REMEMBER_DAYS=30
+- período de gasto publicitario;
+- fecha de creación del Lead;
+- fecha del resultado posterior;
+- sincronización de cada fuente;
+- construcción de la atribución;
+- generación y corte del dataset.
 
-META_API_VERSION=v22.0
-META_ACCESS_TOKEN=
-META_AD_ACCOUNT_IDS=
-META_APP_ID=
-META_APP_SECRET=
+No se aplica una ventana de conversión de 30, 60 o 90 días. `--window` se
+mantiene únicamente como opción legacy sin efecto.
 
-GOOGLE_ADS_API_VERSION=v22
-GOOGLE_ADS_DEVELOPER_TOKEN=
-GOOGLE_ADS_CLIENT_ID=
-GOOGLE_ADS_CLIENT_SECRET=
-GOOGLE_ADS_REFRESH_TOKEN=
-GOOGLE_ADS_CUSTOMER_IDS=
-GOOGLE_ADS_LOGIN_CUSTOMER_ID=
-```
+## Universos
 
-## Comandos diarios
+El dataset distingue:
 
-El scheduler ejecuta Meta a las 01:30, Google a las 01:45, construye la
-atribucion a las 02:15 y genera el snapshot a las 03:15 (`Europe/Madrid`). El
-servidor solo necesita `php artisan schedule:run` cada minuto.
+- Google Ads / Meta Ads;
+- Salesforce-only;
+- campañas de prueba;
+- pendientes de revisar;
+- atribuciones ambiguas;
+- registros sin atribuir.
 
-Secuencia manual recomendada:
+Salesforce-only suma en la actividad de Salesforce, pero no en el rendimiento
+de pago cuando no existe inversión asociada. La conciliación interna por origen
+se muestra únicamente a Administrador/IT.
 
-```bash
-php artisan campaigns:sync-meta --days=120
-php artisan campaigns:sync-google --days=120
-php -d memory_limit=512M artisan campaigns:build-attribution --days=120
-php artisan reports:refresh-campaigns --days=120 --store
-```
+`Tipo/objetivo de campaña` y `RecordType real del Lead` son filtros diferentes.
+Una campaña clasificada como Venta puede contener Leads cuyo RecordType sea
+Tasación; el filtro de campaña no reescribe el tipo real del Lead.
 
-Backfill 12 meses bajo demanda:
+## Normalización y clasificación operativa
 
-```bash
-php -d memory_limit=512M artisan salesforce:sync-campaign-leads --months=12 --fresh -vvv
-php -d memory_limit=512M artisan salesforce:sync-opportunities --months=12 --fresh -vvv
-php artisan campaigns:sync-meta --months=12
-php artisan campaigns:sync-google --months=12
-php -d memory_limit=512M artisan campaigns:build-attribution --months=12
-php artisan reports:refresh-campaigns --months=12 --store
-```
+La comparación de nombres normaliza mayúsculas, tildes, espacios y guiones
+bajos. Por tanto, `VENTAS 1`, `VENTAS_1` y `ventas` pueden ser comparables, pero
+se conserva el nombre bruto y el motivo exacto del match.
 
-## Nota de importe vendido
+Cada campaña se clasifica por plataforma, cuenta e ID como:
 
-El campo funcional confirmado es `Opportunity.OPO_FOR_Importe_total__c`, sincronizado localmente como `salesforce_opportunities.opo_for_importe_total`. Campanas usa este campo como importe principal y `amount` solo como fallback positivo. Si no hay importes sincronizados o no cruzan con oportunidades locales, el aviso tecnico se muestra solo a usuarios admin.
+- `real`;
+- `test`;
+- `pending_review`.
 
-## Semantica y trazabilidad
+Que el nombre contenga `prueba` o `test` solo genera una sugerencia. La campaña
+queda fuera de KPIs ejecutivos, rankings y recomendaciones únicamente cuando
+Dirección o Administrador/IT guarda una clasificación explícita `test`, con
+motivo, usuario y fecha. Las campañas pendientes deben revisarse por ID.
 
-`Tipo de campana` y `Tipo del Lead` son filtros independientes. Venta en el eje
-de Campanas clasifica la campana; no implica que el RecordType del Lead sea
-Venta.
+## First touch y atribución
 
-La normalizacion limpia mayusculas, tildes, espacios y guiones bajos.
-`VENTAS 1`, `VENTAS_1` y `ventas` son comparables, pero siempre se conserva el
-nombre bruto. Los metodos auditables son:
+Precedencia vigente:
+
+1. relación explícita del Lead convertido con Opportunity;
+2. coincidencia inequívoca por identificadores publicitarios;
+3. campaña original inequívoca del Lead;
+4. primera campaña inequívoca conocida de la cuenta;
+5. Salesforce-only;
+6. ambiguo o sin atribuir.
+
+Los métodos de match auditables incluyen:
 
 - `ad_id_match`;
 - `adset_or_adgroup_id_match`;
@@ -76,45 +79,74 @@ nombre bruto. Los metodos auditables son:
 - `campaign_name_flexible_match`;
 - `salesforce_only`.
 
-Cada atribucion guarda `matched_source_field/value`,
-`matched_platform_field/value` y `match_candidate_count`. Si una clave devuelve
-varias campanas, no se elige la primera: queda como ambigua y sin cruce.
+No se sustituye el first touch por remarketing posterior. Cada Lead, cuenta,
+Opportunity o resultado se reclama una sola vez. Si varias campañas tienen la
+misma precedencia sin una señal inequívoca, el registro queda ambiguo, no se
+duplica y no se atribuye al rendimiento de una campaña concreta.
 
-La precedencia first touch es relacion explicita Lead convertido, identificadores
-publicitarios inequivocos, campana original del Lead, primera campana inequivoca
-de la cuenta y finalmente Salesforce-only. Se guardan candidatos, primer contacto,
-confianza, ambiguedad y version de reglas. Cada entidad cuenta una vez.
+La traza conserva campaña elegida, candidatos, motivo, confianza, primer
+contacto, IDs utilizados, campos/valores del match, ambigüedad y versión de
+reglas. El builder excluye Leads eliminados y sustituye el período dentro de una
+transacción.
 
-Las campanas se clasifican por plataforma, cuenta e ID como `real`, `test` o
-`pending_review`. Un nombre con `prueba` o `test` solo crea una sugerencia; no
-sale de KPIs ejecutivos hasta que Direccion/IT guarda una clasificacion explicita
-con motivo y usuario.
+## Métricas y alertas
 
-Meta y Google mantienen el inventario de IDs de anuncio, adset/ad group y
-campana en `campaign_platform_identifiers`; la inversion sigue agregada por
-campana para no duplicar importes. El builder excluye Leads eliminados y
-reemplaza el periodo dentro de una transaccion.
+- Leads, Opportunities y resultados se cuentan como entidades distintas.
+- Inversión no se duplica por almacenar inventario de anuncio, adset/ad group y
+  campaña.
+- Importe vendido usa `Opportunity.OPO_FOR_Importe_total__c`, almacenado como
+  `opo_for_importe_total`; `Amount` solo es fallback positivo.
+- CTR, CPC, CPL, costes por etapa, ROAS y ROI usan denominadores visibles y
+  devuelven nulo cuando no existe denominador válido.
 
-La exportacion de atribuciones muestra por Lead.Id nombres bruto/final, IDs,
-metodo, campos y valores del match, RecordType, Opportunity y fechas. La
-cabecera separa sincronizacion de Salesforce, Meta y Google, construccion,
-generacion y corte. Si las fuentes son posteriores al builder, el panel solicita
-reconstruir atribuciones.
+Prioridad de `Campañas a revisar`:
 
-La sección `Conciliación por origen` reconstruye por entidades distintas:
+1. inversión con posible fallo de medición o cero Leads;
+2. mayor inversión con cero resultados;
+3. coste por resultado fuera del benchmark y muestra suficiente;
+4. caída relevante del funnel.
 
-- atribuciones procedentes de Google/Meta;
-- atribuciones `Salesforce-only`;
-- total distinto;
-- solapamientos entre ambos universos.
+Dentro de cada nivel se ordena por impacto económico, principalmente inversión.
+Los umbrales se muestran y cualquier cambio futuro deberá versionarse.
 
-Las campañas a revisar se ordenan por inversión, de forma que una campaña con
-gasto alto y atribución cero no quede detrás de incidencias de poco impacto.
-# Cambios de atribucion 2026-08-05
+## Auditoría
 
-- `--window` se conserva solo por compatibilidad y no limita temporalmente la atribucion.
-- First touch: oportunidad convertida explicita; IDs publicitarios inequivocos; campana original inequivoca; primera campana inequivoca de cuenta; Salesforce-only; ambiguo/sin atribuir.
-- Una oportunidad se reclama una vez. Varias campanas con la misma precedencia generan `campaign_unresolved_attributions`; no se elige por fecha de modificacion ni se duplica.
-- `campaign_operational_classifications` clasifica por plataforma/cuenta/ID como real, test o pendiente. El nombre solo marca candidato; solo `test` guardado queda fuera de KPIs, rankings y recomendaciones.
-- La traza guarda candidatos, first touch, ambiguedad y version de regla. Tipo de campana y RecordType real del Lead permanecen como filtros distintos.
-- Prioridad de revision: fallo de medicion/cero leads, inversion sin resultado, coste fuera de benchmark con muestra y caida del funnel; dentro de cada nivel manda la inversion.
+- JSON KPI: `/informes/campanas/data/kpi-audit`.
+- CSV KPI: `/informes/campanas/export/kpi-audit.csv`.
+- CSV campañas: `/informes/campanas/export/campaigns.csv`.
+- CSV atribuciones: `/informes/campanas/export/attributions.csv`.
+
+La exportación de atribuciones incluye Lead ID, Opportunity ID, campaña final y
+bruta, plataforma, IDs publicitarios, método, confianza, candidatos,
+ambigüedad, RecordType, fechas, versión, construcción y sincronización.
+
+## Operación
+
+El scheduler ejecuta en `Europe/Madrid`:
+
+- Meta: 01:30;
+- Google: 01:45;
+- atribución: 02:15;
+- snapshot del informe: 03:15.
+
+```bash
+php artisan campaigns:sync-meta --days=120
+php artisan campaigns:sync-google --days=120
+php -d memory_limit=512M artisan campaigns:build-attribution --days=120
+php artisan reports:refresh-campaigns --days=120 --store
+```
+
+Para un backfill debe usarse un rango explícito, probar primero sobre copia y
+conciliar por Lead/Opportunity ID. Reconstruir first touch puede cambiar
+históricos; no afecta cierres económicos ya congelados.
+
+Credenciales de Meta y Google se configuran exclusivamente mediante variables
+de entorno. No deben aparecer en documentación, logs ni respuestas del
+dashboard.
+
+Archivos principales:
+
+- `app/Services/Campaigns/CampaignAttributionBuilderService.php`;
+- `app/Services/Campaigns/CampaignDashboardDatasetService.php`;
+- `app/Models/CampaignOperationalClassification.php`;
+- `app/Console/Commands/BuildCampaignAttributionCommand.php`.

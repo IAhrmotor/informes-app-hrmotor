@@ -1,354 +1,146 @@
-# Reglas de negocio - Dashboard de Leads
+# Informe de Leads
 
-## Revision auditable 2026-08-04
+Actualizado: 2026-08-06.
 
-### Tipo de Lead
+## Fuente, persistencia y período
 
-`LeadRecordTypeNormalizer` es el unico mapping autorizado. Limpia espacios,
-convierte a minusculas, elimina tildes y acepta aliases controlados. La misma
-clave se guarda en `salesforce_leads.record_type_normalized` y se usa al
-sincronizar, construir el dataset, filtrar y exportar.
+- Fuente: Salesforce `Lead`, `Task`, `Event` y `User`.
+- Tablas principales: `salesforce_leads`, `salesforce_activities`,
+  `salesforce_lead_activity_summaries`, `salesforce_users` y
+  `report_sync_runs`.
+- El período del dashboard se basa en `Lead.CreatedDate`.
+- El dashboard consulta una fotografía local; no consulta Salesforce durante el
+  render.
+- El corte publicado procede de la última sincronización completada. Se muestran
+  sincronización de Leads y actividades, generación, rango, zona horaria y corte
+  del dataset.
 
-- Tasacion: `tasacion`.
-- Venta: `venta` y `venta_con_cambio`.
-- `lead` y `ayvens` permanecen fuera de Venta hasta confirmacion funcional.
+`salesforce:sync-monthly-commercial` acepta ventana móvil con `--days` o rango
+explícito `--from/--to`; `--to` es exclusivo. La consulta incremental incluye
+registros creados en el rango o modificados mediante `LastModifiedDate`, por lo
+que actualiza también Leads antiguos cuyo estado, propietario, tipo o portal
+haya cambiado.
 
-### Sincronizacion y corte
+## Tipo de Lead
 
-`salesforce:sync-monthly-commercial` acepta `--days` o `--from/--to` (fin
-exclusivo). La SOQL incluye `CreatedDate` o `LastModifiedDate`, por lo que una
-ventana corta tambien refresca registros antiguos modificados. Cada ejecucion
-se registra en `report_sync_runs`; una ejecucion fallida nunca se publica como
-corte valido.
+`LeadRecordTypeNormalizer` es el mapping único utilizado en sincronización,
+dataset, filtros y exportaciones. Aplica `trim`, minúsculas, eliminación de
+tildes, compactación de espacios y aliases controlados.
 
-Se actualizan Status, RecordType, LastModifiedDate, Owner, persona que trabajo,
-propietario de descarte, portal/canal/delegacion, IsConverted y datos de
-conversion. Las eliminaciones y fusiones se detectan por `queryAll`; la
-reconciliacion de ausentes cubre hard deletes. `MasterRecordId`, cuando existe,
-identifica el registro maestro de una fusion.
+| Valor funcional | Clave canónica |
+|---|---|
+| Tasación | `tasacion` |
+| Venta | `venta` |
+| Venta con cambio | `venta_con_cambio` |
+| Lead | `lead` |
+| Ayvens | `ayvens` |
 
-La cabecera expone sincronizacion de Leads y actividades, generacion, corte,
-rango, id de ejecucion y zona `Europe/Madrid`. Tambien muestra cobertura de
-`synced_at` y `LastModifiedDate`.
+El filtro `Venta` incluye únicamente `venta` y `venta_con_cambio`. `Lead` y
+`Ayvens` no forman parte de Venta; esta decisión está cerrada.
 
-### Auditoria
+## Canal y portal
 
-- `/informes/leads/export/kpi-audit.csv`: filas que componen el KPI.
-- `/informes/leads/export/reconciliation-audit.csv`: activos, eliminados y
-  fusionados, propietario, comercial efectivo, delegaciones y motivo explícito
-  de inclusión/exclusión para los filtros solicitados.
-- `/informes/leads/data/lead-audit?ids[]=...`: inspeccion puntual de hasta 200 IDs.
+El canal se resuelve con `Medio_Nuevo__c`:
 
-Direccion e IT tienen acceso completo. Marketing y los roles operativos autorizados
-pueden exportar o auditar exclusivamente las filas de su ambito de zona,
-delegacion o Salesforce User ID. Para metadatos historicos:
+- valor normalizado `Llamada` → `Llamada`;
+- cualquier otro valor → `Formulario`.
+
+Prioridad del portal:
+
+| Canal | Prioridad |
+|---|---|
+| Llamada | `Fuente_Nuevo__c` → `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` → `Sin clasificar` |
+| Formulario | `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c` → `Sin clasificar` |
+
+Se conservan el portal final, el campo que lo resolvió y los valores brutos. Por
+esta regla, `Coches.net Coche Nuevo` puede proceder de `Fuente_Nuevo__c` en una
+llamada aunque `Portal_Text__c` sea `Coches.net`.
+
+## Estado, comercial efectivo y delegaciones
+
+Estados del dashboard:
+
+- `Convertido` → convertido;
+- `Descartado` → descartado;
+- `Potencial` → potencial;
+- cualquier valor no reconocido permanece auditable y no se fuerza a otro
+  estado.
+
+Prioridad del comercial efectivo:
+
+1. Convertido: persona que trabajó el Lead; fallback propietario actual.
+2. Descartado: propietario al descartarse; después persona que lo trabajó;
+   finalmente propietario actual.
+3. Resto: propietario actual.
+
+Un comercial es elegible solo si el usuario está activo y su perfil Salesforce
+es `Compra/Venta` o `Comerciales Partner Community`. La ausencia de delegación
+no lo convierte en no elegible.
+
+Se distinguen dos ejes:
+
+- Delegación del Lead: campos de delegación encargada del propio Lead.
+- Delegación comercial: delegación del usuario comercial efectivo.
+
+Los KPIs de calidad son independientes:
+
+- `Sin comercial elegible`;
+- `Sin delegación comercial`;
+- `Sin clasificar` para la delegación del Lead.
+
+Los registros válidos de estas categorías siguen sumando en el KPI general.
+
+## Actividad y KPIs
+
+- Potencial sin trabajar: potencial no asignado técnicamente y sin actividad o
+  sin actividad en los tres días anteriores al corte.
+- Sin asignar: potencial cuyo propietario es una identidad técnica configurada.
+- Gestionado: convertido, descartado o potencial con actividad reciente.
+- Exposición se determina por el portal final `Exposición`.
+- El modo `Sin Exposición` excluye esos registros; el modo normal los incluye.
+
+Al cambiar filtros se cancela la petición anterior, se vacían los resultados
+obsoletos y solo se pinta la respuesta que corresponde al estado actual.
+
+## Eliminados y fusionados
+
+La sincronización usa consultas que permiten detectar eliminados y fusiones:
+
+- `is_deleted = true` excluye el Lead de todos los KPIs activos;
+- `MasterRecordId` conserva la relación con el registro maestro de una fusión;
+- la reconciliación de ausentes cubre hard deletes;
+- el ID antiguo no se borra de la auditoría;
+- se conservan fuente y fecha de detección de la eliminación.
+
+## Auditoría y permisos
+
+- JSON KPI: `/informes/leads/data/kpi-audit`.
+- CSV KPI: `/informes/leads/export/kpi-audit.csv`.
+- CSV conciliación: `/informes/leads/export/reconciliation-audit.csv`.
+- Inspección puntual: `/informes/leads/data/lead-audit?ids[]=...`, máximo 200
+  IDs.
+
+La exportación incluye Lead ID, fechas, corte, estado, propietarios, comercial
+efectivo, elegibilidad, delegaciones, portal bruto/final, tipo bruto/normalizado,
+eliminación/fusión y motivos de inclusión o exclusión. Los endpoints aplican el
+mismo período, filtros y ámbito del usuario que la pantalla.
+
+## Operación
 
 ```bash
+php artisan salesforce:sync-monthly-commercial --days=2
+php artisan salesforce:sync-monthly-commercial --from=2026-07-01 --to=2026-08-01
 php artisan salesforce:backfill-lead-audit-metadata --dry-run
-php artisan salesforce:backfill-lead-audit-metadata
 ```
 
-El backfill local queda marcado como `legacy_local_backfill` y no demuestra un
-corte Salesforce. Para conciliaciones formales debe preferirse una nueva
-sincronizacion con rango explicito.
-
-El cliente cancela las peticiones anteriores al cambiar filtros, valida el
-identificador de la respuesta y vacía las secciones obsoletas durante la carga.
-La interfaz indica que consulta una fotografía local, no Salesforce en directo.
-
-## 1. Objetivo
-
-Normalizar los leads comerciales para mostrar un dashboard ejecutivo en Laravel.
-
-El dashboard debe sustituir el informe mensual comercial en PDF como fuente principal de consulta.
-
-## 2. Lecturas principales
-
-Todos los KPIs relevantes deben poder calcularse en tres lecturas:
-
-### Con Exposición
-
-Incluye todos los leads de Salesforce.
-
-### Sin Exposición
-
-Excluye leads cuyo portal normalizado sea `Exposición`.
-
-Esta vista permite analizar captación real sin leads recreados manualmente por comerciales.
-
-### Solo Exposición
-
-Incluye únicamente leads cuyo portal normalizado sea `Exposición`.
-
-Sirve para controlar este canal y evitar que distorsione la lectura de captación.
-
-## 3. Canal de Dirección
-
-### Regla
-
-Si: Medio_Nuevo__c = "Llamada"
-Entonces: canal_direccion = "Llamada"
-
-En cualquier otro caso: canal_direccion = "Formulario"
-Campo prioritario para detectar llamadas se usa: "Medio_Nuevo__c"
-No se debe usar como campo principal: "LEA_SEL_Medio_Origen__c"
-
-Motivo: el Flow “Canal PORTALES” puede cambiar ese campo a anuncio cuando la fuente es un portal.
-
-## 4. Portal original
-Si el lead es llamada
-
-Si:
-
-canal_direccion = "Llamada"
-
-Entonces:
-
-portal_original = Fuente_Nuevo__c
-Si el lead es formulario
-
-Si:
-
-canal_direccion = "Formulario"
-
-Entonces se usa esta prioridad inicial:
-
-Portal
-LEA_SEL_Fuente_Origen__c
-Fuente_Nuevo__c
-Sin portal
-
-## 5. Grupo portal
-
-El grupo portal se obtiene desde tabla maestra.
-
-Ejemplos:
-
-Coches.net => Coches.net
-1000Anuncios => 1000Anuncios
-Wallapop => Wallapop
-Sumauto => Autocasion / Sumauto
-Autocasion => Autocasion / Sumauto
-Milanuncios => Milanuncios
-Web => Web
-Google Maps => Google Maps
-Meta => Meta
-Exposición => Exposición
-6. Exposición
-
-Si:
-
-portal_original = "Exposición"
-
-Entonces:
-
-es_exposicion = true
-
-En caso contrario:
-
-es_exposicion = false
-7. Delegación para llamadas
-
-Para llamadas se usa como campo base:
-
-Delegacion_Encargada_Text__c
-
-La normalización debe cruzar:
-
-Portal + Delegacion_Encargada_Text__c
-
-Resultado esperado:
-
-tipo
-delegacion_real
-grupo_comercial
-
-Esto debe salir de una tabla maestra editable.
-
-8. Delegación para formularios
-
-Si:
-
-canal_direccion = "Formulario"
-
-y:
-
-Remitente Lead informado
-
-Entonces se cruza:
-
-Portal + Remitente Lead
-
-Resultado esperado:
-
-cuenta_receptora
-delegacion_real
-grupo_comercial
-
-No se debe mapear directamente un email a delegación sin validar contra tabla maestra.
-
-9. Formularios sin Remitente Lead
-
-Si el lead es formulario y no tiene Remitente Lead, usar esta prioridad:
-
-Delegacion_Encargada_Bueno__c
-Delegacion_Encargada__c
-Delegación
-Delegación del propietario/persona que trabajó el lead si es Exposición
-Sin clasificar
-10. Estados
-Convertido
-
-Si:
-
-Status = "Convertido"
-
-Entonces:
-
-convertido = true
-Descartado
-
-Se mantiene la lógica actual del informe mensual comercial.
-
-Hasta cerrar la lógica exacta, el servicio deja preparado el campo:
-
-descartado
-11. Calidad de dato
-
-Deben detectarse incidencias como:
-
-Formularios sin Remitente Lead.
-Remitente Lead no mapeado.
-Llamadas sin delegación.
-Portal sin grupo portal.
-Delegación no reconocida.
-Exposición sin propietario/delegación trabajador.
-
-Los registros dudosos deben quedar identificados y no mezclarse visualmente con datos fiables.
-
-12. Coches.net
-
-Coches.net tiene una regla histórica y una futura.
-
-Debe existir tabla de vigencias:
-
-portal_original
-regla
-fecha_desde
-fecha_hasta
-estado
-
-Reglas previstas:
-
-Coches.net | agrupaciones históricas | inicio | fecha cambio | histórico
-Coches.net | 1 mail + 1 número por delegación | fecha cambio | actual | activo
-
-La fecha exacta del cambio queda pendiente, pero la estructura no debe bloquear el desarrollo.
-
-13. Pestañas del front
-Resumen Dirección
-
-Debe mostrar:
-
-Total leads.
-Llamadas.
-Formularios.
-Convertidos.
-% conversión.
-% descarte.
-Potenciales.
-Pendientes de clasificar.
-
-También debe mostrar lectura:
-
-Con Exposición.
-Sin Exposición.
-Solo Exposición.
-KPIs clave
-
-Cada KPI debe mostrarse en columnas:
-
-Métrica | Con Exposición | Sin Exposición | Diferencia
-
-Además debe existir bloque específico de Solo Exposición.
-
-Procedencia por portal
-
-Columnas:
-
-Portal
-Llamadas
-Formularios
-Total
-% llamadas
-% formularios
-Convertidos
-% conversión
-Detalle de portal
-
-Columnas:
-
-Portal
-Grupo comercial
-Delegación real
-Llamadas
-Formularios
-Total
-Convertidos
-% conversión
-Delegaciones
-
-Vista principal:
-
-Delegación / grupo
-Total leads
-Llamadas
-Formularios
-Convertidos
-% conversión
-% descarte
-
-Al seleccionar delegación:
-
-Delegación
-Portal
-Llamadas
-Formularios
-Total
-Convertidos
-% conversión
-Comerciales
-
-Debe permitir filtrar por:
-
-Periodo.
-Portal.
-Grupo portal.
-Canal.
-Delegación real.
-Grupo comercial.
-Comercial.
-Estado del lead.
-Comparativa entre periodos
-
-Debe comparar:
-
-Métrica
-Periodo actual
-Periodo comparado
-Diferencia
-Calidad de dato
-
-Debe mostrar:
-
-Incidencia
-Registros
-Acción
-# Calidad y conciliacion 2026-08-05
-
-- Comercial elegible: usuario activo con perfil `Compra/Venta` o `Comerciales Partner Community`.
-- Prioridad: Convertido (persona que trabajo, propietario); Descartado (propietario al descarte, persona que trabajo, propietario actual); resto (propietario actual).
-- La falta de delegacion no invalida al comercial. Se muestran por separado `Sin comercial elegible`, `Sin delegacion comercial` y `Sin clasificar`; todos siguen en Leads totales.
-- El filtro Venta solo incluye Venta y Venta con cambio.
-- El periodo se basa en `CreatedDate`. Eliminados y IDs sustituidos por fusion no suman; `MasterRecordId` y la causa se conservan en el CSV de conciliacion.
-- Los ambitos de Area Manager, Responsable de delegacion y Comercial se aplican en servidor tambien a JSON y auditorias.
+El backfill local queda marcado como `legacy_local_backfill`: completa campos
+técnicos, pero no demuestra un corte real de Salesforce. Para una conciliación
+formal debe hacerse una sincronización con rango explícito.
+
+Archivos principales:
+
+- `app/Services/Reports/Leads/LeadRecordTypeNormalizer.php`;
+- `app/Services/Reports/Leads/LeadPortalResolver.php`;
+- `app/Services/Reports/Leads/LeadDelegationNormalizer.php`;
+- `app/Services/Reports/Leads/SalesforceLeadDashboardDatasetService.php`;
+- `app/Services/Reports/MonthlyCommercial/Sync/SalesforceMonthlyLeadsSyncService.php`.

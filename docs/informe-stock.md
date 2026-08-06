@@ -1,81 +1,153 @@
 # Informe de Stock
 
-## Tramos de antigüedad
+Actualizado: 2026-08-06.
 
-La antigüedad del stock se calcula como fecha actual menos fecha de entrada. Los
-tramos son mutuamente excluyentes:
+## Fuentes y fotografía local
 
-| Tramo | Regla |
+- Inventario: Salesforce `Product2`.
+- Ventas: Salesforce `Opportunity`, congeladas en
+  `salesforce_sale_snapshots`.
+- Logística: `Logistica__c`.
+- Capacidades: importación CSV/XLSX y `stock_delegations`.
+- Histórico: `stock_daily_snapshots`.
+
+El stock actual considera `Disponible`, `Reservado` y `Bloqueado`. Las ventas no
+se reconstruyen con el Product2 actual: el snapshot conserva los valores
+económicos del momento de la venta y posteriormente solo se reconcilia su
+validez contra Opportunity.
+
+La cabecera muestra período de ventas, fuente y corte de la fotografía local. La
+versión de reglas no ocupa una pill visual independiente.
+
+## Ventas válidas y duplicados
+
+Una venta válida requiere:
+
+- RecordType Venta o Cambio;
+- contrato CV firmado;
+- fecha de firma informada y dentro del período analizado;
+- etapa distinta de `Cerrada Perdida`;
+- vehículo de interés informado.
+
+`Cerrada Perdida` queda fuera de ventas, rotación, rankings y recomendaciones.
+
+Si un vehículo tiene varias ventas base-válidas:
+
+1. se conserva la firma más reciente;
+2. las anteriores quedan como `duplicate_not_selected` y guardan la Opportunity
+   seleccionada;
+3. si varias comparten exactamente la fecha más reciente, todas quedan como
+   `duplicate_ambiguous`, no suman y requieren revisión en Salesforce;
+4. `LastModifiedDate` no se usa como desempate.
+
+Los snapshots invalidados se conservan para auditoría y no reescriben sus
+importes congelados.
+
+## Universo y antigüedad
+
+Para contexto y capacidad se usa todo el stock Disponible, Reservado y
+Bloqueado. Para proponer traslados se usan únicamente vehículos Disponibles y
+operativos.
+
+Todos los Disponibles operativos se evalúan. Los 60 y 90 días son niveles de
+urgencia, no filtros de entrada:
+
+| Prioridad | Regla principal |
 |---|---|
-| Menos de 60 días | `días < 60` |
-| 60–89 días | `60 <= días < 90` |
-| 90–119 días | `90 <= días < 120` |
-| 120–180 días | `120 <= días <= 180` |
-| Más de 180 días | `días > 180` |
-| Sin fecha de entrada | No se puede calcular la antigüedad |
+| Normal | menos de 60 días y sin otra señal prioritaria |
+| 60 días | desde 60 días |
+| 90 días | desde 90 días o señales fuertes configuradas |
 
-La suma de los cinco tramos temporales y `Sin fecha de entrada` debe coincidir
-con el stock total filtrado. Los vehículos sin fecha siguen apareciendo además
-en Calidad del dato.
+Los tramos del resumen son excluyentes: 0–59, 60–89, 90–119, 120–180, más de
+180 y Sin fecha. Su suma debe coincidir con el stock total filtrado.
 
-Los umbrales de 60 y 90 dias son niveles de urgencia. No excluyen vehiculos:
-todo Disponible operativo entra en la evaluacion.
+## Catálogo canónico
 
-## Resumen
+Salesforce es el catálogo de referencia. `stock:sync-salesforce-catalog` lee los
+picklists activos de `Product2` y los guarda en `stock_catalog_values`. Los
+aliases locales solo relacionan variantes históricas con un valor oficial
+activo; no constituyen un segundo catálogo.
 
-- El KPI `Ventas por stock` no se muestra.
-- La evolución diaria representa tres series lineales: Disponible, Reservado y
-  Bloqueado, usando las fotografías diarias del periodo.
-- Las alertas visuales de capacidad muestran delegaciones por encima del 100% o
-  por debajo del 80% de ocupación. Se calculan con todo el stock actual para que
-  los filtros del informe no generen falsas alertas.
-- Calidad del dato conserva sus controles actuales.
+Para cada dimensión se conserva:
 
-## Delegaciones y ventas
+- valor bruto;
+- valor normalizado;
+- valor canónico;
+- regla aplicada.
 
-Delegaciones, Ventas y Rankings se presentan en una sola pestaña. El nombre de
-cada delegación es un enlace que aplica ese filtro al stock, a las ventas y a
-todos los perfiles comerciales.
+`salesforce_vehicles.catalog_normalization` mantiene esa traza. Valores no
+operativos como pruebas, formación o fuera de stock se excluyen de rankings y
+recomendaciones, pero siguen ocupando capacidad cuando forman parte del stock
+real.
 
-Los rankings se ordenan exclusivamente por ventas y ofrecen tres vistas:
+## Ranking y plan de traslados
 
-- más vendidos (10 primeros);
-- menos vendidos (10 últimos);
-- todos los valores.
+Cada vehículo muestra:
 
-Stock actual, rotación, antigüedad y ventas por stock siguen visibles como datos
-de contexto. Las operaciones individuales vendidas no se muestran en esta vista.
+1. destino ideal teórico;
+2. segunda alternativa;
+3. tercera alternativa;
+4. destino ejecutable asignado por el plan conjunto, si existe.
 
-## Recomendaciones
+El ranking compara primero marca, modelo y combustible; después usa
+kilometraje/similitud y el score de ventas, rotación, segmento, precio y stock
+existente. La matriculación todavía no participa porque no se ha confirmado su
+API Name exacto en Salesforce.
 
-El selector Modelo del simulador depende de la Marca seleccionada. La tabla de
-candidatos se denomina `Vehículos propuestos para traslado`. El cálculo se hace
-sobre todo el universo antes de paginar y muestra la conciliación de universo,
-disponibles, evaluados, candidatos y exclusiones.
+Un destino teórico puede estar completo. En ese caso se muestra como no
+ejecutable, con exceso previsto y plazas que habría que liberar. El plan conjunto
+consume capacidad virtualmente y nunca asigna más vehículos que plazas libres.
+No crea reservas persistentes, órdenes logísticas ni cadenas automáticas entre
+tiendas.
 
-Además del Top 3 explicativo por vehículo, se genera un plan conjunto. Los
-candidatos se recorren por prioridad y antigüedad, se asigna el destino con mayor
-score que conserve plaza y se descuenta esa plaza para los vehículos siguientes.
-La pantalla diferencia asignados y no asignados por falta de capacidad.
+La conciliación visual separa:
 
-La cabecera presenta periodo, fuente y corte en una sola banda de contexto; la
-version de reglas deja de ocupar una pill visual. La conciliacion del plan se
-agrupa en tres bloques: contexto de stock, evaluacion/plan y prioridades.
+- contexto: total, disponibles, reservados y bloqueados;
+- evaluación: disponibles evaluados, catálogo no operativo y sin alternativas;
+- plan: asignados y sin asignar por capacidad;
+- urgencia: normal, 60 días y 90 días.
 
-## Rendimiento de carga
+## Capacidad, ratios y calidad
 
-- Capacidades no construye el dataset de stock y ventas.
-- Calidad del dato se calcula solo en Resumen y agrupa los recuentos básicos en
-  consultas condicionales.
-- Resumen y Delegaciones cargan únicamente los campos de venta necesarios y sin
-  hidratación Eloquent completa.
-- Recomendaciones evalúa todos los candidatos con perfiles compactos antes de
-  paginar; los motivos completos se materializan para la página visible.
-# Cambios de auditoria 2026-08-05
+- Capacidad libre = plazas totales − stock total.
+- Ocupación = stock total / plazas totales.
+- Si una delegación tiene stock cero, el ratio ventas/stock es no disponible; no
+  se sustituye por el número de ventas.
+- Las alertas visuales usan todo el stock, no la muestra filtrada.
+- El nombre de delegación aplica un filtro común a stock, ventas y rankings.
 
-- Contexto: todo el stock Disponible, Reservado y Bloqueado. Traslados: solo Disponible.
-- Todos los disponibles se evaluan; 60/90 dias son prioridades, no filtros de entrada.
-- Cada vehiculo conserva tres destinos teoricos. Una alternativa completa indica exceso y plazas a liberar; el plan ejecutable consume capacidad virtual y no crea movimientos ni reservas persistentes.
-- Venta valida: Venta/Cambio, contrato firmado, fecha de firma y etapa distinta de Cerrada perdida. Entre varias ventas validas gana la firma mas reciente; empate exacto implica `duplicate_ambiguous` y ninguna suma.
-- Los picklists canonicos proceden de `Product2/describe` mediante `stock:sync-salesforce-catalog`. Alias locales solo pueden apuntar a un valor Salesforce activo. `salesforce_vehicles.catalog_normalization` conserva bruto, normalizado, canonico y regla.
-- Matriculacion no participa todavia: falta confirmar su API Name exacto en metadata Salesforce.
+Calidad del dato incluye, entre otros, entradas/delegaciones/catálogos ausentes,
+entregados que continúan en stock, firmas inconsistentes, `Cerrada Perdida`,
+duplicados de venta, entradas futuras, tiendas sin capacidad, variantes de
+catálogo y valores no operativos.
+
+Exportación: `/informes/stock/exportar/calidad-dato.xlsx`.
+
+## Rendimiento
+
+- El universo se calcula antes de paginar.
+- Recomendaciones materializa perfiles compactos globales y desarrolla motivos
+  completos solo para la página visible.
+- La pestaña Capacidades no construye el dataset analítico.
+- Calidad se calcula únicamente cuando la sección lo necesita.
+- Las consultas de ventas seleccionan columnas concretas y evitan hidratación
+  innecesaria.
+
+## Operación
+
+```bash
+php artisan stock:sync-salesforce-catalog
+php artisan stock:sync-daily --sales-days=180 --logistics-days=365
+```
+
+Scheduler vigente: 03:30 `Europe/Madrid`, con
+`stock:sync-daily --sales-days=14 --logistics-days=30` y bloqueo de solapamiento
+durante 120 minutos.
+
+Archivos principales:
+
+- `app/Services/Reports/Stock/StockDashboardDatasetService.php`;
+- `app/Services/Reports/Stock/StockRecommendationService.php`;
+- `app/Services/Reports/Stock/StockSaleValidityService.php`;
+- `app/Services/Reports/Stock/StockCatalogNormalizer.php`;
+- `app/Services/Reports/Stock/SalesforceStockCatalogSyncService.php`.

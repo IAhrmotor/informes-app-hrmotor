@@ -1,4 +1,6 @@
-# Despliegue auditoria 2026-08-05
+# Despliegue del lote de auditoría 2026-08-05
+
+Revisado documentalmente: 2026-08-06.
 
 No ejecutar desde Codex en produccion. Orden recomendado:
 
@@ -11,7 +13,8 @@ npm run build
 php artisan up
 ```
 
-Inicializacion y comprobaciones posteriores:
+Inicialización y comprobaciones posteriores, solo cuando correspondan al
+entorno y exista aprobación:
 
 ```bash
 php artisan stock:sync-salesforce-catalog
@@ -20,13 +23,25 @@ php artisan campaigns:build-attribution --from=2026-07-01 --to=2026-08-01
 php artisan stock:sync-daily --skip-vehicles --skip-opportunities --skip-logistics --skip-stock-snapshot --skip-alerts
 ```
 
-Las firmas anteriores se han contrastado con `php artisan help`. `--to` es exclusivo en Campanas e inclusivo en el reprocesado de Llamadas. La reconstruccion de Campanas cambia first touch historico y debe probarse primero sobre copia de base y conciliarse por ID. No reprocesar Llamadas sin periodo, motivo y export previo.
+Las firmas anteriores se contrastaron con `php artisan help`. `--to` es
+exclusivo en Campañas e inclusivo en el reprocesado de Llamadas. La
+reconstrucción de Campañas cambia first touch histórico y debe probarse primero
+sobre copia de base y conciliarse por ID. No reprocesar Llamadas sin período,
+simulación previa, motivo y export.
 
 Rollback de codigo: desplegar la revision anterior y ejecutar `php artisan optimize:clear`. Rollback de esquema: hacer primero backup; `php artisan migrate:rollback --step=7` elimina cierres, snapshots, historiales y clasificaciones, por lo que solo debe usarse si las tablas nuevas no contienen auditoria que deba conservarse. Es preferible rollback de codigo manteniendo tablas aditivas.
 
-Validar en produccion: permisos por cada rol, snapshot definitivo de un mes de prueba, suma de capacidad de Stock, IDs eliminados/fusionados de Leads, `Respondido por`/`ABANDONED`, campañas test por ID y conciliacion de ambiguos.
+Validar en producción:
 
-Para el lote posterior de Reservas/Ventas no hay migraciones ni backfill. Debe
-validarse una cohorte por cada criterio temporal, un duplicado de reserva y uno
-de firma; tambien el acceso del Auditor de comisiones a Penalizaciones y la
-ocultacion de conciliaciones internas para perfiles distintos de Administrador/IT.
+- permisos positivos y negativos por cada rol, incluidos ámbitos y acceso del
+  Auditor de comisiones a Penalizaciones;
+- conciliaciones internas visibles únicamente para Administrador/IT;
+- snapshot definitivo de un mes de prueba y bloqueo frente a cambios posteriores;
+- suma de capacidad y plan sin sobreasignación de Stock;
+- IDs eliminados/fusionados de Leads;
+- `Respondido por`, `ABANDONED`, `Sin equipo` e historial de Llamadas;
+- campañas `test` por ID, Salesforce-only y atribuciones ambiguas;
+- una cohorte por criterio temporal y duplicados de reserva/firma.
+
+Reservas/Ventas no añade migraciones ni backfill: su deduplicación se calcula al
+construir el dataset local.

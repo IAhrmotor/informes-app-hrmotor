@@ -1,6 +1,6 @@
 # Documentación general de informes y contraste con Salesforce
 
-Versión: 2026-07-31
+Versión: 2026-08-06
 Proyecto: `informes-app-hrmotor`
 
 ## 1. Propósito y criterio de verdad
@@ -63,10 +63,10 @@ Principales tablas por dominio:
 |---|---|
 | Leads | `salesforce_leads`, `salesforce_activities`, `salesforce_lead_activity_summaries`, `salesforce_users` |
 | Reservas / Ventas | `salesforce_opportunities`, `leads_raw` como fallback de portal |
-| Llamadas | `salesforce_calls`, `salesforce_users`, `call_agent_mappings` |
-| Campañas | `campaign_platform_daily_metrics`, `campaign_lead_attributions`, `campaign_salesforce_leads`, `salesforce_opportunities` |
-| Comisiones | `salesforce_opportunities`, `salesforce_users`, `salesforce_reviews`, `salesforce_tasaciones`, `commercial_commission_month_settings`, tablas de penalizaciones |
-| Stock | `salesforce_vehicles`, `stock_delegations`, `stock_daily_snapshots`, `salesforce_sale_snapshots`, `salesforce_logistics`, `stock_availability_alerts` |
+| Llamadas | `salesforce_calls`, `salesforce_call_classification_history`, `salesforce_users`, `call_agent_mappings` |
+| Campañas | `campaign_platform_daily_metrics`, `campaign_platform_identifiers`, `campaign_lead_attributions`, `campaign_unresolved_attributions`, `campaign_operational_classifications`, `campaign_salesforce_leads`, `salesforce_opportunities` |
+| Comisiones | `salesforce_opportunities`, `salesforce_users`, `salesforce_reviews`, `salesforce_tasaciones`, `commercial_commission_month_settings`, cierres, snapshots, ajustes y tablas de penalizaciones |
+| Stock | `salesforce_vehicles`, `stock_catalog_values`, `stock_catalog_aliases`, `stock_delegations`, `stock_daily_snapshots`, `salesforce_sale_snapshots`, `salesforce_logistics`, `stock_availability_alerts` |
 
 ### 2.3 Fechas pivote
 
@@ -80,6 +80,20 @@ Principales tablas por dominio:
 | Stock actual | foto vigente de `Product2` |
 | Ventas de Stock | `Opportunity.Fecha_firma_contrato__c` congelada en snapshot |
 | Histórico de Stock | `stock_daily_snapshots.snapshot_date` |
+
+### 2.4 Estado funcional implantado
+
+| Informe | Regla vigente que no debe volver a tratarse como pendiente |
+|---|---|
+| Leads | Venta = Venta + Venta con cambio; Lead/Ayvens fuera. Calidad comercial y no clasificados siguen dentro del total. Eliminados y fusionados no suman en activos. |
+| Reservas / Ventas | La fecha seleccionada define toda la cohorte. Un evento repetido por vehículo y fecha cuenta una vez y genera incidencia. |
+| Llamadas | Solo `CallObject`; `ABANDONED` es perdida y nunca desborde; histórico versionado y reproceso manual. |
+| Campañas | First touch único; Salesforce-only separado de pago; pruebas excluidas solo por clasificación explícita por ID. |
+| Comisiones | Mes único, actual provisional, cierre persistente con snapshot, reapertura y libro de ajustes. |
+| Stock | Todo Disponible se evalúa; 60/90 son prioridad; Top 3 teórico y plan conjunto sin sobreasignar plazas. |
+
+Las decisiones todavía abiertas están exclusivamente en
+`docs/decisiones-negocio-pendientes.md`.
 
 ## 3. Leads
 
@@ -222,8 +236,13 @@ AND CreatedDate < 2026-07-01T00:00:00Z
   actividad en los tres días anteriores al fin del período.
 - `Gestionado`: convertido, descartado o potencial con actividad en esos tres días.
 - Los no clasificados sí se incluyen en los KPIs generales.
+- `Sin comercial elegible`, `Sin delegación comercial` y `Sin clasificar` son
+  KPIs independientes de calidad y no retiran registros válidos del total.
 - Porcentajes generales: `métrica / leads_totales * 100`.
-- En filtro `Venta` se incluyen tipos `Venta` y `Venta con cambio`.
+- En filtro `Venta` se incluyen únicamente tipos `Venta` y `Venta con cambio`;
+  `Lead` y `Ayvens` quedan fuera por decisión funcional cerrada.
+- Eliminados y fusionados no suman en KPIs activos. Se conservan `Lead.Id`,
+  `MasterRecordId`, fecha y fuente de detección en la conciliación.
 - Exposición:
   - `Con`: todos;
   - `Sin`: excluye portal `Exposición`;
@@ -245,6 +264,8 @@ Endpoints:
 - `/informes/leads/data/calidad-dato`
 - `/informes/leads/data/kpi-audit`
 - `/informes/leads/export/kpi-audit.csv`
+- `/informes/leads/export/reconciliation-audit.csv`
+- `/informes/leads/data/lead-audit?ids[]=...`
 
 Comando de sincronización:
 
@@ -352,6 +373,9 @@ ORDER BY OPO_FEC_Fecha_de_reserva__c, Id
   - `created_date` → `Opportunity.CreatedDate`;
   - `reservation_date` → `OPO_FEC_Fecha_de_reserva__c`;
   - `cv_signed_date` → `Fecha_firma_contrato__c`.
+- El criterio seleccionado define una única cohorte. Los eventos posteriores de
+  esas Opportunities se miden sobre la misma cohorte; cada KPI no vuelve a
+  seleccionar su propio universo temporal.
 - Tipo `Venta` del dashboard = `RecordType.Name IN (Venta, Cambio)`.
 - Tipo `Tasación` acepta el valor local `Tasacion`.
 - `Oportunidades totales`: todas las filas del tipo y período seleccionados.
@@ -363,8 +387,13 @@ ORDER BY OPO_FEC_Fecha_de_reserva__c, Id
 - `Caída`: etapa `Cerrada Perdida`.
 - `CV firmado`: flag true y etapa distinta de `Cerrada Perdida`.
 - Porcentajes del resumen: KPI / oportunidades totales.
-- En tablas por comercial, delegación o portal, los porcentajes son participación
-  de columna: valor de la fila / total de ese KPI en todas las filas.
+- En tablas por comercial, delegación o portal se separan conversión de fila
+  (`métrica / oportunidades de la fila`) y participación de columna
+  (`métrica de la fila / total de la métrica`).
+- Una reserva o firma repetida para el mismo vehículo y fecha cuenta una vez.
+  La identidad usa Product2 y fallback de matrícula. Los conflictos de owner,
+  tienda, delegación, zona o portal se muestran como `Incidencia de datos` y no
+  se adjudican arbitrariamente en los desgloses.
 - Delegación y zona salen del owner y se normalizan con el mismo catálogo de Leads.
 - Resolución de portal, por prioridad:
   1. `Opportunity.Portal__c` si es concluyente;
@@ -380,6 +409,10 @@ ORDER BY OPO_FEC_Fecha_de_reserva__c, Id
 - `/informes/reservas-ventas/export/kpi-audit.csv`
 - `php artisan reports:debug-reservas-ventas --unclassified-portals`
 - `php artisan reports:reprocess-opportunity-portals`
+
+La auditoría conserva todas las Opportunities de un grupo duplicado e indica
+grupo, tamaño, fila contabilizada, IDs afectados, campos contradictorios y
+estado del desglose.
 
 Sincronización:
 
@@ -445,7 +478,7 @@ De `Task.Description` se extraen: resultado, tipo, teléfonos, comercial destino
 código/nombre de agente, cola, opción de teclado, duración, UID/PUID e inicio/fin.
 
 - Atendida: `Resultado = ANSWERED`; también se infiere atendida si existe
-  “Respondido por”.
+  “Respondido por” válido, salvo una regla más fuerte de no atención.
 - No atendida: cualquier otra clasificación.
 - `ABANDONED` siempre se trata como perdida y nunca como desborde.
 - Dirección:
@@ -467,6 +500,8 @@ código/nombre de agente, cola, opción de teclado, duración, UID/PUID e inicio
     nula, vacía, 1 o 2.
 - Equipos: comercial, atención al cliente, contact center y tasadores. Hay alias
   forzados y se excluyen identidades de sistema/administrador.
+- Las llamadas operativas sin equipo se muestran como `Sin equipo` y forman
+  parte de la reconciliación del total.
 - `Total llamadas`: `COUNT(*)`.
 - `Atendidas` y `No atendidas`: reglas anteriores, excluyendo `ABANDONED` de
   atendidas.
@@ -478,14 +513,19 @@ código/nombre de agente, cola, opción de teclado, duración, UID/PUID e inicio
 Filtros: período, dirección, estado, origen, portal, equipo, delegación, zona y
 usuario operativo.
 
-No existe actualmente endpoint específico de auditoría KPI; se contrasta con la
-tabla local y los comandos:
+La clasificación conserva versión, fecha, valores brutos e historial. Un cambio
+del parser no reprocesa históricos automáticamente. Auditoría y operación:
 
 ```bash
 php artisan salesforce:sync-calls --days=120 --debug-soql
 php artisan reports:debug-calls
-php artisan reports:reprocess-calls-classification
+php artisan reports:reprocess-calls-classification --from=2026-06-01 --to=2026-06-30 --dry-run
+php artisan reports:reprocess-calls-classification --from=2026-06-01 --to=2026-06-30 --reason="Motivo aprobado"
 ```
+
+- CSV: `/informes/llamadas/export/audit.csv`.
+- Perfil no excluido automáticamente:
+  `php artisan reports:audit-calls-profile --profile="Pruebas comunidad comercial" --from=2026-06-01 --to=2026-06-30`.
 
 Código fuente:
 
@@ -504,6 +544,10 @@ Código fuente:
   - Meta Ads: gasto, impresiones, clics, leads y estado efectivo.
 - `campaign_lead_attributions`: resultado local del cruce.
 - `campaign_type_mappings`: overrides editables de clasificación.
+- `campaign_platform_identifiers`: inventario de IDs publicitarios.
+- `campaign_operational_classifications`: clasificación persistente `real`,
+  `test` o `pending_review` por plataforma/cuenta/ID.
+- `campaign_unresolved_attributions`: candidatos ambiguos no adjudicados.
 
 La inversión se filtra por `metric_date`. Leads y resultados se filtran por
 `Lead.CreatedDate`; reservas, ventas y compras pueden ocurrir después.
@@ -560,29 +604,32 @@ solo entran las enlazadas a los leads del período.
 
 ### 6.4 Atribución
 
-1. Se descartan campañas vacías y nombres `Tasador` exacto, `ren2click` o
-   `hrrenting`.
-2. Los leads de formulario directo Meta se consolidan como
-   `Formulario Directo Meta`.
-3. Cruce lead → campaña, por prioridad:
-   - ID de anuncio;
-   - ID de adset/ad group;
-   - ID de campaña;
-   - nombre exacto;
-   - nombre flexible;
-   - campaña solo Salesforce, sin inversión asociada.
-4. Cruce lead → oportunidad:
-   - `ConvertedOpportunityId`;
-   - después cuentas convertidas y señales normalizadas de email/teléfono;
-   - una oportunidad se reclama una sola vez para evitar doble atribución;
-   - se prioriza el lead con señal de campaña más fuerte y fecha adecuada.
-5. Tipos:
+Precedencia first touch:
+
+1. relación explícita del Lead convertido con Opportunity;
+2. identificadores publicitarios inequívocos: anuncio, adset/ad group y campaña;
+3. campaña original inequívoca del Lead;
+4. primera campaña inequívoca conocida de la cuenta;
+5. Salesforce-only;
+6. ambiguo o sin atribuir.
+
+Una Opportunity se reclama una sola vez. Varias campañas con la misma
+precedencia sin señal concluyente generan una atribución no resuelta; no se
+elige la primera ni se duplica. La traza conserva candidatos, método, confianza,
+primer contacto, IDs, ambigüedad y versión.
+
+Tipos de campaña:
+
    - tasación por mapping o nombre de tasación;
    - venta por nombre;
    - exposición por visita a tienda/PMax;
    - branding por YouTube, vídeo, shorts o display;
    - otros para catálogo/instant forms y resto;
    - exposición, branding y otros son subcategorías de `Venta`.
+
+El tipo de campaña y el RecordType real del Lead son ejes de filtro separados.
+Una campaña solo queda fuera de KPIs ejecutivos por ser prueba cuando existe una
+clasificación persistente `test`; el nombre por sí solo no excluye.
 
 ### 6.5 Resultados y fórmulas
 
@@ -609,14 +656,10 @@ solo entran las enlazadas a los leads del período.
   lead→oportunidad, oportunidad→reserva, reserva→venta, lead→venta,
   lead→compra y oportunidad→compra.
 
-Clasificación automática:
-
-- tracking: inversión > 0 y cero leads;
-- revisar inversión/tracking: leads > 0 y gasto cero;
-- potenciar: ventas con coste/ROAS favorable frente al benchmark;
-- parar: gasto ≥ 500, con leads, sin venta ni reserva;
-- revisar: gasto ≥ 150 y resultado insuficiente;
-- sin datos suficientes: gasto < 50 y menos de 5 leads.
+La revisión ejecutiva prioriza: fallo de medición/cero Leads, mayor inversión sin
+resultado, coste fuera de benchmark con muestra suficiente y caída del funnel.
+Dentro de cada nivel se ordena por inversión. Salesforce-only cuenta en la
+actividad Salesforce, pero no en rendimiento de pago sin inversión asociada.
 
 ### 6.6 Sincronización y auditoría
 
@@ -634,6 +677,7 @@ Auditoría:
 - `/informes/campanas/data/kpi-audit`
 - `/informes/campanas/export/kpi-audit.csv`
 - `/informes/campanas/export/campaigns.csv`
+- `/informes/campanas/export/attributions.csv`
 - `php artisan campaigns:debug-attribution`
 - `php artisan campaigns:debug-google-spend`
 
@@ -739,6 +783,9 @@ WHERE CreatedDate >= 2026-06-01T00:00:00Z
 
 ### 7.3 Universos internos
 
+`CommissionMonthResolver` mantiene el mismo mes en las seis pestañas, cabecera,
+detalles y exportaciones. El mes actual se permite y es siempre Provisional.
+
 - Comerciales:
   query base anterior; owner activo y gestión de venta excluida.
 - Delegaciones, entregas:
@@ -765,7 +812,29 @@ WHERE CreatedDate >= 2026-06-01T00:00:00Z
   citas del mes en Leads; oportunidades hasta el día 10 del mes siguiente;
   ventas firmadas dentro del mes.
 
-### 7.4 Auditoría y comandos
+Cada pestaña puede tener un universo diferente y expone el puente
+`base - exclusiones + inclusiones = total`. La conciliación interna se muestra
+solo a Administrador/IT; IDs y motivos permanecen en exportaciones autorizadas.
+
+Reseñas mantiene la fórmula actual: reseñas creadas en el mes por `OwnerId`
+divididas entre operaciones elegibles. Puede superar 100 % porque no es una
+relación uno-a-uno. No se limita a una reseña por Opportunity sin nueva decisión
+funcional.
+
+### 7.4 Cierres, snapshots y ajustes
+
+- Estados: provisional, pendiente de aprobación, definitivo y reabierto.
+- Solo Dirección y Administrador/IT preparan, aprueban o reabren.
+- El definitivo exige mes natural terminado, cinco componentes confirmados y
+  ausencia de incidencias relevantes.
+- El snapshot conserva las seis vistas, ámbitos de Área Manager, detalles,
+  fórmulas, corte y fuentes.
+- Salesforce no sobrescribe un definitivo. Una corrección se registra como
+  ajuste del siguiente mes abierto o exige reapertura manual con motivo.
+- El libro de ajustes conserva operación, mes original/aplicación, importe,
+  motivo, usuario, fecha y estado.
+
+### 7.5 Auditoría y comandos
 
 - vista `/informes/comisiones-comerciales`;
 - XLSX `/informes/comisiones-comerciales/export/comisiones.xlsx`;
@@ -777,6 +846,11 @@ WHERE CreatedDate >= 2026-06-01T00:00:00Z
   `/api/comisiones_comercial?salesforce_id={ID}`;
 - configuración mensual: `/informes/configuracion-comisiones`;
 - penalizaciones: `/informes/penalizaciones-financiacion`.
+- reseñas: `/informes/comisiones-comerciales/export/reviews-audit.csv`.
+
+El Auditor de comisiones puede cargar Penalizaciones financieras, pero no
+gestiona usuarios, fórmulas ni cierres. Los ámbitos se aplican en servidor por
+Salesforce User ID, delegación o zona según el rol.
 
 ```bash
 php artisan salesforce:sync-opportunities --all-history
@@ -792,6 +866,8 @@ Código fuente:
 - `app/Services/Reports/AreaManagerCommissions/AreaManagerCommissionDashboardService.php`
 - `app/Services/Reports/FinancialCommissions/FinancialCommissionDashboardService.php`
 - `app/Services/Reports/CommercialCommissions/CommercialCommissionFormulaConfigService.php`
+- `app/Services/Reports/CommercialCommissions/CommissionMonthResolver.php`
+- `app/Services/Reports/CommercialCommissions/CommercialCommissionClosureService.php`
 
 ## 8. Stock
 
@@ -910,8 +986,12 @@ Validez de snapshots:
   la fase no es `Cerrada perdida` y existe vehículo de interés;
 - motivos posibles: `contract_not_signed`, `invalid_record_type`, `closed_lost`
   y `missing_vehicle_interest`;
-- si hay más de una venta base-válida para el mismo Product2, todas quedan
-  invalidadas como `duplicate_valid_vehicle`: no se elige una arbitrariamente;
+- si hay más de una venta base-válida para el mismo Product2, gana la firma más
+  reciente y las anteriores quedan `duplicate_not_selected`, enlazadas con la
+  Opportunity elegida;
+- si varias comparten exactamente la fecha de firma más reciente, todas quedan
+  `duplicate_ambiguous`, no suman y requieren revisión; `LastModifiedDate` no
+  desempata;
 - se actualizan `current_stage_name`, `is_valid`, `validity_checked_at`,
   `invalidated_at` e `invalid_reason`, pero no se reescriben los importes
   congelados;
@@ -1011,9 +1091,10 @@ Rankings:
 
 ### 8.6 Motor de recomendaciones
 
-Usa únicamente ventas válidas y operativas de los últimos 120 días. Los candidatos
-son Product2 operativos en estado `Disponible`; Reservado y Bloqueado no se
-proponen para traslado.
+Usa únicamente ventas válidas y operativas de los últimos 120 días. Para contexto
+y capacidad utiliza Disponible, Reservado y Bloqueado; los candidatos son todos
+los Product2 operativos en estado Disponible. Los 60/90 días solo determinan
+urgencia y no excluyen candidatos.
 
 Puntuación de destino:
 
@@ -1024,7 +1105,6 @@ score =
   + ventas_segmento * 1,6
   + ventas_combustible * 1,2
   + ventas_tramo_precio * 1,8
-  + min(capacidad_libre, 20) * 1,2
   - stock_mismo_modelo * 15
   - stock_antiguo_mismo_modelo * 10
   - stock_similar * 1
@@ -1034,13 +1114,25 @@ score =
 
 `bonus_rotacion_rapida = max(0, (120 - min(rotación_media, 120)) / 120) * 12`.
 
-Se devuelven los tres mejores destinos. Un destino es elegible si:
+El orden previo compara ventas de marca, modelo y combustible, después
+similitud de kilometraje y finalmente score. La capacidad no suma puntos al
+ranking teórico; se usa para determinar ejecutabilidad y construir el plan.
+
+Se devuelven los tres mejores destinos teóricos. El ranking ordena primero marca,
+modelo y combustible, después similitud de kilometraje y score. Matriculación no
+participa hasta confirmar el API Name exacto en Salesforce. Un destino participa
+en el ranking si:
 
 - es una delegación comercial;
-- tiene capacidad positiva y al menos una plaza libre;
+- tiene una capacidad total configurada positiva; puede estar completo y en ese
+  caso se muestra como no ejecutable, con exceso y plazas a liberar;
 - no es la delegación actual del vehículo;
 - no está en `stock.excluded_destination_keys`; actualmente se excluyen las
   variantes configuradas de Dos Hermanas.
+
+Después del ranking se construye un plan conjunto que consume capacidad virtual
+y no sobreasigna plazas. No guarda reservas persistentes, órdenes logísticas ni
+cadenas de movimientos entre tiendas.
 
 El stock no operativo sigue ocupando capacidad, pero no aporta coincidencias de
 modelo/similitud. Un vehículo queda:
@@ -1055,9 +1147,10 @@ combinación de segmento, combustible y tramo de precio.
 
 Normalización y volumen:
 
-- el catálogo operativo normaliza marca, modelo, segmento, combustible,
-  carrocería y procedencia para distribuciones/rankings; elimina diferencias de
-  mayúsculas, acentos, puntuación/separadores y espacios;
+- el catálogo canónico procede de picklists activos de Salesforce sincronizados
+  con `stock:sync-salesforce-catalog`; aliases locales solo apuntan a valores
+  oficiales activos y cada vehículo conserva bruto, normalizado, canónico y
+  regla;
 - la firma interna del score de recomendaciones normaliza mayúsculas, acentos y
   espacios, pero conserva los demás separadores;
 - términos excluidos por defecto: `prueba`, `test`, `formacion` y
@@ -1094,7 +1187,7 @@ Normalización y volumen:
   - tiendas comerciales sin zona;
   - snapshots sin firma/tienda/entrada/precio;
   - fecha de firma sin contrato, firmado en Cerrada perdida y fase inesperada;
-  - más de una venta base-válida para el mismo vehículo;
+  - ventas no seleccionadas o empates ambiguos para el mismo vehículo;
   - fecha de entrada futura y tienda sin capacidad válida;
   - variantes duplicadas de catálogo y vehículos con valores no operativos.
 
@@ -1116,6 +1209,7 @@ Exportación:
 ### 8.8 Operación
 
 ```bash
+php artisan stock:sync-salesforce-catalog
 php artisan stock:import-capacities ruta/capacidades.xlsx
 php artisan stock:sync-daily --sales-days=180 --logistics-days=365
 ```
