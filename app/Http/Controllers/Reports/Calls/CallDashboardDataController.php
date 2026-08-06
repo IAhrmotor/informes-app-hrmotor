@@ -4,17 +4,17 @@ namespace App\Http\Controllers\Reports\Calls;
 
 use App\Http\Controllers\Controller;
 use App\Services\Reports\Calls\CallDashboardDatasetService;
+use App\Support\CsvValueSerializer;
+use App\Support\ReportUserAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use App\Support\ReportUserAccess;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CallDashboardDataController extends Controller
 {
     public function __construct(
         private readonly CallDashboardDatasetService $dataset,
-    ) {
-    }
+    ) {}
 
     public function summary(Request $request): JsonResponse
     {
@@ -48,15 +48,17 @@ class CallDashboardDataController extends Controller
     public function exportAuditCsv(Request $request): StreamedResponse
     {
         abort_unless(ReportUserAccess::canAuditReport($request, 'calls'), 403);
-        $rows = $this->dataset->auditRows($request);
-        $headers = $rows === [] ? ['Task ID'] : array_keys($rows[0]);
+        $headers = $this->dataset->auditColumns();
 
-        return response()->streamDownload(function () use ($rows, $headers): void {
+        return response()->streamDownload(function () use ($request, $headers): void {
             $output = fopen('php://output', 'w');
             fwrite($output, "\xEF\xBB\xBF");
             fputcsv($output, $headers);
-            foreach ($rows as $row) {
-                fputcsv($output, array_map(fn ($value) => is_bool($value) ? ($value ? 'Si' : 'No') : $value, $row));
+            foreach ($this->dataset->auditRowsLazy($request) as $row) {
+                fputcsv($output, array_map(
+                    fn (string $column) => CsvValueSerializer::serialize($row[$column] ?? null),
+                    $headers
+                ));
             }
             fclose($output);
         }, 'llamadas-conciliacion.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);

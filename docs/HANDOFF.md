@@ -282,3 +282,27 @@ Riesgos operativos:
 - `docs/informe-stock.md`;
 - `docs/decisiones-negocio-pendientes.md`;
 - `docs/despliegue-auditoria-2026-08-05.md`.
+
+## 15. Correctivo de auditoría y conciliación (2026-08-06)
+
+- Llamadas: el CSV de conciliación escribe una cabecera y una fila por cada
+  `Task.Id` del universo bruto autorizado, incluidas las exclusiones como
+  `missing_call_object`. Usa cursor y serialización JSON explícita para valores
+  estructurados.
+- Llamadas: `Sin equipo` forma parte del desglose visible de atendidas y la suma
+  por equipos reconcilia con el total bajo los mismos filtros y ámbitos.
+- Reservas/Ventas: KPI y auditoría parten de una única resolución de cohorte;
+  todas las Opportunity IDs, incluidas las filas no contabilizadas de grupos
+  duplicados, permanecen auditables.
+- Reservas/Ventas: el CSV estándar deja de seleccionar y exportar nombre de
+  Opportunity, nombre de Account, teléfonos y correos de cliente.
+- Ámbitos: los recortes por zona, delegación y Salesforce User ID se aplican en
+  servidor antes de producir las filas. La matriz vigente de acceso a informes
+  no se amplía.
+- Diagnóstico seguro: `reports:debug-reservas-ventas --reconcile-cohort` compara
+  conjuntos de Opportunity IDs sin mostrar PII.
+- Base de datos: no hay migraciones ni reprocesos históricos.
+- Verificación: lint, Pint, build y pruebas focalizadas correctos. La suite
+  completa recorrió 405 tests en el primer intento (403 correctos y dos
+  regresiones después corregidas); los reintentos finales quedaron bloqueados
+  por el timeout ambiental de un handler HTTP de Guzzle antes del resumen.

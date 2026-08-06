@@ -83,9 +83,22 @@ exportar la auditoría y revisar el resumen del modo simulación.
 - Diagnóstico: `php artisan reports:debug-calls`.
 - Sincronización: `php artisan salesforce:sync-calls --days=120`.
 
-El CSV contiene Task ID, inclusión/exclusión, resultado bruto e interpretado,
-duraciones, segundos descontados, portal, equipo, usuario, valores del parser,
-regla, versión y corte.
+El CSV contiene exactamente una fila por cada `Task.Id` del universo bruto
+conciliado en el período y ámbito solicitados. Incluye tanto las Tasks que
+participan en KPI como las excluidas; las que carecen de `CallObject` permanecen
+con motivo `missing_call_object`. La exportación se escribe mediante cursor, sin
+materializar el conjunto completo en memoria y sin consultas por fila.
+
+Contiene inclusión/exclusión, resultado bruto e interpretado, duraciones,
+segundos descontados, portal, equipo, usuario, valores del parser, regla,
+versión y corte. Los valores estructurados de `classification_raw_values` se
+serializan como JSON UTF-8 estable, sin escapar Unicode ni barras y sustituyendo
+secuencias UTF-8 inválidas. `null` se exporta vacío y un array vacío como `[]`.
+
+El desglose visible de atendidas se construye desde las mismas filas por equipo
+que el total. Si existen llamadas operativas atendidas sin equipo canónico, se
+muestra la fila `Sin equipo` cuando su valor es mayor que cero; por tanto, la
+suma de los equipos visibles reconcilia con el total de atendidas.
 
 Archivos principales:
 

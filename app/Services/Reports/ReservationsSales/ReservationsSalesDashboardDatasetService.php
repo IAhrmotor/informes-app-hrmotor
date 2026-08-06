@@ -5,6 +5,7 @@ namespace App\Services\Reports\ReservationsSales;
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
+use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -13,15 +14,16 @@ use Illuminate\Support\Facades\Cache;
 class ReservationsSalesDashboardDatasetService
 {
     private const CACHE_TTL_MINUTES = 10;
+
     private const OPPORTUNITY_TYPES = ['Tasación', 'Venta'];
+
     private const DATA_QUALITY_INCIDENT = 'Incidencia de datos';
 
     public function __construct(
         private readonly LeadDelegationNormalizer $delegationNormalizer,
         private readonly OpportunityPortalNormalizer $portalNormalizer,
         private readonly ReservationsSalesAiInsightsService $aiInsights,
-    ) {
-    }
+    ) {}
 
     public function summary(Request $request): array
     {
@@ -44,6 +46,19 @@ class ReservationsSalesDashboardDatasetService
             now()->addMinutes(self::CACHE_TTL_MINUTES),
             fn () => $this->buildAuditPayload($filters, $periods['current'], $metric)
         );
+    }
+
+    public function cohortOpportunityIds(Request $request): array
+    {
+        $filters = $this->filters($request);
+        $period = $this->periods($filters)['current'];
+
+        return $this->resolvedCohort($filters, $period)
+            ->map(fn (array $item): string => (string) $item['row']['opportunity_id'])
+            ->filter()
+            ->sort()
+            ->values()
+            ->all();
     }
 
     public function commercialRows(Request $request): array
@@ -124,21 +139,14 @@ class ReservationsSalesDashboardDatasetService
 
     private function buildAuditPayload(array $filters, array $period, string $metric): array
     {
-        $opportunities = [];
-
-        $this->auditQuery($filters, $period, $metric)
-            ->orderBy('id')
-            ->chunkById(1000, function (Collection $rows) use (&$opportunities, $filters): void {
-                foreach ($rows as $opportunity) {
-                    $row = $this->decorate($opportunity);
-
-                    if (! $this->passesFilters($row, $filters)) {
-                        continue;
-                    }
-
-                    $opportunities[] = $opportunity;
-                }
-            });
+        $resolved = $metric === 'reservas_vivas_actuales_salesforce'
+            ? $this->resolvedGlobalLiveReservationsCohort($filters)
+            : $this->resolvedCohort($filters, $period);
+        $opportunities = $resolved
+            ->filter(fn (array $item): bool => $this->matchesAuditMetric($item['row'], $metric))
+            ->pluck('opportunity')
+            ->values()
+            ->all();
 
         $qualityByOpportunity = [];
         $deduplicatedTotal = count($opportunities);
@@ -206,30 +214,21 @@ class ReservationsSalesDashboardDatasetService
         $commercials = [];
         $portals = [];
         $filterOptions = $this->emptyFilterOptionsAccumulator();
-        $cohortRows = [];
+        $cohortRows = $this->resolvedCohort($filters, $period)
+            ->map(function (array $item) use (&$filterOptions): array {
+                $this->collectFilterOptions($filterOptions, $item['row']);
 
-        $this->baseQuery($filters, $period)
-            ->orderBy('id')
-            ->chunkById(1000, function (Collection $rows) use (&$cohortRows, &$filterOptions, $filters): void {
-                foreach ($rows as $opportunity) {
-                    $row = $this->decorate($opportunity);
-
-                    $this->collectFilterOptions($filterOptions, $row);
-
-                    if (! $this->passesFilters($row, $filters)) {
-                        continue;
-                    }
-
-                    $cohortRows[] = $row;
-                }
-            });
+                return $item['row'];
+            })
+            ->values()
+            ->all();
 
         foreach ($cohortRows as $row) {
             $baseRow = array_merge($row, ['is_reserva_viva' => false, 'is_cv_firmado' => false]);
             $this->addToBucket($bucket, $baseRow);
             $this->addGroup($zones, $row['zone'], $row['zone'], [], $baseRow);
             $this->addGroup($delegations, $row['commercial_delegation'].'|'.$row['zone'], $row['commercial_delegation'], ['zone' => $row['zone']], $baseRow);
-            $this->addGroup($commercials, (string) $row['owner_id'], $row['owner_name'] ?: $row['owner_id'], [
+            $this->addGroup($commercials, (string) $row['owner_id'], (string) ($row['owner_name'] ?: $row['owner_id']), [
                 'commercial_delegation' => $row['commercial_delegation'],
                 'zone' => $row['zone'],
             ], $baseRow);
@@ -262,7 +261,7 @@ class ReservationsSalesDashboardDatasetService
 
     private function baseQuery(array $filters, array $period)
     {
-        $query = SalesforceOpportunity::query();
+        $query = SalesforceOpportunity::query()->select($this->cohortColumns());
         $field = $this->dateField($filters['date_criterion']);
 
         $query->where($field, '>=', $period['start'])
@@ -270,39 +269,87 @@ class ReservationsSalesDashboardDatasetService
 
         $this->applyOpportunityTypeFilter($query, $filters['opportunity_type']);
 
+        if (filled($filters['access_commercial'])) {
+            $query->where('owner_id', $filters['access_commercial']);
+        }
+
         return $query;
     }
 
-    private function auditQuery(array $filters, array $period, string $metric)
+    private function resolvedCohort(array $filters, array $period): Collection
     {
-        if ($metric === 'reservas_vivas_actuales_salesforce') {
-            return $this->globalLiveReservationsQuery($filters);
-        }
+        return $this->resolveQueryCohort($this->baseQuery($filters, $period), $filters);
+    }
 
+    private function resolvedGlobalLiveReservationsCohort(array $filters): Collection
+    {
+        return $this->resolveQueryCohort($this->globalLiveReservationsQuery($filters), $filters);
+    }
+
+    private function resolveQueryCohort($query, array $filters): Collection
+    {
+        $resolved = collect();
+
+        $query->orderBy('id')->chunkById(1000, function (Collection $opportunities) use ($filters, $resolved): void {
+            foreach ($opportunities as $opportunity) {
+                $row = $this->decorate($opportunity);
+
+                if ($this->passesFilters($row, $filters)) {
+                    $resolved->push([
+                        'opportunity' => $opportunity,
+                        'row' => $row,
+                    ]);
+                }
+            }
+        });
+
+        return $resolved;
+    }
+
+    private function matchesAuditMetric(array $row, string $metric): bool
+    {
         return match ($metric) {
-            'reservas_vivas' => $this->baseQuery($filters, $period)
-                ->where('reservation', true)
-                ->where('cv_signed', false)
-                ->whereRaw("LOWER(COALESCE(stage_name, '')) <> 'cerrada perdida'"),
-            'oportunidades_caidas' => $this->baseQuery($filters, $period)
-                ->whereRaw("LOWER(COALESCE(stage_name, '')) = 'cerrada perdida'"),
-            'cv_firmados' => $this->baseQuery($filters, $period)
-                ->where('cv_signed', true)
-                ->whereRaw("LOWER(COALESCE(stage_name, '')) <> 'cerrada perdida'"),
-            default => $this->baseQuery($filters, $period),
+            'reservas_vivas', 'reservas_vivas_actuales_salesforce' => $row['is_reserva_viva'],
+            'oportunidades_caidas' => $row['is_caida'],
+            'cv_firmados' => $row['is_cv_firmado'],
+            default => true,
         };
+    }
+
+    private function cohortColumns(): array
+    {
+        return [
+            'id',
+            'salesforce_id',
+            'vehicle_interest_id',
+            'vehicle_plate',
+            'reservation_date',
+            'cv_signed_date',
+            'owner_id',
+            'owner_name',
+            'owner_delegation',
+            'delivery_store',
+            'portal_resolved',
+            'stage_name',
+            'reservation',
+            'cv_signed',
+            'created_date',
+            'close_date',
+            'record_type_name',
+            'account_id',
+            'portal_original',
+            'portal_resolution_source',
+            'portal_resolution_lead_id',
+            'opportunity_source_raw',
+            'opportunity_source_normalized',
+        ];
     }
 
     private function globalLiveReservations(array $filters): int
     {
-        $rows = [];
-        $this->globalLiveReservationsQuery($filters)
-            ->orderBy('id')
-            ->chunkById(1000, function (Collection $opportunities) use (&$rows): void {
-                foreach ($opportunities as $opportunity) {
-                    $rows[] = $this->decorate($opportunity);
-                }
-            });
+        $rows = $this->resolvedGlobalLiveReservationsCohort($filters)
+            ->pluck('row')
+            ->all();
 
         return count($this->metricEventGroups($rows, 'reservas_vivas'));
     }
@@ -310,26 +357,15 @@ class ReservationsSalesDashboardDatasetService
     private function globalLiveReservationsQuery(array $filters)
     {
         $query = SalesforceOpportunity::query()
+            ->select($this->cohortColumns())
             ->where('reservation', true)
             ->where('cv_signed', false)
             ->whereRaw("LOWER(COALESCE(stage_name, '')) <> 'cerrada perdida'");
 
         $this->applyOpportunityTypeFilter($query, $filters['opportunity_type']);
 
-        if ($this->hasOperationalFilters($filters)) {
-            $ids = [];
-
-            $query->orderBy('id')->chunkById(1000, function (Collection $rows) use (&$ids, $filters): void {
-                foreach ($rows as $opportunity) {
-                    $row = $this->decorate($opportunity);
-
-                    if ($this->passesFilters($row, $filters)) {
-                        $ids[] = $opportunity->getKey();
-                    }
-                }
-            });
-
-            return SalesforceOpportunity::query()->whereIn('id', $ids ?: [0]);
+        if (filled($filters['access_commercial'])) {
+            $query->where('owner_id', $filters['access_commercial']);
         }
 
         return $query;
@@ -373,7 +409,6 @@ class ReservationsSalesDashboardDatasetService
             'metric_label' => $this->auditMetricLabel($metric),
             'metric_date' => $this->auditMetricDate($opportunity, $metric, $dateCriterion),
             'opportunity_id' => $opportunity->salesforce_id,
-            'opportunity_name' => $opportunity->name,
             'vehicle_id' => $opportunity->vehicle_interest_id,
             'vehicle_plate' => $opportunity->vehicle_plate,
             'created_date' => $this->auditDate($opportunity->created_date),
@@ -388,10 +423,6 @@ class ReservationsSalesDashboardDatasetService
             'commercial_delegation' => $row['commercial_delegation'],
             'zone' => $row['zone'],
             'account_id' => $opportunity->account_id,
-            'account_name' => $opportunity->account_name,
-            'account_phone' => $opportunity->account_phone,
-            'account_person_email' => $opportunity->account_person_email,
-            'account_company_email' => $opportunity->account_company_email,
             'portal_original' => $opportunity->portal_original,
             'portal_resolved' => $opportunity->portal_resolved,
             'portal_resolution_source' => $opportunity->portal_resolution_source,
@@ -417,6 +448,11 @@ class ReservationsSalesDashboardDatasetService
             'commercial_delegation' => $request->string('commercial_delegation')->toString(),
             'zone' => $request->string('zone')->toString(),
             'commercial' => $request->string('commercial')->toString(),
+            'access_commercial' => ReportUserAccess::salesforceUserId($request),
+            'access_delegation' => ReportUserAccess::delegationName($request),
+            'access_zone' => ReportUserAccess::isAreaManager($request)
+                ? ReportUserAccess::areaZoneLabel($request)
+                : null,
         ];
     }
 
@@ -431,6 +467,18 @@ class ReservationsSalesDashboardDatasetService
         }
 
         if ($filters['commercial'] && $row['owner_id'] !== $filters['commercial']) {
+            return false;
+        }
+
+        if ($filters['access_commercial'] && $row['owner_id'] !== $filters['access_commercial']) {
+            return false;
+        }
+
+        if ($filters['access_delegation'] && $row['commercial_delegation'] !== $filters['access_delegation']) {
+            return false;
+        }
+
+        if ($filters['access_zone'] && $row['zone'] !== $filters['access_zone']) {
             return false;
         }
 
@@ -774,13 +822,6 @@ class ReservationsSalesDashboardDatasetService
                     ->all()
             ),
         ];
-    }
-
-    private function hasOperationalFilters(array $filters): bool
-    {
-        return filled($filters['commercial_delegation'])
-            || filled($filters['zone'])
-            || filled($filters['commercial']);
     }
 
     private function dateField(string $criterion): string

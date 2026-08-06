@@ -4,17 +4,27 @@ namespace App\Console\Commands;
 
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
+use App\Services\Reports\ReservationsSales\ReservationsSalesDashboardDatasetService;
 use Illuminate\Console\Command;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class DebugReservasVentasReportCommand extends Command
 {
-    protected $signature = 'reports:debug-reservas-ventas {--unclassified-portals : Muestra ejemplos de portales sin clasificar}';
+    protected $signature = 'reports:debug-reservas-ventas
+        {--unclassified-portals : Muestra ejemplos minimizados de portales sin clasificar}
+        {--reconcile-cohort : Compara IDs de la cohorte KPI y de la auditoría exportable}
+        {--from= : Inicio inclusivo YYYY-MM-DD para conciliación}
+        {--to= : Fin inclusivo YYYY-MM-DD para conciliación}
+        {--date-criterion=created_date : created_date, reservation_date o cv_signed_date}
+        {--opportunity-type=all : all, Venta o Tasacion}';
 
     protected $description = 'Muestra diagnostico de datos sincronizados para Reservas / Ventas.';
 
-    public function handle(LeadDelegationNormalizer $normalizer): int
-    {
+    public function handle(
+        LeadDelegationNormalizer $normalizer,
+        ReservationsSalesDashboardDatasetService $dataset,
+    ): int {
         $this->info('Diagnostico Reservas / Ventas');
         $this->line('Total oportunidades: '.SalesforceOpportunity::query()->count());
         $this->line('Min created_date: '.(SalesforceOpportunity::query()->min('created_date') ?: '-'));
@@ -51,17 +61,15 @@ class DebugReservasVentasReportCommand extends Command
             $this->newLine();
             $this->table([
                 'salesforce_id',
-                'name',
-                'account_name',
-                'account_phone',
-                'account_person_email',
-                'account_company_email',
                 'portal_original',
                 'opportunity_source_raw',
                 'opportunity_source_normalized',
                 'portal_resolution_source',
-                'portal_resolution_debug',
             ], $this->unclassifiedExamples());
+        }
+
+        if ($this->option('reconcile-cohort') && ! $this->reconcileCohort($dataset)) {
+            return self::FAILURE;
         }
 
         return self::SUCCESS;
@@ -98,21 +106,75 @@ class DebugReservasVentasReportCommand extends Command
             ->where('portal_resolved', 'Sin clasificar')
             ->orderByDesc('updated_at')
             ->limit(20)
-            ->get()
+            ->get([
+                'salesforce_id',
+                'portal_original',
+                'opportunity_source_raw',
+                'opportunity_source_normalized',
+                'portal_resolution_source',
+            ])
             ->map(fn (SalesforceOpportunity $opportunity) => [
                 $opportunity->salesforce_id,
-                $opportunity->name,
-                $opportunity->account_name,
-                $opportunity->account_phone,
-                $opportunity->account_person_email,
-                $opportunity->account_company_email,
                 $opportunity->portal_original,
                 $opportunity->opportunity_source_raw,
                 $opportunity->opportunity_source_normalized,
                 $opportunity->portal_resolution_source,
-                json_encode($opportunity->portal_resolution_debug, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             ])
             ->all();
+    }
+
+    private function reconcileCohort(ReservationsSalesDashboardDatasetService $dataset): bool
+    {
+        $from = trim((string) $this->option('from'));
+        $to = trim((string) $this->option('to'));
+        $criterion = trim((string) $this->option('date-criterion'));
+
+        if ($from === '' || $to === '') {
+            $this->error('La conciliación requiere --from y --to.');
+
+            return false;
+        }
+
+        if (! in_array($criterion, ['created_date', 'reservation_date', 'cv_signed_date'], true)) {
+            $this->error('El criterio de fecha no es válido.');
+
+            return false;
+        }
+
+        $request = Request::create('/diagnostics/reservas-ventas', 'GET', [
+            'period' => 'custom',
+            'date_criterion' => $criterion,
+            'current_start' => $from,
+            'current_end' => $to,
+            'comparison_start' => $from,
+            'comparison_end' => $to,
+            'opportunity_type' => (string) $this->option('opportunity-type'),
+            'metric' => 'oportunidades_totales',
+        ]);
+        $kpiIds = collect($dataset->cohortOpportunityIds($request))->unique()->sort()->values();
+        $exportIds = collect($dataset->kpiAudit($request)['items'] ?? [])
+            ->pluck('opportunity_id')
+            ->filter()
+            ->unique()
+            ->sort()
+            ->values();
+        $missingFromExport = $kpiIds->diff($exportIds)->values();
+        $unexpectedInExport = $exportIds->diff($kpiIds)->values();
+
+        $this->newLine();
+        $this->line('IDs cohorte KPI: '.$kpiIds->count());
+        $this->line('IDs auditoría exportable: '.$exportIds->count());
+        $this->line('A - B: '.$missingFromExport->count());
+        $this->line('B - A: '.$unexpectedInExport->count());
+
+        if ($missingFromExport->isNotEmpty() || $unexpectedInExport->isNotEmpty()) {
+            $rows = $missingFromExport->map(fn (string $id): array => ['A-B', $id])
+                ->merge($unexpectedInExport->map(fn (string $id): array => ['B-A', $id]))
+                ->all();
+            $this->table(['Conjunto', 'Opportunity ID'], $rows);
+        }
+
+        return true;
     }
 
     private function commercialDelegationCounts(LeadDelegationNormalizer $normalizer): array

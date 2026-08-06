@@ -40,19 +40,73 @@ class CallDashboardEndpointTest extends TestCase
 
     public function test_equipos_incluyen_fila_sin_equipo_y_concilian_con_atendidas(): void
     {
-        $this->callRow(['salesforce_id' => '00T-operational']);
+        $this->callRow(['salesforce_id' => '00T-commercial']);
+        $this->callRow([
+            'salesforce_id' => '00T-contact-center',
+            'operational_team' => 'contact_center',
+            'owner_team' => 'contact_center',
+        ]);
         $this->callRow([
             'salesforce_id' => '00T-unassigned',
-            'operational_team' => 'system',
-            'owner_team' => 'system',
+            'operational_team' => 'commercial',
+            'owner_team' => 'commercial',
+            'delegation' => 'Sin clasificar',
+            'zone' => 'Sin clasificar',
         ]);
 
-        $summary = $this->getJson('/informes/llamadas/data/summary')->assertOk()->json('kpis');
+        $summaryResponse = $this->getJson('/informes/llamadas/data/summary')->assertOk();
+        $summary = $summaryResponse->json('kpis');
+        $visibleTeams = collect($summaryResponse->json('charts.answered_by_team'));
         $teams = collect($this->getJson('/informes/llamadas/data/agents')->assertOk()->json('teams'));
 
-        $this->assertSame(2, $summary['answered']);
-        $this->assertSame(2, $teams->sum('answered'));
+        $this->assertSame(3, $summary['answered']);
+        $this->assertSame(3, $teams->sum('answered'));
         $this->assertSame(1, $teams->firstWhere('team_label', 'Sin equipo')['answered']);
+        $this->assertSame(3, $visibleTeams->sum('value'));
+        $this->assertSame(1, $visibleTeams->firstWhere('label', 'Sin equipo')['value']);
+    }
+
+    public function test_csv_auditoria_exporta_una_fila_por_task_y_serializa_valores_brutos_como_json(): void
+    {
+        foreach (range(1, 3) as $index) {
+            $this->callRow([
+                'salesforce_id' => '00T-included-'.$index,
+                'call_object' => 'call-object-'.$index,
+                'included_in_dashboard' => true,
+                'parse_debug' => [
+                    'parsed' => [
+                        'result' => 'Atendida',
+                        'nested' => ['index' => $index],
+                    ],
+                ],
+            ]);
+        }
+        foreach (range(1, 2) as $index) {
+            $this->callRow([
+                'salesforce_id' => '00T-excluded-'.$index,
+                'call_object' => null,
+                'included_in_dashboard' => false,
+                'dashboard_exclusion_reason' => 'missing_call_object',
+                'parse_debug' => ['parsed' => []],
+            ]);
+        }
+
+        $content = $this->get('/informes/llamadas/export/audit.csv')
+            ->assertOk()
+            ->streamedContent();
+        $records = $this->csvRecords($content);
+        $header = array_shift($records);
+        $taskIdIndex = array_search('task_id', $header, true);
+        $reasonIndex = array_search('exclusion_reason', $header, true);
+        $rawValuesIndex = array_search('classification_raw_values', $header, true);
+
+        $this->assertCount(5, $records);
+        $this->assertCount(5, array_unique(array_column($records, $taskIdIndex)));
+        $this->assertSame(2, collect($records)->where($reasonIndex, 'missing_call_object')->count());
+        foreach ($records as $record) {
+            $this->assertIsArray(json_decode($record[$rawValuesIndex], true, flags: JSON_THROW_ON_ERROR));
+        }
+        $this->assertStringNotContainsString('Array', $content);
     }
 
     public function test_auditoria_identifica_task_fuera_del_universo_por_call_object(): void
@@ -103,5 +157,17 @@ class CallDashboardEndpointTest extends TestCase
             'direction' => 'inbound',
             'adjusted_duration_seconds' => 40,
         ], $overrides));
+    }
+
+    private function csvRecords(string $content): array
+    {
+        $lines = preg_split('/\r\n|\n|\r/', trim($content));
+
+        return array_map(function (string $line): array {
+            $record = str_getcsv($line);
+            $record[0] = ltrim($record[0], "\xEF\xBB\xBF");
+
+            return $record;
+        }, array_filter($lines, fn (string $line): bool => $line !== ''));
     }
 }

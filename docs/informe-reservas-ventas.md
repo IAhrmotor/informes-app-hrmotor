@@ -30,6 +30,11 @@ en julio y firmada en agosto cuenta como firmada dentro de la cohorte de julio
 cuando el criterio es Fecha de creación. Una oportunidad creada en junio y
 firmada en julio queda fuera de esa cohorte.
 
+El KPI y la auditoría CSV resuelven la cohorte mediante el mismo dataset base y
+los mismos filtros y ámbitos de servidor. La exportación decora ese conjunto sin
+aplicar exclusiones funcionales adicionales: para `Oportunidades totales`, el
+conjunto de Opportunity IDs del KPI y el del CSV debe ser idéntico.
+
 La pantalla muestra criterio, período, período comparado, actualización y corte
 de la fotografía local. Al cambiar filtros se cancela la petición anterior y se
 ocultan los resultados obsoletos.
@@ -87,14 +92,30 @@ propietario, tienda, delegación, zona, cuenta, portal, grupo duplicado, tamaño
 fila contabilizada, Opportunity IDs afectados, campos contradictorios y estado
 del desglose.
 
+La exportación estándar no selecciona ni publica nombre de Opportunity, nombre
+de Account, teléfono, móvil ni correos de cliente. `Opportunity.Name` se ha
+retirado porque puede contener identidad del cliente y no es necesario para la
+conciliación; se conservan `Opportunity ID` y los identificadores operativos no
+personales necesarios. Los nombres de responsables internos se mantienen para
+explicar la atribución y sus conflictos.
+
+Todas las Opportunity IDs de un grupo duplicado permanecen como filas
+auditables. `counted_in_kpi` solo identifica la fila técnica que suma el evento;
+el resto del grupo no se elimina del CSV.
+
 ## Operación
 
 ```bash
 php artisan salesforce:sync-opportunities --days=60
 php artisan salesforce:sync-opportunities --from=2026-07-01 --to=2026-08-01
 php artisan reports:debug-reservas-ventas
+php artisan reports:debug-reservas-ventas --reconcile-cohort --from=2026-07-01 --to=2026-07-31 --date-criterion=created_date --opportunity-type=all
 php artisan reports:reprocess-opportunity-portals
 ```
+
+La conciliación muestra únicamente cantidades y diferencias `A - B` / `B - A`
+por Opportunity ID; no muestra datos de contacto. Debe ejecutarse en el entorno
+que contenga la fotografía a investigar para identificar discrepancias reales.
 
 La deduplicación se calcula al construir el dataset; no necesita migración ni
 backfill. Reprocesar portales puede cambiar históricos y debe conciliarse antes

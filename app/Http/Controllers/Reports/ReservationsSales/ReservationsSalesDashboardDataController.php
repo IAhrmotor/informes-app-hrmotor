@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Reports\ReservationsSales;
 
 use App\Http\Controllers\Controller;
 use App\Services\Reports\ReservationsSales\ReservationsSalesDashboardDatasetService;
+use App\Support\CsvValueSerializer;
 use App\Support\ReportUserAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,8 +14,7 @@ class ReservationsSalesDashboardDataController extends Controller
 {
     public function __construct(
         private readonly ReservationsSalesDashboardDatasetService $dataset,
-    ) {
-    }
+    ) {}
 
     public function summary(Request $request): JsonResponse
     {
@@ -33,14 +33,14 @@ class ReservationsSalesDashboardDataController extends Controller
 
     public function kpiAudit(Request $request): JsonResponse
     {
-        abort_unless(ReportUserAccess::canExport($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'reservations-sales'), 403);
 
         return response()->json($this->dataset->kpiAudit($request));
     }
 
     public function exportKpiAuditCsv(Request $request): StreamedResponse
     {
-        abort_unless(ReportUserAccess::canExport($request), 403);
+        abort_unless(ReportUserAccess::canAuditReport($request, 'reservations-sales'), 403);
 
         $payload = $this->dataset->kpiAudit($request);
         $rows = $payload['items'] ?? [];
@@ -48,7 +48,6 @@ class ReservationsSalesDashboardDataController extends Controller
         $headers = [
             'Metrica',
             'Opportunity ID',
-            'Opportunity name',
             'Vehicle ID',
             'Vehicle plate',
             'Fecha metrica',
@@ -64,10 +63,6 @@ class ReservationsSalesDashboardDataController extends Controller
             'Delegacion comercial',
             'Zona comercial',
             'Account ID',
-            'Account name',
-            'Account phone',
-            'Account person email',
-            'Account company email',
             'Portal original',
             'Portal resuelto',
             'Origen resolucion portal',
@@ -88,13 +83,13 @@ class ReservationsSalesDashboardDataController extends Controller
 
         return response()->streamDownload(function () use ($rows, $headers): void {
             $output = fopen('php://output', 'w');
+            fwrite($output, "\xEF\xBB\xBF");
             fputcsv($output, $headers);
 
             foreach ($rows as $row) {
                 fputcsv($output, [
                     $row['metric_label'] ?? null,
                     $row['opportunity_id'] ?? null,
-                    $row['opportunity_name'] ?? null,
                     $row['vehicle_id'] ?? null,
                     $row['vehicle_plate'] ?? null,
                     $row['metric_date'] ?? null,
@@ -110,10 +105,6 @@ class ReservationsSalesDashboardDataController extends Controller
                     $row['commercial_delegation'] ?? null,
                     $row['zone'] ?? null,
                     $row['account_id'] ?? null,
-                    $row['account_name'] ?? null,
-                    $row['account_phone'] ?? null,
-                    $row['account_person_email'] ?? null,
-                    $row['account_company_email'] ?? null,
                     $row['portal_original'] ?? null,
                     $row['portal_resolved'] ?? null,
                     $row['portal_resolution_source'] ?? null,
@@ -127,8 +118,8 @@ class ReservationsSalesDashboardDataController extends Controller
                     $row['duplicate_group_key'] ?? null,
                     $row['duplicate_group_size'] ?? 1,
                     ($row['counted_in_kpi'] ?? false) ? '1' : '0',
-                    implode('|', $row['affected_opportunity_ids'] ?? []),
-                    implode('|', $row['conflicting_fields'] ?? []),
+                    CsvValueSerializer::serialize($row['affected_opportunity_ids'] ?? []),
+                    CsvValueSerializer::serialize($row['conflicting_fields'] ?? []),
                     $row['breakdown_status'] ?? null,
                 ]);
             }

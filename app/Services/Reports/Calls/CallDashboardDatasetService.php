@@ -3,13 +3,14 @@
 namespace App\Services\Reports\Calls;
 
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
+use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\LazyCollection;
 use Illuminate\Support\Str;
-use App\Support\ReportUserAccess;
 
 class CallDashboardDatasetService
 {
@@ -23,8 +24,7 @@ class CallDashboardDatasetService
         private readonly CallMetricsAggregator $aggregator,
         private readonly LeadDelegationNormalizer $delegationNormalizer,
         private readonly CallClassificationRules $rules,
-    ) {
-    }
+    ) {}
 
     public function summary(Request $request): array
     {
@@ -60,40 +60,67 @@ class CallDashboardDatasetService
 
     public function auditRows(Request $request): array
     {
+        return $this->auditRowsLazy($request)->values()->all();
+    }
+
+    public function auditRowsLazy(Request $request): LazyCollection
+    {
         $filters = $this->filters($request);
         $period = $this->periods($filters)['current'];
-        $includedIds = $this->baseFilteredQuery($filters, $period, false)
-            ->pluck('salesforce_id')
-            ->flip();
+        $includedQuery = $this->baseFilteredQuery($filters, $period)
+            ->select('salesforce_id')
+            ->distinct();
 
-        $auditQuery = DB::table('salesforce_calls')
+        $auditQuery = DB::table('salesforce_calls as audit_calls')
             ->where('created_date', '>=', $period['start'])
             ->where('created_date', '<', $period['end']);
         $this->applyAccessScope($auditQuery, $filters);
 
         return $auditQuery
-            ->orderBy('created_date')
-            ->orderBy('salesforce_id')
-            ->get()
-            ->map(function ($row) use ($includedIds): array {
+            ->leftJoinSub($includedQuery, 'filtered_calls', function ($join): void {
+                $join->on('filtered_calls.salesforce_id', '=', 'audit_calls.salesforce_id');
+            })
+            ->select('audit_calls.*')
+            ->addSelect('filtered_calls.salesforce_id as included_task_id')
+            ->orderBy('audit_calls.created_date')
+            ->orderBy('audit_calls.salesforce_id')
+            ->cursor()
+            ->map(function ($row): array {
                 $parseDebug = is_string($row->parse_debug ?? null)
                     ? (json_decode($row->parse_debug, true) ?: [])
                     : (array) ($row->parse_debug ?? []);
                 $includedByUniverse = (bool) ($row->included_in_dashboard ?? true);
-                $includedByFilters = $includedByUniverse && $includedIds->has($row->salesforce_id);
+                $includedByFilters = $includedByUniverse && $row->included_task_id !== null;
                 $rawDuration = (int) ($row->call_duration_seconds ?? $row->parsed_duration_seconds ?? 0);
                 $adjustedDuration = (int) ($row->adjusted_duration_seconds ?? 0);
+                $reason = $includedByFilters
+                    ? 'included'
+                    : ($row->dashboard_exclusion_reason ?: 'dashboard_filter');
+                $team = $row->operational_team ?: 'unassigned';
 
                 return [
                     'task_id' => $row->salesforce_id,
                     'created_date' => $row->created_date,
+                    'included_in_kpi' => $includedByFilters,
+                    'exclusion_reason' => $reason,
+                    'call_object_present' => filled($row->call_object),
+                    'raw_result' => $row->result_raw,
+                    'interpreted_result' => $row->call_status,
+                    'answered' => (bool) ($row->is_answered ?? false),
+                    'raw_duration_seconds' => $rawDuration,
+                    'adjusted_duration_seconds' => $adjustedDuration,
+                    'discounted_seconds' => max(0, $rawDuration - $adjustedDuration),
+                    'origin_type' => $row->call_origin,
+                    'portal' => $row->portal_resolved,
+                    'team' => $team,
+                    'agent_salesforce_user_id' => $row->operational_user_id,
+                    'classification_rule_version' => $row->classification_rule_version ?: 'legacy_unversioned',
+                    'classification_raw_values' => data_get($parseDebug, 'parsed', []),
                     'last_modified_date' => $row->last_modified_date,
                     'call_object' => $row->call_object,
                     'included_in_dashboard_universe' => $includedByUniverse,
                     'included_by_current_filters' => $includedByFilters,
-                    'inclusion_exclusion_reason' => $includedByFilters
-                        ? 'included'
-                        : ($row->dashboard_exclusion_reason ?: 'dashboard_filter'),
+                    'inclusion_exclusion_reason' => $reason,
                     'result_original' => $row->result_raw,
                     'answered_by_raw' => data_get($parseDebug, 'parsed.answered_by_raw'),
                     'result_interpreted' => $row->call_status,
@@ -103,16 +130,29 @@ class CallDashboardDatasetService
                     'portal_raw' => $row->portales_raw,
                     'portal_resolved' => $row->portal_resolved,
                     'portal_resolution_source' => $row->portal_resolution_source,
-                    'team_resolved' => $row->operational_team ?: 'unassigned',
+                    'team_resolved' => $team,
                     'operational_user_id' => $row->operational_user_id,
                     'operational_user_name' => $row->operational_user_name,
-                    'classification_rule_version' => $row->classification_rule_version ?: 'legacy_unversioned',
                     'classified_at' => $row->classified_at,
-                    'classification_raw_values' => data_get($parseDebug, 'parsed', []),
                 ];
-            })
-            ->values()
-            ->all();
+            });
+    }
+
+    public function auditColumns(): array
+    {
+        return [
+            'task_id', 'created_date', 'included_in_kpi', 'exclusion_reason',
+            'call_object_present', 'raw_result', 'interpreted_result', 'answered',
+            'raw_duration_seconds', 'adjusted_duration_seconds', 'discounted_seconds',
+            'origin_type', 'portal', 'team', 'agent_salesforce_user_id',
+            'classification_rule_version', 'classification_raw_values',
+            'last_modified_date', 'call_object', 'included_in_dashboard_universe',
+            'included_by_current_filters', 'inclusion_exclusion_reason', 'result_original',
+            'answered_by_raw', 'result_interpreted', 'duration_initial_seconds',
+            'seconds_deducted', 'duration_adjusted_seconds', 'portal_raw',
+            'portal_resolved', 'portal_resolution_source', 'team_resolved',
+            'operational_user_id', 'operational_user_name', 'classified_at',
+        ];
     }
 
     public function payload(Request $request): array
@@ -159,15 +199,17 @@ class CallDashboardDatasetService
         $previous = $this->summaryBucket($filters, $periods['previous']);
         $charts = $this->summaryCharts($filters, $periods['current'], $current);
         $rankings = $this->summaryRankings($filters, $periods['current']);
-        $rawUniverse = DB::table('salesforce_calls')
+        $rawUniverseQuery = DB::table('salesforce_calls')
             ->where('created_date', '>=', $periods['current']['start'])
-            ->where('created_date', '<', $periods['current']['end'])
-            ->count();
-        $dashboardUniverse = DB::table('salesforce_calls')
+            ->where('created_date', '<', $periods['current']['end']);
+        $this->applyAccessScope($rawUniverseQuery, $filters);
+        $rawUniverse = $rawUniverseQuery->count();
+        $dashboardUniverseQuery = DB::table('salesforce_calls')
             ->where('included_in_dashboard', true)
             ->where('created_date', '>=', $periods['current']['start'])
-            ->where('created_date', '<', $periods['current']['end'])
-            ->count();
+            ->where('created_date', '<', $periods['current']['end']);
+        $this->applyAccessScope($dashboardUniverseQuery, $filters);
+        $dashboardUniverse = $dashboardUniverseQuery->count();
         $cutoff = $this->lastUpdated()?->toDateTimeString();
 
         return [
@@ -272,7 +314,11 @@ class CallDashboardDatasetService
             ], $unassignedBucket, 0);
         }
 
-        return $this->finalizeGroups($groups, 'team_label');
+        $rows = $this->finalizeGroups($groups, 'team_label');
+        $order = array_flip(['commercial', 'customer_service', 'contact_center', 'appraiser', 'unassigned']);
+        usort($rows, fn (array $a, array $b): int => ($order[$a['team']] ?? 99) <=> ($order[$b['team']] ?? 99));
+
+        return $rows;
     }
 
     private function agentMetricRows(array $filters, array $period): array
@@ -651,7 +697,7 @@ class CallDashboardDatasetService
 
     private function overflowConditionSql(): string
     {
-        return "COALESCE(is_overflow, 0) = 1";
+        return 'COALESCE(is_overflow, 0) = 1';
     }
 
     private function overflowDenominatorConditionSql(): string
@@ -847,12 +893,14 @@ class CallDashboardDatasetService
                 ['label' => 'Directas a comercial', 'value' => $bucket['commercial_direct_calls']],
                 ['label' => 'Portales', 'value' => $bucket['portal_calls']],
             ],
-            'answered_by_team' => [
-                ['label' => 'Comerciales', 'value' => $bucket['answered_commercial']],
-                ['label' => 'Atencion al Cliente', 'value' => $bucket['answered_customer_service']],
-                ['label' => 'Contact Center', 'value' => $bucket['answered_contact_center']],
-                ['label' => 'Tasadores', 'value' => $bucket['answered_appraiser']],
-            ],
+            'answered_by_team' => collect($this->teamMetricRows($filters, $period))
+                ->filter(fn (array $row): bool => ($row['answered'] ?? 0) > 0)
+                ->map(fn (array $row): array => [
+                    'label' => $row['team_label'],
+                    'value' => $row['answered'],
+                ])
+                ->values()
+                ->all(),
             'daily_evolution' => $this->dailyEvolutionRows($filters, $period),
         ];
     }
