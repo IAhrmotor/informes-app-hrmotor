@@ -13,10 +13,12 @@ use Illuminate\View\View;
 
 class InformesLoginController extends Controller
 {
+    private const REMEMBER_DAYS = 30;
+
     public function show(Request $request): View|RedirectResponse
     {
-        if (! config('services.informes_auth.enabled', true)
-            || (bool) $request->session()->get('informes_authenticated', false)) {
+        if ((bool) $request->session()->get('informes_authenticated', false)
+            && $request->session()->get('report_user_id') !== null) {
             return redirect()->route('reports.index');
         }
 
@@ -25,26 +27,21 @@ class InformesLoginController extends Controller
 
     public function login(Request $request): RedirectResponse
     {
-        if (! config('services.informes_auth.enabled', true)) {
-            return redirect()->intended(route('reports.index'));
-        }
-
         $credentials = $request->validate([
             'email' => ['required', 'string'],
             'password' => ['required', 'string'],
         ]);
 
         $reportUser = $this->reportUserForCredentials($credentials['email'], $credentials['password']);
-        $legacyLogin = $reportUser === null && $this->legacyCredentialsAreValid($credentials['email'], $credentials['password']);
 
-        if ($reportUser === null && ! $legacyLogin) {
+        if ($reportUser === null) {
             return back()
                 ->withInput($request->only('email'))
                 ->withErrors(['email' => 'Las credenciales no son correctas.']);
         }
 
         $request->session()->regenerate();
-        $this->storeAuthenticatedSession($request, $credentials['email'], $reportUser);
+        $this->storeAuthenticatedSession($request, $reportUser);
 
         if ($request->boolean('remember')) {
             $this->queueRememberCookie($request, $reportUser);
@@ -92,60 +89,22 @@ class InformesLoginController extends Controller
         return $user;
     }
 
-    private function legacyCredentialsAreValid(string $login, string $password): bool
+    private function storeAuthenticatedSession(Request $request, ReportUser $user): void
     {
-        $configuredLogin = (string) config('services.informes_auth.email');
-        $legacyUser = (string) config('services.informes_auth.user');
-        $configuredPassword = (string) config('services.informes_auth.password');
-
-        if ($configuredLogin === '' || $configuredPassword === '') {
-            return false;
-        }
-
-        $loginOk = hash_equals($configuredLogin, $login)
-            || ($legacyUser !== '' && hash_equals($legacyUser, $login));
-
-        return $loginOk && hash_equals($configuredPassword, $password);
-    }
-
-    private function storeAuthenticatedSession(Request $request, string $fallbackEmail, ?ReportUser $user): void
-    {
-        $role = $user?->role ?: ReportUser::ROLE_ADMIN;
-        $email = $user?->email ?: $fallbackEmail;
-
         $request->session()->put('informes_authenticated', true);
-        $request->session()->put('informes_user', $email);
-        $request->session()->put('report_user_id', $user?->id);
-        $request->session()->put('report_user_email', $email);
-        $request->session()->put('report_user_role', $role);
-        $request->session()->put('report_user_name', $user?->name);
+        $request->session()->put('informes_user', $user->email);
+        $request->session()->put('report_user_id', $user->id);
+        $request->session()->put('report_user_email', $user->email);
+        $request->session()->put('report_user_role', $user->role);
+        $request->session()->put('report_user_name', $user->name);
     }
 
-    private function queueRememberCookie(Request $request, ?ReportUser $user): void
+    private function queueRememberCookie(Request $request, ReportUser $user): void
     {
-        $minutes = max((int) config('services.informes_auth.remember_days', 30), 1) * 24 * 60;
-
-        if ($user) {
-            Cookie::queue(Cookie::make(
-                'report_user_remember',
-                $this->reportUserRememberToken($user),
-                $minutes,
-                null,
-                null,
-                $request->isSecure(),
-                true,
-                false,
-                'lax'
-            ));
-            Cookie::queue(Cookie::forget('informes_remember'));
-
-            return;
-        }
-
         Cookie::queue(Cookie::make(
-            'informes_remember',
-            $this->rememberToken(),
-            $minutes,
+            'report_user_remember',
+            $this->reportUserRememberToken($user),
+            self::REMEMBER_DAYS * 24 * 60,
             null,
             null,
             $request->isSecure(),
@@ -153,7 +112,7 @@ class InformesLoginController extends Controller
             false,
             'lax'
         ));
-        Cookie::queue(Cookie::forget('report_user_remember'));
+        Cookie::queue(Cookie::forget('informes_remember'));
     }
 
     private function reportUserRememberToken(ReportUser $user): string
@@ -161,18 +120,6 @@ class InformesLoginController extends Controller
         return $user->id.'|'.hash_hmac(
             'sha256',
             implode('|', [$user->id, $user->email, $user->password]),
-            (string) config('app.key')
-        );
-    }
-
-    private function rememberToken(): string
-    {
-        return hash_hmac(
-            'sha256',
-            implode('|', [
-                (string) config('services.informes_auth.email'),
-                (string) config('services.informes_auth.password'),
-            ]),
             (string) config('app.key')
         );
     }

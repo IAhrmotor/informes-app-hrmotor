@@ -13,6 +13,10 @@ class EnsureCommissionsApiBasicAuth
         $user = (string) config('services.commissions_api.user', '');
         $password = (string) config('services.commissions_api.password', '');
 
+        if (blank($user) || blank($password)) {
+            return response('Service unavailable', 503);
+        }
+
         if (
             $request->getUser() !== $user
             || $request->getPassword() !== $password

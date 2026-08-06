@@ -12,11 +12,14 @@ use App\Models\SalesforceUser;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class CommercialCommissionDashboardTest extends TestCase
 {
     use RefreshDatabase;
+
+    private int $reportUserSequence = 0;
 
     protected function setUp(): void
     {
@@ -36,11 +39,7 @@ class CommercialCommissionDashboardTest extends TestCase
     {
         config()->set('services.informes_auth.enabled', true);
 
-        $adminSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_ADMIN,
-            'report_user_email' => 'admin@hrmotor.com',
-        ];
+        $adminSession = $this->authenticatedSession(ReportUser::ROLE_ADMIN);
 
         $this->withSession($adminSession)
             ->get('/informes/leads')
@@ -60,11 +59,7 @@ class CommercialCommissionDashboardTest extends TestCase
     {
         config()->set('services.informes_auth.enabled', true);
 
-        $session = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_DIRECTOR,
-            'report_user_email' => 'director@hrmotor.com',
-        ];
+        $session = $this->authenticatedSession(ReportUser::ROLE_DIRECTOR);
 
         $this->withSession($session)
             ->get('/informes/leads')
@@ -100,11 +95,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'cv_signed_date' => '2026-06-10',
         ]);
 
-        $this->withSession([
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_DIRECTOR,
-            'report_user_email' => 'director@hrmotor.com',
-        ])
+        $this->withSession($this->authenticatedSession(ReportUser::ROLE_DIRECTOR))
             ->get('/informes/comisiones-comerciales?month=2026-06')
             ->assertOk()
             ->assertSee('Datos actualizados:')
@@ -116,16 +107,8 @@ class CommercialCommissionDashboardTest extends TestCase
     {
         config()->set('services.informes_auth.enabled', true);
 
-        $areaManagerSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_AREA_MANAGER,
-            'report_user_email' => 'area@hrmotor.com',
-        ];
-        $viewerSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_VIEWER,
-            'report_user_email' => 'viewer@hrmotor.com',
-        ];
+        $areaManagerSession = $this->authenticatedSession(ReportUser::ROLE_AREA_MANAGER);
+        $viewerSession = $this->authenticatedSession(ReportUser::ROLE_VIEWER);
 
         $this->withSession($areaManagerSession)
             ->get('/informes/leads')
@@ -166,11 +149,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'garantia_total' => 50,
         ]);
 
-        $adminSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_ADMIN,
-            'report_user_email' => 'admin@hrmotor.com',
-        ];
+        $adminSession = $this->authenticatedSession(ReportUser::ROLE_ADMIN);
 
         $this->withSession($adminSession)
             ->get('/informes/comisiones-comerciales?tab=area-manager&month=2026-05')
@@ -201,11 +180,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'cv_signed_date' => '2026-05-10',
         ]);
 
-        $adminSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_ADMIN,
-            'report_user_email' => 'admin@hrmotor.com',
-        ];
+        $adminSession = $this->authenticatedSession(ReportUser::ROLE_ADMIN);
 
         $this->withSession($adminSession)
             ->get('/informes/comisiones-comerciales?tab=financials&month=2026-05')
@@ -1536,11 +1511,7 @@ class CommercialCommissionDashboardTest extends TestCase
             ],
         ]);
 
-        $adminSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_ADMIN,
-            'report_user_email' => 'admin@hrmotor.com',
-        ];
+        $adminSession = $this->authenticatedSession(ReportUser::ROLE_ADMIN);
 
         $this->withSession($adminSession)
             ->get('/informes/comisiones-comerciales?call_center_contract_from=2026-06-01&call_center_contract_to=2026-06-30&month=2026-05')
@@ -2531,6 +2502,26 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEquals(30.0, $row['appraiser_financing_commission']);
         $this->assertEquals(20.0, $row['appraiser_speed_under_30_amount']);
         $this->assertEquals(830.0, $row['final_commission']);
+    }
+
+    private function authenticatedSession(string $role): array
+    {
+        $this->reportUserSequence++;
+        $user = ReportUser::query()->create([
+            'name' => 'Test '.$role,
+            'email' => $role.'-'.$this->reportUserSequence.'@example.test',
+            'password' => Hash::make('dashboard-test-password'),
+            'role' => $role,
+            'area_zone' => $role === ReportUser::ROLE_AREA_MANAGER ? 'north' : null,
+            'is_active' => true,
+        ]);
+
+        return [
+            'informes_authenticated' => true,
+            'report_user_id' => $user->id,
+            'report_user_role' => $user->role,
+            'report_user_email' => $user->email,
+        ];
     }
 
     private function createCommercialUser(string $id, string $name, bool $isActive = true, string $profile = 'Compra/Venta'): void

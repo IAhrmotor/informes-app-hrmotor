@@ -2,6 +2,7 @@
 
 namespace App\Services\Salesforce;
 
+use App\Support\IntegrationErrorSanitizer;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -42,6 +43,12 @@ class SalesforceAuthService
 
     private function requestClientCredentialsToken(): array
     {
+        $this->assertConfigured([
+            'token_url' => config('salesforce.token_url'),
+            'client_id' => config('salesforce.client_id'),
+            'client_secret' => config('salesforce.client_secret'),
+        ], 'client_credentials');
+
         $response = Http::asForm()->post(config('salesforce.token_url'), [
             'grant_type' => 'client_credentials',
             'client_id' => config('salesforce.client_id'),
@@ -49,9 +56,11 @@ class SalesforceAuthService
         ]);
 
         if (! $response->successful()) {
-            throw new RuntimeException(
-                'Error autenticando Salesforce client_credentials: '.$response->status().' '.$response->body()
-            );
+            throw new RuntimeException(IntegrationErrorSanitizer::remoteFailure(
+                'Salesforce OAuth client_credentials',
+                $response->status(),
+                $response->json()
+            ));
         }
 
         $data = $response->json();
@@ -65,11 +74,12 @@ class SalesforceAuthService
     {
         $refreshToken = config('salesforce.refresh_token');
 
-        if (blank($refreshToken)) {
-            throw new RuntimeException(
-                'Falta SALESFORCE_REFRESH_TOKEN. La credencial actual parece Authorization Code / Refresh Token, no Client Credentials puro.'
-            );
-        }
+        $this->assertConfigured([
+            'token_url' => config('salesforce.token_url'),
+            'client_id' => config('salesforce.client_id'),
+            'client_secret' => config('salesforce.client_secret'),
+            'refresh_token' => $refreshToken,
+        ], 'refresh_token');
 
         $response = Http::asForm()->post(config('salesforce.token_url'), [
             'grant_type' => 'refresh_token',
@@ -79,11 +89,11 @@ class SalesforceAuthService
         ]);
 
         if (! $response->successful()) {
-            throw new RuntimeException(
-                'Error autenticando Salesforce refresh_token: '
-                .$response->status().' '.$this->sanitizeBody($response->body())
-                .$this->domainHint($response->body())
-            );
+            throw new RuntimeException(IntegrationErrorSanitizer::remoteFailure(
+                'Salesforce OAuth refresh_token',
+                $response->status(),
+                $response->json()
+            ));
         }
 
         $data = $response->json() ?? [];
@@ -96,37 +106,20 @@ class SalesforceAuthService
     private function validateTokenResponse(array $data): void
     {
         if (empty($data['access_token'])) {
-            throw new RuntimeException('Salesforce no devolvio access_token: '.$this->sanitizeBody(json_encode($data)));
+            throw new RuntimeException('Salesforce OAuth devolvió una respuesta sin token de acceso.');
         }
 
         if (empty($data['instance_url'])) {
-            throw new RuntimeException('Salesforce no devolvio instance_url: '.$this->sanitizeBody(json_encode($data)));
+            throw new RuntimeException('Salesforce OAuth devolvió una respuesta sin URL de instancia.');
         }
     }
 
-    private function sanitizeBody(?string $body): string
+    private function assertConfigured(array $configuration, string $mode): void
     {
-        $body = (string) $body;
-
-        foreach ([
-            config('salesforce.client_secret'),
-            config('salesforce.client_id'),
-            config('salesforce.refresh_token'),
-        ] as $secret) {
-            if (filled($secret)) {
-                $body = str_replace((string) $secret, '[redacted]', $body);
+        foreach ($configuration as $value) {
+            if (blank($value)) {
+                throw new RuntimeException("Salesforce OAuth no configurado para el modo {$mode}.");
             }
         }
-
-        return $body;
-    }
-
-    private function domainHint(?string $body): string
-    {
-        if (! str_contains(strtolower((string) $body), 'request not supported on this domain')) {
-            return '';
-        }
-
-        return ' Hint: para client_credentials Salesforce suele requerir el My Domain, por ejemplo https://TU_DOMINIO.my.salesforce.com/services/oauth2/token.';
     }
 }

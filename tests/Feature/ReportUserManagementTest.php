@@ -81,12 +81,19 @@ class ReportUserManagementTest extends TestCase
 
     public function test_director_no_puede_entrar_en_gestion_de_usuarios(): void
     {
-        config()->set('services.informes_auth.enabled', true);
+        $director = ReportUser::query()->create([
+            'name' => 'Director',
+            'email' => 'director@example.test',
+            'password' => Hash::make('director-test-password'),
+            'role' => ReportUser::ROLE_DIRECTOR,
+            'is_active' => true,
+        ]);
 
         $this->withSession([
             'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_DIRECTOR,
-            'report_user_email' => 'director@hrmotor.com',
+            'report_user_id' => $director->id,
+            'report_user_role' => $director->role,
+            'report_user_email' => $director->email,
         ])
             ->get('/informes/usuarios')
             ->assertRedirect('/informes/leads');

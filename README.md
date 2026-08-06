@@ -97,7 +97,9 @@ npm run build
 php artisan serve
 ```
 
-Las credenciales y secretos se configuran únicamente en `.env`. No deben
+Las credenciales y secretos se proporcionan exclusivamente mediante variables
+de entorno. La configuración no contiene credenciales fallback y una
+integración sin sus variables obligatorias se considera no configurada. No deben
 guardarse en documentación, commits, logs ni respuestas JSON.
 
 ## Scheduler
@@ -148,7 +150,12 @@ permisos y Reservas/Ventas también fueron correctas.
 
 ## Seguridad
 
-- Autenticación configurable mediante `INFORMES_AUTH_ENABLED`.
+- El login humano usa exclusivamente usuarios activos de `report_users` y su
+  matriz vigente de roles, permisos y ámbitos.
+- `INFORMES_AUTH_*` es legado eliminado y no habilita login, sesiones ni bypass
+  por configuración.
+- La Basic Auth de la API interna de Comisiones es independiente del login
+  humano y falla cerrada cuando no está configurada.
 - CSRF obligatorio en mutaciones web.
 - Autorización de pantallas, JSON, exports, filas y columnas sensibles.
 - Principio de mínimo privilegio y ámbitos estables: Salesforce User ID,

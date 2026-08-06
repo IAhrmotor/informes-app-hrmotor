@@ -2,6 +2,7 @@
 
 namespace App\Services\Campaigns;
 
+use App\Support\IntegrationErrorSanitizer;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -54,7 +55,6 @@ class MetaAdsClient
         );
 
         $baseParams = [
-            'access_token' => $accessToken,
             'level' => 'campaign',
             'time_increment' => 1,
             'time_range' => json_encode([
@@ -85,25 +85,25 @@ class MetaAdsClient
                 $params['after'] = $after;
             }
 
-            $response = Http::timeout(120)
-                ->retry(2, 1000)
+            $response = Http::withToken($accessToken)
+                ->timeout(120)
+                ->retry(2, 1000, throw: false)
                 ->get($url, $params);
 
             if ($response->failed()) {
                 Log::error('Meta Ads response error', [
+                    'integration' => 'meta_ads',
                     'status' => $response->status(),
-                    'body' => $response->json(),
-                    'url' => $url,
                     'account_resolved' => $account,
                     'level' => $params['level'] ?? null,
-                    'fields' => $params['fields'] ?? null,
-                    'after' => $params['after'] ?? null,
-                    'token_start' => substr($accessToken, 0, 8),
-                    'token_end' => substr($accessToken, -8),
-                    'token_length' => strlen($accessToken),
+                    'error_type' => 'remote_http_error',
                 ]);
 
-                throw new RuntimeException('Meta Ads API error: '.$response->body());
+                throw new RuntimeException(IntegrationErrorSanitizer::remoteFailure(
+                    'Meta Ads insights',
+                    $response->status(),
+                    $response->json()
+                ));
             }
 
             $payload = $response->json();
@@ -136,7 +136,6 @@ class MetaAdsClient
         );
 
         $baseParams = [
-            'access_token' => $accessToken,
             'fields' => implode(',', [
                 'id',
                 'name',
@@ -158,12 +157,17 @@ class MetaAdsClient
                 $params['after'] = $after;
             }
 
-            $response = Http::timeout(120)
-                ->retry(2, 1000)
+            $response = Http::withToken($accessToken)
+                ->timeout(120)
+                ->retry(2, 1000, throw: false)
                 ->get($url, $params);
 
             if ($response->failed()) {
-                throw new RuntimeException('Meta Ads campaign metadata error: '.$response->body());
+                throw new RuntimeException(IntegrationErrorSanitizer::remoteFailure(
+                    'Meta Ads campañas',
+                    $response->status(),
+                    $response->json()
+                ));
             }
 
             $payload = $response->json();
@@ -192,7 +196,6 @@ class MetaAdsClient
 
         $url = sprintf('https://graph.facebook.com/%s/%s/ads', $apiVersion, $account);
         $baseParams = [
-            'access_token' => $accessToken,
             'fields' => 'id,name,adset{id,name},campaign{id,name}',
             'limit' => 500,
         ];
@@ -205,9 +208,16 @@ class MetaAdsClient
                 $params['after'] = $after;
             }
 
-            $response = Http::timeout(120)->retry(2, 1000)->get($url, $params);
+            $response = Http::withToken($accessToken)
+                ->timeout(120)
+                ->retry(2, 1000, throw: false)
+                ->get($url, $params);
             if ($response->failed()) {
-                throw new RuntimeException('Meta Ads identifier metadata error: '.$response->body());
+                throw new RuntimeException(IntegrationErrorSanitizer::remoteFailure(
+                    'Meta Ads identificadores',
+                    $response->status(),
+                    $response->json()
+                ));
             }
 
             $payload = $response->json();

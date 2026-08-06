@@ -22,6 +22,9 @@ class CommercialCommissionApiTest extends TestCase
 
     public function test_api_requiere_basic_auth(): void
     {
+        config()->set('services.commissions_api.user', 'api-test-user');
+        config()->set('services.commissions_api.password', 'api-test-password');
+
         $this->getJson('/api/comisiones_comercial?salesforce_id=005-API')
             ->assertUnauthorized();
     }

@@ -11,12 +11,10 @@ class ReportsAuthMiddlewareTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_informes_redirige_a_login_sin_popup_basic_auth_si_esta_activado(): void
-    {
-        config()->set('services.informes_auth.enabled', true);
-        config()->set('services.informes_auth.email', 'admin@hrmotor.com');
-        config()->set('services.informes_auth.password', 'secret');
+    protected bool $authenticateReportsByDefault = false;
 
+    public function test_usuario_no_autenticado_es_redirigido_al_login_sin_basic_auth(): void
+    {
         $response = $this->get('/informes/leads');
 
         $response
@@ -26,20 +24,45 @@ class ReportsAuthMiddlewareTest extends TestCase
         $this->assertFalse($response->headers->has('WWW-Authenticate'));
     }
 
-    public function test_login_correcto_vuelve_a_url_solicitada_y_logout_limpia_sesion(): void
+    public function test_credenciales_globales_legacy_no_permiten_iniciar_sesion(): void
     {
-        config()->set('services.informes_auth.enabled', true);
-        config()->set('services.informes_auth.email', 'admin@hrmotor.com');
-        config()->set('services.informes_auth.password', 'secret');
+        config()->set('services.informes_auth', [
+            'enabled' => false,
+            'email' => 'legacy@example.test',
+            'user' => 'legacy-user',
+            'password' => 'legacy-test-password',
+        ]);
+
+        $this->from('/login')->post('/login', [
+            'email' => 'legacy@example.test',
+            'password' => 'legacy-test-password',
+        ])
+            ->assertSessionHasErrors('email')
+            ->assertRedirect('/login')
+            ->assertSessionMissing('informes_authenticated');
+
+        $this->get('/informes/leads')->assertRedirect('/login');
+    }
+
+    public function test_login_de_report_user_conserva_rol_y_logout_limpia_sesion(): void
+    {
+        $user = ReportUser::query()->create([
+            'name' => 'Viewer',
+            'email' => 'viewer@example.test',
+            'password' => Hash::make('viewer-test-password'),
+            'role' => ReportUser::ROLE_VIEWER,
+            'is_active' => true,
+        ]);
 
         $this->withSession(['url.intended' => url('/informes/leads')])
             ->post('/login', [
-                'email' => 'admin@hrmotor.com',
-                'password' => 'secret',
+                'email' => $user->email,
+                'password' => 'viewer-test-password',
             ])
             ->assertRedirect('/informes/leads')
             ->assertSessionHas('informes_authenticated', true)
-            ->assertSessionHas('informes_user', 'admin@hrmotor.com');
+            ->assertSessionHas('report_user_id', $user->id)
+            ->assertSessionHas('report_user_role', ReportUser::ROLE_VIEWER);
 
         $this->get('/login')->assertRedirect('/informes');
 
@@ -48,49 +71,55 @@ class ReportsAuthMiddlewareTest extends TestCase
             ->assertSessionMissing('informes_authenticated');
     }
 
-    public function test_login_con_report_user_guarda_role_en_sesion(): void
+    public function test_sesion_sin_usuario_real_no_autentica_aunque_indique_rol_admin(): void
     {
-        config()->set('services.informes_auth.enabled', true);
+        $this->withSession([
+            'informes_authenticated' => true,
+            'report_user_id' => null,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+        ])->get('/informes/leads')->assertRedirect('/login');
+    }
 
-        ReportUser::query()->create([
+    public function test_rol_de_sesion_manipulado_no_eleva_privilegios_del_usuario(): void
+    {
+        $viewer = ReportUser::query()->create([
             'name' => 'Viewer',
-            'email' => 'viewer@hrmotor.com',
-            'password' => Hash::make('secret'),
+            'email' => 'viewer-privileges@example.test',
+            'password' => Hash::make('viewer-test-password'),
             'role' => ReportUser::ROLE_VIEWER,
             'is_active' => true,
         ]);
 
-        $this->post('/login', [
-            'email' => 'viewer@hrmotor.com',
-            'password' => 'secret',
-        ])
-            ->assertRedirect('/informes/leads')
-            ->assertSessionHas('informes_authenticated', true)
-            ->assertSessionHas('report_user_email', 'viewer@hrmotor.com')
-            ->assertSessionHas('report_user_role', ReportUser::ROLE_VIEWER)
-            ->assertSessionHas('report_user_name', 'Viewer');
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $viewer->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+            'report_user_email' => $viewer->email,
+        ];
 
-        $this->assertNotNull(ReportUser::query()->where('email', 'viewer@hrmotor.com')->value('last_login_at'));
+        $this->withSession($session)
+            ->get('/informes/usuarios')
+            ->assertRedirect('/informes/leads');
+
+        $this->withSession($session)
+            ->get('/informes/leads')
+            ->assertOk()
+            ->assertSessionHas('report_user_role', ReportUser::ROLE_VIEWER);
     }
 
-    public function test_login_incorrecto_muestra_error_en_tarjeta(): void
+    public function test_usuario_inactivo_no_puede_reutilizar_una_sesion(): void
     {
-        config()->set('services.informes_auth.enabled', true);
-        config()->set('services.informes_auth.email', 'admin@hrmotor.com');
-        config()->set('services.informes_auth.password', 'secret');
+        $inactive = ReportUser::query()->create([
+            'email' => 'inactive@example.test',
+            'password' => Hash::make('inactive-test-password'),
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => false,
+        ]);
 
-        $this->from('/login')->post('/login', [
-            'email' => 'admin@hrmotor.com',
-            'password' => 'bad-password',
-        ])
-            ->assertSessionHasErrors('email')
-            ->assertRedirect('/login');
-    }
-
-    public function test_informes_permite_acceso_si_auth_esta_desactivado(): void
-    {
-        config()->set('services.informes_auth.enabled', false);
-
-        $this->get('/informes/campanas')->assertOk();
+        $this->withSession([
+            'informes_authenticated' => true,
+            'report_user_id' => $inactive->id,
+            'report_user_role' => ReportUser::ROLE_ADMIN,
+        ])->get('/informes/leads')->assertRedirect('/login');
     }
 }

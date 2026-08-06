@@ -2,6 +2,7 @@
 
 namespace App\Services\Salesforce;
 
+use App\Support\IntegrationErrorSanitizer;
 use Generator;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -49,7 +50,7 @@ class SalesforceClient
 
         if (! $response->successful()) {
             throw new RuntimeException(
-                'Error consultando Salesforce SOQL: '.$response->status().' '.$this->sanitizeBody($response->body())
+                IntegrationErrorSanitizer::remoteFailure('Salesforce SOQL', $response->status(), $response->json())
             );
         }
 
@@ -79,7 +80,7 @@ class SalesforceClient
 
             if (! $response->successful()) {
                 throw new RuntimeException(
-                    'Error paginando Salesforce SOQL: '.$response->status().' '.$this->sanitizeBody($response->body())
+                    IntegrationErrorSanitizer::remoteFailure('Salesforce SOQL paginación', $response->status(), $response->json())
                 );
             }
 
@@ -97,7 +98,7 @@ class SalesforceClient
             $response = $this->sendCreate($auth, $object, $fields);
         }
         if (! $response->successful() || blank($response->json('id'))) {
-            throw new RuntimeException('Error creando '.$object.' en Salesforce: '.$response->status().' '.$this->sanitizeBody($response->body()));
+            throw new RuntimeException(IntegrationErrorSanitizer::remoteFailure('Salesforce create '.$object, $response->status(), $response->json()));
         }
 
         return (string) $response->json('id');
@@ -113,7 +114,7 @@ class SalesforceClient
             $response = $this->sendUpdate($auth, $object, $id, $fields);
         }
         if (! $response->successful()) {
-            throw new RuntimeException('Error actualizando '.$object.' en Salesforce: '.$response->status().' '.$this->sanitizeBody($response->body()));
+            throw new RuntimeException(IntegrationErrorSanitizer::remoteFailure('Salesforce update '.$object, $response->status(), $response->json()));
         }
     }
 
@@ -129,7 +130,7 @@ class SalesforceClient
                 ->acceptJson()->get($this->sObjectUrl($auth, $object).'/describe');
         }
         if (! $response->successful()) {
-            throw new RuntimeException('Error describiendo '.$object.' en Salesforce: '.$response->status().' '.$this->sanitizeBody($response->body()));
+            throw new RuntimeException(IntegrationErrorSanitizer::remoteFailure('Salesforce describe '.$object, $response->status(), $response->json()));
         }
 
         return $response->json() ?? [];
@@ -174,20 +175,4 @@ class SalesforceClient
             .($includeDeleted ? '/queryAll' : '/query');
     }
 
-    private function sanitizeBody(?string $body): string
-    {
-        $body = (string) $body;
-
-        foreach ([
-            config('salesforce.client_secret'),
-            config('salesforce.client_id'),
-            config('salesforce.refresh_token'),
-        ] as $secret) {
-            if (filled($secret)) {
-                $body = str_replace((string) $secret, '[redacted]', $body);
-            }
-        }
-
-        return $body;
-    }
 }

@@ -82,6 +82,16 @@ cada reseña y su procedencia.
 Cambiar a una reseña máxima por Opportunity exigiría una nueva decisión
 funcional; no se aplica implícitamente.
 
+### Seguridad del endpoint interno de reseñas
+
+`INTERNAL_REVIEWS_ENDPOINT`, `INTERNAL_REVIEWS_USER` e
+`INTERNAL_REVIEWS_PASSWORD` se proporcionan exclusivamente mediante variables
+de entorno y no tienen valores fallback. Si falta cualquiera de ellas, el
+servicio queda `not_configured`, no construye una cabecera Basic Auth y mantiene
+el cero previsto por la lógica funcional vigente. Los fallos de transporte o
+remotos conservan un estado técnico separado sin incluir credenciales, cabeceras
+ni cuerpos de respuesta en logs o excepciones.
+
 ## Roles y datos sensibles
 
 - Dirección y Administrador/IT: acceso completo al informe; ambos gestionan

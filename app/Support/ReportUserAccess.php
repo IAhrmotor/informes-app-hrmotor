@@ -44,22 +44,24 @@ class ReportUserAccess
 
     public static function current(Request $request): ?array
     {
-        if (! config('services.informes_auth.enabled', true)) {
-            return [
-                'id' => null,
-                'email' => 'local',
-                'role' => ReportUser::ROLE_ADMIN,
-            ];
+        if (! $request->hasSession()) {
+            return null;
         }
 
         if (! $request->session()->get('informes_authenticated')) {
             return null;
         }
 
+        $user = self::reportUser($request);
+
+        if (! $user || ! $user->is_active) {
+            return null;
+        }
+
         return [
-            'id' => $request->session()->get('report_user_id'),
-            'email' => $request->session()->get('report_user_email', $request->session()->get('informes_user')),
-            'role' => $request->session()->get('report_user_role', ReportUser::ROLE_ADMIN),
+            'id' => $user->id,
+            'email' => $user->email,
+            'role' => $user->role,
         ];
     }
 
@@ -70,10 +72,6 @@ class ReportUserAccess
 
     public static function displayName(Request $request): ?string
     {
-        if (! config('services.informes_auth.enabled', true)) {
-            return null;
-        }
-
         $name = trim((string) $request->session()->get('report_user_name', ''));
 
         if ($name !== '') {
@@ -114,8 +112,12 @@ class ReportUserAccess
             return $request->attributes->get('resolved_report_user');
         }
 
+        if (! $request->hasSession()) {
+            return null;
+        }
+
         $id = $request->session()->get('report_user_id');
-        $user = $id ? ReportUser::query()->with('masterDelegation')->find($id) : null;
+        $user = $id ? ReportUser::query()->with('masterDelegation')->where('is_active', true)->find($id) : null;
         $request->attributes->set('resolved_report_user', $user);
 
         return $user;

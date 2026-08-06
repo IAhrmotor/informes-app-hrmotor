@@ -11,48 +11,44 @@ class EnsureInformesAuthenticated
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (! config('services.informes_auth.enabled', true)) {
-            return $next($request);
-        }
+        if ($user = $this->authenticatedReportUser($request)) {
+            $this->storeAuthenticatedSession($request, $user);
 
-        if ((bool) $request->session()->get('informes_authenticated', false)) {
             return $next($request);
         }
 
         if ($rememberedUser = $this->rememberedReportUser($request)) {
             $request->session()->regenerate();
-            $request->session()->put('informes_authenticated', true);
-            $request->session()->put('informes_user', $rememberedUser->email);
-            $request->session()->put('report_user_id', $rememberedUser->id);
-            $request->session()->put('report_user_email', $rememberedUser->email);
-            $request->session()->put('report_user_role', $rememberedUser->role);
-            $request->session()->put('report_user_name', $rememberedUser->name);
+            $this->storeAuthenticatedSession($request, $rememberedUser);
             $rememberedUser->forceFill(['last_login_at' => now()])->save();
 
             return $next($request);
         }
 
-        if ($this->hasValidRememberCookie($request)) {
-            $request->session()->regenerate();
-            $request->session()->put('informes_authenticated', true);
-            $request->session()->put('informes_user', config('services.informes_auth.email'));
-            $request->session()->put('report_user_id', null);
-            $request->session()->put('report_user_email', config('services.informes_auth.email'));
-            $request->session()->put('report_user_role', ReportUser::ROLE_ADMIN);
-
-            return $next($request);
-        }
-
+        $request->session()->forget([
+            'informes_authenticated',
+            'informes_user',
+            'report_user_id',
+            'report_user_email',
+            'report_user_role',
+            'report_user_name',
+        ]);
         $request->session()->put('url.intended', $request->fullUrl());
 
         return redirect()->route('login');
     }
 
-    private function hasValidRememberCookie(Request $request): bool
+    private function authenticatedReportUser(Request $request): ?ReportUser
     {
-        $cookie = (string) $request->cookie('informes_remember');
+        if (! (bool) $request->session()->get('informes_authenticated', false)) {
+            return null;
+        }
 
-        return $cookie !== '' && hash_equals($this->rememberToken(), $cookie);
+        $id = $request->session()->get('report_user_id');
+
+        return $id === null
+            ? null
+            : ReportUser::query()->whereKey($id)->where('is_active', true)->first();
     }
 
     private function rememberedReportUser(Request $request): ?ReportUser
@@ -82,15 +78,13 @@ class EnsureInformesAuthenticated
         return hash_equals($expected, $token) ? $user : null;
     }
 
-    private function rememberToken(): string
+    private function storeAuthenticatedSession(Request $request, ReportUser $user): void
     {
-        return hash_hmac(
-            'sha256',
-            implode('|', [
-                (string) config('services.informes_auth.email'),
-                (string) config('services.informes_auth.password'),
-            ]),
-            (string) config('app.key')
-        );
+        $request->session()->put('informes_authenticated', true);
+        $request->session()->put('informes_user', $user->email);
+        $request->session()->put('report_user_id', $user->id);
+        $request->session()->put('report_user_email', $user->email);
+        $request->session()->put('report_user_role', $user->role);
+        $request->session()->put('report_user_name', $user->name);
     }
 }

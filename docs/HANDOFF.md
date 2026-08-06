@@ -256,6 +256,20 @@ Riesgos operativos:
   seguridad cuando corresponda;
 - nunca documentar tokens, contraseñas, PII ni importes reales sensibles.
 
+### Remediación P0 de credenciales y autenticación
+
+- El login humano se resuelve únicamente contra usuarios activos de
+  `report_users`; roles y ámbitos se recargan desde base de datos.
+- `INFORMES_AUTH_*` es legado no operativo y debe eliminarse de la configuración
+  de los entornos.
+- `INTERNAL_REVIEWS_*` y `COMMISSIONS_API_*` no tienen fallbacks: deben
+  suministrarse mediante variables de entorno o la integración falla cerrada.
+- Las credenciales que estuvieron embebidas deben rotarse fuera del repositorio
+  y actualizarse en el gestor de secretos y en los consumidores autorizados.
+- Antes de desplegar, revisar el historial Git y los artefactos derivados para
+  determinar el alcance de exposición. No reescribir el historial sin un plan
+  aprobado y coordinado.
+
 ## 14. Índice documental
 
 - `README.md`;

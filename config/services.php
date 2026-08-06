@@ -15,7 +15,7 @@ return [
     */
 
     'postmark' => [
-        'key' => env('POSTMARK_API_KEY'),
+        'token' => env('POSTMARK_API_KEY'),
     ],
 
     'resend' => [
@@ -53,14 +53,6 @@ return [
         'login_customer_id' => env('GOOGLE_ADS_LOGIN_CUSTOMER_ID'),
     ],
 
-    'informes_auth' => [
-        'enabled' => filter_var(env('INFORMES_AUTH_ENABLED', true), FILTER_VALIDATE_BOOL),
-        'email' => env('INFORMES_AUTH_EMAIL', env('INFORMES_AUTH_USER')),
-        'user' => env('INFORMES_AUTH_USER'),
-        'password' => env('INFORMES_AUTH_PASSWORD'),
-        'remember_days' => (int) env('INFORMES_AUTH_REMEMBER_DAYS', 30),
-    ],
-
     'report_admin' => [
         'email' => env('REPORT_ADMIN_EMAIL'),
         'password' => env('REPORT_ADMIN_PASSWORD'),
@@ -68,16 +60,16 @@ return [
     ],
 
     'internal_reviews' => [
-        'endpoint' => env('INTERNAL_REVIEWS_ENDPOINT', 'https://app.hrmotor.com/api/internal/google-reviews/count'),
-        'user' => env('INTERNAL_REVIEWS_USER', 'hrmotor-informes'),
-        'password' => env('INTERNAL_REVIEWS_PASSWORD', 'frY5v&gQ8*UR*1Uq99t9kCrPo'),
+        'endpoint' => env('INTERNAL_REVIEWS_ENDPOINT'),
+        'user' => env('INTERNAL_REVIEWS_USER'),
+        'password' => env('INTERNAL_REVIEWS_PASSWORD'),
         'timeout' => (int) env('INTERNAL_REVIEWS_TIMEOUT', 20),
         'cache_minutes' => (int) env('INTERNAL_REVIEWS_CACHE_MINUTES', 15),
     ],
 
     'commissions_api' => [
-        'user' => env('COMMISSIONS_API_USER', 'hrmotor-comisiones'),
-        'password' => env('COMMISSIONS_API_PASSWORD', 'cambiar-en-produccion'),
+        'user' => env('COMMISSIONS_API_USER'),
+        'password' => env('COMMISSIONS_API_PASSWORD'),
     ],
 
 ];

@@ -8,11 +8,14 @@ use App\Models\SalesforceTasacion;
 use App\Models\SalesforceUser;
 use App\Services\Reports\CallCenterCommissions\CallCenterCommissionDashboardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class CallCenterCommissionDashboardTest extends TestCase
 {
     use RefreshDatabase;
+
+    private int $reportUserSequence = 0;
 
     public function test_call_center_se_muestra_como_pestana_dentro_de_comisiones_comerciales(): void
     {
@@ -44,26 +47,10 @@ class CallCenterCommissionDashboardTest extends TestCase
             ],
         ]);
 
-        $adminSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_ADMIN,
-            'report_user_email' => 'admin@hrmotor.com',
-        ];
-        $directorSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_DIRECTOR,
-            'report_user_email' => 'director@hrmotor.com',
-        ];
-        $areaManagerSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_AREA_MANAGER,
-            'report_user_email' => 'area@hrmotor.com',
-        ];
-        $viewerSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_VIEWER,
-            'report_user_email' => 'viewer@hrmotor.com',
-        ];
+        $adminSession = $this->authenticatedSession(ReportUser::ROLE_ADMIN);
+        $directorSession = $this->authenticatedSession(ReportUser::ROLE_DIRECTOR);
+        $areaManagerSession = $this->authenticatedSession(ReportUser::ROLE_AREA_MANAGER);
+        $viewerSession = $this->authenticatedSession(ReportUser::ROLE_VIEWER);
 
         $this->withSession($adminSession)
             ->get('/informes/leads')
@@ -338,11 +325,7 @@ class CallCenterCommissionDashboardTest extends TestCase
             ],
         ]);
 
-        $session = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_DIRECTOR,
-            'report_user_email' => 'director@hrmotor.com',
-        ];
+        $session = $this->authenticatedSession(ReportUser::ROLE_DIRECTOR);
 
         $response = $this->withSession($session)
             ->get('/informes/comisiones-comerciales/export/call-center-missing-captador.csv?month=2026-05')
@@ -375,11 +358,7 @@ class CallCenterCommissionDashboardTest extends TestCase
             ],
         ]);
 
-        $session = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_DIRECTOR,
-            'report_user_email' => 'director@hrmotor.com',
-        ];
+        $session = $this->authenticatedSession(ReportUser::ROLE_DIRECTOR);
 
         $this->withSession($session)
             ->get('/informes/comisiones-comerciales?tab=call-center&month=2026-05')
@@ -387,6 +366,26 @@ class CallCenterCommissionDashboardTest extends TestCase
             ->assertDontSee('Diagnostico y resync')
             ->assertDontSee('salesforce:sync-tasaciones')
             ->assertSee('Negociaciones German');
+    }
+
+    private function authenticatedSession(string $role): array
+    {
+        $this->reportUserSequence++;
+        $user = ReportUser::query()->create([
+            'name' => 'Call Center '.$role,
+            'email' => 'call-center-'.$role.'-'.$this->reportUserSequence.'@example.test',
+            'password' => Hash::make('call-center-test-password'),
+            'role' => $role,
+            'area_zone' => $role === ReportUser::ROLE_AREA_MANAGER ? 'north' : null,
+            'is_active' => true,
+        ]);
+
+        return [
+            'informes_authenticated' => true,
+            'report_user_id' => $user->id,
+            'report_user_role' => $user->role,
+            'report_user_email' => $user->email,
+        ];
     }
 
     private function createCallCenterOpportunity(array $attributes): void

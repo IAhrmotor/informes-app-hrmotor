@@ -2,6 +2,7 @@
 
 namespace App\Services\Campaigns;
 
+use App\Support\IntegrationErrorSanitizer;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -53,6 +54,10 @@ GAQL);
 
     private function search(string $customerId, string $query): array
     {
+        if (! $this->configured()) {
+            throw new RuntimeException('Google Ads no configurado.');
+        }
+
         $token = $this->accessToken();
         $apiVersion = config('services.google_ads.api_version', 'v22');
         $url = sprintf(
@@ -77,7 +82,11 @@ GAQL);
             ]);
 
         if ($response->failed()) {
-            throw new RuntimeException('Google Ads API error: '.$response->body());
+            throw new RuntimeException(IntegrationErrorSanitizer::remoteFailure(
+                'Google Ads API',
+                $response->status(),
+                $response->json()
+            ));
         }
 
         return collect($response->json())
@@ -88,6 +97,10 @@ GAQL);
 
     private function accessToken(): string
     {
+        if (! $this->configured()) {
+            throw new RuntimeException('Google Ads no configurado.');
+        }
+
         $response = Http::asForm()
             ->timeout(60)
             ->post('https://oauth2.googleapis.com/token', [
@@ -98,7 +111,11 @@ GAQL);
             ]);
 
         if ($response->failed() || blank($response->json('access_token'))) {
-            throw new RuntimeException('Google OAuth token error: '.$response->body());
+            throw new RuntimeException(IntegrationErrorSanitizer::remoteFailure(
+                'Google OAuth',
+                $response->status(),
+                $response->json()
+            ));
         }
 
         return (string) $response->json('access_token');

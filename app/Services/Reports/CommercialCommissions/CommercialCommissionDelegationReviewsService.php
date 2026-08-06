@@ -7,6 +7,7 @@ use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class CommercialCommissionDelegationReviewsService
 {
@@ -17,23 +18,31 @@ class CommercialCommissionDelegationReviewsService
 
     public function forMonthAndDelegations(CarbonImmutable $month, Collection $delegationLabels): array
     {
-        $endpoint = trim((string) config('services.internal_reviews.endpoint', ''));
-
-        if ($endpoint === '') {
-            return [];
-        }
-
-        $monthParam = $month->format('m-y');
-        $user = (string) config('services.internal_reviews.user', '');
-        $password = (string) config('services.internal_reviews.password', '');
-        $timeout = min(5, max(1, (int) config('services.internal_reviews.timeout', 5)));
-        $results = [];
-        $ttl = $this->cacheTtlForMonth($month);
         $normalizedLabels = $delegationLabels
             ->filter()
             ->map(fn (mixed $label) => (string) $label)
             ->unique()
             ->values();
+        $endpoint = trim((string) config('services.internal_reviews.endpoint', ''));
+        $user = trim((string) config('services.internal_reviews.user', ''));
+        $password = (string) config('services.internal_reviews.password', '');
+
+        if ($endpoint === '' || $user === '' || $password === '') {
+            Log::warning('Endpoint interno de reseñas no configurado.', [
+                'integration' => 'internal_reviews',
+                'status' => 'not_configured',
+                'month' => $month->format('Y-m'),
+            ]);
+
+            return $normalizedLabels
+                ->mapWithKeys(fn (string $label) => [$label => $this->emptyPayload('not_configured')])
+                ->all();
+        }
+
+        $monthParam = $month->format('m-y');
+        $timeout = min(5, max(1, (int) config('services.internal_reviews.timeout', 5)));
+        $results = [];
+        $ttl = $this->cacheTtlForMonth($month);
         $uncachedLabels = collect();
 
         foreach ($normalizedLabels as $delegationLabel) {
@@ -75,10 +84,15 @@ class CommercialCommissionDelegationReviewsService
                     return $requests;
                 });
             } catch (\Throwable $exception) {
-                report($exception);
+                Log::warning('Fallo controlado al consultar reseñas internas.', [
+                    'integration' => 'internal_reviews',
+                    'status' => 'transport_error',
+                    'exception_type' => $exception::class,
+                    'month' => $month->format('Y-m'),
+                ]);
 
                 foreach ($uncachedLabels as $delegationLabel) {
-                    $results[$delegationLabel] = $this->emptyPayload();
+                    $results[$delegationLabel] = $this->emptyPayload('transport_error');
                 }
 
                 return $results;
@@ -88,8 +102,19 @@ class CommercialCommissionDelegationReviewsService
                 $cacheKey = $this->cacheKey($monthParam, $delegationLabel);
                 $response = $responses[$delegationLabel] ?? null;
 
-                if (! $response instanceof \Illuminate\Http\Client\Response || ! $response->successful()) {
-                    $results[$delegationLabel] = $this->emptyPayload();
+                if (! $response instanceof \Illuminate\Http\Client\Response) {
+                    $results[$delegationLabel] = $this->emptyPayload('not_applicable');
+                    continue;
+                }
+
+                if (! $response->successful()) {
+                    Log::warning('Respuesta no satisfactoria de reseñas internas.', [
+                        'integration' => 'internal_reviews',
+                        'status' => 'remote_error',
+                        'http_status' => $response->status(),
+                        'month' => $month->format('Y-m'),
+                    ]);
+                    $results[$delegationLabel] = $this->emptyPayload('remote_error');
                     continue;
                 }
 
@@ -121,14 +146,16 @@ class CommercialCommissionDelegationReviewsService
             'average_rating' => is_numeric(data_get($payload, 'average_rating'))
                 ? round((float) data_get($payload, 'average_rating'), 2)
                 : null,
+            'technical_status' => 'available',
         ];
     }
 
-    private function emptyPayload(): array
+    private function emptyPayload(string $technicalStatus): array
     {
         return [
             'reviews_count' => 0,
             'average_rating' => null,
+            'technical_status' => $technicalStatus,
         ];
     }
 }

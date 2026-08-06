@@ -47,12 +47,10 @@
         @if (\App\Support\ReportUserAccess::canManageFinancingPenalties(request()) && ! \App\Support\ReportUserAccess::canManageReportUsers(request()))
             <a href="{{ route('reports.commission-penalties.index') }}" class="header-link">Penalizaciones</a>
         @endif
-        @if (config('services.informes_auth.enabled'))
-            <form method="POST" action="{{ route('logout') }}" class="logout-form">
+        <form method="POST" action="{{ route('logout') }}" class="logout-form">
                 @csrf
                 <button type="submit" class="logout-button">Cerrar sesión</button>
-            </form>
-        @endif
+        </form>
     </div>
 </header>
 

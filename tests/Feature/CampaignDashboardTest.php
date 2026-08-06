@@ -15,18 +15,21 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class CampaignDashboardTest extends TestCase
 {
     use RefreshDatabase;
 
+    private int $reportUserSequence = 0;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        config()->set('services.informes_auth.enabled', false);
         Cache::flush();
+        $this->withSession($this->authenticatedSession(ReportUser::ROLE_ADMIN));
     }
 
     public function test_dashboard_campanas_muestra_menu_y_endpoints(): void
@@ -45,16 +48,8 @@ class CampaignDashboardTest extends TestCase
     {
         config()->set('services.informes_auth.enabled', true);
 
-        $areaManagerSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_AREA_MANAGER,
-            'report_user_email' => 'area@hrmotor.com',
-        ];
-        $directorSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_DIRECTOR,
-            'report_user_email' => 'director@hrmotor.com',
-        ];
+        $areaManagerSession = $this->authenticatedSession(ReportUser::ROLE_AREA_MANAGER);
+        $directorSession = $this->authenticatedSession(ReportUser::ROLE_DIRECTOR);
 
         $this->withSession($areaManagerSession)
             ->get('/informes/leads')
@@ -137,21 +132,9 @@ class CampaignDashboardTest extends TestCase
             'spend' => 100,
         ]));
 
-        $adminSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_ADMIN,
-            'report_user_email' => 'admin@hrmotor.com',
-        ];
-        $viewerSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_VIEWER,
-            'report_user_email' => 'viewer@hrmotor.com',
-        ];
-        $directorSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_DIRECTOR,
-            'report_user_email' => 'director@hrmotor.com',
-        ];
+        $adminSession = $this->authenticatedSession(ReportUser::ROLE_ADMIN);
+        $viewerSession = $this->authenticatedSession(ReportUser::ROLE_VIEWER);
+        $directorSession = $this->authenticatedSession(ReportUser::ROLE_DIRECTOR);
 
         $this->withSession($adminSession)
             ->get('/informes/campanas')
@@ -1944,11 +1927,7 @@ class CampaignDashboardTest extends TestCase
             'opo_for_importe_total' => 14500,
         ]);
 
-        $adminSession = [
-            'informes_authenticated' => true,
-            'report_user_role' => ReportUser::ROLE_ADMIN,
-            'report_user_email' => 'admin@hrmotor.com',
-        ];
+        $adminSession = $this->authenticatedSession(ReportUser::ROLE_ADMIN);
 
         $summary = $this->withSession($adminSession)
             ->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
@@ -2144,6 +2123,26 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('00Q-overlap-campaigns', $csv);
         $this->assertStringContainsString('TASADOR_LANDING_SEARCH_1', $csv);
         $this->assertStringContainsString('ad_id_match', $csv);
+    }
+
+    private function authenticatedSession(string $role): array
+    {
+        $this->reportUserSequence++;
+        $user = ReportUser::query()->create([
+            'name' => 'Campaign '.$role,
+            'email' => 'campaign-'.$role.'-'.$this->reportUserSequence.'@example.test',
+            'password' => Hash::make('campaign-test-password'),
+            'role' => $role,
+            'area_zone' => $role === ReportUser::ROLE_AREA_MANAGER ? 'north' : null,
+            'is_active' => true,
+        ]);
+
+        return [
+            'informes_authenticated' => true,
+            'report_user_id' => $user->id,
+            'report_user_role' => $user->role,
+            'report_user_email' => $user->email,
+        ];
     }
 
     private function query(): string

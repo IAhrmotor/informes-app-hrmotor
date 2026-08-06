@@ -64,3 +64,32 @@ En cada respuesta:
 * No sacrifiques seguridad, mantenibilidad o rendimiento por reducir la cantidad de código.
 
 Tu objetivo es entregar siempre una solución de nivel empresarial: **segura, rápida, escalable, visualmente profesional, mantenible y preparada para producción**.
+
+
+## Protocolo obligatorio de entrega
+
+Después de completar cualquier tarea que modifique el proyecto:
+
+1. Revisa todos los cambios realizados.
+2. Ejecuta las pruebas, análisis estáticos y verificaciones aplicables.
+3. Actualiza `docs/ai/HANDOFF.md` con:
+   - Resumen de la tarea.
+   - Archivos modificados.
+   - Decisiones adoptadas.
+   - Cambios de base de datos.
+   - Consideraciones de seguridad.
+   - Consideraciones de rendimiento.
+   - Pruebas ejecutadas y resultados.
+   - Acciones manuales necesarias.
+   - Riesgos o elementos pendientes.
+4. Actualiza `docs/ai/PROJECT_CONTEXT.md` únicamente cuando cambie la arquitectura, los módulos o las convenciones generales.
+5. Actualiza `docs/ai/DECISIONS.md` cuando se adopte una decisión arquitectónica no evidente o difícil de revertir.
+6. No incluyas credenciales, secretos, tokens, datos personales, datos de producción ni contenido sensible en estos documentos.
+7. En la respuesta final, entrega:
+   - Resumen de cambios.
+   - Lista de archivos modificados.
+   - Comandos ejecutados.
+   - Resultado de las pruebas.
+   - Migraciones o configuración necesaria.
+   - Riesgos conocidos.
+   - Mensaje de commit recomendado.
