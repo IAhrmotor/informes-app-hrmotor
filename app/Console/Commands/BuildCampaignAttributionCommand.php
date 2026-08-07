@@ -43,6 +43,7 @@ class BuildCampaignAttributionCommand extends Command
         $this->line('Leads con adquisicion no null: '.$result['leads_with_acquisition_not_null']);
         $this->line('Leads candidatos validos: '.$result['candidate_leads']);
         $this->line('Descartados por valores invalidos: '.$result['discarded_invalid_values']);
+        $this->line('Campanas excluidas: '.$result['excluded_campaigns']);
         $this->line('Descartados por fecha: '.$result['discarded_by_date']);
         $this->line('Leads procesados: '.$result['processed_leads']);
         $this->line('Atribuciones guardadas: '.$result['saved_attributions']);
@@ -87,8 +88,17 @@ class BuildCampaignAttributionCommand extends Command
             foreach ($simulation['changes'] as $label => $data) {
                 $this->line($label.': '.$data['count'].' | IDs: '.implode(', ', $data['sample_ids']));
             }
+            foreach ($simulation['campaign_identity_transitions'] as $transition) {
+                $this->line('FROM/TO '.$transition['transition'].': '.$transition['count']);
+            }
             foreach ($simulation['lead_types'] as $label => $count) {
                 $this->line('Lead tipo '.$label.': '.$count);
+            }
+            foreach ($simulation['null_record_type_raw'] as $raw => $count) {
+                $this->line('RecordType bruto no normalizable '.$raw.': '.$count);
+            }
+            foreach ($result['excluded_by_reason'] as $reason => $detail) {
+                $this->line($reason.': '.$detail['count'].' | IDs: '.implode(', ', $detail['sample_ids']));
             }
         }
 

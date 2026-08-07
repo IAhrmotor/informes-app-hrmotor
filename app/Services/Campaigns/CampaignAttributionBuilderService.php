@@ -190,7 +190,11 @@ class CampaignAttributionBuilderService
                     }
 
                     if ($excludedReason !== null) {
-                        $stats['discarded_invalid_values']++;
+                        $stats['excluded_campaigns']++;
+                        $stats['excluded_by_reason'][$excludedReason]['count'] = ($stats['excluded_by_reason'][$excludedReason]['count'] ?? 0) + 1;
+                        if (count($stats['excluded_by_reason'][$excludedReason]['sample_ids'] ?? []) < 20) {
+                            $stats['excluded_by_reason'][$excludedReason]['sample_ids'][] = (string) $lead->salesforce_id;
+                        }
                     }
 
                     $this->countLeadAcquisitionShape($stats, $lead);
@@ -821,7 +825,8 @@ class CampaignAttributionBuilderService
     private function simulationSummary(Collection $leads, array $currentRows, array $simulatedRows): array
     {
         $sets = ['attributed' => [], 'ambiguous' => [], 'unattributed' => [], 'excluded' => []];
-        $changes = ['campaign_changed' => [], 'new_ambiguous' => [], 'ambiguity_resolved' => [], 'became_unattributed' => []];
+        $changes = ['same_campaign_same_method' => [], 'attribution_method_changed' => [], 'campaign_identity_changed' => [], 'new_attribution' => [], 'removed_attribution' => [], 'new_ambiguous' => [], 'ambiguity_resolved' => [], 'became_unattributed' => []];
+        $transitions = [];
 
         foreach ($simulatedRows as $row) {
             $leadId = (string) $row['lead_id'];
@@ -839,12 +844,22 @@ class CampaignAttributionBuilderService
             if ($current && ! $currentAmbiguous && $state === 'unattributed') {
                 $changes['became_unattributed'][] = $leadId;
             }
-            if ($current && $this->attributionIdentity($current) !== $this->attributionIdentity($row)) {
-                $changes['campaign_changed'][] = $leadId;
+            if ($current === null && $state === 'attributed') {
+                $changes['new_attribution'][] = $leadId;
+            } elseif ($current) {
+                if ($this->campaignIdentity($current) === $this->campaignIdentity($row)) {
+                    $changes[($current['attribution_method'] ?? null) === ($row['attribution_method'] ?? null) ? 'same_campaign_same_method' : 'attribution_method_changed'][] = $leadId;
+                } else {
+                    $changes['campaign_identity_changed'][] = $leadId;
+                    $key = $this->campaignIdentity($current).' -> '.$this->campaignIdentity($row);
+                    $transitions[$key] = ($transitions[$key] ?? 0) + 1;
+                }
             }
         }
 
         $leadTypes = $leads->countBy(fn (object $lead): string => $this->leadRecordTypeNormalizer->normalize($lead->record_type_name ?? null) ?? 'null')->all();
+        $nullRawTypes = $leads->filter(fn (object $lead): bool => $this->leadRecordTypeNormalizer->normalize($lead->record_type_name ?? null) === null)
+            ->countBy(fn (object $lead): string => $lead->record_type_name === null ? 'null' : ($lead->record_type_name === '' ? 'empty' : (string) $lead->record_type_name))->all();
         $universe = $leads->pluck('salesforce_id')->map(fn ($id): string => (string) $id)->sort()->values()->all();
         $partition = collect($sets)->flatten()->sort()->values()->all();
 
@@ -854,16 +869,22 @@ class CampaignAttributionBuilderService
 
         return [
             'campaign_leads_examined' => count($universe), 'current_attributions' => count($currentRows), 'simulated_attributions' => count($simulatedRows),
-            'unchanged' => count(array_diff(array_keys($currentRows), array_merge(...array_values($changes)))),
+            'unchanged' => count($changes['same_campaign_same_method']),
             'sets' => collect($sets)->map(fn (array $ids): array => ['count' => count($ids), 'sample_ids' => array_slice($ids, 0, 20)])->all(),
             'changes' => collect($changes)->map(fn (array $ids): array => ['count' => count($ids), 'sample_ids' => array_slice(array_values(array_unique($ids)), 0, 20)])->all(),
+            'campaign_identity_transitions' => collect($transitions)->sortDesc()->take(20)->map(fn (int $count, string $transition): array => ['transition' => $transition, 'count' => $count])->values()->all(),
             'lead_types' => $leadTypes,
+            'null_record_type_raw' => $nullRawTypes,
         ];
     }
 
-    private function attributionIdentity(array $row): string
+    private function campaignIdentity(array $row): string
     {
-        return implode('|', [$row['platform'] ?? '', $row['campaign_id'] ?? '', $row['campaign_name'] ?? '', $row['attribution_method'] ?? '']);
+        $platform = (string) ($row['platform'] ?? '');
+
+        return filled($row['campaign_id'] ?? null)
+            ? $platform.'|'.(string) $row['campaign_id']
+            : $platform.'|'.$this->normalizer->key($row['campaign_name'] ?? '');
     }
 
     private function leadMatchIndexes(Collection $leads): array
@@ -1366,6 +1387,8 @@ class CampaignAttributionBuilderService
             'leads_with_acquisition_not_null' => 0,
             'candidate_leads' => 0,
             'discarded_invalid_values' => 0,
+            'excluded_campaigns' => 0,
+            'excluded_by_reason' => [],
             'discarded_by_date' => 0,
             'processed_leads' => 0,
             'saved_attributions' => 0,

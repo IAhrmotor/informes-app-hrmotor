@@ -131,3 +131,9 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   cuando el normalizador no devuelve tipo; el Lead sigue en el universo.
 - El comando de reproceso desglosa cambios no Lead/Ayvens por raw, valor
   materializado y valor calculado, con muestras de IDs no personales.
+## Diagnóstico de cambios de atribución (2026-08-07)
+
+- El dry-run separa identidad de campaña (`platform + campaign_id`, o nombre
+  normalizado sin ID) de cambio de método y muestra transiciones agregadas.
+- Valores inválidos y campañas excluidas se contabilizan por separado; las
+  exclusiones exactas informan motivo y muestra de IDs.
