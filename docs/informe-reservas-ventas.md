@@ -48,12 +48,20 @@ ocultan los resultados obsoletos.
 - CV firmado = flag firmado true y etapa distinta de `Cerrada Perdida`.
 - `Reservas vivas actuales Salesforce` aplica la regla de reserva viva sin
   filtro de fecha, manteniendo tipo y filtros operativos.
-- Los porcentajes de conversión se calculan como
-  `métrica / oportunidades de la misma fila`.
+- Los porcentajes de desglose se calculan como
+  `métrica / oportunidades de la misma fila`; describen la proporción de la
+  cohorte o fila, no una valoración de rendimiento.
+- Reserva viva es el estado actual de una operación; no es una conversión ni
+  una tasa de éxito. Una operación puede dejar de estar viva al avanzar.
 - La participación se calcula como
   `métrica de la fila / total de la métrica` y se muestra por separado.
 - No se usa un benchmark de conclusiones hasta que exista una definición
   funcional aprobada.
+
+El informe es descriptivo: conserva valores, participaciones y diferencias
+numéricas entre períodos, pero no emite recomendaciones, prioridades,
+diagnósticos evaluativos ni llamadas externas de IA. No incorpora conversiones
+7/14/30 días.
 
 ## Duplicados por vehículo y fecha
 
@@ -91,6 +99,11 @@ El CSV incluye Opportunity ID, vehículo, matrícula, fechas, RecordType, etapa,
 propietario, tienda, delegación, zona, cuenta, portal, grupo duplicado, tamaño,
 fila contabilizada, Opportunity IDs afectados, campos contradictorios y estado
 del desglose.
+
+Las tablas de zonas, delegaciones, comerciales y portales incluyen siempre el
+número absoluto de oportunidades de la fila. Ese valor constituye el contexto
+de muestra de los porcentajes mostrados; no se ocultan filas ni se aplican
+umbrales de suficiencia.
 
 La exportación estándar no selecciona ni publica nombre de Opportunity, nombre
 de Account, teléfono, móvil ni correos de cliente. `Opportunity.Name` se ha

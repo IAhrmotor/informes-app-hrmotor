@@ -104,16 +104,6 @@
             <div class="notice" id="loadingMessage">Cargando fotografía local...</div>
             <div class="notice is-hidden" id="emptyMessage">No hay oportunidades sincronizadas para el periodo seleccionado.</div>
 
-            <section class="card panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Resumen ejecutivo</h2>
-                        <div class="small">Conclusiones sobre reservas, caidas y contratos CV</div>
-                    </div>
-                </div>
-                <div class="insights" id="insights"></div>
-            </section>
-
             <section class="period-strip">
                 <div class="card period-card">
                     <span>Periodo actual</span>

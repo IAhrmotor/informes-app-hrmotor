@@ -146,7 +146,6 @@ function renderSummary(data) {
 
     renderKpis(data.kpis || {});
     renderComparison(data.comparativa || []);
-    renderInsights(data.executive_insights || data.insights || []);
     renderDataQuality(data.data_quality || {});
 }
 
@@ -217,37 +216,6 @@ function renderComparison(rows) {
     });
 
     applyStoredSort(root);
-}
-
-function renderInsights(items) {
-    const root = document.getElementById('insights');
-    root.innerHTML = '';
-
-    if (!items.length) {
-        root.innerHTML = '<div class="priority-item">No hay datos suficientes para generar conclusiones.</div>';
-        return;
-    }
-
-    items.forEach((item) => {
-        if (typeof item === 'string') {
-            root.insertAdjacentHTML('beforeend', `<div class="priority-item">${escapeHtml(item)}</div>`);
-            return;
-        }
-
-        const priority = normalizePriority(item.prioridad || 'media');
-
-        root.insertAdjacentHTML('beforeend', `
-            <article class="priority-item priority-${escapeHtml(priority)}">
-                <div class="priority-head">
-                    <b>${escapeHtml(item.titulo || 'Conclusión')}</b>
-                    <span class="priority-badge">${escapeHtml(priority)}</span>
-                </div>
-                <p>${escapeHtml(item.problema_detectado || '')}</p>
-                <p><b>Evidencia:</b> ${escapeHtml(item.evidencia || '')}</p>
-                <p><b>Recomendación:</b> ${escapeHtml(item.recomendacion || '')}</p>
-            </article>
-        `);
-    });
 }
 
 function renderCommercialZones(rows) {
@@ -707,10 +675,10 @@ function formatCountPercent(count, percent) {
     return `<span class="metric-value">${escapeHtml(formatNumber(count))}</span><span class="metric-percent">(${escapeHtml(formatPercent(percent))})</span>`;
 }
 
-function formatCountConversionParticipation(count, conversion, participation) {
+function formatCountConversionParticipation(count, ratioOverOpportunities, participation) {
     return `<span class="metric-value">${escapeHtml(formatNumber(count))}</span>`
-        + `<span class="metric-percent">Conversion ${escapeHtml(formatPercent(conversion))}</span>`
-        + `<span class="metric-percent">Participacion ${escapeHtml(formatPercent(participation))}</span>`;
+        + `<span class="metric-percent">Sobre oportunidades ${escapeHtml(formatPercent(ratioOverOpportunities))}</span>`
+        + `<span class="metric-percent">Participación ${escapeHtml(formatPercent(participation))}</span>`;
 }
 
 function formatComparisonValue(row, key) {

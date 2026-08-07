@@ -32,11 +32,13 @@ tildes, compactación de espacios y aliases controlados.
 | Tasación | `tasacion` |
 | Venta | `venta` |
 | Venta con cambio | `venta_con_cambio` |
-| Lead | `lead` |
-| Ayvens | `ayvens` |
+| Lead | `venta` |
+| Ayvens | `venta` |
 
-El filtro `Venta` incluye únicamente `venta` y `venta_con_cambio`. `Lead` y
-`Ayvens` no forman parte de Venta; esta decisión está cerrada.
+El filtro funcional `Venta` incluye Venta, Venta con cambio, Lead y Ayvens para
+todo el histórico. Durante el despliegue también reconoce temporalmente las
+claves materializadas heredadas `lead` y `ayvens`, hasta ejecutar el reproceso
+local idempotente. No existe fecha de transición.
 
 ## Canal y portal
 
@@ -90,6 +92,16 @@ Los KPIs de calidad son independientes:
 
 Los registros válidos de estas categorías siguen sumando en el KPI general.
 
+La delegación efectiva del Lead prioriza, en este orden,
+`Delegacion_Encargada_Bueno__c` y `Delegacion_Encargada__c`. El API Name del
+tercer campo funcional “Delegación” no ha podido verificarse en el repositorio:
+no se infiere un API Name nuevo ni se atribuye a `Delegacion_Encargada_Text__c`
+la condición de campo funcional aprobado. El fallback histórico ya persistido
+en ese campo se conserva después de los dos campos confirmados para no degradar
+datos existentes. Si todos están vacíos, el Lead queda `Sin clasificar`, salvo
+Exposición, que puede usar la delegación disponible del owner/persona que lo
+trabajó. Ese fallback no se aplica a Venta, Tasación, Branding ni Otros.
+
 ## Actividad y KPIs
 
 - Potencial sin trabajar: potencial no asignado técnicamente y sin actividad o
@@ -131,7 +143,14 @@ mismo período, filtros y ámbito del usuario que la pantalla.
 php artisan salesforce:sync-monthly-commercial --days=2
 php artisan salesforce:sync-monthly-commercial --from=2026-07-01 --to=2026-08-01
 php artisan salesforce:backfill-lead-audit-metadata --dry-run
+php artisan reports:reprocess-lead-record-types --dry-run
 ```
+
+`reports:reprocess-lead-record-types` actualiza únicamente
+`salesforce_leads.record_type_normalized`, trabaja por lotes y es idempotente.
+Su dry-run informa examinados, cambios, conversiones Lead/Ayvens a Venta,
+período y dependencias derivadas. No reconstruye Campañas automáticamente;
+`campaign_salesforce_leads` y sus atribuciones deben planificarse aparte.
 
 El backfill local queda marcado como `legacy_local_backfill`: completa campos
 técnicos, pero no demuestra un corte real de Salesforce. Para una conciliación

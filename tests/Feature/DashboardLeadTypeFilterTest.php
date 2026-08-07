@@ -39,15 +39,17 @@ class DashboardLeadTypeFilterTest extends TestCase
         $this->lead('00Q1', 'Tasación');
         $this->lead('00Q2', 'Venta');
         $this->lead('00Q3', 'Venta con cambio');
-        $this->lead('00Q4', 'Otro');
-        $this->lead('00Q5', null);
+        $this->lead('00Q4', ' Lead ');
+        $this->lead('00Q5', 'AYVENS');
+        $this->lead('00Q6', 'Otro');
+        $this->lead('00Q7', null);
 
-        $this->assertSame(5, $this->getJson('/informes/leads/data/summary')->json('kpis.leads_totales'));
-        $this->assertSame(5, $this->getJson('/informes/leads/data/summary?lead_type=all')->json('kpis.leads_totales'));
+        $this->assertSame(7, $this->getJson('/informes/leads/data/summary')->json('kpis.leads_totales'));
+        $this->assertSame(7, $this->getJson('/informes/leads/data/summary?lead_type=all')->json('kpis.leads_totales'));
         $this->assertSame(1, $this->getJson('/informes/leads/data/summary?lead_type=Tasaci%C3%B3n')->json('kpis.leads_totales'));
         $this->assertSame(1, $this->getJson('/informes/leads/data/summary?lead_type=Tasacion')->json('kpis.leads_totales'));
         $this->assertSame(1, $this->getJson('/informes/leads/data/summary?lead_type=%20TASACI%C3%93N%20')->json('kpis.leads_totales'));
-        $this->assertSame(2, $this->getJson('/informes/leads/data/summary?lead_type=Venta')->json('kpis.leads_totales'));
+        $this->assertSame(4, $this->getJson('/informes/leads/data/summary?lead_type=Venta')->json('kpis.leads_totales'));
     }
 
     public function test_filtro_tipo_de_lead_aplica_a_todos_los_endpoints_principales(): void

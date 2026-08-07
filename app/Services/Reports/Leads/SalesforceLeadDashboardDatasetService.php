@@ -7,6 +7,7 @@ use App\Models\ReportSyncRun;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceLeadActivitySummary;
 use App\Models\SalesforceUser;
+use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -15,7 +16,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
-use App\Support\ReportUserAccess;
 
 class SalesforceLeadDashboardDatasetService
 {
@@ -431,8 +431,8 @@ class SalesforceLeadDashboardDatasetService
         $recordTypeRaw = $this->clean(data_get($lead, 'record_type_name'));
         $recordTypeNormalized = $this->clean(data_get($lead, 'record_type_normalized'))
             ?? $this->recordTypeNormalizer->normalize($recordTypeRaw);
-        $leadDelegation = $this->resolveLeadDelegation($lead);
         $manager = $this->resolveSimplifiedManager($lead, $isConverted, $isDiscarded);
+        $leadDelegation = $this->resolveLeadDelegation($lead, $portal, $manager);
         $commercialUser = $manager['id'] ? $this->commercialUsers()->get($manager['id']) : null;
         $commercialDelegation = $this->normalizeCommercialDelegation(data_get($commercialUser, 'user_delegation'));
         $withoutEligibleCommercial = $commercialUser === null;
@@ -774,6 +774,9 @@ class SalesforceLeadDashboardDatasetService
             'gestionados',
             'llamadas',
             'formularios',
+            'without_eligible_commercial',
+            'without_commercial_delegation',
+            'unclassified',
         ], true) ? $metric : 'leads_totales';
     }
 
@@ -788,6 +791,9 @@ class SalesforceLeadDashboardDatasetService
             'gestionados' => 'Gestionados',
             'llamadas' => 'Llamadas',
             'formularios' => 'Formularios',
+            'without_eligible_commercial' => 'Sin comercial elegible',
+            'without_commercial_delegation' => 'Sin delegación comercial',
+            'unclassified' => 'Sin clasificar',
             default => 'Leads totales',
         };
     }
@@ -803,6 +809,9 @@ class SalesforceLeadDashboardDatasetService
             'gestionados' => (bool) ($lead['is_gestionado'] ?? false),
             'llamadas' => (bool) ($lead['is_llamada'] ?? false),
             'formularios' => (bool) ($lead['is_formulario'] ?? false),
+            'without_eligible_commercial' => (bool) ($lead['is_without_eligible_commercial'] ?? false),
+            'without_commercial_delegation' => (bool) ($lead['is_without_commercial_delegation'] ?? false),
+            'unclassified' => (bool) ($lead['is_unclassified'] ?? false),
             default => true,
         };
     }
@@ -871,11 +880,19 @@ class SalesforceLeadDashboardDatasetService
         return array_values($rows);
     }
 
-    private function resolveLeadDelegation(mixed $lead): array
+    private function resolveLeadDelegation(mixed $lead, string $portal, array $manager): array
     {
-        $raw = $this->clean(data_get($lead, 'delegacion_encargada_text'))
+        $raw = $this->clean(data_get($lead, 'delegacion_encargada_bueno'))
             ?? $this->clean(data_get($lead, 'delegacion_encargada'))
-            ?? $this->clean(data_get($lead, 'delegacion_encargada_bueno'));
+            // Existing persisted fallback retained while the API Name of the
+            // approved functional "Delegación" field remains unverified.
+            ?? $this->clean(data_get($lead, 'delegacion_encargada_text'));
+
+        if ($raw === null && Str::lower($portal) === Str::lower('Exposición')) {
+            $raw = $this->clean(data_get($lead, 'persona_que_trabajo_delegation'))
+                ?? $this->clean(data_get($lead, 'owner_delegation'))
+                ?? $this->clean(data_get($this->commercialUsers()->get($manager['id']), 'user_delegation'));
+        }
 
         return $this->delegationNormalizer->normalize($raw);
     }

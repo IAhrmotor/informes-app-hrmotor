@@ -13,6 +13,33 @@ class ReservationsSalesCohortAndDuplicateQualityTest extends TestCase
     use CreatesOpportunityDashboardRows;
     use RefreshDatabase;
 
+    public function test_reservas_ventas_no_devuelve_conclusiones_evaluativas_ni_recomendaciones(): void
+    {
+        $this->opportunityRow('006-descriptive', [
+            'created_date' => '2026-07-15 10:00:00',
+            'reservation' => true,
+            'reservation_date' => '2026-07-20',
+            'stage_name' => 'Reserva',
+        ]);
+
+        $payload = $this->getJson('/informes/reservas-ventas/data/summary?'.http_build_query($this->julyFilters()))
+            ->assertOk()
+            ->json();
+
+        $this->assertSame([], $payload['executive_insights']);
+        $this->assertSame([], $payload['insights']);
+        $this->assertSame('none', $payload['executive_insights_source']);
+        $this->assertArrayNotHasKey('recommendation', $payload);
+        $this->assertArrayNotHasKey('recomendacion', $payload);
+        $this->assertArrayNotHasKey('problem_detected', $payload);
+        $this->assertArrayNotHasKey('problema_detectado', $payload);
+
+        $html = $this->get('/informes/reservas-ventas')->assertOk()->getContent();
+        foreach (['baja conversión', 'problemas de cierre', 'necesita formación', 'portal ineficiente'] as $forbidden) {
+            $this->assertStringNotContainsString($forbidden, mb_strtolower($html));
+        }
+    }
+
     public function test_fecha_de_creacion_define_una_cohorte_unica_y_admite_resultados_posteriores(): void
     {
         $this->opportunityRow('006-cohort', [

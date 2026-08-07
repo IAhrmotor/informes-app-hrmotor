@@ -306,3 +306,21 @@ Riesgos operativos:
   completa recorrió 405 tests en el primer intento (403 correctos y dos
   regresiones después corregidas); los reintentos finales quedaron bloqueados
   por el timeout ambiental de un handler HTTP de Guzzle antes del resumen.
+
+## 16. P1 Leads y Reservas/Ventas (2026-08-07)
+
+- Leads: Venta incluye Venta, Venta con cambio, Lead y Ayvens para todo el
+  histórico. `record_type_normalized` está materializado en `salesforce_leads`;
+  se añade un reproceso idempotente con `--dry-run`, sin ejecutarlo.
+- Leads: los KPI de `Sin comercial elegible`, `Sin delegación comercial` y
+  `Sin clasificar` disponen de auditorías específicas por Salesforce Lead ID.
+- Leads: se corrigió la prioridad de los dos campos de delegación confirmados.
+  El API Name del tercer campo funcional no está verificado y queda bloqueado;
+  no se ha inferido un sustituto.
+- Reservas/Ventas: el informe deja de invocar el servicio de IA y devuelve un
+  contrato descriptivo sin recomendaciones ni prioridades. Reserva viva se
+  documenta como estado, no como conversión.
+- Base de datos: no hay migraciones ni cambios automáticos de datos.
+- Verificación: `--filter=Lead` correcto (121 tests, 617 aserciones), pruebas
+  focalizadas correctas, suite completa correcta (409 tests, 2.777 aserciones),
+  Pint y `npm run build` correctos.

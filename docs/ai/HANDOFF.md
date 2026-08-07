@@ -73,3 +73,18 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Los cuatro Opportunity IDs observados no están disponibles en los datos
   locales; no se han inventado ni documentado.
 - No se ha implementado ningún cambio de reglas de negocio ni reproceso.
+
+## P1 Leads y Reservas/Ventas (2026-08-07)
+
+- `LeadRecordTypeNormalizer` normaliza Lead y Ayvens como Venta. El comando
+  `reports:reprocess-lead-record-types` permite alinear el histórico
+  materializado con `--dry-run`, por lotes e idempotencia.
+- Campañas usa una fotografía propia de tipos normalizados; no se reconstruye
+  automáticamente desde este lote.
+- El campo funcional Salesforce “Delegación” no tiene API Name verificable en
+  el repositorio. No se utiliza ni se inventa; este es un bloqueo documentado.
+- Reservas/Ventas deja de depender de `ReservationsSalesAiInsightsService`.
+  El servicio se conserva sin cambios para evitar afectar consumidores ajenos.
+- Verificación P1: `--filter=Lead` correcto (121 tests, 617 aserciones),
+  pruebas nuevas focalizadas correctas (17 tests, 124 aserciones), suite completa
+  correcta (409 tests, 2.777 aserciones), Pint y build frontend correctos.

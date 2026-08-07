@@ -61,7 +61,7 @@
     "isEntry": true
   },
   "resources/css/reports/leads-dashboard.css": {
-    "file": "assets/leads-dashboard-NS6PaOjv.css",
+    "file": "assets/leads-dashboard-BESbFi-U.css",
     "name": "leads-dashboard",
     "names": [
       "leads-dashboard.css"
@@ -103,13 +103,13 @@
     "isEntry": true
   },
   "resources/js/reports/leads-dashboard.js": {
-    "file": "assets/leads-dashboard-CdTzqd9U.js",
+    "file": "assets/leads-dashboard-BRpqnXPe.js",
     "name": "leads-dashboard",
     "src": "resources/js/reports/leads-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/reservations-sales-dashboard.js": {
-    "file": "assets/reservations-sales-dashboard-tyEyThlf.js",
+    "file": "assets/reservations-sales-dashboard-CmTD9ofV.js",
     "name": "reservations-sales-dashboard",
     "src": "resources/js/reports/reservations-sales-dashboard.js",
     "isEntry": true

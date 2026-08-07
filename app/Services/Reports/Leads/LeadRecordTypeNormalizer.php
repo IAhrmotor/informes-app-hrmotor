@@ -21,8 +21,8 @@ class LeadRecordTypeNormalizer
         'venta' => self::VENTA,
         'venta con cambio' => self::VENTA_CON_CAMBIO,
         'venta cambio' => self::VENTA_CON_CAMBIO,
-        'lead' => self::LEAD,
-        'ayvens' => self::AYVENS,
+        'lead' => self::VENTA,
+        'ayvens' => self::VENTA,
     ];
 
     /**
@@ -61,8 +61,8 @@ class LeadRecordTypeNormalizer
     /** @return list<string> */
     public function ventaFilterTypes(): array
     {
-        // Lead and Ayvens are intentionally excluded until the functional
-        // definition of Venta is confirmed.
-        return [self::VENTA, self::VENTA_CON_CAMBIO];
+        // Legacy persisted values remain eligible until the historical
+        // reprocessing command has converted them to the canonical key.
+        return [self::VENTA, self::VENTA_CON_CAMBIO, self::LEAD, self::AYVENS];
     }
 }

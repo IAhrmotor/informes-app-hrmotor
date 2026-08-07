@@ -590,7 +590,7 @@ h2 {
 }
 
 .data-quality-incidents {
-    display: grid;
+    display: flex;
     gap: 10px;
 }
 

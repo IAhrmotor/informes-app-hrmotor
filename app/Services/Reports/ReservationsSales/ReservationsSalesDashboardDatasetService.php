@@ -22,7 +22,6 @@ class ReservationsSalesDashboardDatasetService
     public function __construct(
         private readonly LeadDelegationNormalizer $delegationNormalizer,
         private readonly OpportunityPortalNormalizer $portalNormalizer,
-        private readonly ReservationsSalesAiInsightsService $aiInsights,
     ) {}
 
     public function summary(Request $request): array
@@ -101,8 +100,6 @@ class ReservationsSalesDashboardDatasetService
         $previous = $this->aggregate($filters, $periods['previous']);
         $current['bucket']['reservas_vivas_actuales_salesforce'] = $this->globalLiveReservations($filters);
         $comparison = $this->comparison($current['bucket'], $previous['bucket']);
-        $aiPayload = $this->aiPayload($filters, $periods, $current['bucket'], $comparison, $current);
-        $insights = $this->aiInsights->generate($aiPayload);
 
         return [
             'summary' => [
@@ -122,9 +119,9 @@ class ReservationsSalesDashboardDatasetService
                 'dataset_timezone' => config('app.timezone'),
                 'kpis' => $current['bucket'],
                 'comparativa' => $comparison,
-                'executive_insights' => $insights['insights'],
-                'executive_insights_source' => $insights['source'],
-                'insights' => $insights['insights'],
+                'executive_insights' => [],
+                'executive_insights_source' => 'none',
+                'insights' => [],
                 'filters' => $current['filters'],
                 'universe_date_criterion' => $filters['date_criterion'],
                 'universe_date_label' => $this->dateCriterionLabel($filters['date_criterion']),
@@ -739,34 +736,6 @@ class ReservationsSalesDashboardDatasetService
                 'is_compact' => $percentKey !== null,
             ];
         })->all();
-    }
-
-    private function aiPayload(array $filters, array $periods, array $bucket, array $comparison, array $groups): array
-    {
-        return [
-            'periodo_actual' => $this->periodPayload($periods['current']),
-            'periodo_comparado' => $this->periodPayload($periods['previous']),
-            'filtros' => [
-                'tipo_oportunidad' => $filters['opportunity_type'],
-                'criterio_fecha' => $filters['date_criterion'],
-            ],
-            'kpis' => $bucket,
-            'definiciones_porcentaje' => [
-                'conversion_fila' => 'metrica / oportunidades_totales de la misma fila',
-                'participacion_columna' => 'metrica de la fila / total de la metrica entre todas las filas',
-                'benchmark' => 'pendiente de definicion funcional; no se usa para ordenar ni concluir',
-            ],
-            'comparativa' => [
-                'reservas_delta_pp' => data_get(collect($comparison)->firstWhere('key', 'reservas_vivas'), 'diferencia_pct_puntos'),
-                'caidas_delta_pp' => data_get(collect($comparison)->firstWhere('key', 'oportunidades_caidas'), 'diferencia_pct_puntos'),
-                'cv_firmados_delta_pp' => data_get(collect($comparison)->firstWhere('key', 'cv_firmados'), 'diferencia_pct_puntos'),
-            ],
-            'rankings' => [
-                'comerciales_caidas' => collect($groups['commercials'])->sortByDesc('oportunidades_caidas')->take(5)->values()->all(),
-                'delegaciones_descartes' => collect($groups['delegations'])->sortByDesc('oportunidades_caidas')->take(5)->values()->all(),
-                'portales_baja_conversion' => collect($groups['portals'])->sortBy('cv_firmados_pct')->take(5)->values()->all(),
-            ],
-        ];
     }
 
     private function filterOptions(): array

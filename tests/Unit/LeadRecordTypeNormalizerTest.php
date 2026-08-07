@@ -14,15 +14,15 @@ class LeadRecordTypeNormalizerTest extends TestCase
         $this->assertSame('tasacion', $normalizer->normalize(' Tasación '));
         $this->assertSame('tasacion', $normalizer->normalize('TASACION'));
         $this->assertSame('venta_con_cambio', $normalizer->normalize('Venta   con cambio'));
-        $this->assertSame('lead', $normalizer->normalize(' Lead '));
-        $this->assertSame('ayvens', $normalizer->normalize('AYVENS'));
+        $this->assertSame('venta', $normalizer->normalize(' Lead '));
+        $this->assertSame('venta', $normalizer->normalize('AYVENS'));
         $this->assertNull($normalizer->normalize('Tipo no permitido'));
     }
 
-    public function test_venta_no_incluye_lead_ni_ayvens_hasta_confirmacion_funcional(): void
+    public function test_venta_incluye_las_claves_historicas_hasta_el_reproceso(): void
     {
         $normalizer = new LeadRecordTypeNormalizer;
 
-        $this->assertSame(['venta', 'venta_con_cambio'], $normalizer->ventaFilterTypes());
+        $this->assertSame(['venta', 'venta_con_cambio', 'lead', 'ayvens'], $normalizer->ventaFilterTypes());
     }
 }
