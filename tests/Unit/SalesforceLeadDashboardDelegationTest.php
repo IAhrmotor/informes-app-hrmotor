@@ -45,21 +45,53 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
         $this->assertSame('Sin clasificar', $empty['lead_delegation']);
     }
 
-    public function test_owner_solo_es_fallback_de_delegacion_para_exposicion(): void
+    public function test_owner_solo_es_fallback_de_delegacion_para_tipo_funcional_exposicion(): void
     {
         $exposition = $this->service->decorateLead([
             'status' => 'Potencial',
-            'portal_text' => 'Exposición',
+            'record_type_name' => 'Exposición',
+            'portal_text' => 'Web',
             'owner_delegation' => 'HR MOTOR VALENCIA',
         ]);
         $sale = $this->service->decorateLead([
             'status' => 'Potencial',
+            'record_type_name' => 'Venta',
             'portal_text' => 'Web',
             'owner_delegation' => 'HR MOTOR VALENCIA',
+        ]);
+        $saleWithExpositionPortal = $this->service->decorateLead([
+            'status' => 'Potencial',
+            'record_type_name' => 'Venta',
+            'portal_text' => 'Exposición',
+            'owner_delegation' => 'HR MOTOR VALENCIA',
+        ]);
+        $expositionWithBueno = $this->service->decorateLead([
+            'status' => 'Potencial',
+            'record_type_name' => 'Exposición',
+            'portal_text' => 'Web',
+            'delegacion_encargada_bueno' => 'HR MOTOR ZARAGOZA',
+            'owner_delegation' => 'HR MOTOR VALENCIA',
+        ]);
+        $expositionWithEncargada = $this->service->decorateLead([
+            'status' => 'Potencial',
+            'record_type_name' => 'Exposición',
+            'portal_text' => 'Web',
+            'delegacion_encargada' => 'HR MOTOR VALENCIA',
+            'owner_delegation' => 'HR MOTOR ZARAGOZA',
+        ]);
+        $saleWithWorkerDelegation = $this->service->decorateLead([
+            'status' => 'Potencial',
+            'record_type_name' => 'Venta',
+            'portal_text' => 'Web',
+            'persona_que_trabajo_delegation' => 'HR MOTOR VALENCIA',
         ]);
 
         $this->assertSame('Valencia', $exposition['lead_delegation']);
         $this->assertSame('Sin clasificar', $sale['lead_delegation']);
+        $this->assertSame('Sin clasificar', $saleWithExpositionPortal['lead_delegation']);
+        $this->assertSame('Zaragoza', $expositionWithBueno['lead_delegation']);
+        $this->assertSame('Valencia', $expositionWithEncargada['lead_delegation']);
+        $this->assertSame('Sin clasificar', $saleWithWorkerDelegation['lead_delegation']);
     }
 
     public function test_delegacion_comercial_sale_del_usuario_responsable_atribuido(): void

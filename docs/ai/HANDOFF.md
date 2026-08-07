@@ -88,3 +88,11 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Verificación P1: `--filter=Lead` correcto (121 tests, 617 aserciones),
   pruebas nuevas focalizadas correctas (17 tests, 124 aserciones), suite completa
   correcta (409 tests, 2.777 aserciones), Pint y build frontend correctos.
+
+## Corrección de fallback Exposición (2026-08-07)
+
+- El fallback de delegación por owner/persona trabajadora usa exclusivamente el
+  tipo funcional normalizado `exposicion`; el portal no participa en esa decisión.
+- Se conservan las prioridades de campos y el fallback histórico persistido.
+- Verificación: delegación 4 tests/16 aserciones, Leads 121/622, suite completa
+  409/2.782, build y Pint correctos.

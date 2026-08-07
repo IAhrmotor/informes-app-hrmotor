@@ -324,3 +324,10 @@ Riesgos operativos:
 - Verificación: `--filter=Lead` correcto (121 tests, 617 aserciones), pruebas
   focalizadas correctas, suite completa correcta (409 tests, 2.777 aserciones),
   Pint y `npm run build` correctos.
+
+## 17. Corrección de fallback de Exposición (2026-08-07)
+
+- La delegación por owner/persona trabajadora se habilita únicamente cuando el
+  tipo normalizado del Lead es Exposición. El portal no habilita este fallback.
+- Las prioridades de los campos de delegación y el fallback histórico se
+  conservan. Sin migraciones ni reprocesos.

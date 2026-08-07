@@ -16,6 +16,8 @@ class LeadRecordTypeNormalizer
 
     public const AYVENS = 'ayvens';
 
+    public const EXPOSICION = 'exposicion';
+
     private const ALIASES = [
         'tasacion' => self::TASACION,
         'venta' => self::VENTA,
@@ -23,6 +25,7 @@ class LeadRecordTypeNormalizer
         'venta cambio' => self::VENTA_CON_CAMBIO,
         'lead' => self::VENTA,
         'ayvens' => self::VENTA,
+        'exposicion' => self::EXPOSICION,
     ];
 
     /**
@@ -54,6 +57,7 @@ class LeadRecordTypeNormalizer
             self::VENTA_CON_CAMBIO => 'Venta con cambio',
             self::LEAD => 'Lead',
             self::AYVENS => 'Ayvens',
+            self::EXPOSICION => 'Exposición',
             default => null,
         };
     }

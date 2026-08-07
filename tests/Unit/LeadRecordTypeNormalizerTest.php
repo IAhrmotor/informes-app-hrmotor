@@ -16,6 +16,7 @@ class LeadRecordTypeNormalizerTest extends TestCase
         $this->assertSame('venta_con_cambio', $normalizer->normalize('Venta   con cambio'));
         $this->assertSame('venta', $normalizer->normalize(' Lead '));
         $this->assertSame('venta', $normalizer->normalize('AYVENS'));
+        $this->assertSame('exposicion', $normalizer->normalize(' Exposición '));
         $this->assertNull($normalizer->normalize('Tipo no permitido'));
     }
 

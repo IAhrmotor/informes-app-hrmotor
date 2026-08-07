@@ -432,7 +432,7 @@ class SalesforceLeadDashboardDatasetService
         $recordTypeNormalized = $this->clean(data_get($lead, 'record_type_normalized'))
             ?? $this->recordTypeNormalizer->normalize($recordTypeRaw);
         $manager = $this->resolveSimplifiedManager($lead, $isConverted, $isDiscarded);
-        $leadDelegation = $this->resolveLeadDelegation($lead, $portal, $manager);
+        $leadDelegation = $this->resolveLeadDelegation($lead, $recordTypeNormalized, $manager);
         $commercialUser = $manager['id'] ? $this->commercialUsers()->get($manager['id']) : null;
         $commercialDelegation = $this->normalizeCommercialDelegation(data_get($commercialUser, 'user_delegation'));
         $withoutEligibleCommercial = $commercialUser === null;
@@ -880,7 +880,7 @@ class SalesforceLeadDashboardDatasetService
         return array_values($rows);
     }
 
-    private function resolveLeadDelegation(mixed $lead, string $portal, array $manager): array
+    private function resolveLeadDelegation(mixed $lead, ?string $recordTypeNormalized, array $manager): array
     {
         $raw = $this->clean(data_get($lead, 'delegacion_encargada_bueno'))
             ?? $this->clean(data_get($lead, 'delegacion_encargada'))
@@ -888,7 +888,7 @@ class SalesforceLeadDashboardDatasetService
             // approved functional "Delegación" field remains unverified.
             ?? $this->clean(data_get($lead, 'delegacion_encargada_text'));
 
-        if ($raw === null && Str::lower($portal) === Str::lower('Exposición')) {
+        if ($raw === null && $recordTypeNormalized === LeadRecordTypeNormalizer::EXPOSICION) {
             $raw = $this->clean(data_get($lead, 'persona_que_trabajo_delegation'))
                 ?? $this->clean(data_get($lead, 'owner_delegation'))
                 ?? $this->clean(data_get($this->commercialUsers()->get($manager['id']), 'user_delegation'));
