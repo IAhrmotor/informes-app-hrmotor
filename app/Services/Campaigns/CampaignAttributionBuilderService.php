@@ -815,7 +815,7 @@ class CampaignAttributionBuilderService
         return DB::table('campaign_attributions')
             ->where('lead_created_at', '>=', $start)
             ->where('lead_created_at', '<', $end)
-            ->select(['lead_id', 'platform', 'campaign_id', 'campaign_name', 'attribution_method', 'is_ambiguous', 'campaign_source_type'])
+            ->select(['lead_id', 'platform', 'campaign_id', 'campaign_name', 'attribution_method', 'is_ambiguous', 'campaign_source_type', 'matched_source_field', 'matched_source_value', 'matched_platform_field', 'matched_platform_value', 'match_candidate_count', 'campaign_acquired', 'acquired_id', 'content_acquired', 'source_acquired', 'medium_acquired'])
             ->get()
             ->keyBy('lead_id')
             ->map(fn (object $row): array => (array) $row)
@@ -827,6 +827,7 @@ class CampaignAttributionBuilderService
         $sets = ['attributed' => [], 'ambiguous' => [], 'unattributed' => [], 'excluded' => []];
         $changes = ['same_campaign_same_method' => [], 'attribution_method_changed' => [], 'campaign_identity_changed' => [], 'new_attribution' => [], 'removed_attribution' => [], 'new_ambiguous' => [], 'ambiguity_resolved' => [], 'became_unattributed' => []];
         $transitions = [];
+        $details = [];
 
         foreach ($simulatedRows as $row) {
             $leadId = (string) $row['lead_id'];
@@ -853,6 +854,19 @@ class CampaignAttributionBuilderService
                     $changes['campaign_identity_changed'][] = $leadId;
                     $key = $this->campaignIdentity($current).' -> '.$this->campaignIdentity($row);
                     $transitions[$key] = ($transitions[$key] ?? 0) + 1;
+                    $details[] = [
+                        'lead_id' => $leadId,
+                        'transition' => $key,
+                        'current' => $this->diagnosticAttribution($current),
+                        'simulated' => $this->diagnosticAttribution($row),
+                        'input' => [
+                            'campaign_acquired' => $row['campaign_acquired'] ?? null,
+                            'acquired_id' => $row['acquired_id'] ?? null,
+                            'content_acquired' => $row['content_acquired'] ?? null,
+                            'fuente_origen' => $row['source_acquired'] ?? null,
+                            'medio_origen' => $row['medium_acquired'] ?? null,
+                        ],
+                    ];
                 }
             }
         }
@@ -873,6 +887,7 @@ class CampaignAttributionBuilderService
             'sets' => collect($sets)->map(fn (array $ids): array => ['count' => count($ids), 'sample_ids' => array_slice($ids, 0, 20)])->all(),
             'changes' => collect($changes)->map(fn (array $ids): array => ['count' => count($ids), 'sample_ids' => array_slice(array_values(array_unique($ids)), 0, 20)])->all(),
             'campaign_identity_transitions' => collect($transitions)->sortDesc()->take(20)->map(fn (int $count, string $transition): array => ['transition' => $transition, 'count' => $count])->values()->all(),
+            'campaign_identity_change_details' => array_slice($details, 0, 20),
             'lead_types' => $leadTypes,
             'null_record_type_raw' => $nullRawTypes,
         ];
@@ -885,6 +900,11 @@ class CampaignAttributionBuilderService
         return filled($row['campaign_id'] ?? null)
             ? $platform.'|'.(string) $row['campaign_id']
             : $platform.'|'.$this->normalizer->key($row['campaign_name'] ?? '');
+    }
+
+    private function diagnosticAttribution(array $row): array
+    {
+        return collect($row)->only(['platform', 'campaign_id', 'campaign_name', 'attribution_method', 'campaign_source_type', 'matched_source_field', 'matched_source_value', 'matched_platform_field', 'matched_platform_value', 'match_candidate_count'])->all();
     }
 
     private function leadMatchIndexes(Collection $leads): array

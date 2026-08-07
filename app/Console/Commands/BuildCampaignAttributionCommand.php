@@ -91,6 +91,12 @@ class BuildCampaignAttributionCommand extends Command
             foreach ($simulation['campaign_identity_transitions'] as $transition) {
                 $this->line('FROM/TO '.$transition['transition'].': '.$transition['count']);
             }
+            foreach ($simulation['campaign_identity_change_details'] as $detail) {
+                $this->line('LEAD '.$detail['lead_id'].' | '.$detail['transition']);
+                $this->line('CURRENT '.json_encode($detail['current'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                $this->line('SIMULATED '.json_encode($detail['simulated'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+                $this->line('INPUT '.json_encode($detail['input'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            }
             foreach ($simulation['lead_types'] as $label => $count) {
                 $this->line('Lead tipo '.$label.': '.$count);
             }
