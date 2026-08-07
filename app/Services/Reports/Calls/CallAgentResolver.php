@@ -16,13 +16,13 @@ class CallAgentResolver
     ];
 
     private ?Collection $mappings = null;
+
     private ?Collection $users = null;
 
     public function __construct(
         private readonly LeadDelegationNormalizer $delegationNormalizer,
         private readonly CallClassificationRules $rules,
-    ) {
-    }
+    ) {}
 
     public function resolve(array $owner, array $parsed, string $origin): array
     {
@@ -144,8 +144,7 @@ class CallAgentResolver
 
         $mapping = $this->mappings()->firstWhere('normalized_name', $nameKey);
 
-        // Fallback temporal hasta disponer del mapping explicito completo de tasadores.
-        return $mapping['team_type'] ?? 'appraiser';
+        return $mapping['team_type'] ?? CallClassificationRules::UNASSIGNED_TEAM;
     }
 
     private function result(
@@ -166,6 +165,7 @@ class CallAgentResolver
             'operational_user_id' => $operationalUserId,
             'operational_user_name' => $operationalUserName ?: 'Sin clasificar',
             'operational_team' => $operationalTeam,
+            'operational_profile_name' => data_get($delegationSource, 'profile_name'),
             'owner_team' => $ownerTeam,
             'delegation' => $effective['delegation'],
             'zone' => $effective['zone'],

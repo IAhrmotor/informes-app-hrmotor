@@ -331,3 +331,15 @@ Riesgos operativos:
   tipo normalizado del Lead es Exposición. El portal no habilita este fallback.
 - Las prioridades de los campos de delegación y el fallback histórico se
   conservan. Sin migraciones ni reprocesos.
+
+## 18. P1 Llamadas (2026-08-07)
+
+- El perfil Salesforce exacto `Pruebas comunidad comercial` se excluye de KPI y
+  desgloses con `excluded_test_profile`; permanece en auditoría. La precedencia
+  de exclusión es `missing_call_object` y luego perfil de pruebas.
+- La duración ajustada es definitiva: directa `max(bruta - 5, 0)` y portal
+  `max(bruta - 10, 0)`, centralizada en `CallClassificationRules` para sync y
+  reproceso. Versión `2026-08-07.1`.
+- Los equipos no resueltos son `unassigned`/`Sin equipo`; no caen en Tasadores.
+  Equipo, zona y delegación son independientes y soporte no genera geografías
+  ficticias. No hay migraciones.

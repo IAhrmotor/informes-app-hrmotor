@@ -100,7 +100,7 @@ class CallsUpdatedDashboardBehaviorTest extends TestCase
         $this->callRow('commercial', ['operational_user_name' => 'Comercial Uno', 'operational_team' => 'commercial']);
         $this->callRow('customer', ['operational_user_name' => 'Carolina Gayarre', 'operational_team' => 'customer_service']);
         $this->callRow('contact', ['operational_user_name' => 'Vanesa German', 'operational_team' => 'contact_center']);
-        $this->callRow('appraiser', ['operational_user_name' => 'Tasador Uno', 'operational_team' => 'unclassified']);
+        $this->callRow('appraiser', ['operational_user_name' => 'Tasador Uno', 'operational_team' => 'appraiser']);
         $this->callRow('system', [
             'operational_user_name' => 'Platform Integration User',
             'operational_team' => 'system',
@@ -195,7 +195,7 @@ class CallsUpdatedDashboardBehaviorTest extends TestCase
             ->assertJsonPath('kpis.total_calls', 2);
     }
 
-    public function test_atencion_y_contact_center_aparecen_como_zonas_y_delegaciones_propias(): void
+    public function test_equipos_de_soporte_no_se_convierten_en_zonas_ni_delegaciones(): void
     {
         $this->callRow('customer-service', [
             'operational_user_name' => 'Carolina Gayarre',
@@ -214,12 +214,12 @@ class CallsUpdatedDashboardBehaviorTest extends TestCase
         $zones = collect($payload['zones'])->pluck('zone');
         $delegations = collect($payload['delegations'])->pluck('delegation');
 
-        $this->assertTrue($zones->contains('Atención al Cliente'));
-        $this->assertTrue($zones->contains('Contact Center'));
-        $this->assertTrue($delegations->contains('Atención al Cliente'));
-        $this->assertTrue($delegations->contains('Contact Center'));
-        $this->assertFalse($zones->contains('Sin clasificar'));
-        $this->assertFalse($delegations->contains('Sin clasificar'));
+        $this->assertFalse($zones->contains('Atención al Cliente'));
+        $this->assertFalse($zones->contains('Contact Center'));
+        $this->assertFalse($delegations->contains('Atención al Cliente'));
+        $this->assertFalse($delegations->contains('Contact Center'));
+        $this->assertTrue($zones->contains('Sin clasificar'));
+        $this->assertTrue($delegations->contains('Sin clasificar'));
     }
 
     public function test_deduplica_contact_center_por_nombre_normalizado(): void
@@ -305,7 +305,7 @@ class CallsUpdatedDashboardBehaviorTest extends TestCase
         $this->assertSame(3, $kpis['portal_lost']);
     }
 
-    public function test_filtro_zona_incluye_equipos_de_servicio(): void
+    public function test_filtro_zona_no_convierte_equipos_de_servicio_en_geografia(): void
     {
         $this->callRow('customer-service', [
             'operational_user_name' => 'Carolina Gayarre',
@@ -322,13 +322,11 @@ class CallsUpdatedDashboardBehaviorTest extends TestCase
 
         $this->getJson('/informes/llamadas/data/delegations?zone='.urlencode('Atención al Cliente'))
             ->assertOk()
-            ->assertJsonPath('zones.0.zone', 'Atención al Cliente')
-            ->assertJsonCount(1, 'zones');
+            ->assertJsonCount(0, 'zones');
 
         $this->getJson('/informes/llamadas/data/delegations?zone=Contact+Center')
             ->assertOk()
-            ->assertJsonPath('zones.0.zone', 'Contact Center')
-            ->assertJsonCount(1, 'zones');
+            ->assertJsonCount(0, 'zones');
     }
 
     public function test_no_muestra_centralita_ni_switchboard_en_front_o_filtros(): void

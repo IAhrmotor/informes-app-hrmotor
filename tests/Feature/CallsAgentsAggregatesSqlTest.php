@@ -44,7 +44,7 @@ class CallsAgentsAggregatesSqlTest extends TestCase
             'zone' => 'Sin clasificar',
         ]);
         $this->callRow('customer', ['operational_user_name' => 'Carolina Gayarre', 'operational_team' => 'customer_service']);
-        $this->callRow('appraiser', ['operational_user_name' => 'Tasador Uno', 'operational_team' => 'unclassified']);
+        $this->callRow('appraiser', ['operational_user_name' => 'Tasador Uno', 'operational_team' => 'appraiser']);
         $this->callRow('system', [
             'operational_user_name' => 'Platform Integration User',
             'operational_team' => 'system',
@@ -80,7 +80,7 @@ class CallsAgentsAggregatesSqlTest extends TestCase
         $this->assertEmpty(collect($payload['agents'])->where('user_name', 'Jhon Frehiman Castro Espinosa')->all());
         $this->assertCount(3, $contactCenter);
         $this->assertSame('Jose Ignacio Palomo', $contactCenter->firstWhere('user_name', 'Jose Ignacio Palomo')['user_name']);
-        $this->assertSame('Contact Center', $contactCenter->firstWhere('user_name', 'Jose Ignacio Palomo')['delegation']);
+        $this->assertSame('Sin clasificar', $contactCenter->firstWhere('user_name', 'Jose Ignacio Palomo')['delegation']);
         $this->assertSame(3, $contactCenter->firstWhere('user_name', 'Vanesa German')['total_calls']);
         $this->assertSame(3, $contactCenter->firstWhere('user_name', 'Yuleidis Garcia')['total_calls']);
     }

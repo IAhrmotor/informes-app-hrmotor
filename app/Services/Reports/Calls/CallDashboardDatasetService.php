@@ -225,7 +225,9 @@ class CallDashboardDatasetService
             'reconciliation' => [
                 'raw_type_call_tasks' => $rawUniverse,
                 'dashboard_call_object_tasks' => $dashboardUniverse,
-                'excluded_without_call_object' => max($rawUniverse - $dashboardUniverse, 0),
+                'excluded_without_call_object' => $this->exclusionCount($filters, $periods['current'], 'missing_call_object'),
+                'excluded_test_profile' => $this->exclusionCount($filters, $periods['current'], CallClassificationRules::EXCLUDED_TEST_PROFILE_REASON),
+                'included_operational_tasks' => $dashboardUniverse,
             ],
             'kpis' => $current,
             'comparativa' => $this->comparison($current, $previous),
@@ -304,7 +306,7 @@ class CallDashboardDatasetService
         }
 
         $unassigned = $this->baseFilteredQuery($filters, $period)
-            ->whereRaw('NOT '.$this->operationalTeamConditionSql())
+            ->whereRaw($teamSql." NOT IN ('commercial', 'customer_service', 'contact_center', 'appraiser')")
             ->selectRaw($this->metricsSelectSql())
             ->first();
         $unassignedBucket = $this->bucketFromRow($unassigned);
@@ -462,6 +464,17 @@ class CallDashboardDatasetService
     private function baseFilteredQuery(array $filters, array $period, bool $includeUser = true): QueryBuilder
     {
         return $this->applyBaseFilters(DB::table('salesforce_calls'), $filters, $period, $includeUser);
+    }
+
+    private function exclusionCount(array $filters, array $period, string $reason): int
+    {
+        $query = DB::table('salesforce_calls')
+            ->where('created_date', '>=', $period['start'])
+            ->where('created_date', '<', $period['end'])
+            ->where('dashboard_exclusion_reason', $reason);
+        $this->applyAccessScope($query, $filters);
+
+        return $query->count();
     }
 
     private function applyBaseFilters(QueryBuilder $query, array $filters, array $period, bool $includeUser = true): QueryBuilder
@@ -760,8 +773,8 @@ class CallDashboardDatasetService
                 'joseignaciopalomocasas',
                 'nurialarrosa'
             ) THEN 'contact_center'
-            WHEN operational_team IN ('commercial', 'customer_service', 'contact_center', 'appraiser', 'system') THEN operational_team
-            ELSE 'appraiser'
+            WHEN operational_team IN ('commercial', 'customer_service', 'contact_center', 'appraiser', 'system', 'unassigned') THEN operational_team
+            ELSE 'unassigned'
         END";
     }
 
@@ -770,9 +783,9 @@ class CallDashboardDatasetService
         $teamSql = $this->effectiveTeamSql();
 
         return "CASE
-            WHEN {$teamSql} = 'customer_service' THEN ".$this->sqlString(CallClassificationRules::CUSTOMER_SERVICE_LABEL)."
-            WHEN {$teamSql} = 'contact_center' THEN ".$this->sqlString(CallClassificationRules::CONTACT_CENTER_LABEL)."
-            WHEN {$teamSql} = 'appraiser' THEN ".$this->sqlString(CallClassificationRules::APPRAISER_LABEL)."
+            WHEN {$teamSql} = 'customer_service' AND delegation = ".$this->sqlString(CallClassificationRules::CUSTOMER_SERVICE_LABEL).' THEN '.$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED)."
+            WHEN {$teamSql} = 'contact_center' AND delegation = ".$this->sqlString(CallClassificationRules::CONTACT_CENTER_LABEL).' THEN '.$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED)."
+            WHEN {$teamSql} = 'appraiser' AND delegation = ".$this->sqlString(CallClassificationRules::APPRAISER_LABEL).' THEN '.$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED)."
             ELSE COALESCE(NULLIF(delegation, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')
         END';
     }
@@ -782,9 +795,9 @@ class CallDashboardDatasetService
         $teamSql = $this->effectiveTeamSql();
 
         return "CASE
-            WHEN {$teamSql} = 'customer_service' THEN ".$this->sqlString(CallClassificationRules::CUSTOMER_SERVICE_LABEL)."
-            WHEN {$teamSql} = 'contact_center' THEN ".$this->sqlString(CallClassificationRules::CONTACT_CENTER_LABEL)."
-            WHEN {$teamSql} = 'appraiser' THEN ".$this->sqlString(CallClassificationRules::APPRAISER_LABEL)."
+            WHEN {$teamSql} = 'customer_service' AND zone = ".$this->sqlString(CallClassificationRules::CUSTOMER_SERVICE_LABEL).' THEN '.$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED)."
+            WHEN {$teamSql} = 'contact_center' AND zone = ".$this->sqlString(CallClassificationRules::CONTACT_CENTER_LABEL).' THEN '.$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED)."
+            WHEN {$teamSql} = 'appraiser' AND zone = ".$this->sqlString(CallClassificationRules::APPRAISER_LABEL).' THEN '.$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED)."
             ELSE COALESCE(NULLIF(zone, ''), ".$this->sqlString(LeadDelegationNormalizer::UNCLASSIFIED).')
         END';
     }
@@ -1271,13 +1284,8 @@ class CallDashboardDatasetService
                     ['id' => 'commercial_direct', 'name' => 'Llamada directa a comercial'],
                     ['id' => 'portal', 'name' => 'Portal / Procedencia'],
                 ],
-                'delegations' => $this->sortLabels(collect([
-                    CallClassificationRules::CUSTOMER_SERVICE_LABEL,
-                    CallClassificationRules::CONTACT_CENTER_LABEL,
-                    CallClassificationRules::APPRAISER_LABEL,
-                ])->merge($this->distinctColumnValues('delegation'))->all()),
+                'delegations' => $this->sortLabels($this->distinctColumnValues('delegation')),
                 'zones' => $this->sortLabels(collect($this->delegationNormalizer->knownZones())
-                    ->merge([CallClassificationRules::CUSTOMER_SERVICE_LABEL, CallClassificationRules::CONTACT_CENTER_LABEL, CallClassificationRules::APPRAISER_LABEL])
                     ->merge($this->distinctColumnValues('zone'))
                     ->all()),
                 'portals' => $this->sortLabels(DB::table('salesforce_calls')

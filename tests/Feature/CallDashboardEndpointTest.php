@@ -48,10 +48,8 @@ class CallDashboardEndpointTest extends TestCase
         ]);
         $this->callRow([
             'salesforce_id' => '00T-unassigned',
-            'operational_team' => 'commercial',
-            'owner_team' => 'commercial',
-            'delegation' => 'Sin clasificar',
-            'zone' => 'Sin clasificar',
+            'operational_team' => 'unassigned',
+            'owner_team' => 'unassigned',
         ]);
 
         $summaryResponse = $this->getJson('/informes/llamadas/data/summary')->assertOk();
@@ -64,6 +62,34 @@ class CallDashboardEndpointTest extends TestCase
         $this->assertSame(1, $teams->firstWhere('team_label', 'Sin equipo')['answered']);
         $this->assertSame(3, $visibleTeams->sum('value'));
         $this->assertSame(1, $visibleTeams->firstWhere('label', 'Sin equipo')['value']);
+    }
+
+    public function test_perfil_de_pruebas_excluido_no_participa_en_kpi_y_permanece_en_auditoria(): void
+    {
+        $this->callRow([
+            'salesforce_id' => '00T-operational',
+            'call_object' => 'operational-call-object',
+            'included_in_dashboard' => true,
+        ]);
+        $this->callRow([
+            'salesforce_id' => '00T-test-profile',
+            'call_object' => 'test-call-object',
+            'included_in_dashboard' => false,
+            'dashboard_exclusion_reason' => 'excluded_test_profile',
+            'call_status' => 'not_answered',
+            'is_answered' => false,
+            'is_lost' => true,
+        ]);
+
+        $this->getJson('/informes/llamadas/data/summary')
+            ->assertOk()
+            ->assertJsonPath('kpis.total_calls', 1)
+            ->assertJsonPath('kpis.answered', 1)
+            ->assertJsonPath('kpis.not_answered', 0)
+            ->assertJsonPath('reconciliation.excluded_test_profile', 1);
+
+        $items = collect($this->getJson('/informes/llamadas/data/audit')->assertOk()->json('items'));
+        $this->assertSame('excluded_test_profile', $items->firstWhere('task_id', '00T-test-profile')['exclusion_reason']);
     }
 
     public function test_csv_auditoria_exporta_una_fila_por_task_y_serializa_valores_brutos_como_json(): void

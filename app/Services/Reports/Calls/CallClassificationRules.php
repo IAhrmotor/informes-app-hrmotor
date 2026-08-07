@@ -6,15 +6,24 @@ use Illuminate\Support\Str;
 
 class CallClassificationRules
 {
-    public const VERSION = '2026-08-04.1';
+    public const VERSION = '2026-08-07.1';
 
     public const CUSTOMER_SERVICE_LABEL = 'Atención al Cliente';
+
     public const CONTACT_CENTER_LABEL = 'Contact Center';
+
     public const APPRAISER_LABEL = 'Tasadores';
+
     public const OVERFLOW_REASON_PORTAL_ATTENDED_BY_SUPPORT = 'portal_attended_by_support_team';
 
+    public const EXCLUDED_TEST_PROFILE = 'Pruebas comunidad comercial';
+
+    public const EXCLUDED_TEST_PROFILE_REASON = 'excluded_test_profile';
+
+    public const UNASSIGNED_TEAM = 'unassigned';
+
     private const FORCED_TEAM_BY_COMPACT_NAME = [
-    // Comerciales
+        // Comerciales
         'carlosmelero' => 'commercial',
         'manuelsantamargarita' => 'commercial',
         'jorgemartin' => 'commercial',
@@ -67,7 +76,17 @@ class CallClassificationRules
         return in_array($compact, self::HIDDEN_COMPACT_NAMES, true);
     }
 
+    public function isExcludedTestProfile(?string $profile): bool
+    {
+        return trim((string) $profile) === self::EXCLUDED_TEST_PROFILE;
+    }
 
+    public function adjustedDuration(?int $duration, ?string $origin): int
+    {
+        $duration = max(0, (int) $duration);
+
+        return max(0, $duration - ($origin === 'commercial_direct' ? 5 : 10));
+    }
 
     public function normalizeName(?string $name): string
     {
@@ -117,7 +136,7 @@ class CallClassificationRules
 
         return match ($team) {
             'commercial', 'customer_service', 'contact_center', 'appraiser', 'system' => $team,
-            default => 'appraiser',
+            default => self::UNASSIGNED_TEAM,
         };
     }
 
@@ -139,24 +158,10 @@ class CallClassificationRules
 
     public function effectiveDelegationZone(?string $team, ?string $delegation, ?string $zone): array
     {
-        return match ($team) {
-            'customer_service' => [
-                'delegation' => self::CUSTOMER_SERVICE_LABEL,
-                'zone' => self::CUSTOMER_SERVICE_LABEL,
-            ],
-            'contact_center' => [
-                'delegation' => self::CONTACT_CENTER_LABEL,
-                'zone' => self::CONTACT_CENTER_LABEL,
-            ],
-            'appraiser' => [
-                'delegation' => self::APPRAISER_LABEL,
-                'zone' => self::APPRAISER_LABEL,
-            ],
-            default => [
-                'delegation' => filled($delegation) ? $delegation : 'Sin clasificar',
-                'zone' => filled($zone) ? $zone : 'Sin clasificar',
-            ],
-        };
+        return [
+            'delegation' => filled($delegation) ? $delegation : 'Sin clasificar',
+            'zone' => filled($zone) ? $zone : 'Sin clasificar',
+        ];
     }
 
     public function userGroupKey(

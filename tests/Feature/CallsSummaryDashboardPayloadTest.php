@@ -98,7 +98,7 @@ class CallsSummaryDashboardPayloadTest extends TestCase
         $delegations = collect($response->json('rankings.top_delegations_by_calls'));
 
         $this->assertTrue($delegations->pluck('delegation')->contains('Alcobendas'));
-        $this->assertTrue($delegations->pluck('delegation')->contains('Contact Center'));
+        $this->assertFalse($delegations->pluck('delegation')->contains('Contact Center'));
         $this->assertFalse($delegations->pluck('delegation')->contains('Sin clasificar'));
     }
 }

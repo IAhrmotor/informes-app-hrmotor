@@ -15,7 +15,7 @@ Actualizado: 2026-08-06.
 
 ## Clasificación vigente
 
-Versión de reglas: `2026-08-04.1`.
+Versión de reglas: `2026-08-07.1`.
 
 - Atendida: resultado normalizado `ANSWERED` o valor válido extraído de
   `Respondido por`, salvo una regla más fuerte de no atención.
@@ -29,6 +29,12 @@ Versión de reglas: `2026-08-04.1`.
   esta regla.
 - Las llamadas operativas sin equipo aparecen como `Sin equipo`; la suma de
   equipos debe reconciliar con el total correspondiente.
+- El perfil Salesforce exacto `Pruebas comunidad comercial` queda fuera de todos
+  los KPI y desgloses operativos con motivo `excluded_test_profile`, pero sus
+  Tasks permanecen auditables. `missing_call_object` es el motivo estructural
+  primario cuando concurren ambas condiciones.
+- Equipo, zona y delegación son dimensiones independientes: Atención al
+  Cliente, Contact Center y Tasadores no se generan como geografías ficticias.
 
 El parser extrae de `Description` resultado, `Respondido por`, agente, cola,
 opción de teclado, duración y demás valores brutos. Esos valores se conservan
@@ -36,7 +42,7 @@ en la auditoría junto con la interpretación final.
 
 ## Duración
 
-Regla provisional vigente:
+Regla definitiva vigente:
 
 - llamada directa: `max(duración base - 5, 0)`;
 - portal: `max(duración base - 10, 0)`.

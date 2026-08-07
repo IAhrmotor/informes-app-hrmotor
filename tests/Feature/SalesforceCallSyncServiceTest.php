@@ -3,6 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\SalesforceCall;
+use App\Services\Reports\Calls\CallAgentResolver;
+use App\Services\Reports\Calls\CallClassificationRules;
+use App\Services\Reports\Calls\CallDescriptionParser;
+use App\Services\Reports\Calls\CallPortalNormalizer;
 use App\Services\Reports\Calls\SalesforceCallSyncService;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
@@ -68,10 +72,10 @@ class SalesforceCallSyncServiceTest extends TestCase
 
         $service = new SalesforceCallSyncService(
             $client,
-            app(\App\Services\Reports\Calls\CallDescriptionParser::class),
-            app(\App\Services\Reports\Calls\CallPortalNormalizer::class),
-            app(\App\Services\Reports\Calls\CallAgentResolver::class),
-            app(\App\Services\Reports\Calls\CallClassificationRules::class),
+            app(CallDescriptionParser::class),
+            app(CallPortalNormalizer::class),
+            app(CallAgentResolver::class),
+            app(CallClassificationRules::class),
         );
 
         $result = $service->sync(CarbonImmutable::parse('2026-05-10'), CarbonImmutable::parse('2026-05-11'));
@@ -84,7 +88,7 @@ class SalesforceCallSyncServiceTest extends TestCase
         $this->assertSame('inbound', $call->direction);
         $this->assertSame(70, $call->adjusted_duration_seconds);
         $this->assertSame('contact_center', $call->operational_team);
-        $this->assertSame('Contact Center', $call->delegation);
-        $this->assertSame('Contact Center', $call->zone);
+        $this->assertSame('Alcobendas', $call->delegation);
+        $this->assertSame('Zona Sur y Centro', $call->zone);
     }
 }

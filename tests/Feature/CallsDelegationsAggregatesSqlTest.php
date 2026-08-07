@@ -58,11 +58,11 @@ class CallsDelegationsAggregatesSqlTest extends TestCase
         $delegations = collect($payload['delegations'])->pluck('delegation');
 
         $this->assertTrue($zones->contains('Zona Sur y Centro'));
-        $this->assertTrue($zones->contains(CallClassificationRules::CUSTOMER_SERVICE_LABEL));
-        $this->assertTrue($zones->contains('Contact Center'));
+        $this->assertFalse($zones->contains(CallClassificationRules::CUSTOMER_SERVICE_LABEL));
+        $this->assertFalse($zones->contains('Contact Center'));
         $this->assertTrue($delegations->contains('Alcobendas'));
-        $this->assertTrue($delegations->contains(CallClassificationRules::CUSTOMER_SERVICE_LABEL));
-        $this->assertTrue($delegations->contains('Contact Center'));
+        $this->assertFalse($delegations->contains(CallClassificationRules::CUSTOMER_SERVICE_LABEL));
+        $this->assertFalse($delegations->contains('Contact Center'));
         $this->assertFalse($zones->contains('Sistema / Sin agente'));
     }
 }

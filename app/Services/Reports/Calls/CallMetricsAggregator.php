@@ -6,8 +6,7 @@ class CallMetricsAggregator
 {
     public function __construct(
         private readonly CallClassificationRules $rules,
-    ) {
-    }
+    ) {}
 
     public function emptyBucket(): array
     {
@@ -28,6 +27,7 @@ class CallMetricsAggregator
             'answered_customer_service' => 0,
             'answered_contact_center' => 0,
             'answered_appraiser' => 0,
+            'answered_unassigned' => 0,
             'adjusted_duration_answered_sum' => 0,
             'answered_duration_count' => 0,
             'overflow_count' => 0,
@@ -76,6 +76,7 @@ class CallMetricsAggregator
         $bucket['answered_customer_service'] += $isAnswered && $team === 'customer_service' ? 1 : 0;
         $bucket['answered_contact_center'] += $isAnswered && $team === 'contact_center' ? 1 : 0;
         $bucket['answered_appraiser'] += $isAnswered && $team === 'appraiser' ? 1 : 0;
+        $bucket['answered_unassigned'] += $isAnswered && $team === CallClassificationRules::UNASSIGNED_TEAM ? 1 : 0;
         $bucket['overflow_count'] += $isOverflow ? 1 : 0;
         $bucket['overflow_denominator'] += $isOverflowDenominator ? 1 : 0;
 

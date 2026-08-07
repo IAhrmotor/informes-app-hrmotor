@@ -23,3 +23,11 @@ reconstruyen automáticamente los snapshots de Campañas.
 
 Reservas/Ventas no utiliza IA ni un contrato de recomendaciones. Sus
 comparativas y porcentajes se limitan a información descriptiva de cohortes.
+
+## 2026-08-07 — Clasificación operativa de Llamadas
+
+La exclusión de `Pruebas comunidad comercial` se materializa con el perfil
+Salesforce verificable de la identidad operativa y el motivo estable
+`excluded_test_profile`; `missing_call_object` conserva prioridad. La regla de
+duración 5/10 se centraliza en `CallClassificationRules` y la ausencia de equipo
+se representa como `unassigned`, sin convertir equipos en geografía.

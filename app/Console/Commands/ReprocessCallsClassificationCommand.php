@@ -9,11 +9,11 @@ use App\Services\Reports\Calls\CallClassificationRules;
 use App\Services\Reports\Calls\CallDescriptionParser;
 use App\Services\Reports\Calls\CallPortalNormalizer;
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
+use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
-use Carbon\CarbonImmutable;
 
 class ReprocessCallsClassificationCommand extends Command
 {
@@ -30,8 +30,7 @@ class ReprocessCallsClassificationCommand extends Command
         CallDescriptionParser $parser,
         CallClassificationRules $rules,
         LeadDelegationNormalizer $delegationNormalizer,
-    ): int
-    {
+    ): int {
         $from = $this->dateOption('from');
         $to = $this->dateOption('to');
         if ($from === null || $to === null || $from->greaterThan($to)) {
@@ -46,15 +45,24 @@ class ReprocessCallsClassificationCommand extends Command
 
             return self::FAILURE;
         }
-        $before = $this->originCounts();
+        $before = $dryRun ? [] : $this->originCounts();
         $updated = 0;
+        $dryRunStats = [
+            'examined' => 0,
+            'included_current' => 0,
+            'included_after' => 0,
+            'missing_call_object' => 0,
+            'excluded_test_profile' => 0,
+            'classification_changes' => 0,
+            'duration_changes' => 0,
+        ];
         $users = $this->salesforceUsers();
 
         SalesforceCall::query()
             ->where('created_date', '>=', $from->startOfDay())
             ->where('created_date', '<', $to->addDay()->startOfDay())
             ->orderBy('id')
-            ->chunkById(1000, function ($calls) use ($portalNormalizer, $parser, $rules, $delegationNormalizer, $users, &$updated, $dryRun, $reason): void {
+            ->chunkById(1000, function ($calls) use ($portalNormalizer, $parser, $rules, $delegationNormalizer, $users, &$updated, &$dryRunStats, $dryRun, $reason): void {
                 $updates = [];
                 $history = [];
 
@@ -87,10 +95,28 @@ class ReprocessCallsClassificationCommand extends Command
                     $pollValue = $parsed['poll_value'];
                     $isOverflow = $rules->isOverflow($origin, $callStatus, $portal['portal'], $team, $pollValue, $call->result_raw);
 
+                    $operationalProfile = data_get($users->get($call->operational_user_id) ?: $users->get($call->owner_id), 'profile_name')
+                        ?: $call->owner_profile_name;
+                    [$includedInDashboard, $exclusionReason] = $this->dashboardInclusion($call->call_object, $operationalProfile, $rules);
+
+                    $dryRunStats['examined']++;
+                    $dryRunStats['included_current'] += (int) $call->included_in_dashboard;
+                    $dryRunStats['included_after'] += (int) $includedInDashboard;
+                    $dryRunStats['missing_call_object'] += $exclusionReason === 'missing_call_object' ? 1 : 0;
+                    $dryRunStats['excluded_test_profile'] += $exclusionReason === CallClassificationRules::EXCLUDED_TEST_PROFILE_REASON ? 1 : 0;
+                    $newAdjustedDuration = $rules->adjustedDuration($duration, $origin);
+                    $dryRunStats['duration_changes'] += (int) ((int) $call->adjusted_duration_seconds !== $newAdjustedDuration);
+                    $dryRunStats['classification_changes'] += (int) (
+                        (bool) $call->included_in_dashboard !== $includedInDashboard
+                        || $call->dashboard_exclusion_reason !== $exclusionReason
+                        || $call->operational_team !== $team
+                        || $call->call_origin !== $origin
+                    );
+
                     $updates[] = [
                         'salesforce_id' => $call->salesforce_id,
-                        'included_in_dashboard' => filled($call->call_object),
-                        'dashboard_exclusion_reason' => filled($call->call_object) ? null : 'missing_call_object',
+                        'included_in_dashboard' => $includedInDashboard,
+                        'dashboard_exclusion_reason' => $exclusionReason,
                         'classification_rule_version' => CallClassificationRules::VERSION,
                         'classified_at' => now(),
                         'call_origin' => $origin,
@@ -100,7 +126,7 @@ class ReprocessCallsClassificationCommand extends Command
                         'call_status' => $callStatus,
                         'is_answered' => $callStatus === 'answered',
                         'is_lost' => $callStatus !== 'answered',
-                        'adjusted_duration_seconds' => max(0, $duration - ($origin === 'commercial_direct' ? 5 : 10)),
+                        'adjusted_duration_seconds' => $newAdjustedDuration,
                         'operational_team' => $team,
                         'normalized_user_key' => $normalizedUserKey,
                         'owner_team' => $ownerTeam,
@@ -173,10 +199,22 @@ class ReprocessCallsClassificationCommand extends Command
         if (! $dryRun) {
             $this->invalidateDashboardCache();
         }
-        $after = $this->originCounts();
-
         $this->info($dryRun ? 'Simulación completada; no se modificaron datos.' : 'Reproceso de clasificación de llamadas completado.');
         $this->line('Procesadas: '.$updated);
+        if ($dryRun) {
+            $this->table(['Métrica', 'Total'], [
+                ['Tasks examinadas', $dryRunStats['examined']],
+                ['Incluidas actuales', $dryRunStats['included_current']],
+                ['Incluidas después', $dryRunStats['included_after']],
+                ['Excluidas missing_call_object', $dryRunStats['missing_call_object']],
+                ['Excluidas excluded_test_profile', $dryRunStats['excluded_test_profile']],
+                ['Clasificaciones que cambiarían', $dryRunStats['classification_changes']],
+                ['Duraciones ajustadas que cambiarían', $dryRunStats['duration_changes']],
+            ]);
+
+            return self::SUCCESS;
+        }
+        $after = $this->originCounts();
         $this->newLine();
         $this->table(['Origen', 'Antes', 'Despues'], collect(['commercial_direct', 'portal', 'switchboard', 'otros'])
             ->map(fn (string $origin) => [
@@ -211,7 +249,8 @@ class ReprocessCallsClassificationCommand extends Command
         return collect([
             'call_status', 'is_answered', 'is_lost', 'is_overflow', 'overflow_reason',
             'call_origin', 'portal_resolved', 'operational_team', 'delegation', 'zone',
-            'adjusted_duration_seconds', 'included_in_dashboard', 'dashboard_exclusion_reason',
+            'call_duration_seconds', 'parsed_duration_seconds', 'adjusted_duration_seconds',
+            'included_in_dashboard', 'dashboard_exclusion_reason',
         ])->mapWithKeys(fn (string $field): array => [$field => data_get($call, $field)])->all();
     }
 
@@ -222,10 +261,6 @@ class ReprocessCallsClassificationCommand extends Command
         LeadDelegationNormalizer $delegationNormalizer,
         CallClassificationRules $rules,
     ): array {
-        if (in_array($team, ['customer_service', 'contact_center'], true)) {
-            return $rules->effectiveDelegationZone($team, null, null);
-        }
-
         $user = $users->get($call->operational_user_id) ?: $users->get($call->owner_id);
         $normalized = $delegationNormalizer->normalize(data_get($user, 'user_delegation'));
 
@@ -310,7 +345,21 @@ class ReprocessCallsClassificationCommand extends Command
             ->map(fn (SalesforceUser $user) => [
                 'salesforce_id' => $user->salesforce_id,
                 'user_delegation' => $user->user_delegation,
+                'profile_name' => $user->profile_name,
             ]);
+    }
+
+    private function dashboardInclusion(mixed $callObject, ?string $operationalProfile, CallClassificationRules $rules): array
+    {
+        if (! filled($callObject)) {
+            return [false, 'missing_call_object'];
+        }
+
+        if ($rules->isExcludedTestProfile($operationalProfile)) {
+            return [false, CallClassificationRules::EXCLUDED_TEST_PROFILE_REASON];
+        }
+
+        return [true, null];
     }
 
     private function invalidateDashboardCache(): void

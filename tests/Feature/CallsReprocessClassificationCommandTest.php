@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\SalesforceCall;
+use App\Models\SalesforceUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
@@ -68,13 +69,13 @@ class CallsReprocessClassificationCommandTest extends TestCase
         $this->assertSame('Comercial directo', $direct->portal_resolved);
         $this->assertSame('commercial_direct', $direct->portal_resolution_source);
         $this->assertSame(75, $direct->adjusted_duration_seconds);
-        $this->assertSame('appraiser', $direct->operational_team);
+        $this->assertSame('unassigned', $direct->operational_team);
 
         $this->assertSame('portal', $portal->call_origin);
         $this->assertSame('Web', $portal->portal_resolved);
         $this->assertSame('customer_service', $portal->operational_team);
-        $this->assertSame('Atención al Cliente', $portal->delegation);
-        $this->assertSame('Atención al Cliente', $portal->zone);
+        $this->assertSame('Sin clasificar', $portal->delegation);
+        $this->assertSame('Sin clasificar', $portal->zone);
         $this->assertSame(0, SalesforceCall::where('call_origin', 'switchboard')->count());
         $this->assertGreaterThan(1, Cache::get('salesforce_calls_dashboard_cache_version'));
         $this->assertDatabaseCount('salesforce_call_classification_history', 2);
@@ -102,7 +103,7 @@ class CallsReprocessClassificationCommandTest extends TestCase
     public function test_reprocesado_considera_respondido_por_como_atendida_sin_pisar_abandoned(): void
     {
         foreach ([
-            'answered-by' => ['description' => "Respondido por: Agente Uno", 'result_raw' => null],
+            'answered-by' => ['description' => 'Respondido por: Agente Uno', 'result_raw' => null],
             'abandoned' => ['description' => "Resultado: ABANDONED\nRespondido por: Agente Uno", 'result_raw' => 'ABANDONED'],
         ] as $id => $values) {
             SalesforceCall::query()->create([
@@ -124,5 +125,40 @@ class CallsReprocessClassificationCommandTest extends TestCase
 
         $this->assertTrue((bool) SalesforceCall::query()->where('salesforce_id', 'answered-by')->value('is_answered'));
         $this->assertFalse((bool) SalesforceCall::query()->where('salesforce_id', 'abandoned')->value('is_answered'));
+    }
+
+    public function test_excluye_perfil_de_pruebas_con_call_object_y_lo_mantiene_auditable(): void
+    {
+        SalesforceUser::create([
+            'salesforce_id' => '005-test-profile',
+            'name' => 'Usuario de prueba',
+            'profile_name' => 'Pruebas comunidad comercial',
+            'is_active' => true,
+        ]);
+        SalesforceCall::create([
+            'salesforce_id' => 'test-profile-call',
+            'created_date' => '2026-05-20 10:00:00',
+            'call_object' => 'present',
+            'operational_user_id' => '005-test-profile',
+            'owner_id' => '005-test-profile',
+            'owner_profile_name' => 'Standard User',
+            'operational_team' => 'commercial',
+            'call_status' => 'answered',
+            'is_answered' => true,
+            'is_lost' => false,
+            'call_duration_seconds' => 30,
+        ]);
+
+        $this->artisan('reports:reprocess-calls-classification', [
+            '--from' => '2026-05-01',
+            '--to' => '2026-05-31',
+            '--reason' => 'Excluir perfil de pruebas de los indicadores.',
+        ])->assertExitCode(0);
+
+        $this->assertDatabaseHas('salesforce_calls', [
+            'salesforce_id' => 'test-profile-call',
+            'included_in_dashboard' => false,
+            'dashboard_exclusion_reason' => 'excluded_test_profile',
+        ]);
     }
 }

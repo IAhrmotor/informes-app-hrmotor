@@ -82,7 +82,7 @@ class CallAgentResolverTest extends TestCase
         $resolver = app(CallAgentResolver::class);
 
         $appraiser = $resolver->resolve(['id' => '005-appraiser', 'name' => 'Tasador Uno', 'profile_name' => 'Standard User'], [], 'commercial_direct');
-        $this->assertSame('appraiser', $appraiser['operational_team']);
+        $this->assertSame('unassigned', $appraiser['operational_team']);
 
         foreach (['Vanessa SanJuan', 'Vanessa San Juan', 'Vanesa SanJuan', 'Vanesa San Juan', 'Callcenter Fontellas', 'Call Center Fontellas'] as $name) {
             $resolved = $resolver->resolve(['id' => '005-special-'.$name, 'name' => $name, 'profile_name' => 'Standard User'], [], 'commercial_direct');

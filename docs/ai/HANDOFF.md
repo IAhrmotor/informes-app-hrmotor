@@ -96,3 +96,12 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Se conservan las prioridades de campos y el fallback histórico persistido.
 - Verificación: delegación 4 tests/16 aserciones, Leads 121/622, suite completa
   409/2.782, build y Pint correctos.
+
+## P1 Llamadas (2026-08-07)
+
+- Se reutilizan `included_in_dashboard` y `dashboard_exclusion_reason` para
+  excluir el perfil Salesforce exacto de pruebas sin retirar Tasks de auditoría.
+- `CallClassificationRules` centraliza ajuste 5/10, exclusión de perfil y el
+  valor canónico `unassigned`. No hay cambios de esquema.
+- Sync y reproceso resuelven el perfil desde `SalesforceUser` por el ID operativo
+  cuando está disponible; `missing_call_object` prevalece.

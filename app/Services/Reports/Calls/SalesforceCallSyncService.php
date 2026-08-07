@@ -22,8 +22,7 @@ class SalesforceCallSyncService
         private readonly CallPortalNormalizer $portalNormalizer,
         private readonly CallAgentResolver $agentResolver,
         private readonly CallClassificationRules $rules,
-    ) {
-    }
+    ) {}
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
     {
@@ -179,10 +178,7 @@ SOQL;
 
     public function adjustedDuration(?int $duration, string $origin): int
     {
-        $duration = max(0, (int) $duration);
-        $subtract = $origin === 'commercial_direct' ? 5 : 10;
-
-        return max(0, $duration - $subtract);
+        return $this->rules->adjustedDuration($duration, $origin);
     }
 
     private function saveRecord(array $record, Collection $leadMatches): SalesforceCall
@@ -210,7 +206,10 @@ SOQL;
             $parsed['poll_value'] ?? null,
             $parsed['result_raw'] ?? null,
         );
-        $includedInDashboard = filled(data_get($record, 'CallObject'));
+        [$includedInDashboard, $exclusionReason] = $this->dashboardInclusion(
+            data_get($record, 'CallObject'),
+            $agent['operational_profile_name'] ?? data_get($record, 'Owner.Profile.Name'),
+        );
 
         $existing = SalesforceCall::query()->where('salesforce_id', data_get($record, 'Id'))->first();
         $call = SalesforceCall::updateOrCreate(
@@ -232,7 +231,7 @@ SOQL;
                 'what_id' => data_get($record, 'WhatId'),
                 'call_object' => data_get($record, 'CallObject'),
                 'included_in_dashboard' => $includedInDashboard,
-                'dashboard_exclusion_reason' => $includedInDashboard ? null : 'missing_call_object',
+                'dashboard_exclusion_reason' => $exclusionReason,
                 'classification_rule_version' => CallClassificationRules::VERSION,
                 'classified_at' => now(),
                 'call_duration_seconds' => is_numeric(data_get($record, 'CallDurationInSeconds')) ? (int) data_get($record, 'CallDurationInSeconds') : null,
@@ -314,8 +313,22 @@ SOQL;
         return collect([
             'call_status', 'is_answered', 'is_lost', 'is_overflow', 'overflow_reason',
             'call_origin', 'portal_resolved', 'operational_team', 'delegation', 'zone',
-            'adjusted_duration_seconds', 'included_in_dashboard', 'dashboard_exclusion_reason',
+            'call_duration_seconds', 'parsed_duration_seconds', 'adjusted_duration_seconds',
+            'included_in_dashboard', 'dashboard_exclusion_reason',
         ])->mapWithKeys(fn (string $field): array => [$field => $call->{$field}])->all();
+    }
+
+    private function dashboardInclusion(mixed $callObject, ?string $operationalProfile): array
+    {
+        if (! filled($callObject)) {
+            return [false, 'missing_call_object'];
+        }
+
+        if ($this->rules->isExcludedTestProfile($operationalProfile)) {
+            return [false, CallClassificationRules::EXCLUDED_TEST_PROFILE_REASON];
+        }
+
+        return [true, null];
     }
 
     private function resolvePortal(array $record, Collection $leadMatches): array
@@ -430,8 +443,7 @@ SOQL));
         ?string $team,
         ?string $pollValue = null,
         ?string $resultRaw = null,
-    ): bool
-    {
+    ): bool {
         return $this->rules->isOverflow($origin, $status, $portal, $team, $pollValue, $resultRaw);
     }
 

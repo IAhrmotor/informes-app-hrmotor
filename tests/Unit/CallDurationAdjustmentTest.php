@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\Services\Reports\Calls\CallClassificationRules;
 use App\Services\Reports\Calls\CallMetricsAggregator;
 use App\Services\Reports\Calls\SalesforceCallSyncService;
 use Tests\TestCase;
@@ -16,6 +17,10 @@ class CallDurationAdjustmentTest extends TestCase
         $this->assertSame(70, $service->adjustedDuration(80, 'portal'));
         $this->assertSame(0, $service->adjustedDuration(4, 'commercial_direct'));
         $this->assertSame(0, $service->adjustedDuration(4, 'portal'));
+        $this->assertSame(0, $service->adjustedDuration(5, 'commercial_direct'));
+        $this->assertSame(0, $service->adjustedDuration(10, 'portal'));
+        $this->assertSame(0, $service->adjustedDuration(3, 'commercial_direct'));
+        $this->assertSame(0, $service->adjustedDuration(7, 'portal'));
     }
 
     public function test_promedio_usa_solo_llamadas_atendidas(): void
@@ -27,5 +32,14 @@ class CallDurationAdjustmentTest extends TestCase
         $aggregator->add($bucket, ['is_answered' => false, 'adjusted_duration_seconds' => 100, 'direction' => 'inbound']);
 
         $this->assertSame(40.0, $aggregator->finalize($bucket)['average_talk_seconds']);
+    }
+
+    public function test_la_regla_canonica_identifica_exactamente_el_perfil_excluido(): void
+    {
+        $rules = app(CallClassificationRules::class);
+
+        $this->assertTrue($rules->isExcludedTestProfile('Pruebas comunidad comercial'));
+        $this->assertFalse($rules->isExcludedTestProfile('Pruebas comunidad comercial temporal'));
+        $this->assertSame('unassigned', $rules->effectiveTeam(null));
     }
 }
