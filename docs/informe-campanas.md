@@ -188,3 +188,9 @@ El último comando reutiliza el builder real, compara IDs actuales y simulados,
 informa cambios, ambigüedades, exclusiones y Salesforce-only, y aborta si la
 partición del universo no concilia. Para escritura histórica con `--from` se
 requiere `--reason`; no ejecutar sin aprobación tras la conciliación.
+## Diagnóstico de tipos nulos en simulación
+
+El resumen de dry-run representa un tipo no normalizable como `null` solo para
+conteo técnico; no cambia la clasificación funcional ni excluye el Lead del
+universo. El reproceso de tipos detalla transiciones raw/actual/calculada y una
+muestra acotada de Salesforce Lead IDs, sin PII.

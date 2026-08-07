@@ -844,7 +844,7 @@ class CampaignAttributionBuilderService
             }
         }
 
-        $leadTypes = $leads->countBy(fn (object $lead): string => $this->leadRecordTypeNormalizer->normalize($lead->record_type_name ?? null))->all();
+        $leadTypes = $leads->countBy(fn (object $lead): string => $this->leadRecordTypeNormalizer->normalize($lead->record_type_name ?? null) ?? 'null')->all();
         $universe = $leads->pluck('salesforce_id')->map(fn ($id): string => (string) $id)->sort()->values()->all();
         $partition = collect($sets)->flatten()->sort()->values()->all();
 

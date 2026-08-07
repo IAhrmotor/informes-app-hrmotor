@@ -125,3 +125,9 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   compara la simulación con `campaign_attributions`, sin escritura.
 - La reconstrucción histórica en escritura mediante `--from` requiere
   `--reason`. No se ejecutó ningún reproceso.
+## Correctivo de dry-run de tipos nulos (2026-08-07)
+
+- La simulación de atribución usa la etiqueta técnica `null` para estadísticas
+  cuando el normalizador no devuelve tipo; el Lead sigue en el universo.
+- El comando de reproceso desglosa cambios no Lead/Ayvens por raw, valor
+  materializado y valor calculado, con muestras de IDs no personales.

@@ -44,9 +44,10 @@ class ReprocessLeadRecordTypesCommand extends Command
         $leadToVenta = 0;
         $ayvensToVenta = 0;
         $otherChanges = 0;
+        $otherTransitions = [];
         $dryRun = (bool) $this->option('dry-run');
 
-        $query->chunkById($chunk, function ($rows) use ($normalizer, $dryRun, &$examined, &$changed, &$leadToVenta, &$ayvensToVenta, &$otherChanges): void {
+        $query->chunkById($chunk, function ($rows) use ($normalizer, $dryRun, &$examined, &$changed, &$leadToVenta, &$ayvensToVenta, &$otherChanges, &$otherTransitions): void {
             foreach ($rows as $lead) {
                 $examined++;
                 $target = $normalizer->normalize($lead->record_type_name);
@@ -63,6 +64,16 @@ class ReprocessLeadRecordTypesCommand extends Command
                     $ayvensToVenta++;
                 } else {
                     $otherChanges++;
+                    $transition = implode(' | ', [
+                        'raw='.$this->diagnosticValue($lead->record_type_name),
+                        'current='.$this->diagnosticValue($lead->record_type_normalized),
+                        'calculated='.$this->diagnosticValue($target),
+                    ]);
+                    $otherTransitions[$transition] ??= ['count' => 0, 'ids' => []];
+                    $otherTransitions[$transition]['count']++;
+                    if (count($otherTransitions[$transition]['ids']) < 20) {
+                        $otherTransitions[$transition]['ids'][] = (string) $lead->salesforce_id;
+                    }
                 }
 
                 if (! $dryRun) {
@@ -77,6 +88,12 @@ class ReprocessLeadRecordTypesCommand extends Command
         $this->line("Lead -> Venta: {$leadToVenta}");
         $this->line("Ayvens -> Venta: {$ayvensToVenta}");
         $this->line("Otros cambios: {$otherChanges}");
+        if ($otherTransitions !== []) {
+            $this->line('Detalle de otros cambios (raw | actual | calculado):');
+            foreach ($otherTransitions as $transition => $detail) {
+                $this->line($transition.': '.$detail['count'].' | IDs: '.implode(', ', $detail['ids']));
+            }
+        }
         $this->line('Tablas derivadas que requieren reconstrucción: campaign_salesforce_leads y atribuciones de Campañas.');
         $this->warn('No se reconstruyen Campañas automáticamente en este lote.');
 
@@ -96,5 +113,14 @@ class ReprocessLeadRecordTypesCommand extends Command
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private function diagnosticValue(mixed $value): string
+    {
+        if ($value === null) {
+            return 'null';
+        }
+
+        return $value === '' ? 'empty' : (string) $value;
     }
 }
