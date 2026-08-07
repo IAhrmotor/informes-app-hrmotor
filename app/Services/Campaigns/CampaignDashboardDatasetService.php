@@ -154,6 +154,15 @@ class CampaignDashboardDatasetService
                     'is_ambiguous' => (bool) $row->is_ambiguous,
                     'attribution_rule_version' => $row->attribution_rule_version,
                     'campaign_source_type' => $row->row_campaign_source_type ?: $row->lead_campaign_source_type,
+                    'exclusion_reason' => ($row->row_campaign_source_type ?: $row->lead_campaign_source_type) === 'excluded_campaign'
+                        ? ($row->row_match_status ?: $row->lead_match_status)
+                        : null,
+                    'exclusion_match_type' => ($row->row_campaign_source_type ?: $row->lead_campaign_source_type) === 'excluded_campaign'
+                        ? 'exact_name'
+                        : null,
+                    'exclusion_match_value' => ($row->row_campaign_source_type ?: $row->lead_campaign_source_type) === 'excluded_campaign'
+                        ? ($row->matched_source_value ?: $row->raw_campaign_name ?: $row->campaign_acquired)
+                        : null,
                     'campaign_type' => $row->campaign_type,
                     'lead_record_type_raw' => $row->lead_record_type_raw,
                     'lead_record_type_normalized' => $row->lead_record_type_normalized
@@ -712,6 +721,12 @@ class CampaignDashboardDatasetService
             $rows[$key]['campaign_type'] = $row['campaign_type'] ?? $this->campaignType($rows[$key]);
             $rows[$key]['leads_salesforce'] = (int) $row['leads_salesforce'];
             $rows[$key]['opportunities'] = (int) $row['opportunities'];
+            if ($rows[$key]['campaign_source_type'] === 'salesforce_campaign_without_spend') {
+                $rows[$key] = array_merge($rows[$key], $this->salesforceOnlyNotApplicableMetrics());
+
+                continue;
+            }
+
             $rows[$key]['reservations'] = (int) $row['reservations'];
             $rows[$key]['live_reservations'] = (int) $row['live_reservations'];
             $rows[$key]['fallen_reservations'] = (int) $row['fallen_reservations'];
@@ -770,6 +785,12 @@ class CampaignDashboardDatasetService
 
     private function withRatios(array $row): array
     {
+        if ($this->deriveSourceType($row) === 'salesforce_campaign_without_spend') {
+            return array_merge($row, $this->salesforceOnlyNotApplicableMetrics(), [
+                'lead_to_opportunity' => $this->divide($row['opportunities'], $row['leads_salesforce']),
+            ]);
+        }
+
         $saleAmount = $row['sale_amount'];
         $spend = (float) $row['spend'];
 
@@ -795,6 +816,20 @@ class CampaignDashboardDatasetService
             'lead_to_purchase' => $this->divide($row['purchases'] ?? 0, $row['leads_salesforce']),
             'opportunity_to_purchase' => $this->divide($row['purchases'] ?? 0, $row['opportunities']),
         ]);
+    }
+
+    private function salesforceOnlyNotApplicableMetrics(): array
+    {
+        return array_fill_keys([
+            'spend', 'impressions', 'clicks', 'platform_leads', 'platform_conversions',
+            'reservations', 'live_reservations', 'fallen_reservations', 'sales', 'sale_amount',
+            'appraisals_generated', 'purchases', 'appraisal_amount', 'ctr', 'cpc',
+            'cost_per_lead', 'cost_per_opportunity', 'cost_per_reservation', 'cost_per_sale',
+            'cost_per_appraisal', 'cost_per_purchase', 'roas', 'estimated_roi', 'result_count',
+            'cost_per_result', 'click_to_lead_salesforce', 'click_to_lead_platform',
+            'opportunity_to_reservation', 'reservation_to_sale', 'lead_to_sale',
+            'lead_to_purchase', 'opportunity_to_purchase',
+        ], null);
     }
 
     private function withDerivedState(array $row): array
@@ -1619,6 +1654,10 @@ class CampaignDashboardDatasetService
             }
         }
 
+        if ($row->platform === 'salesforce') {
+            return;
+        }
+
         if ((bool) $row->has_reservation) {
             $reservationKey = $monthKey.'|'.$opportunityId;
 
@@ -1714,6 +1753,10 @@ class CampaignDashboardDatasetService
         ];
 
         $opportunities[$opportunityId]['has_opportunity'] = $opportunities[$opportunityId]['has_opportunity'] || (bool) $row->has_opportunity;
+
+        if ($row->platform === 'salesforce') {
+            return;
+        }
         $opportunities[$opportunityId]['has_reservation'] = $opportunities[$opportunityId]['has_reservation'] || (bool) $row->has_reservation;
         $opportunities[$opportunityId]['has_live_reservation'] = $opportunities[$opportunityId]['has_live_reservation']
             || ((bool) $row->has_reservation && ($isTasacion || ! $isSale));

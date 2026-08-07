@@ -36,3 +36,8 @@ se representa como `unassigned`, sin convertir equipos en geografía.
 El cierre congela exclusivamente inversión agregada por campaña y conserva un
 snapshot versionado. Reabrir exige motivo sin borrar snapshots. Las atribuciones
 ambiguas no se degradan a Salesforce-only: se auditan y no entran en KPI.
+## 2026-08-07 — Métricas Salesforce-only de Campañas
+
+Salesforce-only puede contribuir Leads, Oportunidades y su ratio derivado. Las
+métricas de resultados comerciales, importes y economía se consideran no
+aplicables y no se agregan en KPIs de Campañas.

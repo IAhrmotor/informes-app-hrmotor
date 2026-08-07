@@ -161,3 +161,16 @@ Archivos principales:
 - Administrador/IT puede cerrar inversión mensual mediante snapshot versionado.
   Los resultados comerciales siguen abiertos; reabrir exige motivo y no borra
   snapshots.
+## Correctivo Salesforce-only (2026-08-07)
+
+Salesforce-only solo aporta Leads, Oportunidades y `lead_to_opportunity`.
+Reservas, ventas, compras, importes y métricas de inversión son no aplicables
+(`null`) por fila y no contaminan los totales de Campañas.
+
+`platform_leads` procede de acciones nativas de Meta y `platform_conversions`
+de métricas nativas de Google Ads; no contienen resultados comerciales
+Salesforce y pueden conservarse en snapshots económicos.
+
+No se verificaron identificadores persistentes de Tasador, ren2click ni
+hrrenting en el repositorio. Se conserva el fallback exacto por nombre y queda
+auditado como `exact_name` con motivo estable.

@@ -350,3 +350,11 @@ Riesgos operativos:
 - Se añadió cierre mensual de inversión con snapshot versionado y reapertura con
   motivo, exclusivamente para Administrador/IT. Los resultados comerciales no se
   congelan. Requiere migración; no se ejecutan reconstrucciones históricas.
+## Correctivo Salesforce-only de Campañas (2026-08-07)
+
+- Salesforce-only aporta solo Leads/Oportunidades y ratio Lead-a-Oportunidad;
+  métricas comerciales y económicas son no aplicables.
+- `campaign_salesforce_leads` es la fotografía sincronizada por
+  `salesforce:sync-campaign-leads`; el builder genera
+  `campaign_lead_attributions` por periodo. El dry-run de tipos de Lead no
+  escribe y debe preceder cualquier sincronización/reconstrucción histórica.

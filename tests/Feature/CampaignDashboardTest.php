@@ -1050,6 +1050,47 @@ class CampaignDashboardTest extends TestCase
             ->assertJsonPath('diagnostics.salesforce_only_by_campaign', 1);
     }
 
+    public function test_salesforce_only_omits_commercial_and_economic_metrics(): void
+    {
+        foreach (range(1, 10) as $index) {
+            $opportunity = $index <= 4 ? '006-sf-only-'.$index : null;
+            DB::table('campaign_lead_attributions')->insert($this->attributionRow([
+                'lead_id' => '00Q-sf-only-'.$index,
+                'platform' => 'salesforce',
+                'campaign_id' => 'sf-only-campaign',
+                'campaign_name' => 'Campaign Salesforce only',
+                'source_campaign_name' => 'Campaign Salesforce only',
+                'opportunity_id' => $opportunity,
+                'has_opportunity' => $opportunity !== null,
+                'has_reservation' => $index <= 3,
+                'has_sale' => $index <= 2,
+                'has_purchase' => $index === 1,
+                'sold_amount' => $index <= 2 ? 1000 : null,
+            ]));
+        }
+
+        $item = $this->getJson('/informes/campanas/data/campaigns?'.$this->query().'&campaign_status=')
+            ->assertOk()
+            ->json('items.0');
+
+        $this->assertSame(10, $item['leads_salesforce']);
+        $this->assertSame(4, $item['opportunities']);
+        $this->assertSame(0.4, $item['lead_to_opportunity']);
+        foreach (['reservations', 'live_reservations', 'fallen_reservations', 'sales', 'purchases', 'sale_amount', 'appraisal_amount', 'spend', 'cpc', 'cost_per_lead', 'cost_per_opportunity', 'cost_per_reservation', 'cost_per_sale', 'cost_per_purchase', 'roas', 'estimated_roi'] as $key) {
+            $this->assertNull($item[$key], $key);
+        }
+
+        $this->getJson('/informes/campanas/data/summary?'.$this->query().'&campaign_status=')
+            ->assertOk()
+            ->assertJsonPath('kpis.leads_salesforce', 10)
+            ->assertJsonPath('kpis.opportunities', 4)
+            ->assertJsonPath('kpis.reservations', 0)
+            ->assertJsonPath('kpis.sales', 0)
+            ->assertJsonPath('kpis.purchases', 0)
+            ->assertJsonPath('kpis.sale_amount', null)
+            ->assertJsonPath('kpis.appraisal_amount', null);
+    }
+
     public function test_tasador_generico_queda_excluido_de_metricas_de_campanas(): void
     {
         SalesforceLead::query()->create([

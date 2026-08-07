@@ -111,3 +111,9 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   puede cerrar/reabrir; snapshots no se borran en cascada.
 - El dashboard usa inversión congelada para meses cerrados y deja abiertos los
   resultados comerciales. Ambigüedades y exclusiones permanecen auditables.
+## Correctivo Salesforce-only de Campañas (2026-08-07)
+
+- El dataset representa como `null` las métricas comerciales/económicas de
+  Salesforce-only y evita que entren en los totales.
+- La auditoría de exclusiones incorpora motivo, mecanismo `exact_name` y valor.
+- No hay migración adicional ni reproceso ejecutado.
