@@ -358,3 +358,9 @@ Riesgos operativos:
   `salesforce:sync-campaign-leads`; el builder genera
   `campaign_lead_attributions` por periodo. El dry-run de tipos de Lead no
   escribe y debe preceder cualquier sincronización/reconstrucción histórica.
+## Simulación histórica de Campañas (2026-08-07)
+
+- Dry-run disponible para sincronización de Campaign Leads y builder de
+  atribución. Ambos son no persistentes; el builder reporta muestras de IDs y
+  cambios de campaña/ambigüedad.
+- La escritura histórica con `campaigns:build-attribution --from` exige motivo.

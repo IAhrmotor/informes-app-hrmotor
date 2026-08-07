@@ -174,3 +174,17 @@ Salesforce y pueden conservarse en snapshots económicos.
 No se verificaron identificadores persistentes de Tasador, ren2click ni
 hrrenting en el repositorio. Se conserva el fallback exacto por nombre y queda
 auditado como `exact_name` con motivo estable.
+## Simulación histórica de Campaign Leads y atribución
+
+La secuencia de simulación no escribe tablas ni invalida cachés:
+
+```bash
+php artisan reports:reprocess-lead-record-types --dry-run --from=YYYY-MM-DD --to=YYYY-MM-DD
+php artisan salesforce:sync-campaign-leads --dry-run --from=YYYY-MM-DD --to=YYYY-MM-DD
+php artisan campaigns:build-attribution --dry-run --from=YYYY-MM-DD --to=YYYY-MM-DD
+```
+
+El último comando reutiliza el builder real, compara IDs actuales y simulados,
+informa cambios, ambigüedades, exclusiones y Salesforce-only, y aborta si la
+partición del universo no concilia. Para escritura histórica con `--from` se
+requiere `--reason`; no ejecutar sin aprobación tras la conciliación.

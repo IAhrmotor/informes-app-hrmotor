@@ -41,3 +41,8 @@ ambiguas no se degradan a Salesforce-only: se auditan y no entran en KPI.
 Salesforce-only puede contribuir Leads, Oportunidades y su ratio derivado. Las
 métricas de resultados comerciales, importes y economía se consideran no
 aplicables y no se agregan en KPIs de Campañas.
+## 2026-08-07 — Simulación no persistente de atribución de Campañas
+
+El dry-run usa `CampaignAttributionBuilderService`, no un motor paralelo. No
+borra, inserta, actualiza ni invalida caché; exige conciliación de particiones
+y unicidad de atribución KPI antes de permitir aprobar una reconstrucción.

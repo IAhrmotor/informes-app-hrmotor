@@ -15,6 +15,7 @@ class SalesforceSyncCampaignLeadsCommand extends Command
         {--from= : Fecha inicial explicita en formato Y-m-d}
         {--to= : Fecha final exclusiva explicita en formato Y-m-d}
         {--fresh : Borra leads de campana del periodo antes de sincronizar}
+        {--dry-run : Consulta Salesforce y calcula el resultado sin escribir ni invalidar cache}
         {--debug-soql : Imprime la query SOQL ejecutada}';
 
     protected $description = 'Sincroniza Leads Salesforce relevantes para el informe de campanas.';
@@ -41,7 +42,14 @@ class SalesforceSyncCampaignLeadsCommand extends Command
             $this->newLine();
         }
 
-        $result = $sync->sync($start, $end, (bool) $this->option('fresh'));
+        $dryRun = (bool) $this->option('dry-run');
+        if ($dryRun && $this->option('fresh')) {
+            $this->error('--fresh no puede combinarse con --dry-run.');
+
+            return self::FAILURE;
+        }
+
+        $result = $sync->sync($start, $end, (bool) $this->option('fresh'), $dryRun);
 
         foreach ($result['warnings'] ?? [] as $warning) {
             $this->warn($warning);
@@ -58,7 +66,9 @@ class SalesforceSyncCampaignLeadsCommand extends Command
         $this->line('Leads con medio_origen: '.$result['with_medio_origen']);
         $this->line('Leads sin adquisicion/fuente/medio: '.$result['without_acquisition']);
 
-        Cache::forever('campaign_dashboard_cache_version', ((int) Cache::get('campaign_dashboard_cache_version', 1)) + 1);
+        if (! $dryRun) {
+            Cache::forever('campaign_dashboard_cache_version', ((int) Cache::get('campaign_dashboard_cache_version', 1)) + 1);
+        }
         $this->info('Sincronizacion de Leads de campana completada.');
 
         return self::SUCCESS;

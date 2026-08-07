@@ -11,28 +11,30 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
-use Throwable;
 use RuntimeException;
+use Throwable;
 
 class CampaignLeadSyncService
 {
     private const UPSERT_CHUNK_SIZE = 200;
+
     private const UPSERT_WRITE_CHUNK_SIZE = 100;
+
     private const UPSERT_DEADLOCK_RETRIES = 4;
+
     private const UPSERT_DEADLOCK_RETRY_SLEEP_MS = 250;
 
     public function __construct(
         private readonly SalesforceClient $client,
-    ) {
-    }
+    ) {}
 
-    public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $fresh = false): array
+    public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $fresh = false, bool $dryRun = false): array
     {
         $start = CarbonImmutable::parse($periodStart)->startOfDay();
         $end = CarbonImmutable::parse($periodEnd);
         $deleted = 0;
 
-        if ($fresh) {
+        if ($fresh && ! $dryRun) {
             $deleted = CampaignSalesforceLead::query()
                 ->where('created_date', '>=', $start)
                 ->where('created_date', '<', $end)
@@ -79,12 +81,17 @@ class CampaignLeadSyncService
             $rows[] = $row;
 
             if (count($rows) >= self::UPSERT_CHUNK_SIZE) {
-                $stats['saved'] += $this->upsert($rows);
+                if (! $dryRun) {
+                    $stats['saved'] += $this->upsert($rows);
+                }
                 $rows = [];
             }
         }
 
-        $stats['saved'] += $this->upsert($rows);
+        if (! $dryRun) {
+            $stats['saved'] += $this->upsert($rows);
+        }
+        $stats['dry_run'] = $dryRun;
 
         return $stats;
     }

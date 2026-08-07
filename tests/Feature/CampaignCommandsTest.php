@@ -413,6 +413,35 @@ class CampaignCommandsTest extends TestCase
         ])->assertExitCode(0);
     }
 
+    public function test_attribution_dry_run_does_not_write_and_matches_real_builder(): void
+    {
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-dry-run', 'name' => 'Lead de simulacion',
+            'created_date' => '2026-05-10 10:00:00', 'status' => 'Potencial',
+            'record_type_name' => 'Lead', 'owner_id' => '005-real',
+            'owner_name' => 'Comercial Real', 'campaign_acquired' => 'Campaign simulada',
+        ]);
+
+        $before = DB::table('campaign_attributions')->orderBy('id')->get()->map(fn ($row) => (array) $row)->all();
+        $builder = app(CampaignAttributionBuilderService::class);
+        $simulated = $builder->build(CarbonImmutable::parse('2026-05-01'), CarbonImmutable::parse('2026-06-01'), true);
+
+        $this->assertTrue($simulated['dry_run']);
+        $this->assertSame(1, $simulated['simulation']['campaign_leads_examined']);
+        $this->assertSame($before, DB::table('campaign_attributions')->orderBy('id')->get()->map(fn ($row) => (array) $row)->all());
+        $this->assertDatabaseCount('campaign_lead_attributions', 0);
+
+        $builder->build(CarbonImmutable::parse('2026-05-01'), CarbonImmutable::parse('2026-06-01'));
+
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-dry-run',
+            'campaign_name' => 'Campaign simulada',
+            'campaign_source_type' => 'salesforce_campaign_without_spend',
+        ]);
+        $this->assertSame(1, $simulated['simulation']['sets']['attributed']['count']);
+        $this->assertSame(1, $simulated['simulation']['lead_types']['venta']);
+    }
+
     public function test_build_attribution_respeta_oportunidades_ya_atribuidas_fuera_de_rango(): void
     {
         CampaignAttribution::query()->create([

@@ -2,6 +2,7 @@
 
 namespace App\Services\Campaigns;
 
+use App\Services\Reports\Leads\LeadRecordTypeNormalizer;
 use App\Services\Reports\Leads\SalesforceLeadDashboardDatasetService;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -26,9 +27,10 @@ class CampaignAttributionBuilderService
         private readonly SalesforceLeadDashboardDatasetService $leadDataset,
         private readonly CampaignSaleAmountResolver $saleAmountResolver,
         private readonly CampaignTypeResolver $campaignTypeResolver,
+        private readonly LeadRecordTypeNormalizer $leadRecordTypeNormalizer,
     ) {}
 
-    public function build(CarbonInterface $start, CarbonInterface $end): array
+    public function build(CarbonInterface $start, CarbonInterface $end, bool $dryRun = false): array
     {
         $startedAt = microtime(true);
         $start = CarbonImmutable::parse($start)->startOfDay();
@@ -38,21 +40,20 @@ class CampaignAttributionBuilderService
         $leads = $this->candidateLeads($start, $end, $stats);
         $opportunities = $this->candidateOpportunities($leads);
         $now = now();
+        $currentRows = $dryRun ? $this->currentAttributions($start, $end) : [];
+        $simulatedRows = [];
 
-        DB::beginTransaction();
+        if (! $dryRun) {
+            DB::beginTransaction();
+        }
 
         try {
-            DB::table('campaign_attributions')
-                ->where('lead_created_at', '>=', $start)
-                ->where('lead_created_at', '<', $end)
-                ->delete();
+            if (! $dryRun) {
+                DB::table('campaign_attributions')->where('lead_created_at', '>=', $start)->where('lead_created_at', '<', $end)->delete();
+                DB::table('campaign_lead_attributions')->where('lead_created_date', '>=', $start)->where('lead_created_date', '<', $end)->delete();
+            }
 
-            DB::table('campaign_lead_attributions')
-                ->where('lead_created_date', '>=', $start)
-                ->where('lead_created_date', '<', $end)
-                ->delete();
-
-            $assignments = $this->assignOpportunities($leads, $opportunities, $this->claimedOpportunityIds());
+            $assignments = $this->assignOpportunities($leads, $opportunities, $this->claimedOpportunityIds($dryRun ? $start : null, $dryRun ? $end : null));
             $campaignAttributionBatch = [];
             $leadAttributionBatch = [];
 
@@ -61,16 +62,23 @@ class CampaignAttributionBuilderService
                 $primaryAssignment = $assignments['primary'][(string) $lead->salesforce_id] ?? null;
                 $leadAssignments = $assignments['detail'][(string) $lead->salesforce_id] ?? [];
                 $primaryRow = $this->makeAttributionRow($lead, $campaign, $primaryAssignment, $now);
+                $simulatedRows[] = $primaryRow;
 
                 $this->countCampaignMatch($stats, $campaign);
 
-                $campaignAttributionBatch[] = $primaryRow;
+                if (! $dryRun) {
+                    $campaignAttributionBatch[] = $primaryRow;
+                }
 
                 if ($leadAssignments === []) {
-                    $leadAttributionBatch[] = $primaryRow;
+                    if (! $dryRun) {
+                        $leadAttributionBatch[] = $primaryRow;
+                    }
                 } else {
                     foreach ($leadAssignments as $assignment) {
-                        $leadAttributionBatch[] = $this->makeAttributionRow($lead, $campaign, $assignment, $now);
+                        if (! $dryRun) {
+                            $leadAttributionBatch[] = $this->makeAttributionRow($lead, $campaign, $assignment, $now);
+                        }
                     }
                 }
 
@@ -88,17 +96,21 @@ class CampaignAttributionBuilderService
                     'sale_amount' => $primaryRow['sale_amount'],
                 ]);
 
-                if (count($campaignAttributionBatch) >= self::UPSERT_CHUNK_SIZE || count($leadAttributionBatch) >= (self::UPSERT_CHUNK_SIZE * 4)) {
+                if (! $dryRun && (count($campaignAttributionBatch) >= self::UPSERT_CHUNK_SIZE || count($leadAttributionBatch) >= (self::UPSERT_CHUNK_SIZE * 4))) {
                     $this->flushAttributions($campaignAttributionBatch, $leadAttributionBatch);
                     $campaignAttributionBatch = [];
                     $leadAttributionBatch = [];
                 }
             }
 
-            $this->flushAttributions($campaignAttributionBatch, $leadAttributionBatch);
-            DB::commit();
+            if (! $dryRun) {
+                $this->flushAttributions($campaignAttributionBatch, $leadAttributionBatch);
+                DB::commit();
+            }
         } catch (Throwable $exception) {
-            DB::rollBack();
+            if (! $dryRun) {
+                DB::rollBack();
+            }
             throw $exception;
         }
 
@@ -129,7 +141,12 @@ class CampaignAttributionBuilderService
             );
         }
 
-        $this->invalidateCache();
+        if ($dryRun) {
+            $stats['dry_run'] = true;
+            $stats['simulation'] = $this->simulationSummary($leads, $currentRows, $simulatedRows);
+        } else {
+            $this->invalidateCache();
+        }
 
         return $stats;
     }
@@ -772,14 +789,81 @@ class CampaignAttributionBuilderService
         $claimedOpportunityIds[$opportunityId] = true;
     }
 
-    private function claimedOpportunityIds(): array
+    private function claimedOpportunityIds(?CarbonInterface $excludedStart = null, ?CarbonInterface $excludedEnd = null): array
     {
-        return DB::table('campaign_attributions')
+        $query = DB::table('campaign_attributions')
             ->whereNotNull('opportunity_id')
+            ->when($excludedStart && $excludedEnd, function ($query) use ($excludedStart, $excludedEnd): void {
+                $query->where(function ($period) use ($excludedStart, $excludedEnd): void {
+                    $period->where('lead_created_at', '<', $excludedStart)->orWhere('lead_created_at', '>=', $excludedEnd);
+                });
+            });
+
+        return $query
             ->pluck('opportunity_id')
             ->filter(fn ($value): bool => filled($value))
             ->mapWithKeys(fn ($value): array => [(string) $value => true])
             ->all();
+    }
+
+    private function currentAttributions(CarbonInterface $start, CarbonInterface $end): array
+    {
+        return DB::table('campaign_attributions')
+            ->where('lead_created_at', '>=', $start)
+            ->where('lead_created_at', '<', $end)
+            ->select(['lead_id', 'platform', 'campaign_id', 'campaign_name', 'attribution_method', 'is_ambiguous', 'campaign_source_type'])
+            ->get()
+            ->keyBy('lead_id')
+            ->map(fn (object $row): array => (array) $row)
+            ->all();
+    }
+
+    private function simulationSummary(Collection $leads, array $currentRows, array $simulatedRows): array
+    {
+        $sets = ['attributed' => [], 'ambiguous' => [], 'unattributed' => [], 'excluded' => []];
+        $changes = ['campaign_changed' => [], 'new_ambiguous' => [], 'ambiguity_resolved' => [], 'became_unattributed' => []];
+
+        foreach ($simulatedRows as $row) {
+            $leadId = (string) $row['lead_id'];
+            $state = $row['campaign_source_type'] === 'excluded_campaign' ? 'excluded'
+                : (($row['is_ambiguous'] ?? false) ? 'ambiguous' : (blank($row['campaign_id']) && blank($row['campaign_name']) ? 'unattributed' : 'attributed'));
+            $sets[$state][] = $leadId;
+            $current = $currentRows[$leadId] ?? null;
+            $currentAmbiguous = (bool) ($current['is_ambiguous'] ?? false);
+            if ($current && ! $currentAmbiguous && ($row['is_ambiguous'] ?? false)) {
+                $changes['new_ambiguous'][] = $leadId;
+            }
+            if ($currentAmbiguous && ! ($row['is_ambiguous'] ?? false)) {
+                $changes['ambiguity_resolved'][] = $leadId;
+            }
+            if ($current && ! $currentAmbiguous && $state === 'unattributed') {
+                $changes['became_unattributed'][] = $leadId;
+            }
+            if ($current && $this->attributionIdentity($current) !== $this->attributionIdentity($row)) {
+                $changes['campaign_changed'][] = $leadId;
+            }
+        }
+
+        $leadTypes = $leads->countBy(fn (object $lead): string => $this->leadRecordTypeNormalizer->normalize($lead->record_type_name ?? null))->all();
+        $universe = $leads->pluck('salesforce_id')->map(fn ($id): string => (string) $id)->sort()->values()->all();
+        $partition = collect($sets)->flatten()->sort()->values()->all();
+
+        if ($universe !== $partition || count($sets['attributed']) !== count(array_unique($sets['attributed']))) {
+            throw new \LogicException('La conciliacion de la simulacion de atribucion no cierra.');
+        }
+
+        return [
+            'campaign_leads_examined' => count($universe), 'current_attributions' => count($currentRows), 'simulated_attributions' => count($simulatedRows),
+            'unchanged' => count(array_diff(array_keys($currentRows), array_merge(...array_values($changes)))),
+            'sets' => collect($sets)->map(fn (array $ids): array => ['count' => count($ids), 'sample_ids' => array_slice($ids, 0, 20)])->all(),
+            'changes' => collect($changes)->map(fn (array $ids): array => ['count' => count($ids), 'sample_ids' => array_slice(array_values(array_unique($ids)), 0, 20)])->all(),
+            'lead_types' => $leadTypes,
+        ];
+    }
+
+    private function attributionIdentity(array $row): string
+    {
+        return implode('|', [$row['platform'] ?? '', $row['campaign_id'] ?? '', $row['campaign_name'] ?? '', $row['attribution_method'] ?? '']);
     }
 
     private function leadMatchIndexes(Collection $leads): array

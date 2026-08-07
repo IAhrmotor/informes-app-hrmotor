@@ -13,6 +13,8 @@ class BuildCampaignAttributionCommand extends Command
         {--months= : Meses hacia atras que se procesan; tiene prioridad sobre --days}
         {--from= : Fecha inicial explicita en formato Y-m-d}
         {--to= : Fecha final exclusiva en formato Y-m-d; por defecto ahora}
+        {--dry-run : Simula la reconstruccion sin escribir atribuciones}
+        {--reason= : Motivo auditable para una reconstruccion historica en modo escritura}
         {--window= : Opcion legacy sin efecto; mantener solo por compatibilidad}';
 
     protected $description = 'Construye la atribucion lead -> oportunidad -> reserva -> venta por campana.';
@@ -21,8 +23,15 @@ class BuildCampaignAttributionCommand extends Command
     {
         $end = $this->periodEnd();
         $start = $this->periodStart($end);
+        $dryRun = (bool) $this->option('dry-run');
 
-        $result = $builder->build($start, $end);
+        if (! $dryRun && filled($this->option('from')) && blank($this->option('reason'))) {
+            $this->error('Las reconstrucciones historicas con --from requieren --reason.');
+
+            return self::FAILURE;
+        }
+
+        $result = $builder->build($start, $end, $dryRun);
 
         foreach ($result['warnings'] ?? [] as $warning) {
             $this->warn($warning);
@@ -64,6 +73,24 @@ class BuildCampaignAttributionCommand extends Command
         $this->line('Campo usado para importe: '.$result['sale_amount_field_used']);
         $this->line('Tiempo total: '.$result['duration_seconds'].'s');
         $this->line('Memoria pico: '.$result['peak_memory_mb'].' MB');
+
+        if ($dryRun) {
+            $simulation = $result['simulation'];
+            $this->newLine();
+            $this->line('SIMULACION SIN ESCRITURA');
+            $this->line('Campaign Leads examinados: '.$simulation['campaign_leads_examined']);
+            $this->line('Atribuciones actuales: '.$simulation['current_attributions']);
+            $this->line('Atribuciones simuladas: '.$simulation['simulated_attributions']);
+            foreach ($simulation['sets'] as $label => $data) {
+                $this->line($label.': '.$data['count'].' | IDs: '.implode(', ', $data['sample_ids']));
+            }
+            foreach ($simulation['changes'] as $label => $data) {
+                $this->line($label.': '.$data['count'].' | IDs: '.implode(', ', $data['sample_ids']));
+            }
+            foreach ($simulation['lead_types'] as $label => $count) {
+                $this->line('Lead tipo '.$label.': '.$count);
+            }
+        }
 
         $this->renderTop('Top 20 campaign_acquired', $result['top_campaign_acquired'] ?? []);
         $this->renderTop('Top 20 source_acquired + medium_acquired', $result['top_source_medium'] ?? []);

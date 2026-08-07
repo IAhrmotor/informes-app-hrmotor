@@ -117,3 +117,11 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   Salesforce-only y evita que entren en los totales.
 - La auditoría de exclusiones incorpora motivo, mecanismo `exact_name` y valor.
 - No hay migración adicional ni reproceso ejecutado.
+## Simulación histórica de Campañas (2026-08-07)
+
+- `salesforce:sync-campaign-leads --dry-run` lee Salesforce sin borrar,
+  upsertear ni invalidar caché.
+- `campaigns:build-attribution --dry-run` ejecuta el mismo builder en memoria y
+  compara la simulación con `campaign_attributions`, sin escritura.
+- La reconstrucción histórica en escritura mediante `--from` requiere
+  `--reason`. No se ejecutó ningún reproceso.
