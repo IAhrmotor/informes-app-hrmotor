@@ -13,7 +13,8 @@ use Throwable;
 
 class CampaignAttributionBuilderService
 {
-    private const ATTRIBUTION_RULE_VERSION = '2026-08-05.1';
+    private const ATTRIBUTION_RULE_VERSION = '2026-08-07.1';
+
     private const LEAD_CHUNK_SIZE = 1000;
 
     private const UPSERT_CHUNK_SIZE = 25;
@@ -164,11 +165,15 @@ class CampaignAttributionBuilderService
 
                     $stats['leads_with_acquisition_not_null']++;
 
-                    if ($this->campaignTypeResolver->shouldExclude($lead->campaign_acquired)
-                        || $this->campaignTypeResolver->sourceCampaignType($lead->campaign_acquired) === null) {
+                    $excludedReason = $this->campaignTypeResolver->excludedReason($lead->campaign_acquired);
+                    if (! $this->normalizer->isValidAttributionValue($lead->campaign_acquired)) {
                         $stats['discarded_invalid_values']++;
 
                         continue;
+                    }
+
+                    if ($excludedReason !== null) {
+                        $stats['discarded_invalid_values']++;
                     }
 
                     $this->countLeadAcquisitionShape($stats, $lead);
@@ -441,6 +446,11 @@ class CampaignAttributionBuilderService
 
     private function resolveCampaign(object $lead, array $metrics): array
     {
+        $excludedReason = $this->campaignTypeResolver->excludedReason($lead->campaign_acquired);
+        if ($excludedReason !== null) {
+            return $this->excludedCampaign($lead, $excludedReason);
+        }
+
         $idCandidates = array_filter([
             'Id_Adquirido__c' => $lead->acquired_id,
             'Contenido_Adquirido__c' => $lead->content_acquired,
@@ -469,7 +479,7 @@ class CampaignAttributionBuilderService
                 }
 
                 if (count($matches) > 1) {
-                    return $this->salesforceOnlyCampaign($lead, 'ID ambiguo entre plataformas/campanas', $sourceField, $candidate, count($matches));
+                    return $this->ambiguousCampaign($lead, 'ID ambiguo entre plataformas/campanas', $sourceField, $candidate, $matches);
                 }
             }
         }
@@ -492,7 +502,7 @@ class CampaignAttributionBuilderService
             }
 
             if (count($matches) > 1) {
-                return $this->salesforceOnlyCampaign($lead, 'Nombre exacto ambiguo entre campanas', 'Campa_a_Adquirida__c', $lead->campaign_acquired, count($matches));
+                return $this->ambiguousCampaign($lead, 'Nombre exacto ambiguo entre campanas', 'Campa_a_Adquirida__c', $lead->campaign_acquired, $matches);
             }
 
             $flexibleNameKey = $this->normalizer->flexibleCampaignKey($lead->campaign_acquired);
@@ -512,11 +522,31 @@ class CampaignAttributionBuilderService
             }
 
             if (count($matches) > 1) {
-                return $this->salesforceOnlyCampaign($lead, 'Nombre flexible ambiguo entre campanas', 'Campa_a_Adquirida__c', $lead->campaign_acquired, count($matches));
+                return $this->ambiguousCampaign($lead, 'Nombre flexible ambiguo entre campanas', 'Campa_a_Adquirida__c', $lead->campaign_acquired, $matches);
             }
         }
 
         return $this->salesforceOnlyCampaign($lead);
+    }
+
+    private function excludedCampaign(object $lead, string $reason): array
+    {
+        return [
+            'platform' => 'excluded',
+            'account_id' => null,
+            'campaign_id' => null,
+            'campaign_name' => $this->normalizer->clean($lead->campaign_acquired),
+            'method' => 'excluded',
+            'confidence' => 'none',
+            'match_status' => $reason,
+            'campaign_source_type' => 'excluded_campaign',
+            'matched_to_platform' => false,
+            'matched_source_field' => 'Campa_a_Adquirida__c',
+            'matched_source_value' => $this->normalizer->clean($lead->campaign_acquired),
+            'matched_platform_field' => null,
+            'matched_platform_value' => null,
+            'match_candidate_count' => 0,
+        ];
     }
 
     private function salesforceOnlyCampaign(
@@ -541,6 +571,27 @@ class CampaignAttributionBuilderService
             'matched_platform_field' => null,
             'matched_platform_value' => null,
             'match_candidate_count' => $candidateCount,
+        ];
+    }
+
+    private function ambiguousCampaign(object $lead, string $reason, string $sourceField, mixed $sourceValue, array $candidates): array
+    {
+        return [
+            'platform' => 'ambiguous',
+            'account_id' => null,
+            'campaign_id' => null,
+            'campaign_name' => null,
+            'method' => 'ambiguous',
+            'confidence' => 'none',
+            'match_status' => $reason,
+            'campaign_source_type' => 'ambiguous_attribution',
+            'matched_to_platform' => false,
+            'matched_source_field' => $sourceField,
+            'matched_source_value' => (string) $sourceValue,
+            'matched_platform_field' => null,
+            'matched_platform_value' => null,
+            'match_candidate_count' => count($candidates),
+            'candidates' => $candidates,
         ];
     }
 
@@ -1138,7 +1189,7 @@ class CampaignAttributionBuilderService
                 'method' => $campaign['method'] ?? null,
             ]], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'first_touch_at' => $lead->created_date,
-            'is_ambiguous' => false,
+            'is_ambiguous' => ($campaign['method'] ?? null) === 'ambiguous',
             'attribution_rule_version' => self::ATTRIBUTION_RULE_VERSION,
             'created_at' => $now,
             'updated_at' => $now,

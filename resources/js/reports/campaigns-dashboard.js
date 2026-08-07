@@ -768,6 +768,7 @@ async function loadDiagnostics() {
 
 function renderSummary(data) {
     renderWarnings(data.warnings || []);
+    renderInvestmentClosure(data.investment_closure || null);
     currentContext = data.selected_context || currentContext;
     syncCampaignTypeSelect();
     syncContextTabs();
@@ -791,6 +792,19 @@ function renderSummary(data) {
     renderReviewCampaigns(data.review_campaigns || []);
     renderSourceReconciliation(data.source_reconciliation || {});
     renderDiagnostics(data.diagnostics || {});
+}
+
+function renderInvestmentClosure(closure) {
+    const root = document.getElementById('investmentClosureStatus');
+    if (!root) return;
+
+    if (!closure) {
+        root.textContent = '';
+        return;
+    }
+
+    const investment = closure.investment_status === 'closed' ? 'Cerrada' : 'Abierta';
+    root.textContent = `Inversión: ${investment}. Resultados comerciales: Abiertos.`;
 }
 
 function renderSourceReconciliation(reconciliation) {

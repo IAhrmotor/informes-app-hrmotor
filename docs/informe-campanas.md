@@ -150,3 +150,14 @@ Archivos principales:
 - `app/Services/Campaigns/CampaignDashboardDatasetService.php`;
 - `app/Models/CampaignOperationalClassification.php`;
 - `app/Console/Commands/BuildCampaignAttributionCommand.php`.
+
+## Cierre de inversión y auditoría de atribución
+
+- Una coincidencia múltiple en un nivel de primer toque queda ambigua y no entra
+  en KPI, pero permanece auditable.
+- `tasador`, `ren2click` y `hrrenting` se excluyen solo por coincidencia exacta;
+  se conservan en auditoría con su motivo.
+- Salesforce-only conserva volumen y trazabilidad sin presentar costes como cero.
+- Administrador/IT puede cerrar inversión mensual mediante snapshot versionado.
+  Los resultados comerciales siguen abiertos; reabrir exige motivo y no borra
+  snapshots.

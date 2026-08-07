@@ -31,3 +31,8 @@ Salesforce verificable de la identidad operativa y el motivo estable
 `excluded_test_profile`; `missing_call_object` conserva prioridad. La regla de
 duración 5/10 se centraliza en `CallClassificationRules` y la ausencia de equipo
 se representa como `unassigned`, sin convertir equipos en geografía.
+## 2026-08-07 — Cierre mensual de inversión de Campañas
+
+El cierre congela exclusivamente inversión agregada por campaña y conserva un
+snapshot versionado. Reabrir exige motivo sin borrar snapshots. Las atribuciones
+ambiguas no se degradan a Salesforce-only: se auditan y no entran en KPI.

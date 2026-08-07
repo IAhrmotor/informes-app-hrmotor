@@ -105,3 +105,9 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   valor canónico `unassigned`. No hay cambios de esquema.
 - Sync y reproceso resuelven el perfil desde `SalesforceUser` por el ID operativo
   cuando está disponible; `missing_call_object` prevalece.
+## P1 Campañas: cierre de inversión (2026-08-07)
+
+- Se añadieron cierres, snapshots y eventos de Campañas. Solo Administrador/IT
+  puede cerrar/reabrir; snapshots no se borran en cascada.
+- El dashboard usa inversión congelada para meses cerrados y deja abiertos los
+  resultados comerciales. Ambigüedades y exclusiones permanecen auditables.

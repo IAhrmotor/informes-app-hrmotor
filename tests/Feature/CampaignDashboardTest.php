@@ -14,8 +14,8 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class CampaignDashboardTest extends TestCase
@@ -216,6 +216,49 @@ class CampaignDashboardTest extends TestCase
         $this->withSession($directorSession)
             ->get('/informes/campanas/export/attributions.csv?'.$this->query())
             ->assertOk();
+    }
+
+    public function test_cierre_de_inversion_congela_metricas_y_solo_admin_puede_reabrir(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+        $adminSession = $this->authenticatedSession(ReportUser::ROLE_ADMIN);
+
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'metric_date' => '2026-05-10',
+            'campaign_id' => 'camp-closure',
+            'campaign_name' => 'Campaign closure',
+            'spend' => 100,
+            'impressions' => 1000,
+            'clicks' => 100,
+        ]));
+
+        $this->withSession($adminSession)
+            ->postJson('/informes/campanas/investment-closure', ['month' => '2026-05-01'])
+            ->assertOk()
+            ->assertJsonPath('investment_status', 'closed')
+            ->assertJsonPath('commercial_results_status', 'open')
+            ->assertJsonPath('snapshot_version', 1);
+
+        CampaignPlatformDailyMetric::query()->where('campaign_id', 'camp-closure')->update(['spend' => 999]);
+
+        $this->withSession($adminSession)
+            ->getJson('/informes/campanas/data/summary?start_date=2026-05-01&end_date=2026-05-31')
+            ->assertOk()
+            ->assertJsonPath('kpis.spend', 100)
+            ->assertJsonPath('investment_closure.investment_status', 'closed');
+
+        $directorSession = $this->authenticatedSession(ReportUser::ROLE_DIRECTOR);
+        $this->withSession($directorSession)
+            ->postJson('/informes/campanas/investment-closure/reopen', ['month' => '2026-05-01', 'reason' => 'Correccion de datos de inversion'])
+            ->assertForbidden();
+
+        $this->withSession($adminSession)
+            ->postJson('/informes/campanas/investment-closure/reopen', ['month' => '2026-05-01', 'reason' => 'Correccion de datos de inversion'])
+            ->assertOk()
+            ->assertJsonPath('investment_status', 'open');
+
+        $this->assertDatabaseCount('campaign_investment_closure_snapshots', 1);
+        $this->assertDatabaseCount('campaign_investment_closure_events', 2);
     }
 
     public function test_google_ads_query_usa_campaign_para_incluir_performance_max(): void
@@ -1030,8 +1073,9 @@ class CampaignDashboardTest extends TestCase
             CarbonImmutable::parse('2026-06-01')
         );
 
-        $this->assertDatabaseMissing('campaign_lead_attributions', [
+        $this->assertDatabaseHas('campaign_lead_attributions', [
             'lead_id' => '00Q-tasador-manual',
+            'match_status' => 'excluded_campaign_tasador',
         ]);
 
         $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')

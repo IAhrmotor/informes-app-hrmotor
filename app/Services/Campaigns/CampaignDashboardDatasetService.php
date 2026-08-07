@@ -3,8 +3,8 @@
 namespace App\Services\Campaigns;
 
 use App\Models\CampaignAttribution;
-use App\Models\CampaignPlatformDailyMetric;
 use App\Models\CampaignOperationalClassification;
+use App\Models\CampaignPlatformDailyMetric;
 use App\Services\Reports\Leads\LeadRecordTypeNormalizer;
 use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
@@ -26,6 +26,7 @@ class CampaignDashboardDatasetService
         private readonly CampaignSaleAmountResolver $saleAmountResolver,
         private readonly CampaignTypeResolver $campaignTypeResolver,
         private readonly LeadRecordTypeNormalizer $leadRecordTypeNormalizer,
+        private readonly CampaignInvestmentClosureService $investmentClosures,
     ) {}
 
     public function summary(Request $request): array
@@ -74,13 +75,6 @@ class CampaignDashboardDatasetService
     {
         $filters = $this->filters($request);
         $period = $this->period($filters);
-        $visibleRows = $this->payload($request, false, false)['campaigns'];
-        $visibleRowKeys = array_fill_keys(array_map(fn (array $row): string => $this->rowKey($row), $visibleRows), true);
-
-        if ($visibleRowKeys === []) {
-            return [];
-        }
-
         $query = DB::table('campaign_lead_attributions as cla')
             ->leftJoin('campaign_attributions as ca', 'ca.lead_id', '=', 'cla.lead_id')
             ->leftJoin('salesforce_leads as sl', 'sl.salesforce_id', '=', 'cla.lead_id')
@@ -132,22 +126,6 @@ class CampaignDashboardDatasetService
             ->orderBy('cla.lead_id')
             ->orderBy('cla.id')
             ->get()
-            ->filter(function (object $row) use ($visibleRowKeys): bool {
-                $identity = $this->normalizeDashboardRow([
-                    'platform' => $row->platform,
-                    'campaign_id' => $row->resolved_campaign_id,
-                    'campaign_name' => $row->resolved_campaign_name,
-                    'source_campaign_name' => $row->raw_campaign_name,
-                    'campaign_acquired' => $row->campaign_acquired,
-                    'campaign_type' => $row->campaign_type,
-                    'campaign_source_type' => $row->platform === 'salesforce'
-                        ? 'salesforce_campaign_without_spend'
-                        : 'platform_campaign',
-                ]);
-                $identity['campaign_source_type'] = $this->deriveSourceType($identity);
-
-                return isset($visibleRowKeys[$this->rowKey($identity)]);
-            })
             ->map(function (object $row): array {
                 $method = $row->row_attribution_method ?: $row->lead_attribution_method;
                 $matchValue = $row->acquired_id ?: $row->content_acquired;
@@ -331,6 +309,7 @@ class CampaignDashboardDatasetService
 
         $attributionAnalytics = $this->attributionAnalytics($executiveCampaigns, $filters, $period);
         $summary = $this->summaryFromRows($executiveCampaigns, $allCampaigns, $filters, $period, $attributionAnalytics, $includeDiagnostics, $includeFilters);
+        $summary['investment_closure'] = $this->investmentClosures->status($period['start']);
         $summary['campaign_universes'] = [
             'paid' => array_values(array_filter($campaigns, fn (array $row): bool => in_array($row['platform'] ?? null, ['google_ads', 'meta'], true) && ($row['operational_classification'] ?? null) !== 'test')),
             'salesforce_only' => array_values(array_filter($campaigns, fn (array $row): bool => ($row['platform'] ?? null) === 'salesforce')),
@@ -520,6 +499,11 @@ class CampaignDashboardDatasetService
 
     private function metricRows(array $filters, array $period): array
     {
+        $closedRows = $this->closedEconomicRows($filters, $period);
+        if ($closedRows !== null) {
+            return $closedRows;
+        }
+
         $query = DB::table('campaign_platform_daily_metrics')
             ->where('metric_date', '>=', $period['start'])
             ->where('metric_date', '<=', $period['end']);
@@ -556,12 +540,83 @@ class CampaignDashboardDatasetService
             ->all();
     }
 
+    private function closedEconomicRows(array $filters, array $period): ?array
+    {
+        $start = CarbonImmutable::parse($period['start']);
+        $end = CarbonImmutable::parse($period['end']);
+        if (! $start->isSameDay($start->startOfMonth()) || ! $end->isSameDay($start->endOfMonth())) {
+            return null;
+        }
+
+        $status = $this->investmentClosures->status($start->toDateString());
+        if ($status['investment_status'] !== 'closed') {
+            return null;
+        }
+
+        $snapshot = DB::table('campaign_investment_closures as cic')
+            ->join('campaign_investment_closure_snapshots as s', function ($join): void {
+                $join->on('s.closure_id', '=', 'cic.id')->on('s.version', '=', 'cic.snapshot_version');
+            })
+            ->where('cic.month', $start->toDateString())
+            ->value('s.economic_rows');
+        $rows = is_string($snapshot) ? json_decode($snapshot, true) : [];
+
+        return collect($rows)->map(function (array $row): array {
+            $row = array_merge([
+                'account_name' => null, 'campaign_status' => null, 'campaign_effective_status' => null,
+                'campaign_start_date' => null, 'campaign_end_date' => null, 'advertising_channel_type' => null,
+                'advertising_channel_sub_type' => null, 'last_spend_date' => null, 'campaign_source_type' => 'platform_campaign',
+                'platform_leads' => 0, 'platform_leads_rows' => 0, 'platform_conversions' => 0,
+            ], $row);
+
+            return $this->normalizeDashboardRow($row);
+        })->filter(fn (array $row): bool => $this->snapshotRowMatchesMetricFilters($row, $filters))
+            ->filter(fn (array $row): bool => $this->includeCampaignForContext($row, $filters))
+            ->values()
+            ->all();
+    }
+
+    private function snapshotRowMatchesMetricFilters(array $row, array $filters): bool
+    {
+        if (filled($filters['campaign_source_type'] ?? null) && $filters['campaign_source_type'] !== 'platform_campaign') {
+            return false;
+        }
+
+        foreach (['platform', 'account_id', 'campaign_id'] as $field) {
+            if (filled($filters[$field] ?? null) && (string) ($row[$field] ?? '') !== (string) $filters[$field]) {
+                return false;
+            }
+        }
+
+        $campaignNames = $filters['campaign_name'] ?? [];
+        if (is_array($campaignNames) && $campaignNames !== [] && ! in_array($row['campaign_name'] ?? null, $campaignNames, true)) {
+            return false;
+        }
+        if (! is_array($campaignNames) && filled($campaignNames) && (string) ($row['campaign_name'] ?? '') !== (string) $campaignNames) {
+            return false;
+        }
+
+        if (filled($filters['search'] ?? null)) {
+            $haystack = mb_strtolower(implode(' ', [(string) ($row['campaign_id'] ?? ''), (string) ($row['campaign_name'] ?? '')]));
+            if (! str_contains($haystack, mb_strtolower((string) $filters['search']))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private function attributionRows(array $filters, array $period): array
     {
         $query = DB::table('campaign_lead_attributions as cla')
             ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
             ->where('cla.lead_created_date', '>=', $period['start_at'])
             ->where('cla.lead_created_date', '<', $period['end_at']);
+        $query->where('cla.is_ambiguous', false)
+            ->where(function ($query): void {
+                $query->whereNull('cla.campaign_source_type')
+                    ->orWhere('cla.campaign_source_type', '<>', 'excluded_campaign');
+            });
 
         $this->applyLeadAttributionFilters($query, $filters, 'cla');
 

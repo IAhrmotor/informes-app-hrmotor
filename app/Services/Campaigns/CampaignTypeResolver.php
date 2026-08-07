@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Schema;
 class CampaignTypeResolver
 {
     private const META_DIRECT_FORM_CAMPAIGN_ID = 'meta_instantforms_direct_form';
+
     private const META_DIRECT_FORM_CAMPAIGN_NAME = 'Formulario Directo Meta';
 
     private const TASACION_SOURCE_KEYS = [
@@ -26,8 +27,7 @@ class CampaignTypeResolver
 
     public function __construct(
         private readonly CampaignValueNormalizer $normalizer,
-    ) {
-    }
+    ) {}
 
     public function typeFor(mixed $platform, mixed $campaignId, mixed $campaignName): string
     {
@@ -84,15 +84,15 @@ class CampaignTypeResolver
         $nameKey = $this->normalizer->key($campaignName);
 
         if ($nameKey === 'tasador') {
-            return 'tasador_exact';
+            return 'excluded_campaign_tasador';
         }
 
-        if (str_contains($nameKey, 'ren2click')) {
-            return 'ren2click';
+        if ($nameKey === 'ren2click') {
+            return 'excluded_campaign_ren2click';
         }
 
-        if (str_contains($nameKey, 'hrrenting')) {
-            return 'hrrenting';
+        if ($nameKey === 'hrrenting') {
+            return 'excluded_campaign_hrrenting';
         }
 
         return null;

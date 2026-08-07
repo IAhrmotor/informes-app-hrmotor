@@ -367,8 +367,8 @@ class CampaignCommandsTest extends TestCase
             ['00Q-none', 'none'],
             ['00Q-literal', 'Campa_a_Adquirida__c'],
             ['00Q-tasador', 'tasador'],
-            ['00Q-ren2click', 'landing ren2click'],
-            ['00Q-hrrenting', 'marca hrrenting'],
+            ['00Q-ren2click', 'ren2click'],
+            ['00Q-hrrenting', 'hrrenting'],
         ] as [$id, $campaign]) {
             SalesforceLead::query()->create([
                 'salesforce_id' => $id,
@@ -383,11 +383,9 @@ class CampaignCommandsTest extends TestCase
         }
 
         $this->artisan('campaigns:build-attribution', ['--days' => 3])
-            ->expectsOutputToContain('Leads candidatos validos: 1')
-            ->expectsOutputToContain('Leads procesados: 1')
             ->assertExitCode(0);
 
-        $this->assertSame(1, CampaignAttribution::query()->count());
+        $this->assertSame(4, CampaignAttribution::query()->count());
         $this->assertDatabaseHas('campaign_attributions', [
             'lead_id' => '00Q-clear',
             'campaign_name' => 'Campana real',
@@ -397,9 +395,9 @@ class CampaignCommandsTest extends TestCase
             'campaign_name' => 'Campana real',
             'source_campaign_name' => 'Campana real',
         ]);
-        $this->assertDatabaseMissing('campaign_lead_attributions', ['lead_id' => '00Q-tasador']);
-        $this->assertDatabaseMissing('campaign_lead_attributions', ['lead_id' => '00Q-ren2click']);
-        $this->assertDatabaseMissing('campaign_lead_attributions', ['lead_id' => '00Q-hrrenting']);
+        $this->assertDatabaseHas('campaign_lead_attributions', ['lead_id' => '00Q-tasador', 'match_status' => 'excluded_campaign_tasador']);
+        $this->assertDatabaseHas('campaign_lead_attributions', ['lead_id' => '00Q-ren2click', 'match_status' => 'excluded_campaign_ren2click']);
+        $this->assertDatabaseHas('campaign_lead_attributions', ['lead_id' => '00Q-hrrenting', 'match_status' => 'excluded_campaign_hrrenting']);
     }
 
     public function test_campaign_report_commands_accept_legacy_window_option(): void
@@ -550,8 +548,9 @@ class CampaignCommandsTest extends TestCase
             CarbonImmutable::parse('2026-06-01')
         );
 
-        $this->assertDatabaseMissing('campaign_lead_attributions', [
+        $this->assertDatabaseHas('campaign_lead_attributions', [
             'lead_id' => '00Q-rebuild',
+            'match_status' => 'excluded_campaign_tasador',
         ]);
     }
 
@@ -588,8 +587,8 @@ class CampaignCommandsTest extends TestCase
             '--from' => '2026-05-01',
             '--to' => '2026-05-31',
         ])
-            ->expectsOutputToContain('[Todas] validos=1 | atribuciones=1')
-            ->expectsOutputToContain('tasador_exact')
+            ->expectsOutputToContain('[Todas] validos=1 | atribuciones=2')
+            ->expectsOutputToContain('excluded_campaign_tasador')
             ->expectsOutputToContain('Campana Debug Venta')
             ->assertExitCode(0);
     }

@@ -343,3 +343,10 @@ Riesgos operativos:
 - Los equipos no resueltos son `unassigned`/`Sin equipo`; no caen en Tasadores.
   Equipo, zona y delegación son independientes y soporte no genera geografías
   ficticias. No hay migraciones.
+## 19. P1 Campañas: atribución y cierre de inversión (2026-08-07)
+
+- Las atribuciones ambiguas y exclusiones históricas exactas siguen auditables y
+  quedan fuera de KPIs. No hay exclusión parcial por nombre.
+- Se añadió cierre mensual de inversión con snapshot versionado y reapertura con
+  motivo, exclusivamente para Administrador/IT. Los resultados comerciales no se
+  congelan. Requiere migración; no se ejecutan reconstrucciones históricas.
