@@ -91,7 +91,7 @@ class CommissionMonthClosureTest extends TestCase
         ]);
 
         $this->actingAsReportUser($director)
-            ->post('/informes/comisiones-comerciales/closure/approve', ['month' => '2026-06'])
+            ->post('/informes/comisiones-comerciales/closure/approve', ['month' => '2026-06', 'closure_scope' => CommercialCommissionClosure::SCOPE_COMMERCIALS])
             ->assertSessionHasNoErrors();
 
         $this->assertDatabaseHas('commercial_commission_closures', [
@@ -103,7 +103,7 @@ class CommissionMonthClosureTest extends TestCase
         $this->assertSame(1, CommercialCommissionSnapshot::query()->where('month', '2026-06')->count());
         $this->assertSame(
             '2026-06',
-            data_get(CommercialCommissionSnapshot::query()->where('month', '2026-06')->firstOrFail()->payload, 'area_manager_by_zone.north.month')
+            data_get(CommercialCommissionSnapshot::query()->where('month', '2026-06')->firstOrFail()->payload, 'commercials.month')
         );
         $this->assertSame(['prepared', 'approved'], CommercialCommissionClosureEvent::query()->orderBy('id')->pluck('action')->all());
     }
@@ -121,10 +121,33 @@ class CommissionMonthClosureTest extends TestCase
             ->assertRedirect();
     }
 
+    public function test_los_cierres_de_comerciales_delegaciones_y_area_manager_son_independientes(): void
+    {
+        CarbonImmutable::setTestNow('2026-08-05 10:00:00');
+        $director = $this->user(ReportUser::ROLE_DIRECTOR);
+        $service = app(CommercialCommissionClosureService::class);
+        $components = array_fill_keys(CommercialCommissionClosureService::REQUIRED_COMPONENTS, true);
+
+        $service->prepare('2026-06', CommercialCommissionClosure::SCOPE_COMMERCIALS, $components, $director);
+        $service->approve('2026-06', CommercialCommissionClosure::SCOPE_COMMERCIALS, $director);
+        $service->prepare('2026-06', CommercialCommissionClosure::SCOPE_DELEGATIONS, $components, $director);
+
+        $this->assertSame('definitive', $service->status('2026-06', CommercialCommissionClosure::SCOPE_COMMERCIALS)['status']);
+        $this->assertSame('pending_approval', $service->status('2026-06', CommercialCommissionClosure::SCOPE_DELEGATIONS)['status']);
+        $this->assertSame('pending_approval', $service->status('2026-06', CommercialCommissionClosure::SCOPE_AREA_MANAGER)['status']);
+        $this->assertSame(1, CommercialCommissionSnapshot::query()->where('month', '2026-06')->count());
+
+        $service->reopen('2026-06', CommercialCommissionClosure::SCOPE_COMMERCIALS, 'Corrección auditada de comerciales', $director);
+
+        $this->assertSame('reopened', $service->status('2026-06', CommercialCommissionClosure::SCOPE_COMMERCIALS)['status']);
+        $this->assertSame('pending_approval', $service->status('2026-06', CommercialCommissionClosure::SCOPE_DELEGATIONS)['status']);
+    }
+
     private function closurePayload(string $month): array
     {
         return [
             'month' => $month,
+            'closure_scope' => CommercialCommissionClosure::SCOPE_COMMERCIALS,
             'components' => [
                 'sales' => '1',
                 'purchases' => '1',

@@ -2,6 +2,16 @@
 
 Actualizado: 2026-08-10.
 
+## Cierres independientes de Comisiones Comerciales
+
+- Los cierres pasan a ser independientes por `month + closure_scope` para
+  Comerciales, Delegaciones y Área Manager. Cada scope conserva snapshots y
+  eventos propios; Contact Center, Call Center y Financieros no se congelan.
+- La migración mantiene los cierres existentes como `legacy` y no presupone que
+  representen aprobación funcional de los nuevos bloques.
+- No se verificaron en el repositorio los Salesforce User IDs de las excepciones
+  Oscar, Nuria e Irene. No se mantienen reglas económicas por nombre.
+
 ## Correctivo Meta Direct Form sin `campaign_acquired`
 
 - `CampaignAttributionBuilderService` conserva como candidatos los Leads Meta Direct Form identificados por portal/origen aunque `campaign_acquired` sea nulo, vacío o inválido. No incrementan `discarded_invalid_values`.

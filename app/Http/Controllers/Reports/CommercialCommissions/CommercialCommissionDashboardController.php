@@ -3,12 +3,13 @@
 namespace App\Http\Controllers\Reports\CommercialCommissions;
 
 use App\Http\Controllers\Controller;
+use App\Models\ReportUser;
 use App\Services\Reports\AreaManagerCommissions\AreaManagerCommissionDashboardService;
 use App\Services\Reports\CallCenterCommissions\CallCenterCommissionDashboardService;
 use App\Services\Reports\CommercialCommissions\AreaRestrictedCommissionScope;
-use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
-use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionClosureService;
+use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
+use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
 use App\Services\Reports\ContactCenterCommissions\ContactCenterCommissionDashboardService;
 use App\Services\Reports\FinancialCommissions\FinancialCommissionDashboardService;
 use App\Support\ReportUserAccess;
@@ -16,7 +17,6 @@ use App\Support\SimpleXlsxWorkbookWriter;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use App\Models\ReportUser;
 
 class CommercialCommissionDashboardController extends Controller
 {
@@ -30,8 +30,7 @@ class CommercialCommissionDashboardController extends Controller
         FinancialCommissionDashboardService $financialDashboard,
         AreaRestrictedCommissionScope $areaScope,
         CommercialCommissionClosureService $closureService,
-    )
-    {
+    ) {
         $selectedMonth = $request->query('month');
         $callCenterContractFrom = $request->query('call_center_contract_from');
         $callCenterContractTo = $request->query('call_center_contract_to');
@@ -57,10 +56,22 @@ class CommercialCommissionDashboardController extends Controller
             includeDelegationRows: $activeCommissionTab === 'delegations',
             includeDetails: $activeCommissionTab === 'summary',
         );
-        $commissionClosure = $closureService->status($payload['month']);
-        $frozenSnapshot = $closureService->definitiveSnapshot($payload['month']);
-        if ($frozenSnapshot !== null) {
+        $closureScope = match ($activeCommissionTab) {
+            'summary' => 'commercials',
+            'delegations' => 'delegations',
+            'area-manager' => 'area_manager',
+            default => null,
+        };
+        $commissionClosure = $closureScope ? $closureService->status($payload['month'], $closureScope) : null;
+        $frozenSnapshot = $closureScope ? $closureService->definitiveSnapshot($payload['month'], $closureScope) : null;
+        if ($frozenSnapshot !== null && $closureScope === 'commercials') {
             $payload = $frozenSnapshot['commercials'];
+            $payload['economic_status'] = 'definitive';
+            $payload['dataset_cutoff_at'] = $commissionClosure['data_cutoff_at'];
+            $payload['formula_version'] = $commissionClosure['formula_version'];
+        }
+        if ($frozenSnapshot !== null && $closureScope === 'delegations') {
+            $payload = $frozenSnapshot['delegations'];
             $payload['economic_status'] = 'definitive';
             $payload['dataset_cutoff_at'] = $commissionClosure['data_cutoff_at'];
             $payload['formula_version'] = $commissionClosure['formula_version'];
@@ -136,6 +147,7 @@ class CommercialCommissionDashboardController extends Controller
             'financialDashboard' => $financialPayload,
             'formulaSettings' => $frozenSnapshot['formula_settings'] ?? $formulaConfig->forMonth($payload['month']),
             'commissionClosure' => $commissionClosure,
+            'closureScope' => $closureScope,
             'canManageEconomicClosures' => ReportUserAccess::canManageEconomicClosures($request),
             'canManageFinancingPenalties' => ReportUserAccess::canManageFinancingPenalties($request),
             'canSeeUniverseReconciliation' => ReportUserAccess::isAdmin($request),
@@ -368,7 +380,7 @@ class CommercialCommissionDashboardController extends Controller
     ) {
         abort_unless(ReportUserAccess::canAudit($request), 403);
         $month = $request->query('month');
-        $snapshot = $closures->definitiveSnapshot($month);
+        $snapshot = $closures->definitiveSnapshot($month, 'commercials');
         $audit = $snapshot['review_audit'] ?? $dashboard->reviewAudit($month);
         $filename = 'auditoria-resenas-'.$audit['month'].'.csv';
 
@@ -416,74 +428,137 @@ class CommercialCommissionDashboardController extends Controller
             @set_time_limit(120);
 
             $sheets = [];
-        if ($role === ReportUser::ROLE_FINANCIAL) {
-            $financialPayload = $financialDashboard->build($request->query('month'));
-            $month = $financialPayload['month'];
-            $frozenSnapshot = $closureService->definitiveSnapshot($month);
-            $financialPayload = $frozenSnapshot['financials'] ?? $financialPayload;
+            if ($role === ReportUser::ROLE_FINANCIAL) {
+                $financialPayload = $financialDashboard->build($request->query('month'));
+                $month = $financialPayload['month'];
+                $sheets[] = $this->commissionSheet(
+                    'Financieros',
+                    'Zona financiera',
+                    $financialPayload['summary_rows'] ?? [],
+                    'zone_name',
+                    'final_commission',
+                );
+                $path = $workbookWriter->write($sheets);
+
+                return response()
+                    ->download($path, 'comisiones-'.$month.'-financieros.xlsx', [
+                        'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    ])
+                    ->deleteFileAfterSend(true);
+            }
+            $commercialDashboard = $dashboard->build(
+                $request->query('month'),
+                includeSummaryRows: true,
+                includeDelegationRows: true,
+                includeDetails: false,
+            );
+            $commercialSnapshot = $closureService->definitiveSnapshot($commercialDashboard['month'], 'commercials');
+            $delegationSnapshot = $closureService->definitiveSnapshot($commercialDashboard['month'], 'delegations');
+            if ($commercialSnapshot !== null) {
+                $commercialDashboard = array_replace($commercialDashboard, $commercialSnapshot['commercials']);
+            }
+            if ($delegationSnapshot !== null) {
+                $commercialDashboard['delegation_rows'] = data_get($delegationSnapshot, 'delegations.delegation_rows', []);
+            }
+            if ($isAreaRestricted) {
+                $commercialDashboard = $areaScope->commercialDashboard(
+                    $commercialDashboard,
+                    $areaZoneLabel,
+                    ReportUserAccess::current($request)['email'] ?? null,
+                );
+            }
+            if ($role === ReportUser::ROLE_DELEGATION_MANAGER) {
+                $delegation = ReportUserAccess::delegationName($request);
+                abort_if($delegation === null, 403);
+                $commercialDashboard = $areaScope->delegationDashboard($commercialDashboard, $delegation);
+            }
+            if ($role === ReportUser::ROLE_COMMERCIAL) {
+                $salesforceUserId = ReportUserAccess::salesforceUserId($request);
+                abort_if($salesforceUserId === null, 403);
+                $commercialDashboard = $areaScope->commercialDashboardByUser($commercialDashboard, $salesforceUserId);
+            }
+            $month = $commercialDashboard['month'];
             $sheets[] = $this->commissionSheet(
-                'Financieros',
-                'Zona financiera',
-                $financialPayload['summary_rows'] ?? [],
-                'zone_name',
+                'Comerciales',
+                'Comercial',
+                $commercialDashboard['summary_rows'] ?? [],
+                'commercial_name',
                 'final_commission',
             );
-            $path = $workbookWriter->write($sheets);
-
-            return response()
-                ->download($path, 'comisiones-'.$month.'-financieros.xlsx', [
-                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                ])
-                ->deleteFileAfterSend(true);
-        }
-        $commercialDashboard = $dashboard->build(
-            $request->query('month'),
-            includeSummaryRows: true,
-            includeDelegationRows: true,
-            includeDetails: false,
-        );
-        $frozenSnapshot = $closureService->definitiveSnapshot($commercialDashboard['month']);
-        if ($frozenSnapshot !== null) {
-            $commercialDashboard = $frozenSnapshot['commercials'];
-        }
-        if ($isAreaRestricted) {
-            $commercialDashboard = $areaScope->commercialDashboard(
-                $commercialDashboard,
-                $areaZoneLabel,
-                ReportUserAccess::current($request)['email'] ?? null,
+            $sheets[] = $this->commissionSheet(
+                'Delegaciones',
+                'Delegacion',
+                $commercialDashboard['delegation_rows'] ?? [],
+                'delegation_name',
+                'total_commission',
             );
-        }
-        if ($role === ReportUser::ROLE_DELEGATION_MANAGER) {
-            $delegation = ReportUserAccess::delegationName($request);
-            abort_if($delegation === null, 403);
-            $commercialDashboard = $areaScope->delegationDashboard($commercialDashboard, $delegation);
-        }
-        if ($role === ReportUser::ROLE_COMMERCIAL) {
-            $salesforceUserId = ReportUserAccess::salesforceUserId($request);
-            abort_if($salesforceUserId === null, 403);
-            $commercialDashboard = $areaScope->commercialDashboardByUser($commercialDashboard, $salesforceUserId);
-        }
-        $month = $commercialDashboard['month'];
-        $sheets[] = $this->commissionSheet(
-            'Comerciales',
-            'Comercial',
-            $commercialDashboard['summary_rows'] ?? [],
-            'commercial_name',
-            'final_commission',
-        );
-        $sheets[] = $this->commissionSheet(
-            'Delegaciones',
-            'Delegacion',
-            $commercialDashboard['delegation_rows'] ?? [],
-            'delegation_name',
-            'total_commission',
-        );
-        unset($commercialDashboard);
-        gc_collect_cycles();
+            unset($commercialDashboard);
+            gc_collect_cycles();
 
-        if ($isAreaRestricted) {
-            $areaManagerPayload = data_get($frozenSnapshot, 'area_manager_by_zone.'.ReportUserAccess::areaZoneKey($request))
-                ?? $areaManagerDashboard->build($month, $areaZoneLabel);
+            if ($isAreaRestricted) {
+                $areaManagerSnapshot = $closureService->definitiveSnapshot($month, 'area_manager');
+                $areaManagerPayload = data_get($areaManagerSnapshot, 'area_manager_by_zone.'.ReportUserAccess::areaZoneKey($request))
+                    ?? $areaManagerDashboard->build($month, $areaZoneLabel);
+                $areaManagerRows = collect($areaManagerPayload['summary_rows'] ?? []);
+                $sheets[] = $this->commissionSheet(
+                    'Area Managers',
+                    'Area Manager',
+                    $areaManagerRows->all(),
+                    'manager_name',
+                    'final_total',
+                );
+
+                unset($areaManagerPayload, $areaManagerRows);
+                gc_collect_cycles();
+
+                $path = $workbookWriter->write($sheets);
+
+                return response()
+                    ->download($path, 'comisiones-'.$month.'-'.str_replace(' ', '-', mb_strtolower($areaZoneLabel)).'.xlsx', [
+                        'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    ])
+                    ->deleteFileAfterSend(true);
+            }
+
+            if (in_array($role, [ReportUser::ROLE_DELEGATION_MANAGER, ReportUser::ROLE_COMMERCIAL], true)) {
+                $path = $workbookWriter->write($sheets);
+
+                return response()
+                    ->download($path, 'comisiones-'.$month.'-'.$role.'.xlsx', [
+                        'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    ])
+                    ->deleteFileAfterSend(true);
+            }
+
+            $callCenterPayload = $callCenterDashboard->build(
+                $month,
+                is_string($request->query('call_center_contract_from')) ? $request->query('call_center_contract_from') : null,
+                is_string($request->query('call_center_contract_to')) ? $request->query('call_center_contract_to') : null,
+                includeDetails: false,
+            );
+            $sheets[] = $this->commissionSheet(
+                'Call Center',
+                'Agente / captador',
+                $callCenterPayload['summary_rows'] ?? [],
+                'agent_name',
+                'final_total',
+            );
+            unset($callCenterPayload);
+            gc_collect_cycles();
+
+            $contactCenterPayload = $contactCenterDashboard->build($month, includeDetails: false);
+            $sheets[] = $this->commissionSheet(
+                'Contact Center',
+                'Agente / captador',
+                $contactCenterPayload['summary_rows'] ?? [],
+                'agent_name',
+                'final_total',
+            );
+            unset($contactCenterPayload);
+            gc_collect_cycles();
+
+            $areaManagerSnapshot = $closureService->definitiveSnapshot($month, 'area_manager');
+            $areaManagerPayload = $areaManagerSnapshot['area_manager'] ?? $areaManagerDashboard->build($month);
             $areaManagerRows = collect($areaManagerPayload['summary_rows'] ?? []);
             $sheets[] = $this->commissionSheet(
                 'Area Managers',
@@ -492,84 +567,19 @@ class CommercialCommissionDashboardController extends Controller
                 'manager_name',
                 'final_total',
             );
-
             unset($areaManagerPayload, $areaManagerRows);
             gc_collect_cycles();
 
-            $path = $workbookWriter->write($sheets);
-
-            return response()
-                ->download($path, 'comisiones-'.$month.'-'.str_replace(' ', '-', mb_strtolower($areaZoneLabel)).'.xlsx', [
-                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                ])
-                ->deleteFileAfterSend(true);
-        }
-
-        if (in_array($role, [ReportUser::ROLE_DELEGATION_MANAGER, ReportUser::ROLE_COMMERCIAL], true)) {
-            $path = $workbookWriter->write($sheets);
-
-            return response()
-                ->download($path, 'comisiones-'.$month.'-'.$role.'.xlsx', [
-                    'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                ])
-                ->deleteFileAfterSend(true);
-        }
-
-        $callCenterPayload = $frozenSnapshot['call_center'] ?? $callCenterDashboard->build(
-            $month,
-            is_string($request->query('call_center_contract_from')) ? $request->query('call_center_contract_from') : null,
-            is_string($request->query('call_center_contract_to')) ? $request->query('call_center_contract_to') : null,
-            includeDetails: false,
-        );
-        $sheets[] = $this->commissionSheet(
-            'Call Center',
-            'Agente / captador',
-            $callCenterPayload['summary_rows'] ?? [],
-            'agent_name',
-            'final_total',
-        );
-        unset($callCenterPayload);
-        gc_collect_cycles();
-
-        $contactCenterPayload = $frozenSnapshot['contact_center'] ?? $contactCenterDashboard->build($month, includeDetails: false);
-        $sheets[] = $this->commissionSheet(
-            'Contact Center',
-            'Agente / captador',
-            $contactCenterPayload['summary_rows'] ?? [],
-            'agent_name',
-            'final_total',
-        );
-        unset($contactCenterPayload);
-        gc_collect_cycles();
-
-        $areaManagerPayload = $frozenSnapshot['area_manager'] ?? $areaManagerDashboard->build($month);
-        $areaManagerRows = collect($areaManagerPayload['summary_rows'] ?? []);
-        $sheets[] = $this->commissionSheet(
-            'Area Managers',
-            'Area Manager',
-            [
-                ...$areaManagerRows->all(),
-                [
-                    'manager_name' => 'Oscar',
-                    'final_total' => round((float) $areaManagerRows->sum('final_total') * 0.40, 2),
-                ],
-            ],
-            'manager_name',
-            'final_total',
-        );
-        unset($areaManagerPayload, $areaManagerRows);
-        gc_collect_cycles();
-
-        $financialPayload = $frozenSnapshot['financials'] ?? $financialDashboard->build($month);
-        $sheets[] = $this->commissionSheet(
-            'Financieros',
-            'Zona financiera',
-            $financialPayload['summary_rows'] ?? [],
-            'zone_name',
-            'final_commission',
-        );
-        unset($financialPayload);
-        gc_collect_cycles();
+            $financialPayload = $financialDashboard->build($month);
+            $sheets[] = $this->commissionSheet(
+                'Financieros',
+                'Zona financiera',
+                $financialPayload['summary_rows'] ?? [],
+                'zone_name',
+                'final_commission',
+            );
+            unset($financialPayload);
+            gc_collect_cycles();
 
             $path = $workbookWriter->write($sheets);
 
@@ -595,7 +605,7 @@ class CommercialCommissionDashboardController extends Controller
     }
 
     /**
-     * @param array<int, array<string, mixed>> $rows
+     * @param  array<int, array<string, mixed>>  $rows
      * @return array{name: string, headers: array<int, string>, rows: array<int, array<int, string|float>>}
      */
     private function commissionSheet(string $name, string $entityLabel, array $rows, string $nameKey, string $commissionKey): array

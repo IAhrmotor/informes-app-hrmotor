@@ -8,13 +8,30 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CommercialCommissionClosure extends Model
 {
+    public const SCOPE_LEGACY = 'legacy';
+
+    public const SCOPE_COMMERCIALS = 'commercials';
+
+    public const SCOPE_DELEGATIONS = 'delegations';
+
+    public const SCOPE_AREA_MANAGER = 'area_manager';
+
+    public const CLOSABLE_SCOPES = [
+        self::SCOPE_COMMERCIALS,
+        self::SCOPE_DELEGATIONS,
+        self::SCOPE_AREA_MANAGER,
+    ];
+
     public const STATUS_PROVISIONAL = 'provisional';
+
     public const STATUS_PENDING_APPROVAL = 'pending_approval';
+
     public const STATUS_DEFINITIVE = 'definitive';
+
     public const STATUS_REOPENED = 'reopened';
 
     protected $fillable = [
-        'month', 'status', 'component_statuses', 'issues', 'data_cutoff_at', 'formula_version',
+        'month', 'closure_scope', 'status', 'component_statuses', 'issues', 'data_cutoff_at', 'formula_version',
         'approved_by', 'approved_at', 'reopened_by', 'reopened_at', 'reopen_reason', 'snapshot_version',
     ];
 

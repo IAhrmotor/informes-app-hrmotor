@@ -1,6 +1,6 @@
 # Informe de Comisiones
 
-Actualizado: 2026-08-06.
+Actualizado: 2026-08-10.
 
 ## Mes compartido
 
@@ -18,7 +18,7 @@ El mes solicitado se conserva en URL y selector. El mes actual puede consultarse
 y siempre se muestra como `Provisional`; ninguna pestaña cambia por su cuenta al
 último mes cerrado.
 
-## Cierre económico
+## Cierre económico por bloque
 
 Estados persistentes:
 
@@ -27,14 +27,20 @@ Estados persistentes:
 - `definitive`;
 - `reopened`.
 
-Un mes solo puede pasar a definitivo cuando ha terminado el mes natural, están
-confirmados ventas, compras, cancelaciones, reseñas y ajustes, no existen
-incidencias relevantes y aprueba Dirección o Administrador/IT.
+Solo pueden cerrarse `Comerciales`, `Delegaciones` y `Área Manager`. Cada cierre
+tiene estado, aprobación, reapertura, eventos y versión de snapshot propios por
+combinación `month + closure_scope`. Call Center, Contact Center y Financieros
+siguen siendo operativos/provisionales y no se incluyen como requisito ni como
+payload de los cierres económicos.
+
+Un bloque solo puede pasar a definitivo cuando ha terminado el mes natural, están confirmados sus componentes y aprueba Dirección o Administrador/IT.
 
 El cierre conserva mes, usuario y fecha de aprobación, corte, versión de
 fórmulas, incidencias, usuario/fecha/motivo de reapertura y eventos de auditoría.
-El snapshot reproducible contiene las seis vistas, variantes por zona de Área
-Manager, detalles, auditoría de reseñas, configuración y estado de fuentes.
+El snapshot reproducible contiene únicamente el universo del bloque: Comerciales
+incluye su auditoría de reseñas; Delegaciones sus filas; Área Manager incluye las
+variantes necesarias por zona. Los registros legacy existentes se conservan con
+scope `legacy`; no se convierten automáticamente en cierres de los tres bloques.
 
 Una modificación posterior de Salesforce no sobrescribe un cierre definitivo.
 Por defecto se registra en el libro de ajustes del siguiente mes abierto. Para
@@ -91,6 +97,18 @@ servicio queda `not_configured`, no construye una cabecera Basic Auth y mantiene
 el cero previsto por la lógica funcional vigente. Los fallos de transporte o
 remotos conservan un estado técnico separado sin incluir credenciales, cabeceras
 ni cuerpos de respuesta en logs o excepciones.
+
+Una incidencia `not_configured`, de transporte o remota deja reseñas en cero y
+rating en nulo donde procede, sin romper el informe ni bloquear por sí sola el
+cierre de un bloque. Debe revisarse mediante los avisos administrativos del
+informe y los logs técnicos sanitizados.
+
+## Excepciones personales
+
+Las excepciones económicas personales deben configurarse solo por Salesforce User
+ID. Los IDs reales de Oscar, Nuria e Irene no están verificables en este
+repositorio; no se han inventado ni aplicado por nombre. Antes de activarlas en
+producción debe obtenerse el ID desde `salesforce_users` o Salesforce en lectura.
 
 ## Roles y datos sensibles
 

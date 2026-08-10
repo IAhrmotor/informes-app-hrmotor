@@ -144,11 +144,12 @@
             </section>
             @endif
 
+            @if (($closureScope ?? null) !== null)
             <section class="card panel commission-closure-panel">
                 <div class="panel-title">
                     <div>
-                        <h2>Estado económico del mes</h2>
-                        <div class="small">El estado se comparte entre todas las pestañas y exportaciones del mes {{ $dashboard['month'] }}.</div>
+                        <h2>Estado económico del bloque</h2>
+                        <div class="small">El cierre aplica solo al bloque activo del mes {{ $dashboard['month'] }}.</div>
                     </div>
                     <span class="type-pill {{ $closureStatus === 'definitive' ? 'group' : 'pending' }}">
                         {{ $closureStatusLabels[$closureStatus] ?? $closureStatus }}
@@ -166,6 +167,7 @@
                         <form method="POST" action="{{ route('reports.commercial-commissions.closure.prepare') }}" class="commission-filter-form">
                             @csrf
                             <input type="hidden" name="month" value="{{ $dashboard['month'] }}">
+                            <input type="hidden" name="closure_scope" value="{{ $closureScope }}">
                             <div class="filter-actions">
                                 @foreach (['sales' => 'Ventas', 'purchases' => 'Compras', 'cancellations' => 'Cancelaciones', 'reviews' => 'Reseñas', 'adjustments' => 'Ajustes'] as $component => $label)
                                     <label><input type="checkbox" name="components[{{ $component }}]" value="1" @checked(data_get($commissionClosure, 'component_statuses.'.$component))> {{ $label }} incorporados</label>
@@ -179,12 +181,14 @@
                         <form method="POST" action="{{ route('reports.commercial-commissions.closure.approve') }}">
                             @csrf
                             <input type="hidden" name="month" value="{{ $dashboard['month'] }}">
+                            <input type="hidden" name="closure_scope" value="{{ $closureScope }}">
                             <button type="submit" class="main-tab active">Aprobar como definitivo</button>
                         </form>
                     @elseif ($closureStatus === 'definitive')
                         <form method="POST" action="{{ route('reports.commercial-commissions.closure.reopen') }}" class="commission-filter-form">
                             @csrf
                             <input type="hidden" name="month" value="{{ $dashboard['month'] }}">
+                            <input type="hidden" name="closure_scope" value="{{ $closureScope }}">
                             <div class="filter-group">
                                 <label for="closure_reopen_reason">Motivo obligatorio de reapertura</label>
                                 <input id="closure_reopen_reason" name="reason" type="text" minlength="10" required>
@@ -194,6 +198,7 @@
                     @endif
                 @endif
             </section>
+            @endif
 
             @if ($errors->has('export'))
                 <div class="notice commission-warning" role="alert">
