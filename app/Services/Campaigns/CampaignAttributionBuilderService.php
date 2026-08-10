@@ -175,7 +175,8 @@ class CampaignAttributionBuilderService
                 foreach ($chunk as $lead) {
                     $this->fillCampaignFieldsFromRawPayload($lead);
 
-                    if (! filled($this->normalizer->clean($lead->campaign_acquired))) {
+                    if (! filled($this->normalizer->clean($lead->campaign_acquired))
+                        && ! $this->campaignTypeResolver->isMetaDirectFormLead($lead->portal_text ?? null, $lead->fuente_origen ?? null)) {
                         continue;
                     }
 
@@ -476,46 +477,38 @@ class CampaignAttributionBuilderService
             'Contenido_Adquirido__c' => $lead->content_acquired,
         ], fn ($value) => $this->normalizer->isValidAttributionValue($value));
 
+        $resolved = [];
         foreach ([
             'ad' => 'ad_id_match',
             'adset' => 'adset_or_adgroup_id_match',
             'ad_group' => 'adset_or_adgroup_id_match',
             'campaign_id' => 'campaign_id_match',
         ] as $type => $method) {
-            $resolved = [];
-
             foreach ($idCandidates as $sourceField => $candidate) {
                 $matches = $metrics[$type][$this->normalizer->compactKey($candidate)] ?? [];
 
-                if (count($matches) > 1) {
+                if (count($matches) === 1) {
+                    $resolved[] = ['source_field' => $sourceField, 'source_value' => $candidate, 'match' => $matches[0], 'method' => $method, 'type' => $type];
+                } elseif (count($matches) > 1) {
                     return $this->ambiguousCampaign($lead, 'ID ambiguo entre plataformas/campanas', $sourceField, $candidate, $matches);
                 }
-
-                if (count($matches) === 1) {
-                    $resolved[] = ['source_field' => $sourceField, 'source_value' => $candidate, 'match' => $matches[0]];
-                }
             }
+        }
 
-            $distinct = collect($resolved)->unique(fn (array $resolved): string => implode('|', [
-                $resolved['match']['platform'] ?? '', $resolved['match']['campaign_id'] ?? '', $resolved['match']['campaign_name'] ?? '',
-            ]))->values();
-            if ($distinct->count() > 1) {
-                return $this->ambiguousCampaign($lead, 'IDs publicitarios contradictorios', 'identificadores_publicitarios', null, $distinct->pluck('match')->all());
-            }
-            if ($distinct->count() === 1) {
-                $winner = $distinct->first();
+        $distinct = collect($resolved)->groupBy(fn (array $row): string => $this->candidateCampaignIdentity($row['match']))->values();
+        if ($distinct->count() > 1) {
+            return $this->ambiguousCampaign($lead, 'IDs publicitarios contradictorios', 'identificadores_publicitarios', null, collect($resolved)->pluck('match')->all());
+        }
+        if ($distinct->count() === 1) {
+            $priority = ['ad' => 1, 'adset' => 2, 'ad_group' => 3, 'campaign_id' => 4];
+            $winner = $distinct->first()->sortBy(fn (array $row): int => $priority[$row['type']])->first();
 
-                return array_merge($winner['match'], [
-                    'method' => $method,
-                    'confidence' => 'high',
-                    'match_status' => 'Cruzada por ID',
-                    'campaign_source_type' => 'platform_campaign',
-                    'matched_to_platform' => true,
-                    'matched_source_field' => $winner['source_field'],
-                    'matched_source_value' => (string) $winner['source_value'],
-                    'match_candidate_count' => 1,
-                ]);
-            }
+            return array_merge($winner['match'], [
+                'method' => $winner['method'], 'confidence' => 'high', 'match_status' => 'Cruzada por ID',
+                'campaign_source_type' => 'platform_campaign', 'matched_to_platform' => true,
+                'matched_source_field' => $winner['source_field'], 'matched_source_value' => (string) $winner['source_value'],
+                'match_candidate_count' => count($resolved),
+            ]);
         }
 
         // Meta Direct Form inferido solo se aplica tras agotar IDs originales.
@@ -564,6 +557,13 @@ class CampaignAttributionBuilderService
         }
 
         return $this->salesforceOnlyCampaign($lead);
+    }
+
+    private function candidateCampaignIdentity(array $match): string
+    {
+        return filled($match['campaign_id'] ?? null)
+            ? ($match['platform'] ?? '').'|'.$match['campaign_id']
+            : ($match['platform'] ?? '').'|'.$this->normalizer->key($match['campaign_name'] ?? '');
     }
 
     private function excludedCampaign(object $lead, string $reason): array

@@ -200,3 +200,10 @@ Los IDs originales `Id_Adquirido__c` y `Contenido_Adquirido__c` se resuelven
 antes de inferir Meta Direct Form por portal/origen. Meta se usa solo cuando no
 existe match publicitario; IDs que resuelven campañas distintas en el mismo
 nivel quedan ambiguos y fuera de KPI.
+## Conflictos entre identificadores publicitarios
+
+La atribución recopila los matches de `Id_Adquirido__c` y
+`Contenido_Adquirido__c` contra ad, adset, ad group y campaign ID antes de
+elegir. Se agrupan por identidad `platform + campaign_id` (o nombre normalizado
+sin ID); identidades distintas quedan ambiguas. Para una misma campaña se usa
+como traza el match más específico: ad, adset, ad group y campaign ID.
