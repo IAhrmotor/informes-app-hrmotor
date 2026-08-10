@@ -1,6 +1,12 @@
 # Handoff para agentes
 
-Actualizado: 2026-08-06.
+Actualizado: 2026-08-10.
+
+## Correctivo Meta Direct Form sin `campaign_acquired`
+
+- `CampaignAttributionBuilderService` conserva como candidatos los Leads Meta Direct Form identificados por portal/origen aunque `campaign_acquired` sea nulo, vacío o inválido. No incrementan `discarded_invalid_values`.
+- Los IDs originales mantienen su precedencia: un match publicitario inequívoco gana antes del fallback Meta. Un Lead no Meta sin campaña válida sigue descartándose.
+- No hay cambios de esquema, migraciones ni escrituras de reproceso en este correctivo.
 
 ## Resumen de la tarea
 

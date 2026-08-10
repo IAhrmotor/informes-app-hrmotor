@@ -195,6 +195,57 @@ class CampaignCommandsTest extends TestCase
         $this->assertDatabaseHas('campaign_attributions', ['lead_id' => '00Q-conflict', 'campaign_source_type' => 'ambiguous_attribution']);
     }
 
+    public function test_meta_direct_form_candidates_without_a_valid_campaign_name_reach_the_meta_fallback(): void
+    {
+        foreach ([
+            ['id' => '00Q-meta-null', 'campaign' => null, 'acquired' => null, 'content' => null, 'portal' => 'Meta', 'source' => 'Facebook'],
+            ['id' => '00Q-meta-empty', 'campaign' => '', 'acquired' => null, 'content' => null, 'portal' => 'Meta', 'source' => 'Facebook'],
+            ['id' => '00Q-meta-google-id', 'campaign' => null, 'acquired' => 'google-campaign-id', 'content' => null, 'portal' => 'Meta', 'source' => 'Facebook'],
+            ['id' => '00Q-not-meta-empty', 'campaign' => null, 'acquired' => null, 'content' => null, 'portal' => 'Web', 'source' => 'Google'],
+            ['id' => '00Q-meta-explicit', 'campaign' => 'Formulario Directo Meta', 'acquired' => null, 'content' => null, 'portal' => 'Meta', 'source' => 'Facebook'],
+        ] as $lead) {
+            SalesforceLead::query()->create([
+                'salesforce_id' => $lead['id'], 'created_date' => '2026-05-10 10:00:00', 'status' => 'Potencial',
+                'record_type_name' => 'Venta', 'campaign_acquired' => $lead['campaign'], 'acquired_id' => $lead['acquired'],
+                'content_acquired' => $lead['content'], 'portal_text' => $lead['portal'], 'fuente_origen' => $lead['source'],
+            ]);
+        }
+
+        DB::table('campaign_platform_daily_metrics')->insert([
+            'unique_key' => hash('sha256', 'meta-candidate-google-id'), 'platform' => 'google_ads', 'metric_date' => '2026-05-10',
+            'account_id' => '1', 'campaign_id' => 'google-campaign-id', 'campaign_name' => 'Google Campaign',
+            'spend' => 0, 'impressions' => 0, 'clicks' => 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::table('campaign_platform_daily_metrics')->insert([
+            'unique_key' => hash('sha256', 'meta-candidate-fallback'), 'platform' => 'meta', 'metric_date' => '2026-05-10',
+            'account_id' => '1', 'campaign_id' => 'meta-instantforms-source', 'campaign_name' => 'Prospeccion InstantForms',
+            'spend' => 0, 'impressions' => 0, 'clicks' => 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $result = app(CampaignAttributionBuilderService::class)->build(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01'),
+        );
+
+        foreach (['00Q-meta-null', '00Q-meta-empty', '00Q-meta-explicit'] as $leadId) {
+            $this->assertDatabaseHas('campaign_attributions', [
+                'lead_id' => $leadId,
+                'platform' => 'meta',
+                'campaign_id' => 'meta_instantforms_direct_form',
+            ]);
+        }
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-meta-google-id',
+            'platform' => 'google_ads',
+            'campaign_id' => 'google-campaign-id',
+            'attribution_method' => 'campaign_id_match',
+        ]);
+        $this->assertDatabaseMissing('campaign_attributions', ['lead_id' => '00Q-not-meta-empty']);
+        $this->assertSame(4, $result['candidate_leads']);
+        $this->assertSame(1, $result['discarded_invalid_values']);
+        $this->assertSame(0, $result['excluded_campaigns']);
+    }
+
     public function test_rebuild_del_mismo_periodo_no_pierde_oportunidades_ya_atribuidas(): void
     {
         SalesforceLead::query()->create([

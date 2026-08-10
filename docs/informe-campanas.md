@@ -200,6 +200,10 @@ Los IDs originales `Id_Adquirido__c` y `Contenido_Adquirido__c` se resuelven
 antes de inferir Meta Direct Form por portal/origen. Meta se usa solo cuando no
 existe match publicitario; IDs que resuelven campañas distintas en el mismo
 nivel quedan ambiguos y fuera de KPI.
+## Regresión Meta Direct Form: candidatos sin campaña materializada
+
+Un Lead con `portal_text = Meta` y `fuente_origen = Facebook` es candidato a Formulario Directo Meta aunque `campaign_acquired` sea nulo, vacío o no utilizable. Ese caso no se contabiliza como valor de adquisición inválido y llega al resolver, donde los IDs originales se contrastan primero. La inferencia Meta se aplica solo si esos IDs no resuelven una campaña; los Leads no Meta sin una campaña válida siguen descartándose como hasta ahora.
+
 ## Conflictos entre identificadores publicitarios
 
 La atribución recopila los matches de `Id_Adquirido__c` y

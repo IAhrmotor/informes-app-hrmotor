@@ -175,21 +175,25 @@ class CampaignAttributionBuilderService
                 foreach ($chunk as $lead) {
                     $this->fillCampaignFieldsFromRawPayload($lead);
 
-                    if (! filled($this->normalizer->clean($lead->campaign_acquired))
-                        && ! $this->campaignTypeResolver->isMetaDirectFormLead($lead->portal_text ?? null, $lead->fuente_origen ?? null)) {
-                        continue;
-                    }
+                    $hasValidCampaignAcquired = $this->normalizer->isValidAttributionValue($lead->campaign_acquired);
+                    $isMetaDirectFormCandidate = $this->campaignTypeResolver->isMetaDirectFormLead(
+                        $lead->portal_text ?? null,
+                        $lead->fuente_origen ?? null,
+                    );
 
-                    $stats['leads_with_acquisition_not_null']++;
-
-                    $excludedReason = $this->campaignTypeResolver->excludedReason($lead->campaign_acquired);
-                    if (! $this->normalizer->isValidAttributionValue($lead->campaign_acquired)) {
+                    if (! $hasValidCampaignAcquired && ! $isMetaDirectFormCandidate) {
                         $stats['discarded_invalid_values']++;
 
                         continue;
                     }
 
-                    if ($excludedReason !== null) {
+                    if ($hasValidCampaignAcquired) {
+                        $stats['leads_with_acquisition_not_null']++;
+                    }
+
+                    $excludedReason = $this->campaignTypeResolver->excludedReason($lead->campaign_acquired);
+
+                    if ($hasValidCampaignAcquired && $excludedReason !== null) {
                         $stats['excluded_campaigns']++;
                         $stats['excluded_by_reason'][$excludedReason]['count'] = ($stats['excluded_by_reason'][$excludedReason]['count'] ?? 0) + 1;
                         if (count($stats['excluded_by_reason'][$excludedReason]['sample_ids'] ?? []) < 20) {
@@ -468,7 +472,7 @@ class CampaignAttributionBuilderService
     private function resolveCampaign(object $lead, array $metrics): array
     {
         $excludedReason = $this->campaignTypeResolver->excludedReason($lead->campaign_acquired);
-        if ($excludedReason !== null) {
+        if ($excludedReason !== null && $this->normalizer->isValidAttributionValue($lead->campaign_acquired)) {
             return $this->excludedCampaign($lead, $excludedReason);
         }
 
