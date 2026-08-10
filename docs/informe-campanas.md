@@ -194,3 +194,9 @@ El resumen de dry-run representa un tipo no normalizable como `null` solo para
 conteo técnico; no cambia la clasificación funcional ni excluye el Lead del
 universo. El reproceso de tipos detalla transiciones raw/actual/calculada y una
 muestra acotada de Salesforce Lead IDs, sin PII.
+## Precedencia de IDs frente a Meta Instant Forms
+
+Los IDs originales `Id_Adquirido__c` y `Contenido_Adquirido__c` se resuelven
+antes de inferir Meta Direct Form por portal/origen. Meta se usa solo cuando no
+existe match publicitario; IDs que resuelven campañas distintas en el mismo
+nivel quedan ambiguos y fuera de KPI.

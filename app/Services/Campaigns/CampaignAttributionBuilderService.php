@@ -174,7 +174,6 @@ class CampaignAttributionBuilderService
             ->chunkById(self::LEAD_CHUNK_SIZE, function (Collection $chunk) use (&$leads, &$stats): void {
                 foreach ($chunk as $lead) {
                     $this->fillCampaignFieldsFromRawPayload($lead);
-                    $this->normalizeLeadCampaign($lead);
 
                     if (! filled($this->normalizer->clean($lead->campaign_acquired))) {
                         continue;
@@ -483,27 +482,44 @@ class CampaignAttributionBuilderService
             'ad_group' => 'adset_or_adgroup_id_match',
             'campaign_id' => 'campaign_id_match',
         ] as $type => $method) {
+            $resolved = [];
+
             foreach ($idCandidates as $sourceField => $candidate) {
                 $matches = $metrics[$type][$this->normalizer->compactKey($candidate)] ?? [];
-
-                if (count($matches) === 1) {
-                    return array_merge($matches[0], [
-                        'method' => $method,
-                        'confidence' => 'high',
-                        'match_status' => 'Cruzada por ID',
-                        'campaign_source_type' => 'platform_campaign',
-                        'matched_to_platform' => true,
-                        'matched_source_field' => $sourceField,
-                        'matched_source_value' => (string) $candidate,
-                        'match_candidate_count' => 1,
-                    ]);
-                }
 
                 if (count($matches) > 1) {
                     return $this->ambiguousCampaign($lead, 'ID ambiguo entre plataformas/campanas', $sourceField, $candidate, $matches);
                 }
+
+                if (count($matches) === 1) {
+                    $resolved[] = ['source_field' => $sourceField, 'source_value' => $candidate, 'match' => $matches[0]];
+                }
+            }
+
+            $distinct = collect($resolved)->unique(fn (array $resolved): string => implode('|', [
+                $resolved['match']['platform'] ?? '', $resolved['match']['campaign_id'] ?? '', $resolved['match']['campaign_name'] ?? '',
+            ]))->values();
+            if ($distinct->count() > 1) {
+                return $this->ambiguousCampaign($lead, 'IDs publicitarios contradictorios', 'identificadores_publicitarios', null, $distinct->pluck('match')->all());
+            }
+            if ($distinct->count() === 1) {
+                $winner = $distinct->first();
+
+                return array_merge($winner['match'], [
+                    'method' => $method,
+                    'confidence' => 'high',
+                    'match_status' => 'Cruzada por ID',
+                    'campaign_source_type' => 'platform_campaign',
+                    'matched_to_platform' => true,
+                    'matched_source_field' => $winner['source_field'],
+                    'matched_source_value' => (string) $winner['source_value'],
+                    'match_candidate_count' => 1,
+                ]);
             }
         }
+
+        // Meta Direct Form inferido solo se aplica tras agotar IDs originales.
+        $this->normalizeLeadCampaign($lead);
 
         if ($this->normalizer->isValidAttributionValue($lead->campaign_acquired)) {
             $nameKey = $this->normalizer->key($lead->campaign_acquired);

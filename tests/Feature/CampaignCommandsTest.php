@@ -167,6 +167,34 @@ class CampaignCommandsTest extends TestCase
         ]);
     }
 
+    public function test_original_advertising_ids_precede_meta_inference_and_conflicts_are_ambiguous(): void
+    {
+        foreach ([
+            ['id' => '00Q-meta-google', 'acquired' => '21455768559', 'content' => null],
+            ['id' => '00Q-content-google', 'acquired' => 'no-match', 'content' => 'ad-google'],
+            ['id' => '00Q-meta-fallback', 'acquired' => 'no-match', 'content' => null],
+            ['id' => '00Q-conflict', 'acquired' => 'ad-a', 'content' => 'ad-b'],
+        ] as $lead) {
+            SalesforceLead::query()->create([
+                'salesforce_id' => $lead['id'], 'created_date' => '2026-05-10 10:00:00', 'status' => 'Potencial',
+                'record_type_name' => 'Venta', 'campaign_acquired' => 'Campana distinta', 'acquired_id' => $lead['acquired'],
+                'content_acquired' => $lead['content'], 'portal_text' => 'Meta', 'fuente_origen' => 'Facebook',
+            ]);
+        }
+        foreach ([['21455768559', null, 'Google campaña'], ['google-a', 'ad-google', 'Google ad'], ['google-b', 'ad-a', 'A'], ['google-c', 'ad-b', 'B']] as $index => $metric) {
+            DB::table('campaign_platform_daily_metrics')->insert([
+                'unique_key' => hash('sha256', 'meta-precedence-'.$index), 'platform' => 'google_ads', 'metric_date' => '2026-05-10',
+                'account_id' => '1', 'campaign_id' => $metric[0], 'campaign_name' => $metric[2], 'ad_id' => $metric[1],
+                'spend' => 0, 'impressions' => 0, 'clicks' => 0, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+        app(CampaignAttributionBuilderService::class)->build(CarbonImmutable::parse('2026-05-01'), CarbonImmutable::parse('2026-06-01'));
+        $this->assertDatabaseHas('campaign_attributions', ['lead_id' => '00Q-meta-google', 'platform' => 'google_ads', 'campaign_id' => '21455768559', 'attribution_method' => 'campaign_id_match']);
+        $this->assertDatabaseHas('campaign_attributions', ['lead_id' => '00Q-content-google', 'platform' => 'google_ads', 'campaign_id' => 'google-a', 'attribution_method' => 'ad_id_match', 'matched_source_field' => 'Contenido_Adquirido__c']);
+        $this->assertDatabaseHas('campaign_attributions', ['lead_id' => '00Q-meta-fallback', 'campaign_id' => 'meta_instantforms_direct_form']);
+        $this->assertDatabaseHas('campaign_attributions', ['lead_id' => '00Q-conflict', 'campaign_source_type' => 'ambiguous_attribution']);
+    }
+
     public function test_rebuild_del_mismo_periodo_no_pierde_oportunidades_ya_atribuidas(): void
     {
         SalesforceLead::query()->create([
