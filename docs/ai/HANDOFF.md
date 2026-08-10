@@ -11,6 +11,10 @@ Actualizado: 2026-08-10.
   representen aprobación funcional de los nuevos bloques.
 - No se verificaron en el repositorio los Salesforce User IDs de las excepciones
   Oscar, Nuria e Irene. No se mantienen reglas económicas por nombre.
+- La lectura definitiva de Área Manager reutiliza `area_manager` o
+  `area_manager_by_zone` del snapshot según el rol. Está cubierta para Dirección
+  y para Área Manager restringido; los cambios posteriores de fuente no alteran
+  el bloque congelado.
 
 ## Correctivo Meta Direct Form sin `campaign_acquired`
 

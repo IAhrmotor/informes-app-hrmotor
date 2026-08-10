@@ -14,7 +14,9 @@ use App\Services\Reports\CommercialCommissions\CommissionMonthResolver;
 use App\Services\Reports\ContactCenterCommissions\ContactCenterCommissionDashboardService;
 use App\Services\Reports\FinancialCommissions\FinancialCommissionDashboardService;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class CommissionMonthClosureTest extends TestCase
@@ -141,6 +143,66 @@ class CommissionMonthClosureTest extends TestCase
 
         $this->assertSame('reopened', $service->status('2026-06', CommercialCommissionClosure::SCOPE_COMMERCIALS)['status']);
         $this->assertSame('pending_approval', $service->status('2026-06', CommercialCommissionClosure::SCOPE_DELEGATIONS)['status']);
+    }
+
+    public function test_area_manager_definitivo_lee_el_snapshot_para_direccion_y_zona_restringida(): void
+    {
+        $director = $this->user(ReportUser::ROLE_DIRECTOR);
+        $manager = ReportUser::query()->create([
+            'name' => 'Area Norte', 'email' => 'area-norte@example.test', 'password' => 'secret123',
+            'role' => ReportUser::ROLE_AREA_MANAGER, 'area_zone' => 'north', 'is_active' => true,
+        ]);
+        $closure = CommercialCommissionClosure::query()->create([
+            'month' => '2026-06', 'closure_scope' => CommercialCommissionClosure::SCOPE_AREA_MANAGER,
+            'status' => CommercialCommissionClosure::STATUS_DEFINITIVE, 'snapshot_version' => 1,
+            'formula_version' => 'test', 'data_cutoff_at' => now(),
+        ]);
+        CommercialCommissionSnapshot::query()->create([
+            'closure_id' => $closure->id, 'month' => '2026-06', 'version' => 1, 'formula_version' => 'test',
+            'data_cutoff_at' => now(), 'created_at' => now(), 'payload' => [
+                'area_manager' => ['month' => '2026-06', 'summary_rows' => [['manager_key' => 'frozen-global', 'manager_name' => 'Congelado global', 'final_total' => 111, 'observations' => '', 'detail_rows' => [], 'kpi_summaries' => [], 'incidents' => []]], 'diagnostics' => [], 'global_incidents' => []],
+                'area_manager_by_zone' => ['north' => ['month' => '2026-06', 'summary_rows' => [['manager_key' => 'frozen-north', 'manager_name' => 'Congelado norte', 'final_total' => 222, 'observations' => '', 'detail_rows' => [], 'kpi_summaries' => [], 'incidents' => []]], 'diagnostics' => [], 'global_incidents' => []]],
+                'formula_settings' => [],
+            ],
+        ]);
+
+        DB::table('salesforce_opportunities')->insert(['salesforce_id' => '006-live-change', 'name' => 'Cambio posterior', 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->actingAsReportUser($director)->get('/informes/comisiones-comerciales?tab=area-manager&month=2026-06')
+            ->assertOk()
+            ->assertViewHas('areaManagerDashboard', fn (array $dashboard): bool => data_get($dashboard, 'summary_rows.0.final_total') === 111);
+        $this->actingAsReportUser($manager)->get('/informes/comisiones-comerciales?tab=area-manager&month=2026-06')
+            ->assertOk()
+            ->assertViewHas('areaManagerDashboard', fn (array $dashboard): bool => data_get($dashboard, 'summary_rows.0.final_total') === 222);
+    }
+
+    public function test_legacy_closure_and_audits_survive_while_scoped_closures_are_unique(): void
+    {
+        $legacy = CommercialCommissionClosure::query()->create(['month' => '2026-06', 'closure_scope' => CommercialCommissionClosure::SCOPE_LEGACY, 'status' => 'definitive']);
+        CommercialCommissionSnapshot::query()->create(['closure_id' => $legacy->id, 'month' => '2026-06', 'version' => 1, 'formula_version' => 'legacy', 'data_cutoff_at' => now(), 'payload' => ['legacy' => true], 'created_at' => now()]);
+        CommercialCommissionClosureEvent::query()->create(['closure_id' => $legacy->id, 'action' => 'approved', 'to_status' => 'definitive', 'created_at' => now()]);
+
+        foreach (CommercialCommissionClosure::CLOSABLE_SCOPES as $scope) {
+            CommercialCommissionClosure::query()->create(['month' => '2026-06', 'closure_scope' => $scope, 'status' => 'pending_approval']);
+        }
+
+        $this->assertSame(4, CommercialCommissionClosure::query()->where('month', '2026-06')->count());
+        $this->assertSame(['legacy' => true], $legacy->snapshots()->firstOrFail()->payload);
+        $this->assertSame(1, CommercialCommissionClosureEvent::query()->where('closure_id', $legacy->id)->count());
+        $this->expectException(UniqueConstraintViolationException::class);
+        CommercialCommissionClosure::query()->create(['month' => '2026-06', 'closure_scope' => CommercialCommissionClosure::SCOPE_COMMERCIALS, 'status' => 'pending_approval']);
+    }
+
+    public function test_status_endpoint_exposes_all_scoped_closures_without_legacy_alias(): void
+    {
+        $director = $this->user(ReportUser::ROLE_DIRECTOR);
+
+        $this->actingAsReportUser($director)
+            ->getJson('/informes/comisiones-comerciales/data/closure?month=2026-06')
+            ->assertOk()
+            ->assertJsonPath('ok', true)
+            ->assertJsonStructure(['closures' => ['commercials', 'delegations', 'area_manager']])
+            ->assertJsonMissing(['closure']);
     }
 
     private function closurePayload(string $month): array
