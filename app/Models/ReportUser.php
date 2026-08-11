@@ -3,21 +3,33 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Hash;
 
 class ReportUser extends Model
 {
+    public const PERMISSION_STOCK_CATALOG_ALIASES_APPROVE = 'stock.catalog_aliases.approve';
+
     public const ROLE_ADMIN = 'admin';
+
     public const ROLE_DIRECTOR = 'director';
+
     public const ROLE_AREA_MANAGER = 'area_manager';
+
     public const LEGACY_ROLE_AREA_MANAGER_OWN_AREA = 'area_manager_own_area';
+
     public const ROLE_VIEWER = 'viewer';
+
     public const ROLE_COMMISSION_AUDITOR = 'commission_auditor';
+
     public const ROLE_DELEGATION_MANAGER = 'delegation_manager';
+
     public const ROLE_MARKETING = 'marketing';
+
     public const ROLE_FINANCIAL = 'financial';
+
     public const ROLE_COMMERCIAL = 'commercial';
+
     public const ROLE_WEIGHTS = [
         self::ROLE_VIEWER => 10,
         self::ROLE_AREA_MANAGER => 20,
@@ -28,6 +40,7 @@ class ReportUser extends Model
         self::ROLE_DIRECTOR => 30,
         self::ROLE_ADMIN => 40,
     ];
+
     public const ROLE_LABELS = [
         self::ROLE_ADMIN => 'Administrador',
         self::ROLE_DIRECTOR => 'Direccion',
@@ -39,6 +52,7 @@ class ReportUser extends Model
         self::ROLE_FINANCIAL => 'Financiero',
         self::ROLE_COMMERCIAL => 'Comercial',
     ];
+
     public const AREA_ZONE_LABELS = [
         'north' => 'Zona Norte',
         'catalonia' => 'Zona Cataluña',
@@ -56,6 +70,7 @@ class ReportUser extends Model
         'salesforce_user_id',
         'is_active',
         'last_login_at',
+        'permissions',
     ];
 
     protected $hidden = [
@@ -65,6 +80,7 @@ class ReportUser extends Model
     protected $casts = [
         'is_active' => 'boolean',
         'last_login_at' => 'datetime',
+        'permissions' => 'array',
     ];
 
     public function setPasswordAttribute(string $value): void
@@ -77,6 +93,16 @@ class ReportUser extends Model
     public function isAdmin(): bool
     {
         return $this->role === self::ROLE_ADMIN;
+    }
+
+    public function hasPermission(string $permission): bool
+    {
+        return $this->isAdmin() || in_array($permission, $this->permissions ?? [], true);
+    }
+
+    public static function availablePermissions(): array
+    {
+        return [self::PERMISSION_STOCK_CATALOG_ALIASES_APPROVE];
     }
 
     public function isDirector(): bool

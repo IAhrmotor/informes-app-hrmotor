@@ -2,10 +2,10 @@
 
 namespace App\Services\Reports\Stock;
 
-use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 use App\Models\StockCatalogAlias;
 use App\Models\StockCatalogValue;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 class StockCatalogNormalizer
 {
@@ -16,8 +16,11 @@ class StockCatalogNormalizer
     private array $displayCache = [];
 
     private ?array $excludedTermKeys = null;
+
     private array $canonicalCache = [];
+
     private array $officialCatalogCache = [];
+
     private array $aliasCatalogCache = [];
 
     public const FIELD_BY_DIMENSION = [
@@ -48,6 +51,7 @@ class StockCatalogNormalizer
 
         $aliases = $this->aliasCatalogCache[$field] ??= StockCatalogAlias::query()
             ->where('field_api_name', $field)
+            ->where('approval_status', StockCatalogAlias::APPROVAL_APPROVED)
             ->with('catalogValue')
             ->get()
             ->keyBy('normalized_key');

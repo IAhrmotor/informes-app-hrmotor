@@ -173,3 +173,27 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   (56/345), `financieros` (6/38), ámbito Área Manager (1/4), cierres (9/72) y
   suite completa (423/2.883) correctos. Build correcto; Pint correcto para los
   PHP modificados. Pint global conserva deuda preexistente fuera de este lote.
+
+## Auditoría y correctivos de Stock (2026-08-11)
+
+- Se validó el universo Product2 y el scheduler: Disponible, Reservado y
+  Bloqueado ocupan capacidad; solo Disponible entra en recomendaciones. El
+  plan usa capacidad virtual y no escribe movimientos.
+- Se añadió `missing_signed_date` a la validez de ventas y se mantiene la
+  resolución existente de duplicados por última firma sin desempatar con
+  `LastModifiedDate`.
+- Se incorporó la fecha de matriculación verificada por describe de Salesforce:
+  `PRO_DAT_Fecha_de_matriculacion__c` → `salesforce_vehicles.registration_date`.
+  No se modificaron pesos de ranking, al no existir fórmula aprobada.
+- Los aliases de catálogo requieren permiso independiente
+  `stock.catalog_aliases.approve`, target Product2 activo y auditoría de
+  aprobador/fecha/motivo. Los aliases históricos quedan sin efecto como
+  `legacy_unverified` hasta revisión; no constituyen catálogo alternativo.
+- `StockDailySnapshotService` ahora reemplaza transaccionalmente la fotografía
+  de la fecha para evitar filas obsoletas en reintentos.
+- Archivos principales: modelos `ReportUser`, `StockCatalogAlias`,
+  `SalesforceVehicle`; servicios de Stock; controlador/route de aprobación;
+  migraciones `2026_08_11_120000` a `122000`; pruebas de Stock y documentación.
+- No hubo llamadas Salesforce de escritura ni operaciones de stock. Bloqueo:
+  falta una definición verificable de los estados que identifican logística
+  activa; no se añadió una inferencia que pueda excluir o puntuar vehículos.

@@ -188,6 +188,13 @@ class ReportUserAccess
         return self::canViewReport($request, 'stock');
     }
 
+    public static function canApproveStockCatalogAliases(Request $request): bool
+    {
+        $user = self::reportUser($request);
+
+        return $user?->hasPermission(ReportUser::PERMISSION_STOCK_CATALOG_ALIASES_APPROVE) ?? false;
+    }
+
     public static function canManageReportUsers(Request $request): bool
     {
         return self::isAdmin($request);

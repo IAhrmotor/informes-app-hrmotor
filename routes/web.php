@@ -17,6 +17,7 @@ use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardCon
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
 use App\Http\Controllers\Reports\Settings\ReportAccessManagementController;
 use App\Http\Controllers\Reports\Stock\StockCapacityController;
+use App\Http\Controllers\Reports\Stock\StockCatalogAliasApprovalController;
 use App\Http\Controllers\Reports\Stock\StockDashboardController;
 use App\Http\Controllers\Reports\Users\ReportUserManagementController;
 use App\Support\ReportUserAccess;
@@ -141,6 +142,7 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/exportar/calidad-dato.xlsx', [StockDashboardController::class, 'exportQualityXlsx'])->name('export.quality');
             Route::post('/capacidades/importar', [StockCapacityController::class, 'import'])->name('capacities.import');
             Route::put('/capacidades', [StockCapacityController::class, 'update'])->name('capacities.update');
+            Route::post('/catalogo/aliases/aprobar', [StockCatalogAliasApprovalController::class, 'store'])->name('catalog-aliases.approve');
         });
 
     Route::prefix('informes/usuarios')

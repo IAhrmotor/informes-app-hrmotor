@@ -204,4 +204,18 @@
             @endforeach
         </div>
     </article>
+    @if ($canApproveCatalogAliases)
+        <article class="card panel">
+            <div class="panel-title"><div><h2>Aprobar alias de catálogo</h2><div class="small">Destino Product2 activo; se registra usuario, fecha y motivo.</div></div></div>
+            <form method="POST" action="{{ route('reports.stock.catalog-aliases.approve') }}" class="filters-bar">
+                @csrf
+                <label>Campo <select name="field_api_name" required>@foreach (array_values(\App\Services\Reports\Stock\StockCatalogNormalizer::FIELD_BY_DIMENSION) as $field)<option value="{{ $field }}">{{ $field }}</option>@endforeach</select></label>
+                <label>Valor origen <input name="raw_value" required maxlength="255"></label>
+                <label>Destino <select name="stock_catalog_value_id" required>@foreach ($catalogAliasTargets as $target)<option value="{{ $target->id }}">{{ $target->field_api_name }} — {{ $target->label }}</option>@endforeach</select></label>
+                <label>Regla <input name="rule_name" required maxlength="100" value="manual_approved_alias"></label>
+                <label>Motivo <input name="reason" required maxlength="2000"></label>
+                <button type="submit" class="main-tab active">Aprobar alias</button>
+            </form>
+        </article>
+    @endif
 </section>

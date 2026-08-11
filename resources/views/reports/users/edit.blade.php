@@ -83,6 +83,12 @@
                     </select>
                 </div>
                 <div class="filter-group">
+                    <label>Permisos independientes</label>
+                    @foreach ($permissionOptions as $permission)
+                        <label><input type="checkbox" name="permissions[]" value="{{ $permission }}" @checked(in_array($permission, old('permissions', $managedUser->permissions ?? []), true))> {{ $permission }}</label>
+                    @endforeach
+                </div>
+                <div class="filter-group">
                     <label for="master_delegation_id">Delegación responsable</label>
                     <select id="master_delegation_id" name="master_delegation_id">
                         <option value="">No aplica</option>

@@ -73,6 +73,7 @@ class SalesforceVehicleSyncService
                         'financed_sale_price' => $financedSalePrice,
                         'only_financed' => $onlyFinanced,
                         'entry_date' => data_get($record, 'PRO_FEC_Fecha_entrada__c'),
+                        'registration_date' => data_get($record, 'PRO_DAT_Fecha_de_matriculacion__c'),
                         'buyer_id' => data_get($record, 'Comprador_oportunidad__c'),
                         'buyer_name' => data_get($record, 'Comprador_oportunidad__r.Name'),
                         'purchase_source' => $catalog['purchase_source']['canonical'],
@@ -111,6 +112,7 @@ SELECT
     PRO_DIV_Precio_venta_financiado__c,
     Solo_financiado__c,
     PRO_FEC_Fecha_entrada__c,
+    PRO_DAT_Fecha_de_matriculacion__c,
     Comprador_oportunidad__c,
     Comprador_oportunidad__r.Name,
     Procedencia_de_compra__c

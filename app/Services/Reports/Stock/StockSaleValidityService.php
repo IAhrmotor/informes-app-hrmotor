@@ -59,6 +59,7 @@ class StockSaleValidityService
                         'detail' => 'same_latest_signed_date',
                     ];
                 }
+
                 continue;
             }
             $selected = $latest->first();
@@ -129,6 +130,9 @@ class StockSaleValidityService
     {
         if (! $opportunity->cv_signed) {
             return 'contract_not_signed';
+        }
+        if (! $opportunity->cv_signed_date) {
+            return 'missing_signed_date';
         }
         if (! in_array($opportunity->record_type_name, ['Venta', 'Cambio'], true)) {
             return 'invalid_record_type';

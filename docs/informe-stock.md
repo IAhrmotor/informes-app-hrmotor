@@ -144,6 +144,28 @@ Scheduler vigente: 03:30 `Europe/Madrid`, con
 `stock:sync-daily --sales-days=14 --logistics-days=30` y bloqueo de solapamiento
 durante 120 minutos.
 
+## Controles de catálogo y venta (2026-08-11)
+
+- La fecha de matriculación verificada en el describe de `Product2` es
+  `PRO_DAT_Fecha_de_matriculacion__c` (tipo `date`, nillable). Se sincroniza
+  localmente como `salesforce_vehicles.registration_date`; no altera pesos ni
+  fórmulas del ranking hasta contar con una regla funcional explícita.
+- Una venta solo es válida si dispone de firma y fecha de firma. La ausencia de
+  fecha queda auditable como `missing_signed_date` y no entra en ventas,
+  rotación ni recomendaciones.
+- Los aliases solo se aplican cuando tienen estado `approved`, apuntan a un
+  valor `Product2` activo y han quedado auditados con usuario, fecha y motivo.
+  Los aliases heredados quedan `legacy_unverified` hasta su aprobación manual.
+  La aprobación exige el permiso independiente
+  `stock.catalog_aliases.approve`; Administrador/IT lo tiene por defecto.
+- La fotografía diaria se actualiza de forma transaccional e idempotente: al
+  repetir la misma fecha conserva una única fila por vehículo y retira filas
+  de vehículos que ya no pertenecen al stock de esa fotografía.
+
+Pendiente funcional: la fuente local no define inequívocamente qué estados de
+`Logistica__c` constituyen “logística activa”. No se ha inventado esa condición
+ni se ha alterado el score/recomendación hasta validar el universo operativo.
+
 Archivos principales:
 
 - `app/Services/Reports/Stock/StockDashboardDatasetService.php`;

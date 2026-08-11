@@ -5,8 +5,11 @@ namespace Tests\Feature;
 use App\Models\ReportUser;
 use App\Models\SalesforceSaleSnapshot;
 use App\Models\SalesforceVehicle;
-use App\Models\StockDelegation;
+use App\Models\StockCatalogAlias;
+use App\Models\StockCatalogValue;
 use App\Models\StockDailySnapshot;
+use App\Models\StockDelegation;
+use App\Services\Reports\Stock\StockCatalogNormalizer;
 use App\Services\Reports\Stock\StockDashboardDatasetService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -333,6 +336,47 @@ class StockDashboardTest extends TestCase
         $this->assertSame(1, $summary['age_over_180']);
         $this->assertSame(1, $summary['age_unknown']);
         $this->assertSame($summary['total'], $summary['age_bucket_total']);
+    }
+
+    public function test_solo_un_usuario_con_permiso_independiente_puede_aprobar_aliases_activos(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+        $admin = $this->user(ReportUser::ROLE_ADMIN, 'aliases-admin@hrmotor.com');
+        $target = StockCatalogValue::query()->create([
+            'object_api_name' => 'Product2',
+            'field_api_name' => 'PRO_SEL_Marca__c',
+            'api_value' => 'Peugeot',
+            'label' => 'Peugeot',
+            'is_active' => true,
+            'synced_at' => now(),
+        ]);
+
+        $this->withSession($this->sessionData($admin))
+            ->post(route('reports.stock.catalog-aliases.approve'), [
+                'field_api_name' => 'PRO_SEL_Marca__c',
+                'raw_value' => ' PEUGEOT ',
+                'stock_catalog_value_id' => $target->id,
+                'rule_name' => 'manual_approved_alias',
+                'reason' => 'Variante histórica validada.',
+            ])->assertRedirect();
+
+        $alias = StockCatalogAlias::query()->sole();
+        $this->assertSame(StockCatalogAlias::APPROVAL_APPROVED, $alias->approval_status);
+        $this->assertSame($admin->id, $alias->approved_by_report_user_id);
+        $this->assertNotNull($alias->approved_at);
+        $this->assertSame('Peugeot', app(StockCatalogNormalizer::class)->canonicalize('brand', 'peugeot')['canonical']);
+
+        $legacy = StockCatalogAlias::query()->create([
+            'field_api_name' => 'PRO_SEL_Marca__c',
+            'raw_value' => 'Legacy brand',
+            'normalized_key' => 'legacy brand',
+            'stock_catalog_value_id' => $target->id,
+            'rule_name' => 'legacy',
+            'reason' => 'Pendiente de aprobación.',
+            'approval_status' => StockCatalogAlias::APPROVAL_LEGACY_UNVERIFIED,
+        ]);
+        $this->assertSame('Legacy brand', app(StockCatalogNormalizer::class)->canonicalize('brand', 'Legacy brand')['canonical']);
+        $this->assertNotNull($legacy);
     }
 
     public function test_rankings_se_ordenan_por_ventas_y_el_simulador_relaciona_marcas_y_modelos(): void

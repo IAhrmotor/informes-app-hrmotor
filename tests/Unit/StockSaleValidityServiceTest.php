@@ -80,6 +80,18 @@ class StockSaleValidityServiceTest extends TestCase
         $this->assertNull($firstSnapshot->fresh()->selected_opportunity_salesforce_id);
     }
 
+    public function test_excluye_venta_firmada_sin_fecha_de_firma(): void
+    {
+        $opportunity = $this->opportunity('006-without-date', 'Contrato', '01t-no-date');
+        $opportunity->update(['cv_signed_date' => null]);
+        $snapshot = $this->snapshot($opportunity, 18000);
+
+        app(StockSaleValidityService::class)->reconcile();
+
+        $this->assertFalse($snapshot->fresh()->is_valid);
+        $this->assertSame('missing_signed_date', $snapshot->fresh()->invalid_reason);
+    }
+
     private function opportunity(string $id, string $stage, string $vehicleId): SalesforceOpportunity
     {
         return SalesforceOpportunity::query()->create([

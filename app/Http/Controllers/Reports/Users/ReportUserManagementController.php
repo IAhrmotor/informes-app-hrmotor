@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Reports\Users;
 
 use App\Http\Controllers\Controller;
-use App\Models\ReportUser;
 use App\Models\MasterDelegation;
+use App\Models\ReportUser;
 use App\Support\ReportUserAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,6 +28,7 @@ class ReportUserManagementController extends Controller
                 ->orderBy('email')
                 ->get(),
             'roleOptions' => ReportUser::roleOptions(),
+            'permissionOptions' => ReportUser::availablePermissions(),
             'areaZoneOptions' => ReportUser::areaZoneOptions(),
             'delegationOptions' => MasterDelegation::query()->where('is_active', true)->orderBy('delegation_name')->get(),
         ]);
@@ -59,6 +60,8 @@ class ReportUserManagementController extends Controller
                 'nullable', 'string', 'max:18', Rule::exists('salesforce_users', 'salesforce_id'),
             ],
             'is_active' => ['nullable', 'boolean'],
+            'permissions' => ['nullable', 'array'],
+            'permissions.*' => ['string', Rule::in(ReportUser::availablePermissions())],
         ]);
 
         ReportUser::query()->create([
@@ -70,6 +73,7 @@ class ReportUserManagementController extends Controller
             'master_delegation_id' => $data['role'] === ReportUser::ROLE_DELEGATION_MANAGER ? $data['master_delegation_id'] : null,
             'salesforce_user_id' => $data['role'] === ReportUser::ROLE_COMMERCIAL ? $data['salesforce_user_id'] : null,
             'is_active' => (bool) ($data['is_active'] ?? false),
+            'permissions' => array_values($data['permissions'] ?? []),
         ]);
 
         return redirect()
@@ -87,6 +91,7 @@ class ReportUserManagementController extends Controller
             'reportUserRole' => ReportUserAccess::role($request),
             'managedUser' => $reportUser,
             'roleOptions' => ReportUser::roleOptions(),
+            'permissionOptions' => ReportUser::availablePermissions(),
             'areaZoneOptions' => ReportUser::areaZoneOptions(),
             'delegationOptions' => MasterDelegation::query()->where('is_active', true)->orderBy('delegation_name')->get(),
         ]);
@@ -118,6 +123,8 @@ class ReportUserManagementController extends Controller
                 'nullable', 'string', 'max:18', Rule::exists('salesforce_users', 'salesforce_id'),
             ],
             'is_active' => ['nullable', 'boolean'],
+            'permissions' => ['nullable', 'array'],
+            'permissions.*' => ['string', Rule::in(ReportUser::availablePermissions())],
         ]);
 
         $isActive = (bool) ($data['is_active'] ?? false);
@@ -144,6 +151,7 @@ class ReportUserManagementController extends Controller
             'master_delegation_id' => $role === ReportUser::ROLE_DELEGATION_MANAGER ? $data['master_delegation_id'] : null,
             'salesforce_user_id' => $role === ReportUser::ROLE_COMMERCIAL ? $data['salesforce_user_id'] : null,
             'is_active' => $isActive,
+            'permissions' => array_values($data['permissions'] ?? []),
         ];
 
         if (filled($data['password'] ?? null)) {

@@ -6,15 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceSaleSnapshot;
 use App\Models\SalesforceVehicle;
+use App\Models\StockCatalogValue;
 use App\Models\StockDailySnapshot;
 use App\Models\StockDelegation;
-use App\Services\Reports\Stock\StockDashboardDatasetService;
 use App\Services\Reports\Stock\StockCatalogNormalizer;
+use App\Services\Reports\Stock\StockDashboardDatasetService;
 use App\Services\Reports\Stock\StockDelegationNormalizer;
 use App\Support\ReportUserAccess;
 use App\Support\SimpleXlsxWorkbookWriter;
-use Carbon\CarbonImmutable;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -27,8 +26,7 @@ class StockDashboardController extends Controller
         StockDelegationNormalizer $normalizer,
         StockDashboardDatasetService $datasetService,
         StockCatalogNormalizer $catalogNormalizer,
-    ): View
-    {
+    ): View {
         $capacityDelegations = StockDelegation::query()
             ->get()
             ->map(function (StockDelegation $delegation) use ($normalizer): StockDelegation {
@@ -54,6 +52,7 @@ class StockDashboardController extends Controller
         $activeTab = in_array($activeTab, $allowedTabs, true) ? $activeTab : 'summary';
         $dataset = $datasetService->build($request->query(), $activeTab);
         $quality = $activeTab === 'summary' ? $this->qualityMetrics($catalogNormalizer) : [];
+        $canApproveCatalogAliases = ReportUserAccess::canApproveStockCatalogAliases($request);
 
         return view('reports.stock.index', [
             ...$dataset,
@@ -66,6 +65,15 @@ class StockDashboardController extends Controller
             'stockDatasetCutoff' => SalesforceVehicle::query()->where('is_in_stock', true)->max('last_seen_stock_at'),
             'stockRuleVersion' => '2026-08-05.1',
             'quality' => $quality,
+            'canApproveCatalogAliases' => $canApproveCatalogAliases,
+            'catalogAliasTargets' => $canApproveCatalogAliases
+                ? StockCatalogValue::query()
+                    ->where('object_api_name', 'Product2')
+                    ->where('is_active', true)
+                    ->orderBy('field_api_name')
+                    ->orderBy('label')
+                    ->get(['id', 'field_api_name', 'api_value', 'label'])
+                : collect(),
         ]);
     }
 
@@ -139,8 +147,7 @@ class StockDashboardController extends Controller
         Request $request,
         SimpleXlsxWorkbookWriter $workbookWriter,
         StockCatalogNormalizer $catalogNormalizer,
-    )
-    {
+    ) {
         try {
             $vehicles = SalesforceVehicle::query()->where('is_in_stock', true);
             $sales = SalesforceSaleSnapshot::query();
