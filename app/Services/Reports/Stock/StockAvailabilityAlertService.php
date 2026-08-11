@@ -5,15 +5,13 @@ namespace App\Services\Reports\Stock;
 use App\Models\SalesforceVehicle;
 use App\Models\StockAvailabilityAlert;
 use App\Models\StockDelegation;
-use App\Services\Salesforce\SalesforceClient;
-use Illuminate\Support\Facades\Mail;
-use Throwable;
+use App\Services\Operations\OperationalAlertService;
 
 class StockAvailabilityAlertService
 {
     public function __construct(
-        private readonly SalesforceClient $salesforce,
         private readonly StockDelegationNormalizer $normalizer,
+        private readonly OperationalAlertService $operationalAlerts,
     ) {}
 
     public function evaluate(): array
@@ -25,17 +23,20 @@ class StockAvailabilityAlertService
             ->selectRaw('stock_delegation_id, COUNT(*) as total')
             ->groupBy('stock_delegation_id')
             ->pluck('total', 'stock_delegation_id');
+        $activeByDelegation = StockAvailabilityAlert::query()
+            ->where('state', 'open')
+            ->latest('id')
+            ->get()
+            ->unique('stock_delegation_id')
+            ->keyBy('stock_delegation_id');
 
         StockDelegation::query()->whereNotNull('capacity_total')->each(
-            function (StockDelegation $delegation) use ($available, &$result): void {
+            function (StockDelegation $delegation) use ($activeByDelegation, $available, &$result): void {
                 if (! $this->normalizer->isCommercial($delegation->canonical_name)) {
                     return;
                 }
-                $active = StockAvailabilityAlert::query()
-                    ->where('stock_delegation_id', $delegation->id)
-                    ->where('state', 'open')
-                    ->latest('id')
-                    ->first();
+
+                $active = $activeByDelegation->get($delegation->id);
                 $hasAvailable = (int) ($available[$delegation->id] ?? 0) > 0;
 
                 if ($hasAvailable) {
@@ -51,56 +52,44 @@ class StockAvailabilityAlertService
                     'state' => 'open',
                     'opened_at' => now(),
                 ]);
+
                 if ($active->wasRecentlyCreated) {
                     $result['opened']++;
+                    $activeByDelegation->put($delegation->id, $active);
                 }
-                $this->notify($active, $delegation, $result);
+
+                $this->publishAdministrativeAlert($active, $delegation);
             },
         );
 
         return $result;
     }
 
-    private function notify(StockAvailabilityAlert $alert, StockDelegation $delegation, array &$result): void
-    {
-        try {
-            if (! $alert->salesforce_task_id) {
-                $taskId = $this->salesforce->create('Task', [
-                    'Subject' => 'Alerta: '.$delegation->canonical_name.' sin vehículos disponibles',
-                    'Status' => 'Not Started',
-                    'Priority' => 'High',
-                    'ActivityDate' => now()->toDateString(),
-                    'Description' => 'La delegación tiene cero vehículos en estado Disponible. Reservados y bloqueados no cuentan como stock comercial.',
-                ]);
-                $alert->update(['salesforce_task_id' => $taskId, 'task_created_at' => now()]);
-            }
-            if (! $alert->email_sent_at) {
-                Mail::raw(
-                    "La delegación {$delegation->canonical_name} se ha quedado sin vehículos disponibles.\n\nSe ha registrado una Task en Salesforce. El aviso se cerrará automáticamente cuando recupere stock comercial.",
-                    fn ($message) => $message
-                        ->to((string) config('stock.alert_email'))
-                        ->subject('Alerta de stock: '.$delegation->canonical_name.' sin disponibles'),
-                );
-                $alert->update(['email_sent_at' => now()]);
-            }
-            $alert->update(['last_error' => null]);
-        } catch (Throwable $exception) {
-            $alert->update(['last_error' => $exception->getMessage()]);
-            $result['errors']++;
-        }
+    private function publishAdministrativeAlert(
+        StockAvailabilityAlert $alert,
+        StockDelegation $delegation,
+    ): void {
+        $this->operationalAlerts->open(
+            type: 'stock_availability',
+            severity: 'high',
+            source: 'stock:sync-daily',
+            technicalIdentifier: 'stock-delegation-'.$delegation->id,
+            message: 'La delegación '.$delegation->canonical_name.' no tiene vehículos disponibles.',
+            context: ['stock_delegation_id' => $delegation->id],
+        );
+
+        $alert->update(['last_error' => null]);
     }
 
     private function resolve(StockAvailabilityAlert $alert, array &$result): void
     {
         $alert->update(['state' => 'resolved', 'resolved_at' => now(), 'last_error' => null]);
-        try {
-            if ($alert->salesforce_task_id) {
-                $this->salesforce->update('Task', $alert->salesforce_task_id, ['Status' => 'Completed']);
-            }
-        } catch (Throwable $exception) {
-            $alert->update(['last_error' => $exception->getMessage()]);
-            $result['errors']++;
-        }
+        $this->operationalAlerts->resolve(
+            type: 'stock_availability',
+            source: 'stock:sync-daily',
+            technicalIdentifier: 'stock-delegation-'.$alert->stock_delegation_id,
+            resolution: 'La delegación ha recuperado vehículos disponibles.',
+        );
         $result['resolved']++;
     }
 }

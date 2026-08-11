@@ -1,5 +1,11 @@
 <?php
 
+$commissionsApiCredentials = json_decode((string) env('COMMISSIONS_API_CREDENTIALS'), true);
+
+if (! is_array($commissionsApiCredentials)) {
+    $commissionsApiCredentials = [];
+}
+
 return [
 
     /*
@@ -70,6 +76,9 @@ return [
     'commissions_api' => [
         'user' => env('COMMISSIONS_API_USER'),
         'password' => env('COMMISSIONS_API_PASSWORD'),
+        'credentials' => $commissionsApiCredentials,
+        'rate_limit_per_minute' => (int) env('COMMISSIONS_API_RATE_LIMIT_PER_MINUTE', 120),
+        'auth_failures_per_minute' => (int) env('COMMISSIONS_API_AUTH_FAILURES_PER_MINUTE', 10),
     ],
 
 ];

@@ -12,13 +12,12 @@ class CommercialCommissionApiController extends Controller
 {
     public function __construct(
         private readonly CommercialCommissionDashboardService $dashboard,
-    ) {
-    }
+    ) {}
 
     public function show(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'salesforce_id' => ['required', 'string'],
+            'salesforce_id' => ['required', 'string', 'max:64'],
         ]);
 
         $commercialId = trim((string) $validated['salesforce_id']);

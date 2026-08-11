@@ -55,7 +55,7 @@
                 </div>
                 <div class="filter-group">
                     <label for="password">Nueva contrasena</label>
-                    <input id="password" name="password" type="password" autocomplete="new-password">
+                    <input id="password" name="password" type="password" minlength="12" autocomplete="new-password">
                 </div>
                 <div class="filter-group">
                     <label for="role">Rol</label>

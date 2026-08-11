@@ -1,7 +1,6 @@
 <?php
 
 return [
-    'alert_email' => env('STOCK_ALERT_EMAIL', 'sara.lopez@hrmotor.com'),
     'recommendation_weights' => [
         'model_sale' => 9.0,
         'brand_sale' => 2.5,

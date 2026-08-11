@@ -15,13 +15,6 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
-
-        User::factory()->create([
-            'name' => 'thibaldo',
-            'email' => 'thibaldo.hermoso@hrmotor.com',
-        ]);
-
         $this->call([
             MasterDelegationsSeeder::class,
             MasterPortalsSeeder::class,
@@ -30,9 +23,15 @@ class DatabaseSeeder extends Seeder
             MasterFormSenderMappingsSeeder::class,
             MasterCallDelegationMappingsSeeder::class,
             CallAgentMappingsSeeder::class,
-
-            // Demo data for testing purposes only, not to be used in production
-            DemoLeadsSeeder::class,
         ]);
+
+        if (app()->environment(['local', 'testing'])) {
+            User::factory()->create([
+                'name' => 'Synthetic local user',
+                'email' => 'local-user@example.test',
+            ]);
+
+            $this->call(DemoLeadsSeeder::class);
+        }
     }
 }

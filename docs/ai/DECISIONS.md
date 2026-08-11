@@ -1,5 +1,30 @@
 # Decisiones técnicas
 
+## 2026-08-11 — Hardening transversal y recuperabilidad
+
+Se conserva Basic Auth de Comisiones por compatibilidad, pero las credenciales
+se modelan en configuración de entorno como entradas con `integration`,
+`credential_id`, `username`, `password` y revocación. Esto permite coexistencia
+durante rotación, identificación auditable y rate limit por integración sin
+almacenar secretos en base de datos.
+
+Las alertas técnicas se representan mediante `operational_alerts`, deduplicadas
+por fingerprint y accesibles solo a Administrador. El estado de Stock existente
+se conserva como entidad de dominio, pero deja de generar email y escrituras en
+Salesforce. Los fallos del scheduler abren alertas y los éxitos posteriores las
+resuelven.
+
+La retención pone a `NULL` únicamente los ocho `raw_payload` sin lectores
+funcionales, en vez de borrar la fila normalizada. Cinco payloads aún leídos por
+informes/reconstrucciones quedan bloqueados hasta materializar esas dependencias.
+Las ejecuciones y alertas resueltas sí se borran por chunks. Snapshots, cierres,
+atribuciones e historiales quedan fuera. La migración añade índices exactamente
+para estas consultas; por su coste DDL se despliega en ventana controlada y no
+se considera reversible cuando `operational_alerts` ya contenga datos.
+
+El rollback operativo preferido es código compatible o forward fix. Se prohíbe
+documentar `migrate:rollback --step=N` como mecanismo genérico.
+
 ## 2026-08-06 — Cohorte única y auditoría minimizada
 
 Se adopta una única resolución de cohorte por informe para alimentar KPI y

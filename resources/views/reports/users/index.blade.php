@@ -75,7 +75,7 @@
                 </div>
                 <div class="filter-group">
                     <label for="password">Contrasena</label>
-                    <input id="password" name="password" type="password" autocomplete="new-password" required>
+                    <input id="password" name="password" type="password" minlength="12" autocomplete="new-password" required>
                 </div>
                 <div class="filter-group">
                     <label for="role">Rol</label>

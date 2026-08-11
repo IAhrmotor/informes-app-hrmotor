@@ -4,6 +4,11 @@ use App\Models\User;
 
 return [
 
+    'report_login' => [
+        'max_attempts' => (int) env('REPORT_LOGIN_MAX_ATTEMPTS', 5),
+        'decay_seconds' => (int) env('REPORT_LOGIN_DECAY_SECONDS', 60),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Authentication Defaults

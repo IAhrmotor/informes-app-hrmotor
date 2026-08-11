@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\ReportUser;
 use App\Models\MasterDelegation;
+use App\Models\ReportUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -41,7 +41,7 @@ class ReportUserManagementTest extends TestCase
             ->post('/informes/usuarios', [
                 'name' => 'Director Uno',
                 'email' => 'director1@hrmotor.com',
-                'password' => 'secret12',
+                'password' => 'synthetic-password-12',
                 'role' => ReportUser::ROLE_DIRECTOR,
                 'is_active' => '1',
             ])
@@ -96,7 +96,7 @@ class ReportUserManagementTest extends TestCase
             'report_user_email' => $director->email,
         ])
             ->get('/informes/usuarios')
-            ->assertRedirect('/informes/leads');
+            ->assertForbidden();
     }
 
     public function test_admin_no_puede_eliminar_su_propio_usuario(): void
@@ -149,7 +149,7 @@ class ReportUserManagementTest extends TestCase
             ->post('/informes/usuarios', [
                 'name' => 'Manager Norte',
                 'email' => 'manager.norte@hrmotor.com',
-                'password' => 'secret12',
+                'password' => 'synthetic-password-12',
                 'role' => ReportUser::ROLE_AREA_MANAGER,
                 'is_active' => '1',
             ])
@@ -159,7 +159,7 @@ class ReportUserManagementTest extends TestCase
             ->post('/informes/usuarios', [
                 'name' => 'Manager Norte',
                 'email' => 'manager.norte@hrmotor.com',
-                'password' => 'secret12',
+                'password' => 'synthetic-password-12',
                 'role' => ReportUser::ROLE_AREA_MANAGER,
                 'area_zone' => 'north',
                 'is_active' => '1',
@@ -177,7 +177,7 @@ class ReportUserManagementTest extends TestCase
     {
         config()->set('services.informes_auth.enabled', true);
         $admin = ReportUser::query()->create([
-            'email' => 'admin-delegation@hrmotor.com', 'password' => 'secret12',
+            'email' => 'admin-delegation@hrmotor.com', 'password' => 'synthetic-password-12',
             'role' => ReportUser::ROLE_ADMIN, 'is_active' => true,
         ]);
         $delegation = MasterDelegation::query()->create([
@@ -188,7 +188,7 @@ class ReportUserManagementTest extends TestCase
             'report_user_role' => ReportUser::ROLE_ADMIN, 'report_user_email' => $admin->email,
         ];
         $payload = [
-            'email' => 'responsable@hrmotor.com', 'password' => 'secret12',
+            'email' => 'responsable@hrmotor.com', 'password' => 'synthetic-password-12',
             'role' => ReportUser::ROLE_DELEGATION_MANAGER, 'is_active' => '1',
         ];
 

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\ReportUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Tests\TestCase;
 
 class ReportsAuthMiddlewareTest extends TestCase
@@ -99,7 +100,7 @@ class ReportsAuthMiddlewareTest extends TestCase
 
         $this->withSession($session)
             ->get('/informes/usuarios')
-            ->assertRedirect('/informes/leads');
+            ->assertForbidden();
 
         $this->withSession($session)
             ->get('/informes/leads')
@@ -121,5 +122,32 @@ class ReportsAuthMiddlewareTest extends TestCase
             'report_user_id' => $inactive->id,
             'report_user_role' => ReportUser::ROLE_ADMIN,
         ])->get('/informes/leads')->assertRedirect('/login');
+    }
+
+    public function test_login_incorrecto_repetido_se_bloquea_sin_revelar_el_usuario(): void
+    {
+        config()->set('auth.report_login.max_attempts', 2);
+        config()->set('auth.report_login.decay_seconds', 60);
+        RateLimiter::clear('report-login:test');
+
+        foreach (range(1, 2) as $attempt) {
+            $this->from('/login')->post('/login', [
+                'email' => 'unknown@example.test',
+                'password' => 'incorrect-password-'.$attempt,
+            ])->assertRedirect('/login')->assertSessionHasErrors('email');
+        }
+
+        $this->from('/login')->post('/login', [
+            'email' => 'unknown@example.test',
+            'password' => 'incorrect-password-final',
+        ])->assertStatus(429)->assertSessionHasErrors('email');
+    }
+
+    public function test_login_rechaza_passwords_sobredimensionadas_antes_del_hash(): void
+    {
+        $this->from('/login')->post('/login', [
+            'email' => 'unknown@example.test',
+            'password' => str_repeat('x', 256),
+        ])->assertRedirect('/login')->assertSessionHasErrors('password');
     }
 }

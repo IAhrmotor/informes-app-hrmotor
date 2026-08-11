@@ -25,6 +25,7 @@ class CredentialSecurityTest extends TestCase
             'INTERNAL_REVIEWS_PASSWORD',
             'COMMISSIONS_API_USER',
             'COMMISSIONS_API_PASSWORD',
+            'COMMISSIONS_API_CREDENTIALS',
         ] as $variable) {
             $this->assertMatchesRegularExpression(
                 "/env\\('{$variable}'\\)/",
@@ -43,6 +44,7 @@ class CredentialSecurityTest extends TestCase
     {
         config()->set('services.commissions_api.user', null);
         config()->set('services.commissions_api.password', null);
+        config()->set('services.commissions_api.credentials', []);
 
         $this->getJson('/api/comisiones_comercial?salesforce_id=005-TEST')
             ->assertServiceUnavailable()

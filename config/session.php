@@ -2,6 +2,13 @@
 
 use Illuminate\Support\Str;
 
+$productionDefault = env('APP_ENV') === 'production';
+$booleanSetting = static function (mixed $value, bool $default): bool {
+    return $value === null || $value === ''
+        ? $default
+        : filter_var($value, FILTER_VALIDATE_BOOL);
+};
+
 return [
 
     /*
@@ -47,7 +54,7 @@ return [
     |
     */
 
-    'encrypt' => env('SESSION_ENCRYPT', false),
+    'encrypt' => $booleanSetting(env('SESSION_ENCRYPT'), $productionDefault),
 
     /*
     |--------------------------------------------------------------------------
@@ -169,7 +176,7 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    'secure' => $booleanSetting(env('SESSION_SECURE_COOKIE'), $productionDefault),
 
     /*
     |--------------------------------------------------------------------------

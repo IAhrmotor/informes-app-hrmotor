@@ -15,9 +15,7 @@ class ReportUserManagementController extends Controller
 {
     public function index(Request $request): View|RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
-            return redirect()->route('reports.leads.index');
-        }
+        abort_unless(ReportUserAccess::canManageReportUsers($request), 403);
 
         return view('reports.users.index', [
             'reportUserRole' => ReportUserAccess::role($request),
@@ -36,14 +34,12 @@ class ReportUserManagementController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
-            return redirect()->route('reports.leads.index');
-        }
+        abort_unless(ReportUserAccess::canManageReportUsers($request), 403);
 
         $data = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('report_users', 'email')],
-            'password' => ['required', 'string', 'min:6', 'max:255'],
+            'password' => ['required', 'string', 'min:12', 'max:255'],
             'role' => ['required', 'string', Rule::in(ReportUser::availableRoles())],
             'area_zone' => [
                 Rule::requiredIf(fn (): bool => $request->input('role') === ReportUser::ROLE_AREA_MANAGER),
@@ -83,9 +79,7 @@ class ReportUserManagementController extends Controller
 
     public function edit(Request $request, ReportUser $reportUser): View|RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
-            return redirect()->route('reports.leads.index');
-        }
+        abort_unless(ReportUserAccess::canManageReportUsers($request), 403);
 
         return view('reports.users.edit', [
             'reportUserRole' => ReportUserAccess::role($request),
@@ -99,14 +93,12 @@ class ReportUserManagementController extends Controller
 
     public function update(Request $request, ReportUser $reportUser): RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
-            return redirect()->route('reports.leads.index');
-        }
+        abort_unless(ReportUserAccess::canManageReportUsers($request), 403);
 
         $data = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique('report_users', 'email')->ignore($reportUser->id)],
-            'password' => ['nullable', 'string', 'min:6', 'max:255'],
+            'password' => ['nullable', 'string', 'min:12', 'max:255'],
             'role' => ['required', 'string', Rule::in(ReportUser::availableRoles())],
             'area_zone' => [
                 Rule::requiredIf(fn (): bool => $request->input('role') === ReportUser::ROLE_AREA_MANAGER),
@@ -173,9 +165,7 @@ class ReportUserManagementController extends Controller
 
     public function destroy(Request $request, ReportUser $reportUser): RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
-            return redirect()->route('reports.leads.index');
-        }
+        abort_unless(ReportUserAccess::canManageReportUsers($request), 403);
 
         $currentUserId = (int) $request->session()->get('report_user_id');
 

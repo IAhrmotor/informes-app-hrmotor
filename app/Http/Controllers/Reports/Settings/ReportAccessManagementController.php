@@ -14,9 +14,7 @@ class ReportAccessManagementController extends Controller
 {
     public function index(Request $request): View|RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
-            return redirect()->route('reports.index');
-        }
+        abort_unless(ReportUserAccess::canManageReportUsers($request), 403);
 
         return view('reports.settings.access', [
             'reportUserRole' => ReportUserAccess::role($request),
@@ -28,9 +26,7 @@ class ReportAccessManagementController extends Controller
 
     public function update(Request $request): RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
-            return redirect()->route('reports.index');
-        }
+        abort_unless(ReportUserAccess::canManageReportUsers($request), 403);
 
         $definitions = ReportUserAccess::reportDefinitions();
         $rules = [];

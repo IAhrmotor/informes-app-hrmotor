@@ -11,17 +11,15 @@ use App\Services\Reports\CommercialCommissions\Import\CommercialFinancingPenalty
 use App\Support\ReportUserAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\View\View;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+use Illuminate\View\View;
 
 class CommercialFinancingPenaltyImportController extends Controller
 {
     public function index(Request $request): View|RedirectResponse
     {
-        if (! ReportUserAccess::canManageFinancingPenalties($request)) {
-            return redirect()->route('reports.index');
-        }
+        abort_unless(ReportUserAccess::canManageFinancingPenalties($request), 403);
 
         if (! Schema::hasTable('commercial_financing_penalty_imports') || ! Schema::hasTable('commercial_financing_penalties')) {
             return view('reports.commercial-commissions.financing-penalties', [
@@ -80,9 +78,7 @@ class CommercialFinancingPenaltyImportController extends Controller
 
     public function store(Request $request, CommercialFinancingPenaltyImportService $importer): RedirectResponse
     {
-        if (! ReportUserAccess::canManageFinancingPenalties($request)) {
-            return redirect()->route('reports.index');
-        }
+        abort_unless(ReportUserAccess::canManageFinancingPenalties($request), 403);
 
         if (! Schema::hasTable('commercial_financing_penalty_imports') || ! Schema::hasTable('commercial_financing_penalties')) {
             return back()->withErrors(['file' => 'Faltan las tablas de penalizaciones. Ejecuta php artisan migrate antes de cargar un archivo.']);

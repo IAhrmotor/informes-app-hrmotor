@@ -9,11 +9,15 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class InformesLoginController extends Controller
 {
     private const REMEMBER_DAYS = 30;
+
+    private const DUMMY_PASSWORD_HASH = '$2y$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.';
 
     public function show(Request $request): View|RedirectResponse
     {
@@ -28,17 +32,34 @@ class InformesLoginController extends Controller
     public function login(Request $request): RedirectResponse
     {
         $credentials = $request->validate([
-            'email' => ['required', 'string'],
-            'password' => ['required', 'string'],
+            'email' => ['required', 'string', 'max:255'],
+            'password' => ['required', 'string', 'max:255'],
         ]);
+
+        $throttleKey = $this->loginThrottleKey($request, $credentials['email']);
+        $maxAttempts = max(1, (int) config('auth.report_login.max_attempts', 5));
+
+        if (RateLimiter::tooManyAttempts($throttleKey, $maxAttempts)) {
+            return back()
+                ->withInput($request->only('email'))
+                ->withErrors(['email' => 'Las credenciales no son correctas. Inténtalo de nuevo más tarde.'])
+                ->setStatusCode(429);
+        }
 
         $reportUser = $this->reportUserForCredentials($credentials['email'], $credentials['password']);
 
         if ($reportUser === null) {
+            RateLimiter::hit(
+                $throttleKey,
+                max(1, (int) config('auth.report_login.decay_seconds', 60)),
+            );
+
             return back()
                 ->withInput($request->only('email'))
                 ->withErrors(['email' => 'Las credenciales no son correctas.']);
         }
+
+        RateLimiter::clear($throttleKey);
 
         $request->session()->regenerate();
         $this->storeAuthenticatedSession($request, $reportUser);
@@ -77,10 +98,11 @@ class InformesLoginController extends Controller
     {
         $user = ReportUser::query()
             ->where('email', $login)
-            ->where('is_active', true)
             ->first();
 
-        if (! $user || ! Hash::check($password, $user->password)) {
+        $passwordMatches = Hash::check($password, $user?->password ?? self::DUMMY_PASSWORD_HASH);
+
+        if (! $user || ! $user->is_active || ! $passwordMatches) {
             return null;
         }
 
@@ -107,7 +129,7 @@ class InformesLoginController extends Controller
             self::REMEMBER_DAYS * 24 * 60,
             null,
             null,
-            $request->isSecure(),
+            (bool) config('session.secure', $request->isSecure()),
             true,
             false,
             'lax'
@@ -122,5 +144,13 @@ class InformesLoginController extends Controller
             implode('|', [$user->id, $user->email, $user->password]),
             (string) config('app.key')
         );
+    }
+
+    private function loginThrottleKey(Request $request, string $login): string
+    {
+        return 'report-login:'.hash('sha256', implode('|', [
+            Str::lower(trim($login)),
+            (string) $request->ip(),
+        ]));
     }
 }

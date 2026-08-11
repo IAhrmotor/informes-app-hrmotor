@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\ReportUser;
 use App\Models\MasterDelegation;
+use App\Models\ReportUser;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -144,7 +144,7 @@ class ReportAccessManagementTest extends TestCase
 
         $this->withSession($session)
             ->get('/informes/permisos-informes')
-            ->assertRedirect('/informes');
+            ->assertForbidden();
 
         $this->withSession($session)
             ->get('/informes/penalizaciones-financiacion')

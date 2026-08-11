@@ -13,6 +13,7 @@ use App\Http\Controllers\Reports\CommercialCommissions\CommercialFinancingPenalt
 use App\Http\Controllers\Reports\Leads\LeadDashboardController;
 use App\Http\Controllers\Reports\Leads\LeadDashboardDataController;
 use App\Http\Controllers\Reports\Leads\MonthlyCommercialReportDataController;
+use App\Http\Controllers\Reports\Operations\OperationalAlertController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
 use App\Http\Controllers\Reports\Settings\ReportAccessManagementController;
@@ -154,6 +155,9 @@ Route::middleware('reports.auth')->group(function () {
             Route::put('/{reportUser}', [ReportUserManagementController::class, 'update'])->name('update');
             Route::delete('/{reportUser}', [ReportUserManagementController::class, 'destroy'])->name('destroy');
         });
+
+    Route::get('informes/alertas-operativas', [OperationalAlertController::class, 'index'])
+        ->name('reports.operational-alerts.index');
 
     Route::prefix('informes/permisos-informes')
         ->name('reports.access-settings.')

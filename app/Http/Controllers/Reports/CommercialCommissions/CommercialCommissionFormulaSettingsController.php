@@ -18,9 +18,7 @@ class CommercialCommissionFormulaSettingsController extends Controller
 
     public function index(Request $request): View|RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
-            return redirect()->route('reports.index');
-        }
+        abort_unless(ReportUserAccess::canManageReportUsers($request), 403);
 
         $selectedMonth = $this->formulaConfig->resolveSelectedMonth($request->query('month'));
         $isEditableMonth = $this->formulaConfig->isEditableMonth($selectedMonth, $request);
@@ -45,9 +43,7 @@ class CommercialCommissionFormulaSettingsController extends Controller
 
     public function update(Request $request): RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
-            return redirect()->route('reports.index');
-        }
+        abort_unless(ReportUserAccess::canManageReportUsers($request), 403);
 
         $selectedMonth = $this->formulaConfig->resolveSelectedMonth($request->input('month'));
 
@@ -186,9 +182,7 @@ class CommercialCommissionFormulaSettingsController extends Controller
 
     public function unlock(Request $request): RedirectResponse
     {
-        if (! ReportUserAccess::canManageReportUsers($request)) {
-            return redirect()->route('reports.index');
-        }
+        abort_unless(ReportUserAccess::canManageReportUsers($request), 403);
 
         $selectedMonth = $this->formulaConfig->resolveSelectedMonth($request->input('month'));
 

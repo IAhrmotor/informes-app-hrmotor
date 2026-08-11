@@ -3,6 +3,7 @@
 namespace App\Services\Reports;
 
 use App\Models\ReportSyncRun;
+use App\Support\IntegrationErrorSanitizer;
 use Carbon\CarbonInterface;
 use Throwable;
 
@@ -42,7 +43,10 @@ class ReportSyncRunService
         $run->update([
             'status' => 'failed',
             'completed_at' => now(),
-            'error_message' => mb_substr($error instanceof Throwable ? $error->getMessage() : $error, 0, 65000),
+            'error_message' => IntegrationErrorSanitizer::sanitizeMessage(
+                $error instanceof Throwable ? $error->getMessage() : $error,
+                2000,
+            ),
         ]);
     }
 }

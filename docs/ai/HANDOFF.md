@@ -1,6 +1,97 @@
 # Handoff para agentes
 
-Actualizado: 2026-08-10.
+Actualizado: 2026-08-11.
+
+## Hardening transversal final
+
+### Resumen
+
+- Se añadió CI real en `.github/workflows/ci.yml`, sin secretos ni permisos de
+  escritura: PHP 8.4, Composer, migraciones SQLite, tests, Pint, Node 22/build y
+  whitespace check.
+- Login: throttling configurable, mensaje uniforme, coste de hash también para
+  usuario inexistente, regeneración de sesión y cookie remember segura según
+  configuración. Producción activa Secure y cifrado de sesión por defecto.
+- API Comisiones: Basic compatible con credenciales múltiples/versionadas en
+  entorno, revocación, comparación sobre hashes de longitud fija, rate limits de
+  auth y tráfico por integración, `429` y auditoría diaria con request ID.
+- Logs: daily por defecto, 90 días y procesador central de redacción.
+- Retención: comando chunked/dry-run para ocho payloads crudos sin consumidores,
+  sync runs, colas y alertas resueltas. Cinco payloads con lecturas funcionales
+  quedan bloqueados hasta materializar dependencias; no se fuerzan borrados.
+- Alertas: tabla/modelo/servicio deduplicado, panel paginado solo admin y
+  callbacks de scheduler. Stock conserva su criterio, pero deja de enviar email
+  y de escribir Tasks Salesforce.
+- Autorización sensible de usuarios, permisos, fórmulas y penalizaciones devuelve
+  `403` en acceso directo no autorizado.
+- `DatabaseSeeder` ya no crea una identidad corporativa ni datos demo fuera de
+  `local/testing`; se retiró el email fallback legacy de alertas de Stock.
+- Despliegue documentado sin Node y sin rollback genérico destructivo.
+
+### Archivos principales modificados
+
+- `bootstrap/app.php`, `routes/api.php`, `routes/web.php`, `routes/console.php`.
+- Middlewares de API, login/sesión y controladores administrativos.
+- `config/auth.php`, `logging.php`, `services.php`, `session.php`, `.env.example`.
+- `OperationalAlert`, `OperationalAlertService`, panel administrativo y servicio
+  de alertas de Stock.
+- `PruneTransversalDataCommand` y migración
+  `2026_08_11_130000_create_operational_alerts_and_retention_indexes.php`.
+- Tests focalizados de API, auth, permisos, logs, alertas y retención.
+- README, runbook de producción, contexto y decisiones AI.
+
+### Decisiones y base de datos
+
+- Secrets en environment, no en BD; legacy se retira solo tras identificar al
+  consumidor y completar rotación.
+- La migración es aditiva: crea `operational_alerts` y 11 índices de retención
+  sobre tablas existentes. No contiene data migration ni ejecuta pruning.
+- El `down()` de la tabla de alertas es destructivo una vez utilizada; preferir
+  rollback de código/forward fix. Los índices sobre tablas grandes pueden
+  consumir tiempo y bloquear DDL en MariaDB 10.6: medir sobre copia.
+
+### Seguridad y rendimiento
+
+- Auditoría API no registra headers, body, IP ni query completa.
+- Alertas y errores persistidos se sanitizan y truncan.
+- Panel con filtros servidor y 25 filas; alertas deduplicadas por unique
+  fingerprint. Pruning usa índices, lotes y transacción por lote.
+- Cachés revisadas: TTL 10 minutos e inclusión de ámbitos/filtros donde aplica.
+  La evaluación de Stock pasó de consultar alertas abiertas por delegación a
+  una carga única; no se añadieron cambios funcionales ni N+1.
+
+### Pruebas ejecutadas
+
+- Baseline previo: la suite completa agotó 300 segundos sin resumen; no llegó a
+  comunicar fallos de aserción. El historial anterior registraba 423 tests.
+- Sintaxis de PHP modificado: correcta.
+- `migrate:fresh --env=testing --force`: correcto, incluida la nueva migración.
+- Rutas API y `schedule:list`: correctos.
+- Focalizadas iniciales: 29 tests, 166 aserciones, correctas tras actualizar una
+  expectativa histórica de redirect a `403`.
+- Focalizadas ampliadas: 40 tests, 213 aserciones, correctas.
+- Suite completa final: 436 tests, 2.951 aserciones, correcta en 390,3 s con
+  `max_execution_time=900`. El intento inmediatamente anterior con el límite
+  local de 120 s terminó por timeout del runner en Symfony Finder, sin fallo de
+  aserción; no es un error funcional del lote.
+- `npm run build`: correcto; no cambió artefactos versionados. Conserva avisos
+  no bloqueantes sobre `login-bg.jpg` resuelto en runtime y una API Node obsoleta.
+- Composer `validate --strict --no-check-publish`: correcto.
+- Workflow `.github/workflows/ci.yml`: sintaxis correcta con `yaml-lint`.
+- Pint global: no correcto por deuda histórica ajena al lote. Pint sobre todos
+  los PHP modificados/nuevos: correcto.
+- `git diff --check`: correcto en la revisión final.
+
+### Acciones manuales y riesgos
+
+- Seguir `docs/operaciones-produccion.md`; no ejecutar npm en producción.
+- Verificar backup restaurable, cuota de logs, locking/tiempo de índices y dueño
+  de cada consumidor API.
+- Configurar en cPanel límites de proceso/monitorización de cron; los locks de
+  Laravel no terminan procesos y solo deben limpiarse tras confirmar que no hay
+  una ejecución activa.
+- Configurar/rotar credenciales fuera del repo; Codex no lo ha hecho.
+- No se ejecutaron deploy, push, migración/pruning/job real ni llamadas externas.
 
 ## Cierres independientes de Comisiones Comerciales
 

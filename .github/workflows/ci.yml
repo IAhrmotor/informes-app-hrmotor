@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=
+      APP_DEBUG: "false"
+      DB_CONNECTION: sqlite
+      DB_DATABASE: database/database.sqlite
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          coverage: none
+          tools: composer:v2
+          extensions: mbstring, pdo_sqlite, sqlite3
+
+      - name: Cache Composer downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer/files
+          key: ${{ runner.os }}-php-8.4-composer-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-php-8.4-composer-
+
+      - name: Validate Composer manifest
+        run: composer validate --no-check-publish --strict
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Prepare test database
+        run: |
+          touch database/database.sqlite
+          php artisan migrate --force --no-interaction
+
+      - name: PHP tests
+        run: php artisan test
+
+      - name: Pint on changed PHP
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+
+          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="$(git rev-list --max-parents=0 HEAD)"
+          fi
+
+          mapfile -t php_files < <(git diff --name-only --diff-filter=ACM "${base}" "${GITHUB_SHA}" -- '*.php')
+          if (( ${#php_files[@]} > 0 )); then
+            vendor/bin/pint --test "${php_files[@]}"
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build frontend assets
+        run: npm run build
+
+      - name: Whitespace validation
+        run: git diff --check

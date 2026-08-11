@@ -1,6 +1,7 @@
 @php
     $currentAdminPage = $currentAdminPage ?? 'users';
     $adminLinks = [
+        ['key' => 'operational-alerts', 'label' => 'Alertas operativas', 'route' => 'reports.operational-alerts.index'],
         ['key' => 'users', 'label' => 'Usuarios', 'route' => 'reports.users.index'],
         ['key' => 'access-settings', 'label' => 'Permisos informes', 'route' => 'reports.access-settings.index'],
         ['key' => 'commission-settings', 'label' => 'Coeficientes comisiones', 'route' => 'reports.commission-settings.index'],

@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\ReportUser;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cookie;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnsureInformesAuthenticated
@@ -25,15 +26,10 @@ class EnsureInformesAuthenticated
             return $next($request);
         }
 
-        $request->session()->forget([
-            'informes_authenticated',
-            'informes_user',
-            'report_user_id',
-            'report_user_email',
-            'report_user_role',
-            'report_user_name',
-        ]);
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
         $request->session()->put('url.intended', $request->fullUrl());
+        Cookie::queue(Cookie::forget('report_user_remember'));
 
         return redirect()->route('login');
     }

@@ -227,19 +227,15 @@ manteniendo el esquema aditivo.
 
 ## 12. Despliegue
 
-```bash
-php artisan down
-php artisan migrate --force
-php artisan optimize:clear
-npm ci
-npm run build
-php artisan up
-```
+Producción no tiene Node/npm. Los assets deben llegar construidos desde CI; no
+se ejecuta `npm ci` ni `npm run build` en cPanel. El mantenimiento se decide por
+el riesgo real de la migración; el lote transversal de 2026-08-11 requiere
+ventana controlada por creación de índices sobre tablas voluminosas.
 
-Después, ejecutar únicamente inicializaciones o backfills aprobados. No lanzar
-reprocesados globales de Llamadas o Campañas como parte implícita del despliegue.
-
-Guía: `docs/despliegue-auditoria-2026-08-05.md`.
+No usar `migrate:rollback --step=N` como rollback genérico. Preferir rollback de
+código compatible o forward fix, y analizar cada rollback de esquema con backup
+restaurable. No lanzar sync, reprocesados, backfills ni pruning real como parte
+implícita. Runbook: `docs/operaciones-produccion.md`.
 
 ## 13. Pendientes y riesgos
 

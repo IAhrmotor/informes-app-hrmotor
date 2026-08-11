@@ -110,6 +110,7 @@ del cron diariamente.
 
 Programación principal (`Europe/Madrid`):
 
+- Retención transversal: 00:30.
 - Leads incremental: cada 15 minutos, `--days=2`.
 - Tasaciones: 01:00, `--days=120`.
 - Meta Ads: 01:30, `--days=120`.
@@ -120,28 +121,19 @@ Programación principal (`Europe/Madrid`):
 
 ## Despliegue
 
-No ejecutar desde herramientas de desarrollo contra producción sin el proceso de
-cambio aprobado. Secuencia base:
-
-```bash
-php artisan down
-php artisan migrate --force
-php artisan optimize:clear
-npm ci
-npm run build
-php artisan up
-```
-
-Los backfills y reprocesados no forman parte automáticamente del despliegue.
-Deben ejecutarse con rango explícito, simulación cuando exista, export previo y
-conciliación por ID. Consultar la guía de despliegue antes de usar comandos de
-Llamadas, Campañas o Stock.
+Producción usa PHP 8.4, MariaDB 10.6 y cPanel, sin Node/npm. Los assets de
+`public/build` deben llegar ya compilados y verificados por GitHub Actions; no se
+ejecuta `npm ci` ni `npm run build` en producción. La secuencia exacta, el uso
+condicional de mantenimiento, las comprobaciones pre/post y la estrategia de
+recuperación están en [docs/operaciones-produccion.md](docs/operaciones-produccion.md).
 
 ## Verificación
 
 ```bash
 php artisan test
 npm run build
+vendor/bin/pint --test
+git diff --check
 ```
 
 Última verificación de código registrada antes de esta actualización documental:
@@ -155,7 +147,13 @@ permisos y Reservas/Ventas también fueron correctas.
 - `INFORMES_AUTH_*` es legado eliminado y no habilita login, sesiones ni bypass
   por configuración.
 - La Basic Auth de la API interna de Comisiones es independiente del login
-  humano y falla cerrada cuando no está configurada.
+  humano, falla cerrada, admite credenciales versionadas por integración,
+  rate limit por integración y auditoría estructurada sin secretos.
+- El login humano limita intentos fallidos; las sesiones de producción usan
+  cookies Secure/HttpOnly y cifrado por defecto cuando no se sobrescribe.
+- Los logs rotan diariamente durante 90 días y pasan por sanitización central.
+- Las alertas operativas se deduplican y solo se muestran a administradores;
+  no se envían por email, Slack, SMS ni Salesforce.
 - CSRF obligatorio en mutaciones web.
 - Autorización de pantallas, JSON, exports, filas y columnas sensibles.
 - Principio de mínimo privilegio y ámbitos estables: Salesforce User ID,

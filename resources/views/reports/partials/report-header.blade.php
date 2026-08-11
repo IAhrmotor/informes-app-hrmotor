@@ -3,6 +3,7 @@
     $currentAdminPage = $currentAdminPage ?? null;
     $updatedBadgeText = $updatedBadgeText ?? 'Cargando fotografía local...';
     $adminLinks = [
+        ['key' => 'operational-alerts', 'label' => 'Alertas', 'route' => 'reports.operational-alerts.index'],
         ['key' => 'users', 'label' => 'Usuarios', 'route' => 'reports.users.index'],
         ['key' => 'access-settings', 'label' => 'Permisos', 'route' => 'reports.access-settings.index'],
         ['key' => 'commission-settings', 'label' => 'Coeficientes', 'route' => 'reports.commission-settings.index'],

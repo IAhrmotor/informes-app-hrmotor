@@ -1,11 +1,13 @@
 <?php
 
-use Illuminate\Foundation\Application;
-use Illuminate\Foundation\Configuration\Exceptions;
-use Illuminate\Foundation\Configuration\Middleware;
+use App\Http\Middleware\AuditInternalApiRequest;
 use App\Http\Middleware\EnsureCommissionsApiBasicAuth;
 use App\Http\Middleware\EnsureInformesAuthenticated;
 use App\Http\Middleware\EnsureReportAccess;
+use App\Http\Middleware\ThrottleInternalApi;
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Foundation\Configuration\Middleware;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -16,6 +18,8 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
+            'internal.api.audit' => AuditInternalApiRequest::class,
+            'internal.api.throttle' => ThrottleInternalApi::class,
             'commissions.api.auth' => EnsureCommissionsApiBasicAuth::class,
             'reports.auth' => EnsureInformesAuthenticated::class,
             'report.access' => EnsureReportAccess::class,
