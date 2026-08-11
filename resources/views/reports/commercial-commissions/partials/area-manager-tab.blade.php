@@ -3,7 +3,6 @@
     $areaManagerActiveRow = $areaManagerSummaryRows->first();
     $areaManagerDiagnostics = $areaManagerDashboard['diagnostics'] ?? [];
     $areaManagerGlobalIncidents = collect($areaManagerDashboard['global_incidents'] ?? []);
-    $areaManagerOscarCommission = (float) $areaManagerSummaryRows->sum('final_total') * 0.40;
     $areaManagerKpiSections = [
         'deliveries' => ['label' => 'Entregas', 'money' => false],
         'benefit' => ['label' => 'Beneficio', 'money' => true],
@@ -28,12 +27,6 @@
         <span>Delegaciones</span>
         <strong>{{ number_format((int) ($areaManagerDiagnostics['delegations_count'] ?? 0), 0, ',', '.') }}</strong>
     </article>
-    @unless ($isAreaRestricted ?? false)
-        <article class="card campaign-context-card">
-            <span>Comisión Oscar</span>
-            <strong>{{ number_format($areaManagerOscarCommission, 2, ',', '.') }} EUR</strong>
-        </article>
-    @endunless
 </section>
 
 <section class="platform-comparison-grid commission-overview-grid call-center-overview-grid">

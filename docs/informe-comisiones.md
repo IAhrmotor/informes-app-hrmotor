@@ -105,10 +105,18 @@ informe y los logs técnicos sanitizados.
 
 ## Excepciones personales
 
-Las excepciones económicas personales deben configurarse solo por Salesforce User
-ID. Los IDs reales de Oscar, Nuria e Irene no están verificables en este
-repositorio; no se han inventado ni aplicado por nombre. Antes de activarlas en
-producción debe obtenerse el ID desde `salesforce_users` o Salesforce en lectura.
+Las excepciones económicas personales se resuelven exclusivamente mediante el
+Salesforce User ID materializado como `owner_id` de la Opportunity. Desde
+`2026-06`, los IDs configurados de Nuria e Irene reciben el 0,50 % de la suma de
+comisión neta, sustituyendo completamente los bloques 1, 2 y 3. Los nombres son
+solo etiquetas visuales: ni el nombre, ni la zona, ni el email intervienen en la
+decisión.
+
+La regla histórica atribuida a Oscar del 40 % no aparece en la especificación
+económica vigente; permanece desactivada hasta una aprobación funcional expresa
+y no existe ninguna fila sintética basada en su nombre. Financieros es un bloque
+operativo, por lo que no participa en los snapshots de cierre de Comerciales,
+Delegaciones o Área Manager.
 
 ## Roles y datos sensibles
 

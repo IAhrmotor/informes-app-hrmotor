@@ -433,9 +433,9 @@ class CommercialCommissionDashboardController extends Controller
                 $month = $financialPayload['month'];
                 $sheets[] = $this->commissionSheet(
                     'Financieros',
-                    'Zona financiera',
+                    'Responsable/Zona financiera',
                     $financialPayload['summary_rows'] ?? [],
-                    'zone_name',
+                    'summary_label',
                     'final_commission',
                 );
                 $path = $workbookWriter->write($sheets);
@@ -573,9 +573,9 @@ class CommercialCommissionDashboardController extends Controller
             $financialPayload = $financialDashboard->build($month);
             $sheets[] = $this->commissionSheet(
                 'Financieros',
-                'Zona financiera',
+                'Responsable/Zona financiera',
                 $financialPayload['summary_rows'] ?? [],
-                'zone_name',
+                'summary_label',
                 'final_commission',
             );
             unset($financialPayload);

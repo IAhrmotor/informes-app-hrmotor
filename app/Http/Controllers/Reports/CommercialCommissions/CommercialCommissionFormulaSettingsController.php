@@ -14,8 +14,7 @@ class CommercialCommissionFormulaSettingsController extends Controller
 {
     public function __construct(
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request): View|RedirectResponse
     {
@@ -108,9 +107,6 @@ class CommercialCommissionFormulaSettingsController extends Controller
             'financials.guarantee_percentage_brackets.*.incentive' => ['nullable', 'numeric', 'min:0', 'max:1'],
             'financials.excluded_interest_rates' => ['nullable', 'array'],
             'financials.excluded_interest_rates.*' => ['nullable', 'string', 'max:50'],
-            'financials.special_zone_net_commission_percentages' => ['nullable', 'array'],
-            'financials.special_zone_net_commission_percentages.*.zone_name' => ['required', 'string', 'max:100'],
-            'financials.special_zone_net_commission_percentages.*.percent' => ['nullable', 'numeric', 'min:0', 'max:1'],
         ] + $this->productBracketRules('financing_product_brackets', 8) + $this->productBracketRules('guarantee_product_brackets', 6));
 
         $settings = [
@@ -167,14 +163,6 @@ class CommercialCommissionFormulaSettingsController extends Controller
                 'excluded_interest_rates' => collect($data['financials']['excluded_interest_rates'] ?? [])
                     ->map(fn (mixed $value) => trim((string) $value))
                     ->filter()
-                    ->values()
-                    ->all(),
-                'special_zone_net_commission_percentages' => collect($data['financials']['special_zone_net_commission_percentages'] ?? [])
-                    ->map(fn (array $row): array => [
-                        'zone_name' => trim((string) ($row['zone_name'] ?? '')),
-                        'percent' => (float) ($row['percent'] ?? 0),
-                    ])
-                    ->filter(fn (array $row): bool => $row['zone_name'] !== '')
                     ->values()
                     ->all(),
             ],

@@ -5,7 +5,6 @@ namespace App\Services\Reports\FinancialCommissions;
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
 use App\Services\Reports\CommercialCommissions\CommissionMonthResolver;
-use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -17,6 +16,7 @@ class FinancialCommissionDashboardService
         'name',
         'stage_name',
         'record_type_name',
+        'owner_id',
         'owner_delegation',
         'opo_for_importe_total',
         'importe_financiado',
@@ -72,8 +72,7 @@ class FinancialCommissionDashboardService
     public function __construct(
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
         private readonly CommissionMonthResolver $monthResolver,
-    ) {
-    }
+    ) {}
 
     public function build(?string $month): array
     {
@@ -127,10 +126,12 @@ class FinancialCommissionDashboardService
             ->filter(fn (array $row): bool => ! $this->isExcludedZone($row['zone_name']))
             ->values();
 
+        $specialUserRules = $this->specialUserRules($settings['financials'] ?? []);
+        $financialSettings = $settings['financials'] ?? [];
         $summaryRows = $prepared
-            ->groupBy('zone_name')
-            ->map(fn (Collection $rows, string $zoneName): array => $this->summarizeZone($zoneName, $rows, $settings['financials'] ?? []))
-            ->sortBy('zone_name')
+            ->groupBy(fn (array $row): string => $this->summaryGroupKey($row, $specialUserRules))
+            ->map(fn (Collection $rows): array => $this->summarizeZone($rows, $financialSettings, $specialUserRules))
+            ->sortBy('summary_label')
             ->values()
             ->all();
 
@@ -186,6 +187,7 @@ class FinancialCommissionDashboardService
 
         return [
             'zone_name' => $zoneName,
+            'financial_user_id' => trim((string) ($opportunity->owner_id ?? '')),
             'opportunity_id' => (string) $opportunity->salesforce_id,
             'opportunity_name' => (string) $opportunity->name,
             'amount_total' => round((float) ($opportunity->opo_for_importe_total ?? 0), 2),
@@ -203,8 +205,12 @@ class FinancialCommissionDashboardService
         ];
     }
 
-    private function summarizeZone(string $zoneName, Collection $rows, array $settings): array
+    private function summarizeZone(Collection $rows, array $settings, array $specialUserRules): array
     {
+        $firstRow = $rows->first();
+        $financialUserId = trim((string) data_get($firstRow, 'financial_user_id'));
+        $specialUserRule = $specialUserRules[$financialUserId] ?? null;
+        $zoneName = (string) data_get($firstRow, 'zone_name', 'Sin Zona');
         $amountTotal = round((float) $rows->sum('amount_total'), 2);
         $amountFinanced = round((float) $rows->sum('amount_financed'), 2);
         $financialCommissionTotal = round((float) $rows->sum('financial_commission'), 2);
@@ -244,17 +250,19 @@ class FinancialCommissionDashboardService
         $block1Commission = round($netCommission * $financedIncentive, 2);
         $block2Commission = round($validFinancialBenefit * $profitabilityIncentive, 2);
         $block3Commission = round($premiumGuaranteeTotal * $guaranteeIncentive, 2);
-        $specialZonePercent = $this->specialZoneNetCommissionPercent($zoneName, $settings);
-        $specialZoneCommission = $specialZonePercent > 0
-            ? round($netCommission * $specialZonePercent, 2)
+        $specialUserPercent = (float) data_get($specialUserRule, 'percent', 0);
+        $specialUserCommission = $specialUserPercent > 0
+            ? round($netCommission * $specialUserPercent, 2)
             : 0.0;
-        $usesSpecialZoneRule = $specialZonePercent > 0;
-        $finalCommission = $usesSpecialZoneRule
-            ? $specialZoneCommission
+        $usesSpecialUserRule = $specialUserPercent > 0;
+        $finalCommission = $usesSpecialUserRule
+            ? $specialUserCommission
             : round($block1Commission + $block2Commission + $block3Commission, 2);
 
         return [
             'zone_name' => $zoneName,
+            'summary_label' => trim((string) data_get($specialUserRule, 'label')) ?: $zoneName,
+            'financial_user_id' => $usesSpecialUserRule ? $financialUserId : null,
             'operations_count' => $rows->count(),
             'profitability_eligible_operations_count' => $profitabilityRows->count(),
             'profitability_excluded_operations_count' => $rows->count() - $profitabilityRows->count(),
@@ -265,34 +273,45 @@ class FinancialCommissionDashboardService
             'financial_discount_total' => $financialDiscountTotal,
             'net_commission' => $netCommission,
             'financed_incentive' => $financedIncentive,
-            'block_1_commission' => $usesSpecialZoneRule ? 0.0 : $block1Commission,
+            'block_1_commission' => $usesSpecialUserRule ? 0.0 : $block1Commission,
             'valid_financial_benefit' => $validFinancialBenefit,
             'profitability_percentage' => $profitabilityPercentage,
             'profitability_incentive' => $profitabilityIncentive,
-            'block_2_commission' => $usesSpecialZoneRule ? 0.0 : $block2Commission,
+            'block_2_commission' => $usesSpecialUserRule ? 0.0 : $block2Commission,
             'premium_guarantee_total' => $premiumGuaranteeTotal,
             'guarantee_percentage' => $guaranteePercentage,
             'guarantee_incentive' => $guaranteeIncentive,
-            'block_3_commission' => $usesSpecialZoneRule ? 0.0 : $block3Commission,
-            'special_zone_percent' => $specialZonePercent,
-            'special_zone_commission' => $specialZoneCommission,
+            'block_3_commission' => $usesSpecialUserRule ? 0.0 : $block3Commission,
+            'special_user_percent' => $specialUserPercent,
+            'special_user_commission' => $specialUserCommission,
             'final_commission' => $finalCommission,
         ];
     }
 
-    private function specialZoneNetCommissionPercent(string $zoneName, array $settings): float
+    private function specialUserRules(array $settings): array
     {
-        $target = Str::of($zoneName)->lower()->squish()->toString();
+        return collect($settings['special_user_net_commission_percentages'] ?? [])
+            ->mapWithKeys(function (mixed $rule, mixed $salesforceUserId): array {
+                $id = trim((string) $salesforceUserId);
 
-        foreach ($settings['special_zone_net_commission_percentages'] ?? [] as $override) {
-            $configuredZone = Str::of((string) ($override['zone_name'] ?? ''))->lower()->squish()->toString();
+                return $id === '' ? [] : [$id => [
+                    'label' => trim((string) data_get($rule, 'label')),
+                    'percent' => max(0, min(1, (float) data_get($rule, 'percent', 0))),
+                ]];
+            })
+            ->filter(fn (array $rule): bool => $rule['percent'] > 0)
+            ->all();
+    }
 
-            if ($configuredZone === $target) {
-                return max(0, min(1, (float) ($override['percent'] ?? 0)));
-            }
+    private function summaryGroupKey(array $row, array $specialUserRules): string
+    {
+        $financialUserId = trim((string) ($row['financial_user_id'] ?? ''));
+
+        if ($financialUserId !== '' && array_key_exists($financialUserId, $specialUserRules)) {
+            return 'special-user:'.$financialUserId;
         }
 
-        return 0.0;
+        return 'zone:'.(string) ($row['zone_name'] ?? 'Sin Zona');
     }
 
     private function resolveIncentive(float $percentage, array $brackets): float

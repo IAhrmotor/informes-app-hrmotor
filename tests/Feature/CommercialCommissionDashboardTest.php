@@ -2,18 +2,22 @@
 
 namespace Tests\Feature;
 
-use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
-use App\Services\Reports\CommercialCommissions\CommercialCommissionDelegationReviewsService;
-use App\Services\Reports\AreaManagerCommissions\AreaManagerCommissionDashboardService;
 use App\Models\ReportUser;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceReview;
 use App\Models\SalesforceUser;
+use App\Services\Reports\AreaManagerCommissions\AreaManagerCommissionDashboardService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
+use App\Services\Reports\CommercialCommissions\CommercialCommissionDelegationReviewsService;
+use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
+use App\Services\Reports\FinancialCommissions\FinancialCommissionDashboardService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
+use ZipArchive;
 
 class CommercialCommissionDashboardTest extends TestCase
 {
@@ -156,7 +160,7 @@ class CommercialCommissionDashboardTest extends TestCase
             ->assertOk()
             ->assertSee('Comisiones Area Manager')
             ->assertSee('KPIs por delegacion')
-            ->assertSee('Comisión Oscar');
+            ->assertDontSee('Comisión Oscar');
     }
 
     public function test_dashboard_renderiza_pestana_financieros(): void
@@ -271,7 +275,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'cv_signed_date' => '2026-05-14',
         ]);
 
-        $payload = app(\App\Services\Reports\FinancialCommissions\FinancialCommissionDashboardService::class)
+        $payload = app(FinancialCommissionDashboardService::class)
             ->build('2026-05');
 
         $this->assertTrue($payload['ready']);
@@ -297,15 +301,17 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEqualsWithDelta(251.25, $zone['final_commission'], 0.01);
     }
 
-    public function test_dashboard_financieros_aplica_regla_especial_configurable_a_nuria_e_irene_desde_junio(): void
+    public function test_dashboard_financieros_aplica_excepciones_por_salesforce_user_id_desde_junio(): void
     {
         foreach ([
-            ['id' => 'FIN-NURIA', 'zone' => 'Zona Nuria', 'commission' => 19219.76],
-            ['id' => 'FIN-IRENE', 'zone' => 'Zona Irene', 'commission' => 53029.32],
+            ['id' => 'FIN-NURIA', 'owner_id' => '005Qx00000Bzv33IAB', 'zone' => 'Zona compartida', 'commission' => 19219.76],
+            ['id' => 'FIN-IRENE', 'owner_id' => '005Qx00000E7ZQnIAN', 'zone' => 'Otra zona', 'commission' => 53029.32],
+            ['id' => 'FIN-OTHER-NURIA', 'owner_id' => '005-OTHER-NURIA', 'zone' => 'Zona compartida', 'commission' => 1000],
         ] as $operation) {
             SalesforceOpportunity::create([
                 'salesforce_id' => $operation['id'],
                 'name' => $operation['zone'],
+                'owner_id' => $operation['owner_id'],
                 'stage_name' => 'Contrato',
                 'record_type_name' => 'Venta',
                 'opportunity_record_type_formula' => 'Venta',
@@ -320,17 +326,88 @@ class CommercialCommissionDashboardTest extends TestCase
             ]);
         }
 
-        $payload = app(\App\Services\Reports\FinancialCommissions\FinancialCommissionDashboardService::class)
+        $payload = app(FinancialCommissionDashboardService::class)
             ->build('2026-06');
 
-        $nuria = collect($payload['summary_rows'])->firstWhere('zone_name', 'Zona Nuria');
-        $irene = collect($payload['summary_rows'])->firstWhere('zone_name', 'Zona Irene');
+        $nuria = collect($payload['summary_rows'])->firstWhere('financial_user_id', '005Qx00000Bzv33IAB');
+        $irene = collect($payload['summary_rows'])->firstWhere('financial_user_id', '005Qx00000E7ZQnIAN');
+        $otherNuria = collect($payload['summary_rows'])->first(
+            fn (array $row): bool => ($row['zone_name'] ?? null) === 'Zona compartida'
+                && ($row['financial_user_id'] ?? null) === null
+        );
 
-        $this->assertEqualsWithDelta(0.005, $nuria['special_zone_percent'], 0.0001);
+        $this->assertEqualsWithDelta(0.005, $nuria['special_user_percent'], 0.0001);
         $this->assertEqualsWithDelta(96.10, $nuria['final_commission'], 0.01);
         $this->assertEqualsWithDelta(265.15, $irene['final_commission'], 0.01);
         $this->assertSame(0.0, $nuria['block_1_commission']);
+        $this->assertSame(0.0, $nuria['block_2_commission']);
+        $this->assertSame(0.0, $nuria['block_3_commission']);
+        $this->assertSame(0.0, $otherNuria['special_user_percent']);
         $this->assertSame('Tipo de interes vacio', $payload['detail_rows'][0]['profitability_reason']);
+    }
+
+    public function test_dashboard_financieros_no_aplica_la_excepcion_personal_antes_de_junio(): void
+    {
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'FIN-NURIA-MAY',
+            'name' => 'Nombre visible modificado',
+            'owner_id' => '005Qx00000Bzv33IAB',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'opportunity_record_type_formula' => 'Venta',
+            'financial_zone' => 'Zona compartida',
+            'opo_for_importe_total' => 100000,
+            'importe_financiado' => 50000,
+            'financial_commission' => 19219.76,
+            'financial_discount' => 0,
+            'garantia_total' => 0,
+            'interest_rate' => null,
+            'cv_signed_date' => '2026-05-15',
+        ]);
+
+        $payload = app(FinancialCommissionDashboardService::class)
+            ->build('2026-05');
+        $row = collect($payload['summary_rows'])->firstWhere('zone_name', 'Zona compartida');
+
+        $this->assertSame(0.0, $row['special_user_percent']);
+        $this->assertGreaterThan(0, $row['block_1_commission']);
+    }
+
+    public function test_export_financieros_uses_the_same_special_user_total_as_dashboard(): void
+    {
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'FIN-IRENE-EXPORT',
+            'name' => 'Operacion financiera',
+            'owner_id' => '005Qx00000E7ZQnIAN',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'opportunity_record_type_formula' => 'Venta',
+            'financial_zone' => 'Zona cualquiera',
+            'opo_for_importe_total' => 100000,
+            'importe_financiado' => 50000,
+            'financial_commission' => 53029.32,
+            'financial_discount' => 0,
+            'garantia_total' => 0,
+            'interest_rate' => null,
+            'cv_signed_date' => '2026-06-15',
+        ]);
+
+        $dashboard = app(FinancialCommissionDashboardService::class)->build('2026-06');
+        $row = collect($dashboard['summary_rows'])->firstWhere('financial_user_id', '005Qx00000E7ZQnIAN');
+
+        $response = $this->withSession($this->authenticatedSession(ReportUser::ROLE_FINANCIAL))
+            ->get('/informes/comisiones-comerciales/export/comisiones.xlsx?month=2026-06');
+
+        $response->assertOk();
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($response->baseResponse->getFile()->getPathname()) === true);
+        $sheet = (string) $zip->getFromName('xl/worksheets/sheet1.xml');
+        $zip->close();
+
+        $this->assertStringContainsString(
+            '<v>'.number_format((float) $row['final_commission'], 2, '.', '').'</v>',
+            $sheet
+        );
     }
 
     public function test_dashboard_calcula_resumen_real_de_comisiones(): void
@@ -1705,8 +1782,9 @@ class CommercialCommissionDashboardTest extends TestCase
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
         app()->instance(
             CommercialCommissionDelegationReviewsService::class,
-            new class(app(CommercialCommissionFormulaConfigService::class)) extends CommercialCommissionDelegationReviewsService {
-                public function forMonthAndDelegations(\Carbon\CarbonImmutable $month, \Illuminate\Support\Collection $delegationLabels): array
+            new class(app(CommercialCommissionFormulaConfigService::class)) extends CommercialCommissionDelegationReviewsService
+            {
+                public function forMonthAndDelegations(CarbonImmutable $month, Collection $delegationLabels): array
                 {
                     return [
                         'Zaragoza' => ['reviews_count' => 23, 'average_rating' => 4.6],

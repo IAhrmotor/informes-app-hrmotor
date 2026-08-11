@@ -42,7 +42,7 @@
         <table data-sortable-table="financial-zones-summary">
             <thead>
             <tr>
-                <th data-sortable="true">Zona financiera</th>
+                <th data-sortable="true">Responsable/Zona financiera</th>
                 <th class="num" data-sortable="true">Ops.</th>
                 <th class="num" data-sortable="true">Imp. total</th>
                 <th class="num" data-sortable="true">Imp. financiado</th>
@@ -66,7 +66,7 @@
             <tbody data-sort-body="financial-zones-summary">
             @foreach ($financialSummaryRows as $row)
                 <tr>
-                    <td>{{ $row['zone_name'] }}</td>
+                    <td>{{ $row['summary_label'] ?? $row['zone_name'] }}</td>
                     <td class="num">{{ number_format((int) ($row['operations_count'] ?? 0), 0, ',', '.') }}</td>
                     <td class="num">{{ number_format((float) ($row['amount_total'] ?? 0), 2, ',', '.') }}</td>
                     <td class="num">{{ number_format((float) ($row['amount_financed'] ?? 0), 2, ',', '.') }}</td>
@@ -84,8 +84,8 @@
                     <td class="num">{{ number_format(((float) ($row['guarantee_incentive'] ?? 0)) * 100, 2, ',', '.') }}%</td>
                     <td class="num">{{ number_format((float) ($row['block_3_commission'] ?? 0), 2, ',', '.') }}</td>
                     <td class="num">
-                        @if ((float) ($row['special_zone_percent'] ?? 0) > 0)
-                            {{ number_format(((float) $row['special_zone_percent']) * 100, 2, ',', '.') }}% neta: {{ number_format((float) ($row['special_zone_commission'] ?? 0), 2, ',', '.') }}
+                        @if ((float) ($row['special_user_percent'] ?? 0) > 0)
+                            {{ number_format(((float) $row['special_user_percent']) * 100, 2, ',', '.') }}% neta: {{ number_format((float) ($row['special_user_commission'] ?? 0), 2, ',', '.') }}
                         @else
                             -
                         @endif

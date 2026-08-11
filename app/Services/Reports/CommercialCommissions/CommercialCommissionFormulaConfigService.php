@@ -6,8 +6,8 @@ use App\Models\CommercialCommissionMonthSetting;
 use App\Models\SalesforceOpportunity;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 class CommercialCommissionFormulaConfigService
 {
@@ -374,15 +374,10 @@ class CommercialCommissionFormulaConfigService
         $defaults = $this->defaults();
         $defaults['delegations']['goals'] = $this->inheritedDelegationGoals($selectedMonth);
         $defaults['area_manager']['assignments'] = $this->inheritedAreaManagerAssignments($selectedMonth);
-        $defaults['financials']['special_zone_net_commission_percentages'] = $selectedMonth->greaterThanOrEqualTo(
-            CarbonImmutable::parse('2026-06-01')
-        ) ? [
-            ['zone_name' => 'Zona Nuria', 'percent' => 0.005],
-            ['zone_name' => 'Zona Irene', 'percent' => 0.005],
-        ] : [];
+        $defaults = $this->withSpecialFinancialUserRules($defaults, $selectedMonth);
 
         if (! Schema::hasTable('commercial_commission_month_settings')) {
-            return $defaults;
+            return $this->normalizeSettings($defaults);
         }
 
         $stored = CommercialCommissionMonthSetting::query()
@@ -390,11 +385,12 @@ class CommercialCommissionFormulaConfigService
             ->first();
 
         if (! is_array($stored?->settings)) {
-            return $defaults;
+            return $this->normalizeSettings($defaults);
         }
 
-        return $this->normalizeSettings(
-            array_replace_recursive($defaults, $stored->settings)
+        return $this->withSpecialFinancialUserRules(
+            $this->normalizeSettings(array_replace_recursive($defaults, $stored->settings)),
+            $selectedMonth
         );
     }
 
@@ -691,14 +687,32 @@ class CommercialCommissionFormulaConfigService
             ->filter()
             ->values()
             ->all();
-        $settings['financials']['special_zone_net_commission_percentages'] = collect($settings['financials']['special_zone_net_commission_percentages'] ?? [])
-            ->map(fn (array $row): array => [
-                'zone_name' => trim((string) ($row['zone_name'] ?? '')),
-                'percent' => max(0, min(1, (float) ($row['percent'] ?? 0))),
-            ])
-            ->filter(fn (array $row): bool => $row['zone_name'] !== '')
-            ->values()
+        unset($settings['financials']['special_zone_net_commission_percentages']);
+
+        return $settings;
+    }
+
+    private function withSpecialFinancialUserRules(array $settings, CarbonImmutable $month): array
+    {
+        $rules = collect(config('commercial_commissions.financial_special_user_net_commission_percentages', []))
+            ->mapWithKeys(function (mixed $rule, mixed $salesforceUserId) use ($month): array {
+                $id = trim((string) $salesforceUserId);
+                $effectiveFrom = trim((string) data_get($rule, 'effective_from'));
+
+                if ($id === '' || $effectiveFrom === '' || $month->lessThan(CarbonImmutable::parse($effectiveFrom)->startOfMonth())) {
+                    return [];
+                }
+
+                return [$id => [
+                    'label' => trim((string) data_get($rule, 'label')),
+                    'percent' => max(0, min(1, (float) data_get($rule, 'percent', 0))),
+                ]];
+            })
+            ->filter(fn (array $rule): bool => $rule['percent'] > 0)
             ->all();
+
+        unset($settings['financials']['special_zone_net_commission_percentages']);
+        $settings['financials']['special_user_net_commission_percentages'] = $rules;
 
         return $settings;
     }
@@ -754,6 +768,7 @@ class CommercialCommissionFormulaConfigService
 
         if ($months === []) {
             $request->session()->forget(self::TEMPORARY_UNLOCKED_MONTHS_SESSION_KEY);
+
             return;
         }
 

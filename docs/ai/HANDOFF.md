@@ -157,3 +157,19 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   normalizado sin ID) de cambio de método y muestra transiciones agregadas.
 - Valores inválidos y campañas excluidas se contabilizan por separado; las
   exclusiones exactas informan motivo y muestra de IDs.
+
+## Excepciones personales de Financieros (2026-08-11)
+
+- La excepción del 0,50 % desde `2026-06` para Nuria e Irene se configura en
+  `config/commercial_commissions.php` por Salesforce User ID y se aplica al
+  `owner_id` ya sincronizado en `salesforce_opportunities`.
+- El resultado especial sustituye los tres bloques normales; no usa nombre,
+  zona ni email. Las reglas temporales editables por zona se retiraron.
+- La regla histórica del 40 % atribuida a Oscar no está en la especificación
+  vigente y sigue desactivada; no se agregó ninguna identidad ni fila sintética.
+- No hay migraciones, llamadas Salesforce ni cambios de universos. Financieros
+  continúa siendo operativo y no se congela mediante cierres de comisiones.
+- Verificación: `CommercialCommissionDashboardTest` (44/291), `CommercialCommission`
+  (56/345), `financieros` (6/38), ámbito Área Manager (1/4), cierres (9/72) y
+  suite completa (423/2.883) correctos. Build correcto; Pint correcto para los
+  PHP modificados. Pint global conserva deuda preexistente fuera de este lote.
