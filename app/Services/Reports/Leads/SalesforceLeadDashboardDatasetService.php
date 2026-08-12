@@ -532,7 +532,7 @@ class SalesforceLeadDashboardDatasetService
         $portalGroups = [];
         $filterOptions = $this->emptyFilterOptionsAccumulator();
 
-        $this->eachPeriodLead($periods['current'], function (array $lead) use (
+        $collectCurrent = function (array $lead) use (
             &$current,
             &$commercialZoneGroups,
             &$commercialDelegationGroups,
@@ -545,6 +545,7 @@ class SalesforceLeadDashboardDatasetService
             if (! $this->passesAccessScope($lead, $filters)) {
                 return;
             }
+
             $this->collectFilterOptions($filterOptions, $lead);
 
             if (! $this->passesFilters($lead, $filters)) {
@@ -566,15 +567,17 @@ class SalesforceLeadDashboardDatasetService
 
             $this->addGroup($delegationGroups, $lead['lead_delegation'], $lead['lead_delegation'], [], $lead);
             $this->addGroup($portalGroups, $lead['portal'], $lead['portal'], [], $lead);
-        });
+        };
 
-        $this->eachPeriodLead($periods['previous'], function (array $lead) use (&$previous, $filters): void {
+        $collectPrevious = function (array $lead) use (&$previous, $filters): void {
             if (! $this->passesFilters($lead, $filters)) {
                 return;
             }
 
             $this->addToBucket($previous, $lead);
-        });
+        };
+
+        $this->eachComparisonPeriodLead($periods, $collectCurrent, $collectPrevious);
 
         $current = $this->finalizeBucket($current);
         $previous = $this->finalizeBucket($previous);
@@ -640,7 +643,50 @@ class SalesforceLeadDashboardDatasetService
         }, 'salesforce_leads.id', 'id');
     }
 
+    private function eachComparisonPeriodLead(array $periods, callable $currentCallback, callable $previousCallback): void
+    {
+        $currentReferenceDate = CarbonImmutable::parse($periods['current']['end']);
+        $previousReferenceDate = CarbonImmutable::parse($periods['previous']['end']);
+
+        $this->baseQueryForPeriods($periods)->chunkById(1000, function (Collection $rows) use (
+            $periods,
+            $currentCallback,
+            $previousCallback,
+            $currentReferenceDate,
+            $previousReferenceDate,
+        ): void {
+            foreach ($rows as $row) {
+                $createdDate = CarbonImmutable::parse($row->created_date);
+
+                if ($this->isWithinPeriod($createdDate, $periods['current'])) {
+                    $currentCallback($this->decorateLead($row, $row, $currentReferenceDate));
+                }
+
+                if ($this->isWithinPeriod($createdDate, $periods['previous'])) {
+                    $previousCallback($this->decorateLead($row, $row, $previousReferenceDate));
+                }
+            }
+        }, 'salesforce_leads.id', 'id');
+    }
+
     private function baseQuery(array $period): Builder
+    {
+        return $this->baseLeadQuery()
+            ->where('salesforce_leads.created_date', '>=', $period['start'])
+            ->where('salesforce_leads.created_date', '<=', $period['end']);
+    }
+
+    private function baseQueryForPeriods(array $periods): Builder
+    {
+        return $this->baseLeadQuery()
+            ->where(function (Builder $query) use ($periods): void {
+                $query
+                    ->whereBetween('salesforce_leads.created_date', [$periods['current']['start'], $periods['current']['end']])
+                    ->orWhereBetween('salesforce_leads.created_date', [$periods['previous']['start'], $periods['previous']['end']]);
+            });
+    }
+
+    private function baseLeadQuery(): Builder
     {
         $leadColumns = collect((new SalesforceLead)->getFillable())
             ->reject(fn (string $column) => $column === 'raw_payload')
@@ -653,13 +699,16 @@ class SalesforceLeadDashboardDatasetService
         return SalesforceLead::query()
             ->leftJoin('salesforce_lead_activity_summaries as summaries', 'summaries.lead_salesforce_id', '=', 'salesforce_leads.salesforce_id')
             ->where('salesforce_leads.is_deleted', false)
-            ->where('salesforce_leads.created_date', '>=', $period['start'])
-            ->where('salesforce_leads.created_date', '<=', $period['end'])
             ->orderBy('salesforce_leads.id')
             ->select(array_merge($leadColumns, [
                 'summaries.total_actividades',
                 'summaries.fecha_ultima_actividad',
             ]));
+    }
+
+    private function isWithinPeriod(CarbonImmutable $date, array $period): bool
+    {
+        return $date->greaterThanOrEqualTo($period['start']) && $date->lessThanOrEqualTo($period['end']);
     }
 
     private function passesFilters(array $lead, array $filters): bool

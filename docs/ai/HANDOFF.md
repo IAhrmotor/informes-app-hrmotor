@@ -2,6 +2,24 @@
 
 Actualizado: 2026-08-11.
 
+## Lote 1: cache miss de Leads y Llamadas (2026-08-12)
+
+- Leads reutiliza una sola lectura por lotes para los periodos actual y comparado
+  del payload compartido. Conserva la decoraciÃ³n con la fecha de referencia de
+  cada periodo y la misma construcciÃ³n de KPIs, filtros, agrupaciones e
+  insights.
+- Llamadas consolida las cuatro consultas de conciliaciÃ³n del resumen en un
+  agregado equivalente. TambiÃ©n reutiliza la agregaciÃ³n de agentes para los
+  equipos y obtiene zonas/delegaciones desde un Ãºnico agrupado por pareja.
+- No se modifican TTL, scopes, rutas, contratos HTTP, Ã­ndices, migraciones ni
+  reglas de clasificaciÃ³n. No se aÃ±ade instrumentaciÃ³n persistente.
+- Se aÃ±aden pruebas de equivalencia cache miss/cache hit para Leads y para los
+  endpoints summary, agents y delegations de Llamadas. Las pruebas existentes
+  cubren filtros, Ã¡mbitos, comparativas y reconciliaciÃ³n.
+- Riesgo pendiente: validar en producciÃ³n el impacto real con las mismas
+  combinaciones de periodo; el baseline local no representa cardinalidad ni
+  planes de MySQL 8.0 de producciÃ³n.
+
 ## CI: aislamiento de Google Ads en CampaignDashboardTest (2026-08-12)
 
 - `test_google_ads_inventario_auditable_consulta_anuncio_y_ad_group` ya declara

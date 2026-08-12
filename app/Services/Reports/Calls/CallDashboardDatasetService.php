@@ -197,19 +197,11 @@ class CallDashboardDatasetService
     {
         $current = $this->summaryBucket($filters, $periods['current']);
         $previous = $this->summaryBucket($filters, $periods['previous']);
-        $charts = $this->summaryCharts($filters, $periods['current'], $current);
-        $rankings = $this->summaryRankings($filters, $periods['current']);
-        $rawUniverseQuery = DB::table('salesforce_calls')
-            ->where('created_date', '>=', $periods['current']['start'])
-            ->where('created_date', '<', $periods['current']['end']);
-        $this->applyAccessScope($rawUniverseQuery, $filters);
-        $rawUniverse = $rawUniverseQuery->count();
-        $dashboardUniverseQuery = DB::table('salesforce_calls')
-            ->where('included_in_dashboard', true)
-            ->where('created_date', '>=', $periods['current']['start'])
-            ->where('created_date', '<', $periods['current']['end']);
-        $this->applyAccessScope($dashboardUniverseQuery, $filters);
-        $dashboardUniverse = $dashboardUniverseQuery->count();
+        [$agents, $teams] = $this->agentAndTeamMetricRows($filters, $periods['current']);
+        $portals = $this->portalMetricRows($filters, $periods['current']);
+        $charts = $this->summaryCharts($filters, $periods['current'], $current, $teams);
+        $rankings = $this->summaryRankings($filters, $periods['current'], $portals, $agents);
+        $reconciliation = $this->reconciliationCounts($filters, $periods['current']);
         $cutoff = $this->lastUpdated()?->toDateTimeString();
 
         return [
@@ -223,11 +215,11 @@ class CallDashboardDatasetService
             'dataset_source' => 'local_snapshot',
             'classification_rule_version' => CallClassificationRules::VERSION,
             'reconciliation' => [
-                'raw_type_call_tasks' => $rawUniverse,
-                'dashboard_call_object_tasks' => $dashboardUniverse,
-                'excluded_without_call_object' => $this->exclusionCount($filters, $periods['current'], 'missing_call_object'),
-                'excluded_test_profile' => $this->exclusionCount($filters, $periods['current'], CallClassificationRules::EXCLUDED_TEST_PROFILE_REASON),
-                'included_operational_tasks' => $dashboardUniverse,
+                'raw_type_call_tasks' => $reconciliation['raw_universe'],
+                'dashboard_call_object_tasks' => $reconciliation['dashboard_universe'],
+                'excluded_without_call_object' => $reconciliation['missing_call_object'],
+                'excluded_test_profile' => $reconciliation['excluded_test_profile'],
+                'included_operational_tasks' => $reconciliation['dashboard_universe'],
             ],
             'kpis' => $current,
             'comparativa' => $this->comparison($current, $previous),
@@ -240,11 +232,11 @@ class CallDashboardDatasetService
 
     private function buildAgentPayload(array $filters, array $periods): array
     {
-        $agents = $this->agentMetricRows($filters, $periods['current']);
+        [$agents, $teams] = $this->agentAndTeamMetricRows($filters, $periods['current']);
 
         return [
             'ok' => true,
-            'teams' => $this->teamMetricRows($filters, $periods['current']),
+            'teams' => $teams,
             'agents' => $agents,
             'commercials' => $this->filterAgentsByTeam($agents, 'commercial'),
             'customer_service' => $this->filterAgentsByTeam($agents, 'customer_service'),
@@ -256,8 +248,7 @@ class CallDashboardDatasetService
 
     private function buildDelegationPayload(array $filters, array $periods): array
     {
-        $zones = $this->zoneMetricRows($filters, $periods['current']);
-        $delegations = $this->delegationMetricRows($filters, $periods['current']);
+        [$zones, $delegations] = $this->zoneAndDelegationMetricRows($filters, $periods['current']);
 
         return [
             'ok' => true,
@@ -325,6 +316,12 @@ class CallDashboardDatasetService
 
     private function agentMetricRows(array $filters, array $period): array
     {
+        return $this->agentAndTeamMetricRows($filters, $period)[0];
+    }
+
+    /** @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>} */
+    private function agentAndTeamMetricRows(array $filters, array $period): array
+    {
         $teamSql = $this->effectiveTeamSql();
         $delegationSql = $this->effectiveDelegationSql();
         $zoneSql = $this->effectiveZoneSql();
@@ -358,7 +355,8 @@ class CallDashboardDatasetService
             ->orderBy('first_id')
             ->get();
 
-        $groups = [];
+        $agentGroups = [];
+        $teamGroups = [];
 
         foreach ($rows as $row) {
             $team = (string) $row->team;
@@ -376,59 +374,77 @@ class CallDashboardDatasetService
                 continue;
             }
 
-            $this->addAggregatedGroup($groups, $key, $displayName, [
+            $bucket = $this->bucketFromRow($row);
+            $this->addAggregatedGroup($agentGroups, $key, $displayName, [
                 'team' => $team,
                 'team_label' => $this->teamLabel($team),
                 'delegation' => $delegation,
                 'zone' => $zone,
-            ], $this->bucketFromRow($row), (int) $row->first_id);
+            ], $bucket, (int) $row->first_id);
+            $this->addAggregatedGroup($teamGroups, $team, $this->teamLabel($team), [
+                'team' => $team,
+            ], $bucket, 0);
         }
 
-        return $this->finalizeGroups($groups, 'user_name');
+        $unassigned = $this->baseFilteredQuery($filters, $period)
+            ->whereRaw($teamSql." NOT IN ('commercial', 'customer_service', 'contact_center', 'appraiser')")
+            ->selectRaw($this->metricsSelectSql())
+            ->first();
+        $unassignedBucket = $this->bucketFromRow($unassigned);
+        if (($unassignedBucket['total_calls'] ?? 0) > 0) {
+            $this->addAggregatedGroup($teamGroups, 'unassigned', 'Sin equipo', [
+                'team' => 'unassigned',
+            ], $unassignedBucket, 0);
+        }
+
+        $teams = $this->finalizeGroups($teamGroups, 'team_label');
+        $order = array_flip(['commercial', 'customer_service', 'contact_center', 'appraiser', 'unassigned']);
+        usort($teams, fn (array $a, array $b): int => ($order[$a['team']] ?? 99) <=> ($order[$b['team']] ?? 99));
+
+        return [$this->finalizeGroups($agentGroups, 'user_name'), $teams];
     }
 
     private function zoneMetricRows(array $filters, array $period): array
     {
-        $zoneSql = $this->effectiveZoneSql();
-
-        $rows = $this->baseFilteredQuery($filters, $period)
-            ->whereRaw($this->operationalTeamConditionSql())
-            ->selectRaw($zoneSql.' as zone')
-            ->selectRaw($this->metricsSelectSql())
-            ->groupByRaw($zoneSql)
-            ->get();
-
-        $groups = [];
-
-        foreach ($rows as $row) {
-            $zone = $row->zone ?: LeadDelegationNormalizer::UNCLASSIFIED;
-
-            $this->addAggregatedGroup($groups, $zone, $zone, [], $this->bucketFromRow($row), 0);
-        }
-
-        return $this->finalizeGroups($groups, 'zone');
+        return $this->zoneAndDelegationMetricRows($filters, $period)[0];
     }
 
     private function delegationMetricRows(array $filters, array $period): array
     {
+        return $this->zoneAndDelegationMetricRows($filters, $period)[1];
+    }
+
+    /** @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>} */
+    private function zoneAndDelegationMetricRows(array $filters, array $period): array
+    {
         $delegationSql = $this->effectiveDelegationSql();
+        $zoneSql = $this->effectiveZoneSql();
 
         $rows = $this->baseFilteredQuery($filters, $period)
             ->whereRaw($this->operationalTeamConditionSql())
             ->selectRaw($delegationSql.' as delegation')
+            ->selectRaw($zoneSql.' as zone')
             ->selectRaw($this->metricsSelectSql())
             ->groupByRaw($delegationSql)
+            ->groupByRaw($zoneSql)
             ->get();
 
-        $groups = [];
+        $zoneGroups = [];
+        $delegationGroups = [];
 
         foreach ($rows as $row) {
             $delegation = $row->delegation ?: LeadDelegationNormalizer::UNCLASSIFIED;
+            $zone = $row->zone ?: LeadDelegationNormalizer::UNCLASSIFIED;
+            $bucket = $this->bucketFromRow($row);
 
-            $this->addAggregatedGroup($groups, $delegation, $delegation, [], $this->bucketFromRow($row), 0);
+            $this->addAggregatedGroup($zoneGroups, $zone, $zone, [], $bucket, 0);
+            $this->addAggregatedGroup($delegationGroups, $delegation, $delegation, [], $bucket, 0);
         }
 
-        return $this->finalizeGroups($groups, 'delegation');
+        return [
+            $this->finalizeGroups($zoneGroups, 'zone'),
+            $this->finalizeGroups($delegationGroups, 'delegation'),
+        ];
     }
 
     private function portalMetricRows(array $filters, array $period): array
@@ -475,6 +491,29 @@ class CallDashboardDatasetService
         $this->applyAccessScope($query, $filters);
 
         return $query->count();
+    }
+
+    /** @return array{raw_universe: int, dashboard_universe: int, missing_call_object: int, excluded_test_profile: int} */
+    private function reconciliationCounts(array $filters, array $period): array
+    {
+        $query = DB::table('salesforce_calls')
+            ->where('created_date', '>=', $period['start'])
+            ->where('created_date', '<', $period['end']);
+        $this->applyAccessScope($query, $filters);
+
+        $row = $query
+            ->selectRaw('COUNT(*) as raw_universe')
+            ->selectRaw('COALESCE(SUM(CASE WHEN included_in_dashboard = 1 THEN 1 ELSE 0 END), 0) as dashboard_universe')
+            ->selectRaw("COALESCE(SUM(CASE WHEN dashboard_exclusion_reason = 'missing_call_object' THEN 1 ELSE 0 END), 0) as missing_call_object")
+            ->selectRaw('COALESCE(SUM(CASE WHEN dashboard_exclusion_reason = ? THEN 1 ELSE 0 END), 0) as excluded_test_profile', [CallClassificationRules::EXCLUDED_TEST_PROFILE_REASON])
+            ->first();
+
+        return [
+            'raw_universe' => (int) ($row->raw_universe ?? 0),
+            'dashboard_universe' => (int) ($row->dashboard_universe ?? 0),
+            'missing_call_object' => (int) ($row->missing_call_object ?? 0),
+            'excluded_test_profile' => (int) ($row->excluded_test_profile ?? 0),
+        ];
     }
 
     private function applyBaseFilters(QueryBuilder $query, array $filters, array $period, bool $includeUser = true): QueryBuilder
@@ -895,7 +934,7 @@ class CallDashboardDatasetService
         return $result;
     }
 
-    private function summaryCharts(array $filters, array $period, array $bucket): array
+    private function summaryCharts(array $filters, array $period, array $bucket, array $teams): array
     {
         return [
             'answered_vs_lost' => [
@@ -906,7 +945,7 @@ class CallDashboardDatasetService
                 ['label' => 'Directas a comercial', 'value' => $bucket['commercial_direct_calls']],
                 ['label' => 'Portales', 'value' => $bucket['portal_calls']],
             ],
-            'answered_by_team' => collect($this->teamMetricRows($filters, $period))
+            'answered_by_team' => collect($teams)
                 ->filter(fn (array $row): bool => ($row['answered'] ?? 0) > 0)
                 ->map(fn (array $row): array => [
                     'label' => $row['team_label'],
@@ -918,10 +957,8 @@ class CallDashboardDatasetService
         ];
     }
 
-    private function summaryRankings(array $filters, array $period): array
+    private function summaryRankings(array $filters, array $period, array $portals, array $agents): array
     {
-        $portals = $this->portalMetricRows($filters, $period);
-        $agents = $this->agentMetricRows($filters, $period);
         $delegations = $this->delegationRankingRows($filters, $period);
 
         $commercials = array_values(array_filter(
