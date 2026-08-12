@@ -2,6 +2,17 @@
 
 Actualizado: 2026-08-11.
 
+## CI: aislamiento de Google Ads en CampaignDashboardTest (2026-08-12)
+
+- `test_google_ads_inventario_auditable_consulta_anuncio_y_ad_group` ya declara
+  el `customer_ids` sintÃ©tico que exige `GoogleAdsClient::configured()`, junto
+  con sus otros valores sintÃ©ticos y `Http::fake`.
+- El test no realiza red ni usa credenciales reales. `GoogleAdsClient` conserva
+  el fallo seguro `Google Ads no configurado.` fuera de ese contexto de prueba.
+- Focalizado: 41 tests, 406 aserciones. Suite completa: 436 tests, 2.951
+  aserciones. Build, Pint del test y `git diff --check`: correctos.
+- Sin migraciones, configuraciÃ³n productiva ni cambios funcionales de CampaÃ±as.
+
 ## Hardening transversal final
 
 ### Resumen

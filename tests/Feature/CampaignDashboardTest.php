@@ -347,6 +347,7 @@ class CampaignDashboardTest extends TestCase
         config()->set('services.google_ads.client_id', 'client-id');
         config()->set('services.google_ads.client_secret', 'client-secret');
         config()->set('services.google_ads.refresh_token', 'refresh-token');
+        config()->set('services.google_ads.customer_ids', ['1234567890']);
 
         $capturedQuery = null;
         Http::fake(function ($request) use (&$capturedQuery) {
