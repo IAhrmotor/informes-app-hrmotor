@@ -2,6 +2,23 @@
 
 Actualizado: 2026-08-11.
 
+## Lote 2: plan temporal de Leads y Llamadas (2026-08-12)
+
+- Se restaura en Leads la lectura independiente de periodo actual y comparado.
+  El plan productivo elegÃ­a el Ã­ndice booleano de baja cardinalidad para ambas
+  variantes y la consulta conjunta con `OR` no mejorÃ³ latencia; no se aÃ±ade
+  Ã­ndice de Leads sin un plan adicional que justifique el orden de columnas.
+- Se aÃ±ade `sf_calls_dashboard_created_idx` sobre
+  `salesforce_calls(included_in_dashboard, created_date)`. Atiende el predicado
+  compartido por los agregados del dashboard; no cubre ni intenta optimizar
+  expresiones de equipo, zona, delegaciÃ³n o portal.
+- La migraciÃ³n es aditiva. Su `down()` elimina solo ese Ã­ndice. En producciÃ³n,
+  programar la creaciÃ³n en una ventana de bajo trÃ¡fico y verificar espacio libre
+  e impacto sobre sincronizaciones antes de ejecutarla.
+- Las pruebas cubren frontera de periodos de Leads, consistencia cache miss/hit,
+  conciliaciÃ³n existente de Llamadas y creaciÃ³n/eliminaciÃ³n aislada del Ã­ndice
+  en SQLite. El plan SQLite no sustituye `EXPLAIN` de MySQL 8.0 de producciÃ³n.
+
 ## Lote 1: cache miss de Leads y Llamadas (2026-08-12)
 
 - Leads reutiliza una sola lectura por lotes para los periodos actual y comparado

@@ -32,8 +32,8 @@ class DashboardCacheMissConsistencyTest extends TestCase
 
     public function test_leads_summary_cache_hit_preserves_the_cache_miss_payload_for_comparison_periods(): void
     {
-        $this->leadRow('lead-current', ['created_date' => '2026-05-20 10:00:00']);
-        $this->leadRow('lead-previous', ['created_date' => '2026-04-20 10:00:00']);
+        $this->leadRow('lead-current-boundary', ['created_date' => '2026-05-01 00:00:00']);
+        $this->leadRow('lead-previous-boundary', ['created_date' => '2026-04-30 23:59:59']);
 
         $url = '/informes/leads/data/summary?'.http_build_query([
             'period' => 'custom',
