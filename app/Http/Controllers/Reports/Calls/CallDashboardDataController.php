@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Reports\Calls;
 use App\Http\Controllers\Controller;
 use App\Services\Reports\Calls\CallDashboardDatasetService;
 use App\Support\CsvValueSerializer;
+use App\Support\ReportServerTiming;
 use App\Support\ReportUserAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,22 +19,34 @@ class CallDashboardDataController extends Controller
 
     public function summary(Request $request): JsonResponse
     {
-        return response()->json($this->dataset->summary($request));
+        return $this->timedJson($request, fn (?ReportServerTiming $timing): array => $this->dataset->summary($request, $timing));
     }
 
     public function agents(Request $request): JsonResponse
     {
-        return response()->json($this->dataset->agentRows($request));
+        return $this->timedJson($request, fn (?ReportServerTiming $timing): array => $this->dataset->agentRows($request, $timing));
     }
 
     public function delegations(Request $request): JsonResponse
     {
-        return response()->json($this->dataset->delegationRows($request));
+        return $this->timedJson($request, fn (?ReportServerTiming $timing): array => $this->dataset->delegationRows($request, $timing));
     }
 
     public function portals(Request $request): JsonResponse
     {
         return response()->json($this->dataset->portalRows($request));
+    }
+
+    private function timedJson(Request $request, callable $callback): JsonResponse
+    {
+        $timing = ReportServerTiming::forRequest($request);
+        $response = response()->json($callback($timing));
+
+        if ($timing !== null && $timing->headerValue() !== '') {
+            $response->headers->set('Server-Timing', $timing->headerValue());
+        }
+
+        return $response;
     }
 
     public function audit(Request $request): JsonResponse

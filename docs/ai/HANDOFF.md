@@ -2,6 +2,32 @@
 
 Actualizado: 2026-08-11.
 
+## Diagnóstico temporal Server-Timing de Leads y Llamadas (2026-08-12)
+
+- Se añade `REPORT_SERVER_TIMING=false` por defecto. Cuando se habilita, solo
+  un administrador puede recibir la cabecera estándar `Server-Timing` en
+  Leads summary y en Llamadas summary, agents y delegations. Se reutiliza
+  `ReportUserAccess::canSeeSyncDiagnostics()`: no se amplían permisos de
+  auditoría ni se expone el diagnóstico a roles funcionales.
+- `App\Support\ReportServerTiming` es efímero por request y solo mide nombres
+  técnicos fijos y milisegundos con `hrtime(true)`. No usa consultas extra,
+  listeners, query log, logs, sesión adicional ni persistencia. El callback de
+  `Cache::remember()` marca el miss sin una lectura extra de caché; un hit solo
+  informa del hit y del total, nunca de bloques internos no ejecutados.
+- Métricas: Leads separa current, previous, groups, finalize, filters e
+  insights. Calls summary separa current, previous, agents/teams, portals,
+  daily, ranking, reconciliation, metadata y filters; agents y delegations
+  separan query y finalize. La respuesta JSON y sus claves de caché no cambian.
+- No hay migraciones ni cambios de SQL, índices, TTL, permisos de informe ni
+  reglas funcionales. Para activarlo temporalmente en producción: establecer
+  `REPORT_SERVER_TIMING=true`, ejecutar `php artisan config:clear` y
+  `php artisan config:cache`; después repetir con `false` y los mismos
+  comandos. No requiere `APP_DEBUG=true`.
+- Prueba focalizada: `ReportServerTimingTest` cubre flag apagado, administrador,
+  usuario no administrador, miss/hit de los cuatro endpoints, sintaxis de
+  cabecera, equivalencia de JSON, aislamiento de instancia y excepción medida
+  sin alterar su propagación.
+
 ## Lote 2: plan temporal de Leads y Llamadas (2026-08-12)
 
 - Se restaura en Leads la lectura independiente de periodo actual y comparado.

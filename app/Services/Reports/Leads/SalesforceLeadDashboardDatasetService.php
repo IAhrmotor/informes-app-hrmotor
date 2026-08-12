@@ -7,6 +7,7 @@ use App\Models\ReportSyncRun;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceLeadActivitySummary;
 use App\Models\SalesforceUser;
+use App\Support\ReportServerTiming;
 use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -56,23 +57,38 @@ class SalesforceLeadDashboardDatasetService
         private readonly LeadPortalResolver $portalResolver,
     ) {}
 
-    public function payload(Request $request, string $context = 'summary'): array
+    public function payload(Request $request, string $context = 'summary', ?ReportServerTiming $timing = null): array
     {
         @set_time_limit(120);
 
         $filters = $this->filters($request, $context);
         $periods = $this->periods($filters);
 
-        return Cache::remember(
-            $this->cacheKey($filters, $periods),
-            now()->addMinutes(self::CACHE_TTL_MINUTES),
-            fn () => $this->buildPayload($filters, $periods)
-        );
+        $resolve = function () use ($filters, $periods, $timing): array {
+            $key = $this->cacheKey($filters, $periods);
+            $payload = Cache::remember(
+                $key,
+                now()->addMinutes(self::CACHE_TTL_MINUTES),
+                function () use ($filters, $periods, $timing): array {
+                    $timing?->mark('leads-cache-miss');
+
+                    return $this->buildPayload($filters, $periods, $timing);
+                }
+            );
+
+            if ($timing !== null && ! $timing->has('leads-cache-miss')) {
+                $timing->mark('leads-cache-hit');
+            }
+
+            return $payload;
+        };
+
+        return $timing?->measure('leads-total', $resolve) ?? $resolve();
     }
 
-    public function summary(Request $request): array
+    public function summary(Request $request, ?ReportServerTiming $timing = null): array
     {
-        return $this->payload($request, 'summary')['summary'];
+        return $this->payload($request, 'summary', $timing)['summary'];
     }
 
     public function kpiAudit(Request $request): array
@@ -521,7 +537,7 @@ class SalesforceLeadDashboardDatasetService
         ];
     }
 
-    private function buildPayload(array $filters, array $periods): array
+    private function buildPayload(array $filters, array $periods, ?ReportServerTiming $timing = null): array
     {
         $current = $this->emptyBucket();
         $previous = $this->emptyBucket();
@@ -532,70 +548,103 @@ class SalesforceLeadDashboardDatasetService
         $portalGroups = [];
         $filterOptions = $this->emptyFilterOptionsAccumulator();
 
-        $this->eachPeriodLead($periods['current'], function (array $lead) use (
-            &$current,
-            &$commercialZoneGroups,
-            &$commercialDelegationGroups,
-            &$commercialGroups,
-            &$delegationGroups,
-            &$portalGroups,
-            &$filterOptions,
-            $filters,
-        ): void {
-            if (! $this->passesAccessScope($lead, $filters)) {
-                return;
-            }
+        $currentPeriod = function () use (&$current, &$commercialZoneGroups, &$commercialDelegationGroups, &$commercialGroups, &$delegationGroups, &$portalGroups, &$filterOptions, $filters, $periods): void {
+            $this->eachPeriodLead($periods['current'], function (array $lead) use (
+                &$current,
+                &$commercialZoneGroups,
+                &$commercialDelegationGroups,
+                &$commercialGroups,
+                &$delegationGroups,
+                &$portalGroups,
+                &$filterOptions,
+                $filters,
+            ): void {
+                if (! $this->passesAccessScope($lead, $filters)) {
+                    return;
+                }
 
-            $this->collectFilterOptions($filterOptions, $lead);
+                $this->collectFilterOptions($filterOptions, $lead);
 
-            if (! $this->passesFilters($lead, $filters)) {
-                return;
-            }
+                if (! $this->passesFilters($lead, $filters)) {
+                    return;
+                }
 
-            $this->addToBucket($current, $lead);
+                $this->addToBucket($current, $lead);
 
-            if ($lead['gestor_es_comercial']) {
-                $this->addGroup($commercialZoneGroups, $lead['commercial_zone'], $lead['commercial_zone'], [], $lead);
-                $this->addGroup($commercialDelegationGroups, $lead['commercial_delegation'].'|'.$lead['commercial_zone'], $lead['commercial_delegation'], [
-                    'zone' => $lead['commercial_zone'],
-                ], $lead);
-                $this->addGroup($commercialGroups, $lead['gestor_id'], $lead['gestor_nombre'], [
-                    'commercial_delegation' => $lead['commercial_delegation'],
-                    'zone' => $lead['commercial_zone'],
-                ], $lead);
-            }
+                if ($lead['gestor_es_comercial']) {
+                    $this->addGroup($commercialZoneGroups, $lead['commercial_zone'], $lead['commercial_zone'], [], $lead);
+                    $this->addGroup($commercialDelegationGroups, $lead['commercial_delegation'].'|'.$lead['commercial_zone'], $lead['commercial_delegation'], [
+                        'zone' => $lead['commercial_zone'],
+                    ], $lead);
+                    $this->addGroup($commercialGroups, $lead['gestor_id'], $lead['gestor_nombre'], [
+                        'commercial_delegation' => $lead['commercial_delegation'],
+                        'zone' => $lead['commercial_zone'],
+                    ], $lead);
+                }
 
-            $this->addGroup($delegationGroups, $lead['lead_delegation'], $lead['lead_delegation'], [], $lead);
-            $this->addGroup($portalGroups, $lead['portal'], $lead['portal'], [], $lead);
-        });
+                $this->addGroup($delegationGroups, $lead['lead_delegation'], $lead['lead_delegation'], [], $lead);
+                $this->addGroup($portalGroups, $lead['portal'], $lead['portal'], [], $lead);
+            });
+        };
+        if ($timing !== null) {
+            $timing->measure('leads-current-total', $currentPeriod);
+        } else {
+            $currentPeriod();
+        }
 
-        $this->eachPeriodLead($periods['previous'], function (array $lead) use (&$previous, $filters): void {
-            if (! $this->passesFilters($lead, $filters)) {
-                return;
-            }
+        $previousPeriod = function () use (&$previous, $filters, $periods): void {
+            $this->eachPeriodLead($periods['previous'], function (array $lead) use (&$previous, $filters): void {
+                if (! $this->passesFilters($lead, $filters)) {
+                    return;
+                }
 
-            $this->addToBucket($previous, $lead);
-        });
+                $this->addToBucket($previous, $lead);
+            });
+        };
+        if ($timing !== null) {
+            $timing->measure('leads-previous-total', $previousPeriod);
+        } else {
+            $previousPeriod();
+        }
 
-        $current = $this->finalizeBucket($current);
-        $previous = $this->finalizeBucket($previous);
-        $commercialZones = $this->finalizeGroups($commercialZoneGroups, 'zone');
-        $commercialDelegations = $this->finalizeGroups($commercialDelegationGroups, 'commercial_delegation');
-        $commercials = $this->finalizeGroups($commercialGroups, 'comercial');
-        $delegations = $this->finalizeGroups($delegationGroups, 'lead_delegation');
-        $portals = $this->finalizeGroups($portalGroups, 'portal');
-        $comparison = $this->compactComparison($current, $previous);
-        $syncMetadata = $this->syncMetadata($periods['current']);
+        $groups = function () use (&$commercialZones, &$commercialDelegations, &$commercials, &$delegations, &$portals, $commercialZoneGroups, $commercialDelegationGroups, $commercialGroups, $delegationGroups, $portalGroups): void {
+            $commercialZones = $this->finalizeGroups($commercialZoneGroups, 'zone');
+            $commercialDelegations = $this->finalizeGroups($commercialDelegationGroups, 'commercial_delegation');
+            $commercials = $this->finalizeGroups($commercialGroups, 'comercial');
+            $delegations = $this->finalizeGroups($delegationGroups, 'lead_delegation');
+            $portals = $this->finalizeGroups($portalGroups, 'portal');
+        };
+        if ($timing !== null) {
+            $timing->measure('leads-groups', $groups);
+        } else {
+            $groups();
+        }
+
+        $finalize = function () use (&$current, &$previous, &$comparison, &$syncMetadata, $periods): void {
+            $current = $this->finalizeBucket($current);
+            $previous = $this->finalizeBucket($previous);
+            $comparison = $this->compactComparison($current, $previous);
+            $syncMetadata = $this->syncMetadata($periods['current']);
+        };
+        if ($timing !== null) {
+            $timing->measure('leads-finalize', $finalize);
+        } else {
+            $finalize();
+        }
         $hasCurrentData = $current['leads_totales'] > 0;
         $hasAnyPeriodData = $hasCurrentData || $previous['leads_totales'] > 0;
-        $executiveInsights = $hasAnyPeriodData
+        $insights = fn (): array => $hasAnyPeriodData
             ? $this->aiInsights->generate(
                 $this->aiPayload($filters, $periods, $current, $previous, $comparison, $portals, $commercials, $delegations)
             )
             : ['insights' => [], 'source' => 'none'];
+        $executiveInsights = $timing?->measure('leads-insights', $insights) ?? $insights();
         $emptyMessage = $syncMetadata['salesforce_leads_synced_at']
             ? 'No hay leads que coincidan con el periodo y los filtros seleccionados.'
             : 'No hay datos de leads sincronizados.';
+
+        $filterOptionsPayload = fn (): array => $this->filterOptionsFromAccumulator($filterOptions);
+        $filterOptionsPayload = $timing?->measure('leads-filters', $filterOptionsPayload) ?? $filterOptionsPayload();
 
         return [
             'summary' => [
@@ -620,7 +669,7 @@ class SalesforceLeadDashboardDatasetService
                 'insights' => $executiveInsights['insights'],
                 'executive_insights' => $executiveInsights['insights'],
                 'executive_insights_source' => $executiveInsights['source'],
-                'filters' => $this->filterOptionsFromAccumulator($filterOptions),
+                'filters' => $filterOptionsPayload,
             ],
             'commercial_zones' => $commercialZones,
             'commercial_delegations' => $commercialDelegations,

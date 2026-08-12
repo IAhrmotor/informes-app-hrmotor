@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Reports\Leads;
 
 use App\Http\Controllers\Controller;
 use App\Services\Reports\Leads\SalesforceLeadDashboardDatasetService;
+use App\Support\ReportServerTiming;
 use App\Support\ReportUserAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,7 +18,7 @@ class LeadDashboardDataController extends Controller
 
     public function resumen(Request $request): JsonResponse
     {
-        return response()->json($this->dataset->summary($request));
+        return $this->timedJson($request, fn (?ReportServerTiming $timing): array => $this->dataset->summary($request, $timing));
     }
 
     public function kpis(Request $request): JsonResponse
@@ -48,6 +49,18 @@ class LeadDashboardDataController extends Controller
     public function comparativa(Request $request): JsonResponse
     {
         return $this->resumen($request);
+    }
+
+    private function timedJson(Request $request, callable $callback): JsonResponse
+    {
+        $timing = ReportServerTiming::forRequest($request);
+        $response = response()->json($callback($timing));
+
+        if ($timing !== null && $timing->headerValue() !== '') {
+            $response->headers->set('Server-Timing', $timing->headerValue());
+        }
+
+        return $response;
     }
 
     public function calidadDato(Request $request): JsonResponse

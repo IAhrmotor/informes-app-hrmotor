@@ -3,6 +3,7 @@
 namespace App\Services\Reports\Calls;
 
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
+use App\Support\ReportServerTiming;
 use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder as QueryBuilder;
@@ -26,28 +27,28 @@ class CallDashboardDatasetService
         private readonly CallClassificationRules $rules,
     ) {}
 
-    public function summary(Request $request): array
+    public function summary(Request $request, ?ReportServerTiming $timing = null): array
     {
         $filters = $this->filters($request);
         $periods = $this->periods($filters);
 
-        return $this->rememberEndpoint('summary', $filters, $periods, fn () => $this->buildSummary($filters, $periods));
+        return $this->rememberEndpoint('summary', $filters, $periods, $timing, fn () => $this->buildSummary($filters, $periods, $timing));
     }
 
-    public function agentRows(Request $request): array
+    public function agentRows(Request $request, ?ReportServerTiming $timing = null): array
     {
         $filters = $this->filters($request);
         $periods = $this->periods($filters);
 
-        return $this->rememberEndpoint('agents', $filters, $periods, fn () => $this->buildAgentPayload($filters, $periods));
+        return $this->rememberEndpoint('agents', $filters, $periods, $timing, fn () => $this->buildAgentPayload($filters, $periods, $timing));
     }
 
-    public function delegationRows(Request $request): array
+    public function delegationRows(Request $request, ?ReportServerTiming $timing = null): array
     {
         $filters = $this->filters($request);
         $periods = $this->periods($filters);
 
-        return $this->rememberEndpoint('delegations', $filters, $periods, fn () => $this->buildDelegationPayload($filters, $periods));
+        return $this->rememberEndpoint('delegations', $filters, $periods, $timing, fn () => $this->buildDelegationPayload($filters, $periods, $timing));
     }
 
     public function portalRows(Request $request): array
@@ -55,7 +56,7 @@ class CallDashboardDatasetService
         $filters = $this->filters($request);
         $periods = $this->periods($filters);
 
-        return $this->rememberEndpoint('portals', $filters, $periods, fn () => $this->buildPortalPayload($filters, $periods));
+        return $this->rememberEndpoint('portals', $filters, $periods, null, fn () => $this->buildPortalPayload($filters, $periods));
     }
 
     public function auditRows(Request $request): array
@@ -176,33 +177,59 @@ class CallDashboardDatasetService
         ];
     }
 
-    private function rememberEndpoint(string $endpoint, array $filters, array $periods, callable $callback): array
+    private function rememberEndpoint(string $endpoint, array $filters, array $periods, ?ReportServerTiming $timing, callable $callback): array
     {
-        return Cache::remember(
-            'calls-dashboard:'.$endpoint.':'.md5(json_encode([
-                'endpoint' => $endpoint,
-                'filters' => $filters,
-                'periods' => [
-                    'current' => $this->periodPayload($periods['current']),
-                    'previous' => $this->periodPayload($periods['previous']),
-                ],
-                'version' => $this->dataVersion(),
-            ], JSON_UNESCAPED_UNICODE)),
-            now()->addMinutes(self::CACHE_TTL_MINUTES),
-            $callback
-        );
+        $resolve = function () use ($endpoint, $filters, $periods, $timing, $callback): array {
+            $payload = Cache::remember(
+                'calls-dashboard:'.$endpoint.':'.md5(json_encode([
+                    'endpoint' => $endpoint,
+                    'filters' => $filters,
+                    'periods' => [
+                        'current' => $this->periodPayload($periods['current']),
+                        'previous' => $this->periodPayload($periods['previous']),
+                    ],
+                    'version' => $this->dataVersion(),
+                ], JSON_UNESCAPED_UNICODE)),
+                now()->addMinutes(self::CACHE_TTL_MINUTES),
+                function () use ($endpoint, $timing, $callback): array {
+                    $timing?->mark('calls-'.$endpoint.'-miss');
+
+                    return $callback();
+                }
+            );
+
+            if ($timing !== null && ! $timing->has('calls-'.$endpoint.'-miss')) {
+                $timing->mark('calls-'.$endpoint.'-hit');
+            }
+
+            return $payload;
+        };
+
+        return $timing?->measure('calls-'.$endpoint.'-total', $resolve) ?? $resolve();
     }
 
-    private function buildSummary(array $filters, array $periods): array
+    private function buildSummary(array $filters, array $periods, ?ReportServerTiming $timing = null): array
     {
-        $current = $this->summaryBucket($filters, $periods['current']);
-        $previous = $this->summaryBucket($filters, $periods['previous']);
-        [$agents, $teams] = $this->agentAndTeamMetricRows($filters, $periods['current']);
-        $portals = $this->portalMetricRows($filters, $periods['current']);
-        $charts = $this->summaryCharts($filters, $periods['current'], $current, $teams);
-        $rankings = $this->summaryRankings($filters, $periods['current'], $portals, $agents);
-        $reconciliation = $this->reconciliationCounts($filters, $periods['current']);
-        $cutoff = $this->lastUpdated()?->toDateTimeString();
+        $current = $timing?->measure('calls-current', fn (): array => $this->summaryBucket($filters, $periods['current']))
+            ?? $this->summaryBucket($filters, $periods['current']);
+        $previous = $timing?->measure('calls-previous', fn (): array => $this->summaryBucket($filters, $periods['previous']))
+            ?? $this->summaryBucket($filters, $periods['previous']);
+        [$agents, $teams] = $timing?->measure('calls-agents-teams', fn (): array => $this->agentAndTeamMetricRows($filters, $periods['current']))
+            ?? $this->agentAndTeamMetricRows($filters, $periods['current']);
+        $portals = $timing?->measure('calls-portals', fn (): array => $this->portalMetricRows($filters, $periods['current']))
+            ?? $this->portalMetricRows($filters, $periods['current']);
+        $charts = $timing?->measure('calls-daily', fn (): array => $this->summaryCharts($filters, $periods['current'], $current, $teams))
+            ?? $this->summaryCharts($filters, $periods['current'], $current, $teams);
+        $rankings = $timing?->measure('calls-ranking', fn (): array => $this->summaryRankings($filters, $periods['current'], $portals, $agents))
+            ?? $this->summaryRankings($filters, $periods['current'], $portals, $agents);
+        $reconciliation = $timing?->measure('calls-reconciliation', fn (): array => $this->reconciliationCounts($filters, $periods['current']))
+            ?? $this->reconciliationCounts($filters, $periods['current']);
+        $metadata = fn (): ?string => $this->lastUpdated()?->toDateTimeString();
+        $cutoff = $timing !== null
+            ? $timing->measure('calls-metadata', $metadata)
+            : $metadata();
+        $filterOptions = $timing?->measure('calls-filters', fn (): array => $this->filterOptions())
+            ?? $this->filterOptions();
 
         return [
             'ok' => $current['total_calls'] > 0 || $previous['total_calls'] > 0,
@@ -226,15 +253,16 @@ class CallDashboardDatasetService
             'charts' => $charts,
             'rankings' => $rankings,
             'insights' => $this->insights($current, $previous, $rankings),
-            'filters' => $this->filterOptions(),
+            'filters' => $filterOptions,
         ];
     }
 
-    private function buildAgentPayload(array $filters, array $periods): array
+    private function buildAgentPayload(array $filters, array $periods, ?ReportServerTiming $timing = null): array
     {
-        [$agents, $teams] = $this->agentAndTeamMetricRows($filters, $periods['current']);
+        [$agents, $teams] = $timing?->measure('calls-agents-query', fn (): array => $this->agentAndTeamMetricRows($filters, $periods['current']))
+            ?? $this->agentAndTeamMetricRows($filters, $periods['current']);
 
-        return [
+        $finalize = fn (): array => [
             'ok' => true,
             'teams' => $teams,
             'agents' => $agents,
@@ -244,18 +272,23 @@ class CallDashboardDatasetService
             'appraisers' => $this->filterAgentsByTeam($agents, 'appraiser'),
             'items' => $agents,
         ];
+
+        return $timing?->measure('calls-agents-finalize', $finalize) ?? $finalize();
     }
 
-    private function buildDelegationPayload(array $filters, array $periods): array
+    private function buildDelegationPayload(array $filters, array $periods, ?ReportServerTiming $timing = null): array
     {
-        [$zones, $delegations] = $this->zoneAndDelegationMetricRows($filters, $periods['current']);
+        [$zones, $delegations] = $timing?->measure('calls-delegations-query', fn (): array => $this->zoneAndDelegationMetricRows($filters, $periods['current']))
+            ?? $this->zoneAndDelegationMetricRows($filters, $periods['current']);
 
-        return [
+        $finalize = fn (): array => [
             'ok' => true,
             'zones' => $zones,
             'delegations' => $delegations,
             'items' => $delegations,
         ];
+
+        return $timing?->measure('calls-delegations-finalize', $finalize) ?? $finalize();
     }
 
     private function buildPortalPayload(array $filters, array $periods): array
