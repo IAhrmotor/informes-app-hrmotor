@@ -27,6 +27,9 @@ Actualizado: 2026-08-13.
   `resources/js/reports/app-shell.js`, compilados por Vite. No hay dependencias,
   migraciones ni variables de entorno nuevas. Los artefactos de `public/build`
   deben desplegarse junto al codigo porque produccion no dispone de Node.
+- El shell define `border-box` de forma acotada para su arbol y
+  pseudo-elementos. Su geometria no depende del reset global de ningun
+  dashboard, por lo que Resumen y SEO conservan la misma densidad de sidebar.
 - Validacion focal previa al cierre: 24 pruebas de shell/acceso/login (189
   aserciones) y 99 pruebas de dashboards complejos (857 aserciones), todas
   correctas. Consultar la entrega de la tarea para suite completa, Pint, build

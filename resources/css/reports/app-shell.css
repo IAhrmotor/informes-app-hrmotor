@@ -17,6 +17,13 @@
     --app-shadow: 0 12px 32px rgba(15, 23, 42, .08);
 }
 
+.app-shell,
+.app-shell *,
+.app-shell *::before,
+.app-shell *::after {
+    box-sizing: border-box;
+}
+
 .app-shell-page {
     background: var(--app-bg);
     color: var(--text-primary);
