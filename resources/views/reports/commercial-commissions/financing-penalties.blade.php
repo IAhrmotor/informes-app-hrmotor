@@ -1,18 +1,8 @@
-<!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Penalizaciones financieras | HR Motor - Informes comerciales</title>
-    <link rel="icon" href="/brand/favicon.ico" sizes="any">
-    <link rel="shortcut icon" href="/brand/favicon.ico">
-    @include('partials.font-assets')
+<x-reports.app-shell title="Penalizaciones financieras" current-admin-page="commission-penalties" body-class="campaigns-report report-users-page">
+    <x-slot:head>
     @vite(['resources/css/reports/leads-dashboard.css'])
-</head>
-<body class="campaigns-report report-users-page">
+    </x-slot:head>
 <div class="wrap">
-    @include('reports.partials.report-header', ['currentReport' => 'commission-settings', 'currentAdminPage' => 'commission-penalties'])
-
     <main>
         <section class="header">
             <div>
@@ -21,8 +11,6 @@
                 <p class="sub">Carga el Excel mensual de cancelaciones anticipadas. El importe se descuenta tal como lo indique Cristina, agrupado por mes y email del comercial.</p>
             </div>
         </section>
-
-        @include('reports.partials.admin-nav', ['currentAdminPage' => 'commission-penalties'])
 
         @if (session('status'))
             <div class="notice notice-success">{{ session('status') }}</div>
@@ -136,5 +124,4 @@
         @endif
     </main>
 </div>
-</body>
-</html>
+</x-reports.app-shell>

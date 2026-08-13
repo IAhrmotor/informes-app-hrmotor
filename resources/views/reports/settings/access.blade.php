@@ -1,19 +1,8 @@
-<!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Permisos de informes | HR Motor - Informes comerciales</title>
-    <link rel="icon" href="/brand/favicon.ico" sizes="any">
-    <link rel="shortcut icon" href="/brand/favicon.ico">
-    @include('partials.font-assets')
-
+<x-reports.app-shell title="Permisos de informes" current-admin-page="access-settings" body-class="campaigns-report report-users-page">
+    <x-slot:head>
     @vite(['resources/css/reports/leads-dashboard.css'])
-</head>
-<body class="campaigns-report report-users-page">
+    </x-slot:head>
 <div class="wrap">
-    @include('reports.partials.report-header', ['currentReport' => 'access-settings', 'currentAdminPage' => 'access-settings'])
-
     <main>
         <section class="header">
             <div>
@@ -22,8 +11,6 @@
                 <p class="sub">Configura el rol minimo que puede abrir cada informe. La jerarquia es Administrador, Direccion, Area Manager y Viewer.</p>
             </div>
         </section>
-
-        @include('reports.partials.admin-nav', ['currentAdminPage' => 'access-settings'])
 
         @if (session('status'))
             <div class="notice notice-success">{{ session('status') }}</div>
@@ -67,5 +54,4 @@
         </section>
     </main>
 </div>
-</body>
-</html>
+</x-reports.app-shell>

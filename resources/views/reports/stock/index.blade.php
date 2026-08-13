@@ -1,27 +1,19 @@
-<!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Stock | HR Motor - Informes comerciales</title>
-    <link rel="icon" href="/brand/favicon.ico" sizes="any">
-    @include('partials.font-assets')
+<x-reports.app-shell
+    title="Stock"
+    current-report="stock"
+    body-class="stock-report"
+    :updated-badge-text="$latestSnapshotDate
+        ? 'Fotograf'.mb_chr(237).'a de stock: '.\Carbon\CarbonImmutable::parse($latestSnapshotDate)->format('d/m/Y')
+        : 'Sin fotograf'.mb_chr(237).'a diaria'"
+>
+    <x-slot:head>
     @vite([
         'resources/css/reports/leads-dashboard.css',
         'resources/css/reports/stock-dashboard.css',
         'resources/js/reports/stock-dashboard.js',
     ])
-</head>
-<body class="stock-report">
+    </x-slot:head>
 <div class="wrap">
-    @include('reports.partials.report-header', [
-        'currentReport' => 'stock',
-        'subtitle' => 'Stock',
-        'updatedBadgeText' => $latestSnapshotDate
-            ? 'Fotografía de stock: '.\Carbon\CarbonImmutable::parse($latestSnapshotDate)->format('d/m/Y')
-            : 'Sin fotografía diaria',
-    ])
-
     <main>
         <section class="header stock-title">
             <div class="stock-title-copy">
@@ -85,5 +77,4 @@
         @endif
     </main>
 </div>
-</body>
-</html>
+</x-reports.app-shell>

@@ -1,6 +1,24 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-08-11.
+Actualizado: 2026-08-13.
+
+## Application shell de informes
+
+- Las paginas autenticadas de informes y administracion usan el componente
+  Blade anonimo `x-reports.app-shell`. El componente centraliza `head`,
+  branding, topbar, usuario, logout, sidebar y contenedor de contenido; cada
+  pagina aporta titulo, modulo activo, clases de `body`, assets y contenido.
+- `resources/css/reports/app-shell.css` contiene los tokens semanticos y la
+  estructura responsive. No existe modo oscuro todavia. El contenido analitico
+  no recibe un `max-width` global; los limites de lectura deben seguir siendo
+  especificos de cada pagina cuando sean necesarios.
+- `resources/js/reports/app-shell.js` gestiona exclusivamente la sidebar. En
+  escritorio persiste el estado abierto/cerrado en `localStorage`; en movil es
+  un drawer superpuesto. Los fallos de almacenamiento se ignoran de forma
+  segura y no existe estado de navegacion en servidor.
+- La navegacion se resuelve en servidor mediante `ReportUserAccess` y se
+  materializa una sola vez por request. Ocultar un enlace no sustituye al
+  middleware o control de autorizacion de la ruta.
 
 ## Operación transversal
 

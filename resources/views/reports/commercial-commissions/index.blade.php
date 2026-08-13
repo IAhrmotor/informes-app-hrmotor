@@ -1,13 +1,12 @@
-<!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Comisiones Comerciales | HR Motor - Informes comerciales</title>
-    <link rel="icon" href="/brand/favicon.ico" sizes="any">
-    <link rel="shortcut icon" href="/brand/favicon.ico">
-    @include('partials.font-assets')
-
+<x-reports.app-shell
+    title="Comisiones Comerciales"
+    current-report="commercial-commissions"
+    body-class="campaigns-report commercial-commissions-report"
+    :updated-badge-text="! empty($dashboard['last_updated_label'])
+        ? 'Datos actualizados: '.$dashboard['last_updated_label']
+        : 'Datos actualizados: pendiente'"
+>
+    <x-slot:head>
     @vite([
         'resources/css/reports/leads-dashboard.css',
         'resources/js/reports/commercial-commissions-dashboard.js',
@@ -15,7 +14,7 @@
     <script>
         window.reportUserRole = @json($reportUserRole ?? 'viewer');
     </script>
-</head>
+    </x-slot:head>
 @php
     $activeCommissionTab = $activeCommissionTab ?? 'summary';
     $summaryRows = collect($dashboard['summary_rows'] ?? []);
@@ -89,16 +88,7 @@
     ];
     $closureStatus = $commissionClosure['status'] ?? 'provisional';
 @endphp
-<body class="campaigns-report commercial-commissions-report">
 <div class="wrap">
-    @include('reports.partials.report-header', [
-        'currentReport' => 'commercial-commissions',
-        'subtitle' => 'Comisiones mensuales',
-        'updatedBadgeText' => ! empty($dashboard['last_updated_label'])
-            ? 'Datos actualizados: '.$dashboard['last_updated_label']
-            : 'Datos actualizados: pendiente',
-    ])
-
     <main>
         <section class="tab-panel active">
             <section class="filters card commission-filters">
@@ -1088,5 +1078,4 @@
         </section>
     </main>
 </div>
-</body>
-</html>
+</x-reports.app-shell>

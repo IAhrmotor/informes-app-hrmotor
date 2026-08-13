@@ -16,13 +16,13 @@ use App\Http\Controllers\Reports\Leads\MonthlyCommercialReportDataController;
 use App\Http\Controllers\Reports\Operations\OperationalAlertController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
+use App\Http\Controllers\Reports\SeoAnalytics\SeoAnalyticsDashboardController;
 use App\Http\Controllers\Reports\Settings\ReportAccessManagementController;
 use App\Http\Controllers\Reports\Stock\StockCapacityController;
 use App\Http\Controllers\Reports\Stock\StockCatalogAliasApprovalController;
 use App\Http\Controllers\Reports\Stock\StockDashboardController;
+use App\Http\Controllers\Reports\Summary\SummaryDashboardController;
 use App\Http\Controllers\Reports\Users\ReportUserManagementController;
-use App\Support\ReportUserAccess;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -34,13 +34,11 @@ Route::post('/login', [InformesLoginController::class, 'login'])->name('login.po
 Route::post('/logout', [InformesLoginController::class, 'logout'])->name('logout');
 
 Route::middleware('reports.auth')->group(function () {
-    Route::get('informes', function (Request $request) {
-        $routeName = ReportUserAccess::defaultAccessibleRouteName($request);
+    Route::get('informes', [SummaryDashboardController::class, 'index'])->name('reports.index');
 
-        abort_if($routeName === null, 403);
-
-        return redirect()->route($routeName);
-    })->name('reports.index');
+    Route::get('informes/seo-analytics', [SeoAnalyticsDashboardController::class, 'index'])
+        ->middleware('report.access:seo-analytics')
+        ->name('reports.seo-analytics.index');
 
     Route::prefix('informes/leads')
         ->name('reports.leads.')

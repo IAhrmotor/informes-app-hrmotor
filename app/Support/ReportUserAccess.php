@@ -9,6 +9,17 @@ use Illuminate\Support\Facades\Schema;
 
 class ReportUserAccess
 {
+    private const STRATEGIC_MODULE_DEFINITIONS = [
+        'summary' => [
+            'label' => 'Resumen',
+            'route' => 'reports.index',
+        ],
+        'seo-analytics' => [
+            'label' => 'SEO y Analytics',
+            'route' => 'reports.seo-analytics.index',
+        ],
+    ];
+
     private const REPORT_DEFINITIONS = [
         'leads' => [
             'label' => 'Leads',
@@ -268,6 +279,10 @@ class ReportUserAccess
     {
         $currentRole = self::canonicalRole(self::role($request));
 
+        if (array_key_exists($reportKey, self::STRATEGIC_MODULE_DEFINITIONS)) {
+            return in_array($currentRole, [ReportUser::ROLE_ADMIN, ReportUser::ROLE_DIRECTOR], true);
+        }
+
         // This operational role is intentionally isolated from the role hierarchy.
         if ($currentRole === ReportUser::ROLE_COMMISSION_AUDITOR) {
             return $reportKey === 'commercial-commissions';
@@ -295,7 +310,7 @@ class ReportUserAccess
             return in_array($reportKey, ['leads', 'calls', 'commercial-commissions'], true);
         }
 
-        $minimumRole = self::canonicalRole(self::minimumRoleForReport($reportKey));
+        $minimumRole = self::canonicalRole(self::minimumRoleForReport($reportKey, $request));
 
         if ($currentRole === null || $minimumRole === null) {
             return false;
@@ -304,16 +319,20 @@ class ReportUserAccess
         return ReportUser::roleWeight($currentRole) >= ReportUser::roleWeight($minimumRole);
     }
 
-    public static function minimumRoleForReport(string $reportKey): string
+    public static function minimumRoleForReport(string $reportKey, ?Request $request = null): string
     {
-        $settings = self::minimumRolesByReport();
+        $settings = self::minimumRolesByReport($request);
         $fallback = self::reportDefinitions()[$reportKey]['default_minimum_role'] ?? ReportUser::ROLE_ADMIN;
 
         return $settings[$reportKey] ?? $fallback;
     }
 
-    public static function minimumRolesByReport(): array
+    public static function minimumRolesByReport(?Request $request = null): array
     {
+        if ($request?->attributes->has('report_minimum_roles')) {
+            return $request->attributes->get('report_minimum_roles');
+        }
+
         $defaults = [];
 
         foreach (self::reportDefinitions() as $reportKey => $definition) {
@@ -321,6 +340,8 @@ class ReportUserAccess
         }
 
         if (! Schema::hasTable('report_access_settings')) {
+            $request?->attributes->set('report_minimum_roles', $defaults);
+
             return $defaults;
         }
 
@@ -335,6 +356,8 @@ class ReportUserAccess
             }
         }
 
+        $request?->attributes->set('report_minimum_roles', $defaults);
+
         return $defaults;
     }
 
@@ -348,7 +371,40 @@ class ReportUserAccess
         return self::REPORT_DEFINITIONS;
     }
 
+    public static function navigationDefinitions(): array
+    {
+        return self::STRATEGIC_MODULE_DEFINITIONS + self::REPORT_DEFINITIONS;
+    }
+
+    public static function accessibleReportKeys(Request $request): array
+    {
+        if ($request->attributes->has('accessible_report_keys')) {
+            return $request->attributes->get('accessible_report_keys');
+        }
+
+        $keys = [];
+
+        foreach (array_keys(self::navigationDefinitions()) as $reportKey) {
+            if (self::canViewReport($request, $reportKey)) {
+                $keys[] = $reportKey;
+            }
+        }
+
+        $request->attributes->set('accessible_report_keys', $keys);
+
+        return $keys;
+    }
+
     public static function defaultAccessibleRouteName(Request $request): ?string
+    {
+        if (self::canViewReport($request, 'summary')) {
+            return self::STRATEGIC_MODULE_DEFINITIONS['summary']['route'];
+        }
+
+        return self::defaultOperationalRouteName($request);
+    }
+
+    public static function defaultOperationalRouteName(Request $request): ?string
     {
         foreach (self::reportDefinitions() as $reportKey => $definition) {
             if (self::canViewReport($request, $reportKey)) {

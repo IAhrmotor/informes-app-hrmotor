@@ -1,17 +1,8 @@
-<!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Alertas operativas | HR Motor</title>
-    <link rel="icon" href="/brand/favicon.ico" sizes="any">
-    @include('partials.font-assets')
+<x-reports.app-shell title="Alertas operativas" current-admin-page="operational-alerts" body-class="campaigns-report">
+    <x-slot:head>
     @vite(['resources/css/reports/leads-dashboard.css'])
-</head>
-<body class="campaigns-report">
+    </x-slot:head>
 <div class="wrap">
-    @include('reports.partials.report-header', ['currentReport' => 'operations', 'currentAdminPage' => 'operational-alerts'])
-
     <main>
         <section class="header">
             <div>
@@ -20,8 +11,6 @@
                 <p class="sub">Incidencias persistentes y sanitizadas. Este panel no muestra credenciales, cuerpos de peticiones ni datos personales.</p>
             </div>
         </section>
-
-        @include('reports.partials.admin-nav', ['currentAdminPage' => 'operational-alerts'])
 
         <section class="campaign-context-grid">
             <article class="card campaign-context-card">
@@ -119,5 +108,4 @@
         </section>
     </main>
 </div>
-</body>
-</html>
+</x-reports.app-shell>

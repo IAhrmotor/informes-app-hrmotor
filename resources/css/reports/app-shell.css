@@ -1,0 +1,491 @@
+:root {
+    --app-bg: #f8fafc;
+    --surface: #ffffff;
+    --surface-muted: #f1f5f9;
+    --text-primary: #1f2944;
+    --text-secondary: #64748b;
+    --border: rgba(31, 41, 68, .12);
+    --brand-primary: #1f2944;
+    --brand-accent: #e51a2e;
+    --brand-accent-accessible: #a50f23;
+    --focus-ring: #8f1020;
+    --status-success: #15803d;
+    --status-warning: #b45309;
+    --status-danger: #b91c1c;
+    --app-sidebar-width: 272px;
+    --app-topbar-height: 72px;
+    --app-shadow: 0 12px 32px rgba(15, 23, 42, .08);
+}
+
+.app-shell-page {
+    background: var(--app-bg);
+    color: var(--text-primary);
+    font-family: "Instrument Sans", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    margin: 0;
+    min-width: 320px;
+}
+
+body.app-shell-page.campaigns-report {
+    background: var(--app-bg);
+}
+
+.app-shell {
+    display: flex;
+    min-height: 100dvh;
+    width: 100%;
+}
+
+.app-sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex: 0 0 var(--app-sidebar-width);
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden auto;
+    position: sticky;
+    top: 0;
+    transition: flex-basis .22s ease, transform .22s ease, visibility .22s ease;
+    width: var(--app-sidebar-width);
+    z-index: 60;
+}
+
+.app-sidebar-brand {
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-height: var(--app-topbar-height);
+    padding: 13px 24px 11px;
+    position: relative;
+}
+
+.app-sidebar-brand img {
+    display: block;
+    height: 30px;
+    max-width: 184px;
+    object-fit: contain;
+    width: 100%;
+}
+
+.app-sidebar-brand > span {
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+}
+
+.app-sidebar-close {
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: none;
+    font: inherit;
+    font-size: 24px;
+    height: 40px;
+    justify-content: center;
+    line-height: 1;
+    position: absolute;
+    right: 12px;
+    top: 15px;
+    width: 40px;
+}
+
+.app-navigation {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 5px;
+    padding: 18px 14px 22px;
+}
+
+.app-nav-group {
+    display: grid;
+    gap: 4px;
+    margin-top: 12px;
+}
+
+.app-nav-group h2 {
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .13em;
+    margin: 0;
+    padding: 7px 12px 4px;
+    text-transform: uppercase;
+}
+
+.app-nav-admin {
+    border-top: 1px solid var(--border);
+    margin-top: auto;
+    padding-top: 15px;
+}
+
+.app-nav-link {
+    align-items: center;
+    border-left: 3px solid transparent;
+    border-radius: 9px;
+    color: var(--text-primary);
+    display: flex;
+    font-size: 14px;
+    font-weight: 650;
+    gap: 12px;
+    line-height: 1.3;
+    min-height: 42px;
+    padding: 10px 12px 10px 11px;
+    text-decoration: none;
+    transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+
+.app-nav-link:hover {
+    background: var(--surface-muted);
+}
+
+.app-nav-link.is-active {
+    background: rgba(229, 26, 46, .08);
+    border-left-color: var(--brand-accent-accessible);
+    color: var(--brand-accent-accessible);
+}
+
+.app-nav-icon {
+    fill: none;
+    flex: 0 0 20px;
+    height: 20px;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+    width: 20px;
+}
+
+.app-page-context,
+.app-topbar-primary,
+.app-topbar-actions,
+.app-user {
+    align-items: center;
+    display: flex;
+}
+
+.app-workspace {
+    min-width: 0;
+    width: calc(100% - var(--app-sidebar-width));
+}
+
+.app-topbar {
+    align-items: center;
+    background: rgba(255, 255, 255, .96);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    gap: 18px;
+    justify-content: space-between;
+    min-height: var(--app-topbar-height);
+    padding: 10px 24px;
+    position: sticky;
+    top: 0;
+    z-index: 40;
+}
+
+.app-topbar-primary,
+.app-topbar-actions {
+    gap: 12px;
+    min-width: 0;
+}
+
+.app-topbar .logout-form {
+    margin: 0;
+}
+
+.app-topbar .logout-button {
+    background: var(--surface);
+    border: 1px solid rgba(229, 26, 46, .2);
+    border-radius: 999px;
+    color: var(--brand-accent);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    min-height: 40px;
+    padding: 9px 15px;
+}
+
+.app-topbar .logout-button:hover {
+    background: rgba(229, 26, 46, .05);
+    border-color: rgba(229, 26, 46, .38);
+}
+
+.app-page-context {
+    align-items: flex-start;
+    flex-direction: column;
+    line-height: 1.15;
+    min-width: 0;
+}
+
+.app-page-context span {
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.app-page-context strong {
+    color: var(--text-primary);
+    font-size: 16px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.app-sidebar-toggle {
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--brand-primary);
+    cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 42px;
+    height: 42px;
+    justify-content: center;
+}
+
+.app-sidebar-toggle-lines,
+.app-sidebar-toggle-lines::before,
+.app-sidebar-toggle-lines::after {
+    background: currentColor;
+    border-radius: 2px;
+    content: '';
+    display: block;
+    height: 2px;
+    position: relative;
+    width: 18px;
+}
+
+.app-sidebar-toggle-lines::before {
+    position: absolute;
+    top: -6px;
+}
+
+.app-sidebar-toggle-lines::after {
+    position: absolute;
+    top: 6px;
+}
+
+.app-user {
+    gap: 8px;
+}
+
+.app-user-avatar {
+    align-items: center;
+    background: var(--surface-muted);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    color: var(--brand-primary);
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 800;
+    height: 34px;
+    justify-content: center;
+    width: 34px;
+}
+
+.app-user-name {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.app-content {
+    min-width: 0;
+    width: 100%;
+}
+
+.app-module-placeholder {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    box-shadow: var(--app-shadow);
+    max-width: 760px;
+    padding: 28px;
+}
+
+.app-module-placeholder h2 {
+    margin: 8px 0;
+}
+
+.app-module-placeholder p {
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin: 0;
+}
+
+.app-module-status {
+    color: var(--brand-accent-accessible);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.app-content > .wrap > main > .header h1 {
+    color: var(--text-primary);
+    font-size: clamp(30px, 3vw, 42px);
+    letter-spacing: -.04em;
+    margin: 4px 0 7px;
+}
+
+.app-content > .wrap > main > .header .eyebrow {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+}
+
+.app-content > .wrap > main > .header .sub {
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin: 0;
+}
+
+.app-shell .wrap,
+.campaigns-report .app-shell .wrap {
+    margin: 0;
+    max-width: none;
+    padding: 24px;
+    width: 100%;
+}
+
+.app-sidebar-overlay {
+    background: rgba(15, 23, 42, .46);
+    border: 0;
+    display: none;
+    inset: 0;
+    padding: 0;
+    position: fixed;
+    z-index: 50;
+}
+
+.app-skip-link {
+    background: var(--brand-primary);
+    border-radius: 0 0 8px 8px;
+    color: #fff;
+    left: 16px;
+    padding: 10px 14px;
+    position: fixed;
+    top: 0;
+    transform: translateY(-120%);
+    transition: transform .15s ease;
+    z-index: 100;
+}
+
+.app-skip-link:focus {
+    transform: translateY(0);
+}
+
+.app-sidebar-toggle:focus-visible,
+.app-sidebar-close:focus-visible,
+.app-nav-link:focus-visible,
+.app-topbar .logout-button:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
+}
+
+.app-shell-page.commercial-commissions-report .commission-detail-shell .commission-commercial-picker {
+    top: calc(var(--app-topbar-height) + 18px);
+}
+
+.app-shell-page.commercial-commissions-report .commission-call-center-detail-shell .commission-commercial-picker,
+.app-shell-page.commercial-commissions-report .commission-contact-center-detail-shell .commission-commercial-picker {
+    top: calc(var(--app-topbar-height) + 24px);
+}
+
+html.app-sidebar-precollapsed .app-sidebar,
+.app-shell-page.app-sidebar-collapsed .app-sidebar {
+    flex-basis: 0;
+    transform: translateX(-100%);
+    visibility: hidden;
+    width: 0;
+}
+
+html.app-sidebar-precollapsed .app-workspace,
+.app-shell-page.app-sidebar-collapsed .app-workspace {
+    width: 100%;
+}
+
+@media (max-width: 900px) {
+    .app-sidebar-brand {
+        align-items: flex-start;
+        padding-right: 60px;
+    }
+
+    .app-sidebar {
+        box-shadow: var(--app-shadow);
+        left: 0;
+        position: fixed;
+        transform: translateX(-105%);
+        visibility: hidden;
+        width: min(var(--app-sidebar-width), calc(100vw - 44px));
+    }
+
+    html.app-sidebar-precollapsed .app-sidebar {
+        flex-basis: var(--app-sidebar-width);
+        width: min(var(--app-sidebar-width), calc(100vw - 44px));
+    }
+
+    .app-shell-page.app-sidebar-mobile-open .app-sidebar {
+        transform: translateX(0);
+        visibility: visible;
+    }
+
+    .app-shell-page.app-sidebar-mobile-open .app-sidebar-overlay {
+        display: block;
+    }
+
+    .app-sidebar-close {
+        display: inline-flex;
+    }
+
+    .app-workspace,
+    .app-shell-page.app-sidebar-collapsed .app-workspace {
+        width: 100%;
+    }
+
+    .app-topbar {
+        padding-inline: 16px;
+    }
+
+    .app-user-name,
+    .app-topbar .badge {
+        display: none;
+    }
+
+    .app-shell .wrap,
+    .campaigns-report .app-shell .wrap {
+        padding: 16px;
+    }
+}
+
+@media (max-width: 520px) {
+    .app-topbar .logout-button {
+        padding-inline: 11px;
+    }
+
+    .app-user {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .app-sidebar,
+    .app-sidebar-toggle,
+    .app-nav-link {
+        transition: none;
+    }
+}

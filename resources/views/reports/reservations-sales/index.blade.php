@@ -1,25 +1,14 @@
-<!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Reservas / Ventas | HR Motor - Informes comerciales</title>
-    <link rel="icon" href="/brand/favicon.ico" sizes="any">
-    <link rel="shortcut icon" href="/brand/favicon.ico">
-    @include('partials.font-assets')
-
-    @vite([
-        'resources/css/reports/leads-dashboard.css',
-        'resources/js/reports/reservations-sales-dashboard.js'
-    ])
-</head>
-<body>
+<x-reports.app-shell title="Reservas / Ventas" current-report="reservations-sales" :updated-badge-text="'Cargando fotograf'.mb_chr(237).'a local...'">
+    <x-slot:head>
+        @vite([
+            'resources/css/reports/leads-dashboard.css',
+            'resources/js/reports/reservations-sales-dashboard.js'
+        ])
+    </x-slot:head>
 <div class="wrap">
     <script>
         window.reportUserCanExport = @json($reportUserCanExport ?? false);
     </script>
-    @include('reports.partials.report-header', ['currentReport' => 'reservations-sales', 'subtitle' => 'Reservas / Ventas'])
-
     <section class="filters card">
         <div class="filter-group">
             <label for="period">Periodo</label>
@@ -272,5 +261,4 @@
         </section>
     </main>
 </div>
-</body>
-</html>
+</x-reports.app-shell>

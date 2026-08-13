@@ -1,13 +1,5 @@
-<!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Campañas | HR Motor - Informes comerciales</title>
-    <link rel="icon" href="/brand/favicon.ico" sizes="any">
-    <link rel="shortcut icon" href="/brand/favicon.ico">
-    @include('partials.font-assets')
-
+<x-reports.app-shell :title="'Campa'.mb_chr(241).'as'" current-report="campaigns" body-class="campaigns-report" :updated-badge-text="'Cargando fotograf'.mb_chr(237).'a local...'">
+    <x-slot:head>
     @vite([
         'resources/css/reports/leads-dashboard.css',
         'resources/js/reports/campaigns-dashboard.js'
@@ -18,11 +10,8 @@
         window.reportUserCanAudit = @json($reportUserCanAudit ?? false);
         window.reportUserCanSeeSourceReconciliation = @json($reportUserCanSeeSourceReconciliation ?? false);
     </script>
-</head>
-<body class="campaigns-report">
+    </x-slot:head>
 <div class="wrap">
-    @include('reports.partials.report-header', ['currentReport' => 'campaigns', 'subtitle' => 'Rentabilidad digital'])
-
     <section class="filters card campaigns-filter-bar">
         <div class="filter-group">
             <label for="periodPreset">Periodo</label>
@@ -211,5 +200,4 @@
         </section>
     </main>
 </div>
-</body>
-</html>
+</x-reports.app-shell>

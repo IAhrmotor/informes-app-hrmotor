@@ -1,15 +1,7 @@
-<!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Coeficientes de comisiones | HR Motor - Informes comerciales</title>
-    <link rel="icon" href="/brand/favicon.ico" sizes="any">
-    <link rel="shortcut icon" href="/brand/favicon.ico">
-    @include('partials.font-assets')
-
+<x-reports.app-shell title="Coeficientes de comisiones" current-admin-page="commission-settings" body-class="campaigns-report report-users-page">
+    <x-slot:head>
     @vite(['resources/css/reports/leads-dashboard.css'])
-</head>
+    </x-slot:head>
 @php
     $selectedMonthKey = $selectedMonth->format('Y-m');
     $openMonthKey = $openMonth->format('Y-m');
@@ -32,10 +24,7 @@
         'Tramo 6 (>= 1)',
     ];
 @endphp
-<body class="campaigns-report report-users-page">
 <div class="wrap">
-    @include('reports.partials.report-header', ['currentReport' => 'commission-settings', 'currentAdminPage' => 'commission-settings'])
-
     <main>
         <section class="header">
             <div>
@@ -44,8 +33,6 @@
                 <p class="sub">Solo el rol administrador puede editar coeficientes. El mes en curso permanece abierto y cualquier mes cerrado puede abrirse temporalmente para revision.</p>
             </div>
         </section>
-
-        @include('reports.partials.admin-nav', ['currentAdminPage' => 'commission-settings'])
 
         @if (session('status'))
             <div class="notice notice-success">{{ session('status') }}</div>
@@ -475,5 +462,4 @@
         </form>
     </main>
 </div>
-</body>
-</html>
+</x-reports.app-shell>

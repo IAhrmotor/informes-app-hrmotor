@@ -19,7 +19,7 @@ class ReportAccessManagementController extends Controller
         return view('reports.settings.access', [
             'reportUserRole' => ReportUserAccess::role($request),
             'reportDefinitions' => ReportUserAccess::reportDefinitions(),
-            'minimumRoles' => ReportUserAccess::minimumRolesByReport(),
+            'minimumRoles' => ReportUserAccess::minimumRolesByReport($request),
             'roleOptions' => ReportUserAccess::reportMinimumRoleOptions(),
         ]);
     }

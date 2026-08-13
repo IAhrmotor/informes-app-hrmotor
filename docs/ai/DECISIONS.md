@@ -71,3 +71,18 @@ aplicables y no se agregan en KPIs de Campañas.
 El dry-run usa `CampaignAttributionBuilderService`, no un motor paralelo. No
 borra, inserta, actualiza ni invalida caché; exige conciliación de particiones
 y unicidad de atribución KPI antes de permitir aprobar una reconstrucción.
+
+## 2026-08-13 - Shell comun y modulos estrategicos fijos
+
+Resumen y SEO y Analytics se modelan separadamente de los seis informes con
+minimo configurable. Su autorizacion es fija en servidor para Administrador y
+Director; las filas historicas de `report_access_settings` no participan en
+esa decision y la pantalla de permisos no los edita. `/informes` renderiza el
+Resumen para esos dos roles y conserva la redireccion al primer informe
+operativo autorizado para el resto.
+
+La estructura exterior se implementa como componente Blade anonimo, CSS y
+JavaScript propios, sin introducir un framework frontend. La preferencia de
+sidebar es local al navegador y no forma parte del modelo de usuario. Esta
+separacion permite incorporar paginas futuras aportando solo metadatos, assets
+y contenido, sin duplicar autenticacion, branding o navegacion.

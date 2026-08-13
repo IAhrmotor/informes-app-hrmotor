@@ -1,6 +1,36 @@
 # Handoff para agentes
 
-Actualizado: 2026-08-11.
+Actualizado: 2026-08-13.
+
+## Lote 1 Fase 1 - Application shell y navegacion estrategica (2026-08-13)
+
+- Se incorpora `x-reports.app-shell` a Leads, Reservas/Ventas, Llamadas,
+  Campanas, Stock, Comisiones y las paginas administrativas existentes. No se
+  modifican datasets, endpoints, filtros, KPIs, reglas, exports ni integraciones.
+- La sidebar agrupa Resumen; Comercial; Marketing; Operaciones; Comisiones; y
+  Administracion. Solo renderiza rutas autorizadas. En escritorio puede
+  ocultarse por completo para liberar ancho; en movil funciona como drawer con
+  overlay, Escape y gestion de foco. El estado de escritorio usa la key local
+  `hrmotor-report-sidebar` bajo `try/catch`, sin BD ni API.
+- Resumen (`reports.index`) y SEO y Analytics
+  (`reports.seo-analytics.index`) son pantallas estructurales sin consultas,
+  metricas ficticias ni llamadas externas. Solo Administrador y Director
+  acceden. La politica vive fuera de las definiciones editables y no puede
+  rebajarse mediante `report_access_settings`.
+- Para perfiles no estrategicos, `/informes` y el login siguen resolviendo el
+  primer informe operativo permitido. Director no hereda paginas exclusivas de
+  Administrador. Marketing no recibe SEO y Analytics.
+- `ReportUserAccess` memoiza los minimos y las claves visibles en atributos del
+  request, evitando consultar la configuracion una vez por enlace. No se usa
+  estado estatico mutable ni se cargan datos de dashboards desde la navegacion.
+- Assets nuevos: `resources/css/reports/app-shell.css` y
+  `resources/js/reports/app-shell.js`, compilados por Vite. No hay dependencias,
+  migraciones ni variables de entorno nuevas. Los artefactos de `public/build`
+  deben desplegarse junto al codigo porque produccion no dispone de Node.
+- Validacion focal previa al cierre: 24 pruebas de shell/acceso/login (189
+  aserciones) y 99 pruebas de dashboards complejos (857 aserciones), todas
+  correctas. Consultar la entrega de la tarea para suite completa, Pint, build
+  y diff-check finales.
 
 ## Lote de cold-path: AI Leads y caches de Llamadas (2026-08-13)
 
@@ -385,3 +415,22 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - No hubo llamadas Salesforce de escritura ni operaciones de stock. Bloqueo:
   falta una definición verificable de los estados que identifican logística
   activa; no se añadió una inferencia que pueda excluir o puntuar vehículos.
+
+## Cierre de revisión del Application Shell (2026-08-13)
+
+- El drawer móvil aplica `inert` únicamente al workspace mientras está abierto,
+  ofrece cierre dentro de la navegación y restaura el foco al control de apertura
+  al cerrar mediante Escape, overlay o botón. El cambio de breakpoint siempre
+  retira `inert`; la persistencia desktop en `localStorage` se conserva.
+- La topbar continúa siendo sticky. Los selectores sticky de Comerciales, Call
+  Center y Contact Center usan un offset basado en `--app-topbar-height`.
+- El fondo neutral prevalece en páginas `body.campaigns-report`. El enlace activo
+  usa el rojo accesible `#a50f23` y el foco visible el anillo `#8f1020`; no se ha
+  añadido `!important`. Penalizaciones dispone de icono propio.
+- Se verificó expresamente que una fila histórica `summary=viewer` no concede el
+  Resumen ni altera el landing operativo de viewer. La protección fija de
+  SEO/Analytics permanece cubierta.
+- No hay migraciones, dependencias, requests ni cambios funcionales en informes.
+  Verificación: `StrategicReportNavigationTest` 6 pruebas/83 aserciones, suite
+  completa 453/3.151, Pint sobre PHP modificado, build Vite y
+  `git diff --check` correctos.

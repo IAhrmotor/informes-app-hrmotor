@@ -1,24 +1,13 @@
-<!doctype html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Gestion de usuarios | HR Motor - Informes comerciales</title>
-    <link rel="icon" href="/brand/favicon.ico" sizes="any">
-    <link rel="shortcut icon" href="/brand/favicon.ico">
-    @include('partials.font-assets')
-
+<x-reports.app-shell :title="'Gesti'.mb_chr(243).'n de usuarios'" current-admin-page="users" body-class="campaigns-report report-users-page">
+    <x-slot:head>
     @vite(['resources/css/reports/leads-dashboard.css'])
-</head>
+    </x-slot:head>
 @php
     $totalUsers = $users->count();
     $activeUsers = $users->where('is_active', true)->count();
     $adminUsers = $users->where('role', \App\Models\ReportUser::ROLE_ADMIN)->where('is_active', true)->count();
 @endphp
-<body class="campaigns-report report-users-page">
 <div class="wrap">
-    @include('reports.partials.report-header', ['currentReport' => 'users', 'currentAdminPage' => 'users'])
-
     <main>
         <section class="header">
             <div>
@@ -27,8 +16,6 @@
                 <p class="sub">Alta, baja, activacion, contraseñas y asignacion de roles para el acceso a informes.</p>
             </div>
         </section>
-
-        @include('reports.partials.admin-nav', ['currentAdminPage' => 'users'])
 
         @if (session('status'))
             <div class="notice notice-success">{{ session('status') }}</div>
@@ -185,5 +172,4 @@
         </section>
     </main>
 </div>
-</body>
-</html>
+</x-reports.app-shell>

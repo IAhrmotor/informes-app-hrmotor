@@ -52,12 +52,21 @@
     "src": "_instrument-sans-600-normal-DMks36a2.woff"
   },
   "resources/css/app.css": {
-    "file": "assets/app-nCpsVaxB.css",
+    "file": "assets/app-DzLCIK8P.css",
     "name": "app",
     "names": [
       "app.css"
     ],
     "src": "resources/css/app.css",
+    "isEntry": true
+  },
+  "resources/css/reports/app-shell.css": {
+    "file": "assets/app-shell-BSpAkFco.css",
+    "name": "app-shell",
+    "names": [
+      "app-shell.css"
+    ],
+    "src": "resources/css/reports/app-shell.css",
     "isEntry": true
   },
   "resources/css/reports/leads-dashboard.css": {
@@ -84,38 +93,44 @@
     "src": "resources/js/app.js",
     "isEntry": true
   },
+  "resources/js/reports/app-shell.js": {
+    "file": "assets/app-shell-BmQJxa-I.js",
+    "name": "app-shell",
+    "src": "resources/js/reports/app-shell.js",
+    "isEntry": true
+  },
   "resources/js/reports/calls-dashboard.js": {
-    "file": "assets/calls-dashboard-C1zzJeV5.js",
+    "file": "assets/calls-dashboard-BJs2iQ5y.js",
     "name": "calls-dashboard",
     "src": "resources/js/reports/calls-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/campaigns-dashboard.js": {
-    "file": "assets/campaigns-dashboard-DR-1tcxb.js",
+    "file": "assets/campaigns-dashboard-BC-NUKD7.js",
     "name": "campaigns-dashboard",
     "src": "resources/js/reports/campaigns-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/commercial-commissions-dashboard.js": {
-    "file": "assets/commercial-commissions-dashboard-BE22Clc2.js",
+    "file": "assets/commercial-commissions-dashboard-DIzm5YT_.js",
     "name": "commercial-commissions-dashboard",
     "src": "resources/js/reports/commercial-commissions-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/leads-dashboard.js": {
-    "file": "assets/leads-dashboard-BRpqnXPe.js",
+    "file": "assets/leads-dashboard-DjrUUHW9.js",
     "name": "leads-dashboard",
     "src": "resources/js/reports/leads-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/reservations-sales-dashboard.js": {
-    "file": "assets/reservations-sales-dashboard-CmTD9ofV.js",
+    "file": "assets/reservations-sales-dashboard-B6qyw6Xm.js",
     "name": "reservations-sales-dashboard",
     "src": "resources/js/reports/reservations-sales-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/stock-dashboard.js": {
-    "file": "assets/stock-dashboard-DbhzO5xZ.js",
+    "file": "assets/stock-dashboard-BtmXf4cT.js",
     "name": "stock-dashboard",
     "src": "resources/js/reports/stock-dashboard.js",
     "isEntry": true
