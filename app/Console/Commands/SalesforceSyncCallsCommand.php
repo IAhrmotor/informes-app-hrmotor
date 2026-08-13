@@ -3,9 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Models\SalesforceCall;
+use App\Services\Reports\Calls\CallDashboardDatasetService;
 use App\Services\Reports\Calls\SalesforceCallSyncService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class SalesforceSyncCallsCommand extends Command
@@ -17,7 +19,7 @@ class SalesforceSyncCallsCommand extends Command
 
     protected $description = 'Sincroniza Tasks de tipo llamada de Salesforce para el dashboard Llamadas.';
 
-    public function handle(SalesforceCallSyncService $syncService): int
+    public function handle(SalesforceCallSyncService $syncService, CallDashboardDatasetService $dashboard): int
     {
         $days = max((int) $this->option('days'), 1);
         $periodEnd = CarbonImmutable::now();
@@ -41,6 +43,14 @@ class SalesforceSyncCallsCommand extends Command
 
             $result = $syncService->sync($periodStart, $periodEnd);
             $stats = $result['stats'];
+
+            try {
+                $dashboard->prewarmFilterOptions();
+            } catch (Throwable $exception) {
+                Log::warning('No se pudo precalentar los filtros del dashboard de llamadas.', [
+                    'exception' => $exception::class,
+                ]);
+            }
 
             $this->line('Llamadas consultadas: '.$result['queried']);
             $this->line('Llamadas guardadas: '.$result['saved']);

@@ -11,4 +11,6 @@ return [
     |
     */
     'server_timing' => (bool) env('REPORT_SERVER_TIMING', false),
+
+    'ai_cooldown_seconds' => (int) env('REPORT_AI_COOLDOWN_SECONDS', 60),
 ];

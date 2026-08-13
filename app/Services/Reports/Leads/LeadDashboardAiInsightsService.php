@@ -2,13 +2,14 @@
 
 namespace App\Services\Reports\Leads;
 
+use App\Support\ReportServerTiming;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
 class LeadDashboardAiInsightsService
 {
-    public function generate(array $payload): array
+    public function generate(array $payload, ?ReportServerTiming $timing = null): array
     {
         $fallback = fn () => [
             'insights' => $this->fallbackInsights($payload),
@@ -16,45 +17,105 @@ class LeadDashboardAiInsightsService
         ];
 
         if (! config('openai.enabled') || blank(config('openai.api_key'))) {
+            $timing?->mark('leads-ai-fallback-fast');
+
             return $fallback();
         }
 
-        return Cache::remember(
-            'lead-dashboard-ai-insights:'.md5(json_encode([
-                'payload' => $payload,
-                'model' => config('openai.model'),
-            ])),
-            now()->addMinutes(30),
-            function () use ($payload, $fallback): array {
-                try {
-                    $response = Http::withToken(config('openai.api_key'))
-                        ->connectTimeout(2)
-                        ->timeout(min((int) config('openai.timeout', 30), 5))
-                        ->post('https://api.openai.com/v1/chat/completions', [
-                            'model' => config('openai.model'),
-                            'temperature' => 0.2,
-                            'response_format' => ['type' => 'json_object'],
-                            'messages' => [
-                                ['role' => 'system', 'content' => $this->systemPrompt()],
-                                ['role' => 'user', 'content' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
-                            ],
-                        ]);
+        $key = $this->cacheKey($payload);
+        $cached = Cache::get($key);
 
-                    if (! $response->successful()) {
-                        return $fallback();
-                    }
+        if (is_array($cached) && ($cached['source'] ?? null) === 'ai') {
+            $timing?->mark('leads-ai-cache-hit');
 
-                    $decoded = json_decode((string) data_get($response->json(), 'choices.0.message.content'), true);
-                    $insights = $this->normalizeInsights(data_get($decoded, 'insights', []));
+            return $cached;
+        }
 
-                    return $insights === []
-                        ? $fallback()
-                        : ['insights' => $insights, 'source' => 'ai'];
-                } catch (Throwable) {
-                    return $fallback();
+        if (Cache::has($this->cooldownKey())) {
+            $timing?->mark('leads-ai-fallback-fast');
+
+            return $fallback();
+        }
+
+        defer(function () use ($payload): void {
+            $this->refresh($payload);
+        }, 'lead-dashboard-ai-refresh');
+        $timing?->mark('leads-ai-refresh');
+        $timing?->mark('leads-ai-fallback-fast');
+
+        return $fallback();
+    }
+
+    public function refresh(array $payload): void
+    {
+        if (! config('openai.enabled') || blank(config('openai.api_key')) || Cache::has($this->cooldownKey())) {
+            return;
+        }
+
+        $key = $this->cacheKey($payload);
+        if (is_array(Cache::get($key))) {
+            return;
+        }
+
+        $lock = Cache::lock($key.':refresh-lock', 15);
+
+        try {
+            $lock->block(1, function () use ($key, $payload): void {
+                if (is_array(Cache::get($key)) || Cache::has($this->cooldownKey())) {
+                    return;
                 }
-            }
-        );
+
+                $response = Http::withToken(config('openai.api_key'))
+                    ->connectTimeout(2)
+                    ->timeout(min((int) config('openai.timeout', 30), 5))
+                    ->post('https://api.openai.com/v1/chat/completions', [
+                        'model' => config('openai.model'),
+                        'temperature' => 0.2,
+                        'response_format' => ['type' => 'json_object'],
+                        'messages' => [
+                            ['role' => 'system', 'content' => $this->systemPrompt()],
+                            ['role' => 'user', 'content' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)],
+                        ],
+                    ]);
+
+                if (! $response->successful()) {
+                    $this->openCooldown();
+
+                    return;
+                }
+
+                $decoded = json_decode((string) data_get($response->json(), 'choices.0.message.content'), true);
+                $insights = $this->normalizeInsights(data_get($decoded, 'insights', []));
+
+                if ($insights === []) {
+                    $this->openCooldown();
+
+                    return;
+                }
+
+                Cache::put($key, ['insights' => $insights, 'source' => 'ai'], now()->addMinutes(30));
+            });
+        } catch (Throwable) {
+            $this->openCooldown();
+        }
+    }
+
+    private function cacheKey(array $payload): string
+    {
+        return 'lead-dashboard-ai-insights:'.md5(json_encode([
+            'payload' => $payload,
+            'model' => config('openai.model'),
+        ]));
+    }
+
+    private function cooldownKey(): string
+    {
+        return 'lead-dashboard-ai-insights:cooldown';
+    }
+
+    private function openCooldown(): void
+    {
+        Cache::put($this->cooldownKey(), true, now()->addSeconds(max(1, (int) config('reports.ai_cooldown_seconds', 60))));
     }
 
     public function fallbackInsights(array $payload): array

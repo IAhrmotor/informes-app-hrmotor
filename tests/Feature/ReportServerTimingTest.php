@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\ReportUser;
+use App\Services\Reports\Calls\CallDashboardDatasetService;
 use App\Support\ReportServerTiming;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -92,6 +93,22 @@ class ReportServerTimingTest extends TestCase
         ])->getJson('/informes/leads/data/summary')
             ->assertOk()
             ->assertHeaderMissing('Server-Timing');
+
+        $this->callRow('timing-call');
+        foreach ([
+            '/informes/llamadas/data/summary',
+            '/informes/llamadas/data/agents',
+            '/informes/llamadas/data/delegations',
+        ] as $url) {
+            $this->withSession([
+                'informes_authenticated' => true,
+                'report_user_id' => $viewer->id,
+                'report_user_role' => $viewer->role,
+                'report_user_email' => $viewer->email,
+            ])->getJson($url)
+                ->assertOk()
+                ->assertHeaderMissing('Server-Timing');
+        }
     }
 
     public function test_calls_endpoints_expose_internal_timings_only_on_cache_miss(): void
@@ -102,9 +119,10 @@ class ReportServerTimingTest extends TestCase
         foreach ([
             '/informes/llamadas/data/summary' => [
                 'calls-summary-miss', 'calls-current', 'calls-previous', 'calls-agents-teams', 'calls-portals',
-                'calls-daily', 'calls-ranking', 'calls-reconciliation', 'calls-filters', 'calls-metadata', 'calls-summary-total',
+                'calls-agents-shared-miss', 'calls-daily', 'calls-ranking', 'calls-reconciliation', 'calls-filters',
+                'calls-filters-miss', 'calls-metadata', 'calls-summary-total',
             ],
-            '/informes/llamadas/data/agents' => ['calls-agents-miss', 'calls-agents-query', 'calls-agents-finalize', 'calls-agents-total'],
+            '/informes/llamadas/data/agents' => ['calls-agents-miss', 'calls-agents-query', 'calls-agents-shared-hit', 'calls-agents-finalize', 'calls-agents-total'],
             '/informes/llamadas/data/delegations' => ['calls-delegations-miss', 'calls-delegations-query', 'calls-delegations-finalize', 'calls-delegations-total'],
         ] as $url => $expected) {
             $cold = $this->getJson($url)->assertOk();
@@ -132,6 +150,34 @@ class ReportServerTimingTest extends TestCase
 
         $this->assertStringContainsString('leads-failed;dur=', $first->headerValue());
         $this->assertSame('', $second->headerValue());
+    }
+
+    public function test_pre_warmed_filters_and_shared_agents_are_isolated_by_scope_and_data_version(): void
+    {
+        config()->set('reports.server_timing', true);
+        $this->callRow('timing-call', ['operational_user_id' => 'commercial-1']);
+        $dataset = app(CallDashboardDatasetService::class);
+        $dataset->prewarmFilterOptions();
+
+        $admin = $this->getJson('/informes/llamadas/data/summary')->assertOk();
+        $this->assertStringContainsString('calls-filters-hit;dur=', (string) $admin->headers->get('Server-Timing'));
+        $this->assertStringContainsString('calls-agents-shared-miss;dur=', (string) $admin->headers->get('Server-Timing'));
+
+        $method = new \ReflectionMethod($dataset, 'sharedAgentAndTeamMetricRows');
+        $period = ['start' => CarbonImmutable::now()->subDays(30), 'end' => CarbonImmutable::now()];
+        $filters = [
+            'period' => 'last_30_days', 'current_start' => '', 'current_end' => '', 'comparison_start' => '', 'comparison_end' => '',
+            'team' => '', 'direction' => '', 'status' => '', 'origin' => '', 'delegation' => '', 'zone' => '', 'portal' => '', 'user' => '',
+            'access_commercial' => 'commercial-1', 'access_delegation' => null, 'access_zone' => null,
+        ];
+        $scopedTiming = new ReportServerTiming;
+        $method->invoke($dataset, $filters, $period, $scopedTiming);
+        $this->assertStringContainsString('calls-agents-shared-miss;dur=', $scopedTiming->headerValue());
+
+        Cache::forever('salesforce_calls_dashboard_cache_version', 2);
+        $versionTiming = new ReportServerTiming;
+        $method->invoke($dataset, $filters, $period, $versionTiming);
+        $this->assertStringContainsString('calls-agents-shared-miss;dur=', $versionTiming->headerValue());
     }
 
     /** @param list<string> $expectedMetrics */

@@ -2,6 +2,31 @@
 
 Actualizado: 2026-08-11.
 
+## Lote de cold-path: AI Leads y caches de Llamadas (2026-08-13)
+
+- Leads devuelve inmediatamente el fallback de insights cuando no existe un
+  resultado AI válido en caché. El refresco se difiere hasta después de enviar
+  la respuesta (`defer()`), por lo que no requiere un worker permanente; si no
+  llega a ejecutarse, el dashboard sigue devolviendo el mismo fallback. Un
+  resultado AI cacheado mantiene `source=ai` sin red. Fallos de conexión,
+  timeout, HTTP no exitoso o respuesta inválida abren un cooldown cacheado y
+  evitan reintentos lentos durante `REPORT_AI_COOLDOWN_SECONDS` (60 por
+  defecto). No se registran prompts, payloads ni secretos.
+- La sincronización real de Llamadas (`SalesforceCallSyncService::sync()` vía
+  `salesforce:sync-calls`) incrementa la versión de datos al finalizar. El
+  comando intenta precalentar entonces, y de forma no crítica, los filtros
+  `calls-dashboard:filters:<md5(version)>`; un error de precarga solo deja el
+  fallback existente de construcción bajo demanda y se registra sin payload.
+- `summary` y `/agents` comparten `calls-dashboard:shared:agents:<hash>`.
+  El hash contiene filtros (incluyendo scope), periodo actual y data version;
+  usa lock Laravel con espera acotada y fallback compatible si el store no
+  soporta locks. TTL 10 minutos y versión aseguran invalidación en sync. No se
+  comparte el agregado de delegaciones: rankings excluye etiquetas operativas
+  inválidas y usa métricas diferentes de `/delegations`.
+- Server-Timing permanece: distingue AI cache/fallback/refresh, filters hit/miss
+  y agents shared hit/miss. No hay migraciones, índices, cambios de SQL, TTL
+  del payload principal, frontend ni reglas funcionales.
+
 ## Diagnóstico temporal Server-Timing de Leads y Llamadas (2026-08-12)
 
 - Se añade `REPORT_SERVER_TIMING=false` por defecto. Cuando se habilita, solo

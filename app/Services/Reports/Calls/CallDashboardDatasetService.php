@@ -6,6 +6,7 @@ use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use App\Support\ReportServerTiming;
 use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -16,6 +17,10 @@ use Illuminate\Support\Str;
 class CallDashboardDatasetService
 {
     private const CACHE_TTL_MINUTES = 10;
+
+    private const SHARED_CACHE_LOCK_SECONDS = 15;
+
+    private const SHARED_CACHE_WAIT_SECONDS = 6;
 
     private ?array $agentDisplayNames = null;
 
@@ -177,6 +182,11 @@ class CallDashboardDatasetService
         ];
     }
 
+    public function prewarmFilterOptions(): void
+    {
+        $this->filterOptions();
+    }
+
     private function rememberEndpoint(string $endpoint, array $filters, array $periods, ?ReportServerTiming $timing, callable $callback): array
     {
         $resolve = function () use ($endpoint, $filters, $periods, $timing, $callback): array {
@@ -214,8 +224,8 @@ class CallDashboardDatasetService
             ?? $this->summaryBucket($filters, $periods['current']);
         $previous = $timing?->measure('calls-previous', fn (): array => $this->summaryBucket($filters, $periods['previous']))
             ?? $this->summaryBucket($filters, $periods['previous']);
-        [$agents, $teams] = $timing?->measure('calls-agents-teams', fn (): array => $this->agentAndTeamMetricRows($filters, $periods['current']))
-            ?? $this->agentAndTeamMetricRows($filters, $periods['current']);
+        [$agents, $teams] = $timing?->measure('calls-agents-teams', fn (): array => $this->sharedAgentAndTeamMetricRows($filters, $periods['current'], $timing))
+            ?? $this->sharedAgentAndTeamMetricRows($filters, $periods['current']);
         $portals = $timing?->measure('calls-portals', fn (): array => $this->portalMetricRows($filters, $periods['current']))
             ?? $this->portalMetricRows($filters, $periods['current']);
         $charts = $timing?->measure('calls-daily', fn (): array => $this->summaryCharts($filters, $periods['current'], $current, $teams))
@@ -228,7 +238,7 @@ class CallDashboardDatasetService
         $cutoff = $timing !== null
             ? $timing->measure('calls-metadata', $metadata)
             : $metadata();
-        $filterOptions = $timing?->measure('calls-filters', fn (): array => $this->filterOptions())
+        $filterOptions = $timing?->measure('calls-filters', fn (): array => $this->filterOptions($timing))
             ?? $this->filterOptions();
 
         return [
@@ -259,8 +269,8 @@ class CallDashboardDatasetService
 
     private function buildAgentPayload(array $filters, array $periods, ?ReportServerTiming $timing = null): array
     {
-        [$agents, $teams] = $timing?->measure('calls-agents-query', fn (): array => $this->agentAndTeamMetricRows($filters, $periods['current']))
-            ?? $this->agentAndTeamMetricRows($filters, $periods['current']);
+        [$agents, $teams] = $timing?->measure('calls-agents-query', fn (): array => $this->sharedAgentAndTeamMetricRows($filters, $periods['current'], $timing))
+            ?? $this->sharedAgentAndTeamMetricRows($filters, $periods['current']);
 
         $finalize = fn (): array => [
             'ok' => true,
@@ -350,6 +360,77 @@ class CallDashboardDatasetService
     private function agentMetricRows(array $filters, array $period): array
     {
         return $this->agentAndTeamMetricRows($filters, $period)[0];
+    }
+
+    /** @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>} */
+    private function sharedAgentAndTeamMetricRows(array $filters, array $period, ?ReportServerTiming $timing = null): array
+    {
+        return $this->rememberSharedAggregate(
+            'agents',
+            $filters,
+            $period,
+            fn (): array => $this->agentAndTeamMetricRows($filters, $period),
+            $timing,
+        );
+    }
+
+    private function rememberSharedAggregate(string $name, array $filters, array $period, callable $builder, ?ReportServerTiming $timing = null): array
+    {
+        $key = 'calls-dashboard:shared:'.$name.':'.md5(json_encode([
+            'filters' => $filters,
+            'period' => $this->periodPayload($period),
+            'version' => $this->dataVersion(),
+        ], JSON_UNESCAPED_UNICODE));
+        $cached = Cache::get($key);
+
+        if (is_array($cached)) {
+            $timing?->mark('calls-'.$name.'-shared-hit');
+
+            return $cached;
+        }
+
+        $store = Cache::store();
+
+        try {
+            $lock = $store->lock($key.':lock', self::SHARED_CACHE_LOCK_SECONDS);
+        } catch (\Throwable) {
+            return $this->rememberSharedAggregateWithoutLock($key, $name, $builder, $timing);
+        }
+
+        try {
+            return $lock->block(self::SHARED_CACHE_WAIT_SECONDS, function () use ($key, $name, $builder, $timing): array {
+                $cached = Cache::get($key);
+
+                if (is_array($cached)) {
+                    $timing?->mark('calls-'.$name.'-shared-hit');
+
+                    return $cached;
+                }
+
+                $timing?->mark('calls-'.$name.'-shared-miss');
+                $value = $builder();
+                Cache::put($key, $value, now()->addMinutes(self::CACHE_TTL_MINUTES));
+
+                return $value;
+            });
+        } catch (LockTimeoutException) {
+            return $this->rememberSharedAggregateWithoutLock($key, $name, $builder, $timing);
+        }
+    }
+
+    private function rememberSharedAggregateWithoutLock(string $key, string $name, callable $builder, ?ReportServerTiming $timing): array
+    {
+        $cached = Cache::get($key);
+
+        if (is_array($cached)) {
+            $timing?->mark('calls-'.$name.'-shared-hit');
+
+            return $cached;
+        }
+
+        $timing?->mark('calls-'.$name.'-shared-miss');
+
+        return Cache::remember($key, now()->addMinutes(self::CACHE_TTL_MINUTES), $builder);
     }
 
     /** @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>} */
@@ -1332,10 +1413,21 @@ class CallDashboardDatasetService
         ];
     }
 
-    private function filterOptions(): array
+    private function filterOptions(?ReportServerTiming $timing = null): array
     {
+        $key = 'calls-dashboard:filters:'.md5((string) $this->dataVersion());
+        $cached = Cache::get($key);
+
+        if (is_array($cached)) {
+            $timing?->mark('calls-filters-hit');
+
+            return $cached;
+        }
+
+        $timing?->mark('calls-filters-miss');
+
         return Cache::remember(
-            'calls-dashboard:filters:'.md5((string) $this->dataVersion()),
+            $key,
             now()->addMinutes(self::CACHE_TTL_MINUTES),
             fn () => [
                 'teams' => collect(['commercial', 'customer_service', 'contact_center', 'appraiser', 'unassigned'])

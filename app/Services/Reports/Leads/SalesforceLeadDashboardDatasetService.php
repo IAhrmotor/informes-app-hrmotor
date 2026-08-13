@@ -633,10 +633,11 @@ class SalesforceLeadDashboardDatasetService
         }
         $hasCurrentData = $current['leads_totales'] > 0;
         $hasAnyPeriodData = $hasCurrentData || $previous['leads_totales'] > 0;
-        $insights = fn (): array => $hasAnyPeriodData
-            ? $this->aiInsights->generate(
-                $this->aiPayload($filters, $periods, $current, $previous, $comparison, $portals, $commercials, $delegations)
-            )
+        $aiPayload = $hasAnyPeriodData
+            ? $this->aiPayload($filters, $periods, $current, $previous, $comparison, $portals, $commercials, $delegations)
+            : null;
+        $insights = fn (): array => $aiPayload !== null
+            ? $this->aiInsights->generate($aiPayload, $timing)
             : ['insights' => [], 'source' => 'none'];
         $executiveInsights = $timing?->measure('leads-insights', $insights) ?? $insights();
         $emptyMessage = $syncMetadata['salesforce_leads_synced_at']
