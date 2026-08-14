@@ -10,6 +10,10 @@ Actualizado: 2026-08-14.
   genéricas.
 - Los componentes Blade visuales viven en `resources/views/components/reports/ui`.
   Son presentacionales, conservan el escape de Blade y no consultan datos.
+- Los patrones analíticos compartidos viven en el mismo bundle: KPI strip, data
+  panel, section header, tabla densa, tabs lineales, filter bar, highlight neutral
+  y source status. No incluyen datos, comportamiento JavaScript ni taxonomías
+  funcionales propias.
 - Resumen y SEO/Analytics son las primeras pantallas migradas. Los seis
   dashboards conservan sus estilos internos hasta lotes específicos.
 - Los estados analíticos oficiales son `ok`, `observation`, `deviation`,

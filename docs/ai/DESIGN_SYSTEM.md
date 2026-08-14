@@ -33,6 +33,8 @@ Componentes Blade disponibles:
 - `<x-reports.ui.page-header>`
 - `<x-reports.ui.empty-state>`
 - `<x-reports.ui.status>`
+- `<x-reports.ui.section-header>`
+- `<x-reports.ui.source-status>`
 
 Los slots y atributos usan el escape estándar de Blade. Los componentes no
 consultan BD, sesión ni servicios.
@@ -67,15 +69,93 @@ resultado recibido.
 - Las tablas deben mantener una presentación sobria, empresarial y de alta
   densidad legible. `border-radius: 999px` no es un recurso decorativo general.
 
-El siguiente lote definirá los patrones completos de KPI strip, tablas
-empresariales, tabs, filter bar, section headers, row highlighting y source
-status. Esos patrones no forman parte de este lote.
+## Analytical UI Patterns
+
+La jerarquía recomendada es: page header, KPI strip si corresponde, tabs si
+corresponden, filter bar, secciones/data panels y tablas o contenido. Un informe
+no está obligado a utilizar todos los niveles.
+
+### KPI strip
+
+`report-ui-kpi-strip` agrupa métricas como una banda continua con borde exterior
+y divisores de 1 px. Sus items, labels, values y metadata usan las clases
+`__item`, `__label`, `__value` y `__meta`. Los items no son cards, no tienen
+radio o sombra propios y no usan colores de estado para decorar valores
+ordinarios. El grid admite cardinalidad variable y los valores usan números
+tabulares; tendencia y comparación pertenecen a la lógica analítica futura.
+
+### Data panel y section header
+
+`report-ui-data-panel` agrupa header, body y un `__scroll` opcional. El scroll
+horizontal se limita al contenido ancho para que la cabecera no se desplace. No
+impone altura máxima. `<x-reports.ui.section-header>` genera un `h2` compacto con
+eyebrow, descripción y acciones opcionales; dentro del header del panel no añade
+otro borde ni radio.
+
+### Tablas empresariales
+
+`report-ui-table-shell` proporciona borde, radio y overflow horizontal;
+`report-ui-table` se aplica a HTML `<table>` semántico. Las cabeceras son
+compactas y las celdas conservan separadores horizontales. Usar:
+
+- `report-ui-table__numeric` para alineación derecha y números tabulares.
+- `report-ui-table-row--highlight` para un único énfasis arena neutral.
+- `report-ui-table-row--summary` para filas TOTAL/resumen neutrales.
+- `report-ui-table--sticky-header` solo cuando el consumidor solicite sticky.
+
+Highlight significa énfasis visual: no es estado, alerta o selección automática
+y no sustituye `report-ui-status`. Sticky no se activa globalmente, no fija la
+primera columna y no impone max-height. Si el contenedor de scroll es focalizable,
+debe recibir un nombre accesible apropiado. Mantener `<thead>`, `<tbody>`, `<th>`,
+`<td>` y los atributos `scope` correspondientes; responsive se resuelve con
+overflow, nunca convirtiendo filas y celdas en bloques.
+
+### Tabs analíticas
+
+`report-ui-tabs` y `report-ui-tab` presentan texto con línea inferior activa,
+sin pills ni fondo navy completo. Admiten `.is-active`, `aria-current="page"` y
+`aria-selected="true"`, focus visible y overflow horizontal sin comprimir texto.
+Para navegación se usa `<nav>` con enlaces y `aria-current`. Un widget tablist
+real debe implementar en su módulo roles, `aria-controls`, selección y teclado;
+el Design System no añade roles ni JavaScript por sí solo.
+
+### Filter bar
+
+`report-ui-filter-bar`, `__fields` y `__actions` componen un panel responsive de
+filtros. Se reutilizan `report-ui-field`, label, input, select y button; no se
+duplican controles ni se implementan autocomplete, selects dependientes, reset,
+carga remota o comportamiento JavaScript.
+
+### Source status
+
+`<x-reports.ui.source-status>` representa título de fuente, detalle y metadata
+opcionales, más un slot `indicator`. No clasifica la fuente ni define estados:
+el consumidor aporta badge, `x-reports.ui.status` o texto neutral según una regla
+real. El estado nunca debe comunicarse solo con un punto de color.
+
+### Responsive y densidad
+
+KPI strips y campos usan grids de cardinalidad variable; tabs y tablas conservan
+una fila legible mediante scroll horizontal; headers, filter bars y source status
+se apilan en móvil. Los controles mantienen 42 px y los patrones se apoyan en
+background, borde y spacing, sin sombras grandes, blur, glows o gradientes
+decorativos.
+
+### Uso incorrecto
+
+- No inventar KPI, fuentes, estados o tabs para demostrar los patrones.
+- No convertir KPI items o filas en cards flotantes.
+- No usar highlight como estado analítico.
+- No declarar semántica ARIA de tablist sin comportamiento de teclado completo.
+- No aplicar estas clases a dashboards legacy sin un lote de migración propio.
 
 ## Accesibilidad
 
 - Los estados combinan texto, icono y color; los iconos son decorativos y usan
   `aria-hidden="true"`.
-- Texto y foco usan colores con contraste WCAG AA para texto normal.
+- `--report-ui-text-muted` mantiene contraste WCAG AA para texto normal sobre
+  las superficies compartidas; `--report-ui-control-border` garantiza el
+  contraste no textual del límite normal de inputs, selects y textareas.
 - Botones y controles tienen `focus-visible`, estados disabled y una altura
   interactiva consistente.
 - Skeleton y transiciones respetan `prefers-reduced-motion`.

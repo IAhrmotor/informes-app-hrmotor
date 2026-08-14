@@ -97,4 +97,7 @@ datos ficticios. Los estados analiticos tienen cinco claves cerradas y cualquier
 valor desconocido se representa como `not-evaluable`. Superficies y controles
 usan radios discretos; los pills se reservan a badges, estados y chips con esa
 semantica. Esta politica no se aplica globalmente al CSS de dashboards legacy,
-que se migraran progresivamente.
+que se migraran progresivamente. Los KPI analiticos se agrupan preferentemente
+en strips continuos, las tabs usan texto y linea activa, y las tablas densas son
+el patron principal para datos detallados. Referencias externas solo orientan
+estructura y densidad; colores, marca e identidad permanecen HR Motor.

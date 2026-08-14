@@ -61,6 +61,33 @@ Actualizado: 2026-08-14.
   modificado y build Vite correctos. Consultar la entrega del lote para hashes
   finales.
 
+## Lote 3 Fase 1 - Analytical UI Patterns (2026-08-14)
+
+- El bundle existente `design-system.css` incorpora KPI strip continuo, data
+  panels, section headers, tablas densas, tabs lineales, filter bar, row
+  highlighting neutral y source status. No hay bundle, dependencia o JavaScript
+  adicional.
+- Componentes Blade nuevos: `x-reports.ui.section-header` y
+  `x-reports.ui.source-status`; son presentacionales, escapan props y no leen
+  request, sesión, BD o servicios. Source status no define estados funcionales.
+- KPI items no son cards; tabs no son pills; sticky de tabla es opt-in; highlight
+  significa énfasis y no estado. La identidad continúa siendo HR Motor y la
+  referencia externa se usa solo para estructura y densidad.
+- El cierre de revisión usa `--report-ui-text-muted: #5f6b7d` y
+  `--report-ui-control-border: #8793a5` para cumplir contraste WCAG AA de texto
+  secundario y límites de controles sin crear overrides por componente.
+- Resumen/SEO no reciben datos, KPI, tablas, fuentes, tabs o estados ficticios.
+  Los seis dashboards y CSS legacy permanecen sin migrar.
+- Contratos y accesibilidad quedan documentados en `docs/ai/DESIGN_SYSTEM.md`.
+  No hay cambios funcionales, rutas, autorización, queries o migraciones.
+- Validación local: `ReportAnalyticalPatternsTest` (5 tests, 46 assertions),
+  `ReportDesignSystemTest` (5 tests, 53 assertions),
+  `StrategicReportNavigationTest` (6 tests, 84 assertions), suite completa
+  (463 tests, 3.251 assertions), Pint `--dirty` y build Vite 8.0.12, correctos.
+  El build sustituye únicamente el asset compilado del Design System y actualiza
+  su referencia en `manifest.json`; no requiere acciones manuales distintas del
+  despliegue habitual de assets versionados.
+
 ## Lote de cold-path: AI Leads y caches de Llamadas (2026-08-13)
 
 - Leads devuelve inmediatamente el fallback de insights cuando no existe un
