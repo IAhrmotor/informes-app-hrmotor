@@ -1,6 +1,20 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-08-13.
+Actualizado: 2026-08-14.
+
+## Design System de informes
+
+- `resources/css/reports/design-system.css` define tokens `--report-ui-*` y
+  primitives `report-ui-*` aislados del CSS legacy. Se carga antes del CSS del
+  Application Shell y no contiene selectores globales de elementos o clases
+  genéricas.
+- Los componentes Blade visuales viven en `resources/views/components/reports/ui`.
+  Son presentacionales, conservan el escape de Blade y no consultan datos.
+- Resumen y SEO/Analytics son las primeras pantallas migradas. Los seis
+  dashboards conservan sus estilos internos hasta lotes específicos.
+- Los estados analíticos oficiales son `ok`, `observation`, `deviation`,
+  `critical` y `not-evaluable`; cualquier clave desconocida usa el último como
+  fallback seguro. El contrato operativo está en `docs/ai/DESIGN_SYSTEM.md`.
 
 ## Application shell de informes
 
@@ -8,8 +22,8 @@ Actualizado: 2026-08-13.
   Blade anonimo `x-reports.app-shell`. El componente centraliza `head`,
   branding, topbar, usuario, logout, sidebar y contenedor de contenido; cada
   pagina aporta titulo, modulo activo, clases de `body`, assets y contenido.
-- `resources/css/reports/app-shell.css` contiene los tokens semanticos y la
-  estructura responsive. No existe modo oscuro todavia. El contenido analitico
+- `resources/css/reports/app-shell.css` consume los tokens compartidos y mantiene
+  la estructura responsive. No existe modo oscuro todavia. El contenido analitico
   no recibe un `max-width` global; los limites de lectura deben seguir siendo
   especificos de cada pagina cuando sean necesarios.
 - `resources/js/reports/app-shell.js` gestiona exclusivamente la sidebar. En

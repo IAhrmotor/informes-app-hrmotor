@@ -86,3 +86,15 @@ JavaScript propios, sin introducir un framework frontend. La preferencia de
 sidebar es local al navegador y no forma parte del modelo de usuario. Esta
 separacion permite incorporar paginas futuras aportando solo metadatos, assets
 y contenido, sin duplicar autenticacion, branding o navegacion.
+
+## 2026-08-14 - Design System namespaced y migracion progresiva
+
+Los nuevos contratos visuales usan tokens `--report-ui-*`, clases
+`report-ui-*` y componentes Blade presentacionales. No se modifican selectores
+legacy de forma transversal: cada dashboard se migrara en un lote separado con
+validacion funcional y visual. Resumen y SEO/Analytics validan la capa comun sin
+datos ficticios. Los estados analiticos tienen cinco claves cerradas y cualquier
+valor desconocido se representa como `not-evaluable`. Superficies y controles
+usan radios discretos; los pills se reservan a badges, estados y chips con esa
+semantica. Esta politica no se aplica globalmente al CSS de dashboards legacy,
+que se migraran progresivamente.

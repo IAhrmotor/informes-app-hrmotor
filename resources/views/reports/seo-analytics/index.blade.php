@@ -1,19 +1,19 @@
 <x-reports.app-shell title="SEO y Analytics" current-report="seo-analytics">
     <div class="wrap">
         <main>
-            <section class="header">
-                <div>
-                    <div class="eyebrow">Marketing estrat&eacute;gico</div>
-                    <h1>SEO y Analytics</h1>
-                    <p class="sub">Estructura preparada para el futuro m&oacute;dulo de visibilidad org&aacute;nica y anal&iacute;tica web.</p>
-                </div>
-            </section>
+            <x-reports.ui.page-header
+                eyebrow="Marketing estratégico"
+                title="SEO y Analytics"
+                description="Estructura preparada para el futuro módulo de visibilidad orgánica y analítica web."
+            />
 
-            <section class="card app-module-placeholder" aria-labelledby="seo-status-title">
-                <span class="app-module-status">Pendiente de conexi&oacute;n</span>
-                <h2 id="seo-status-title">Integraciones a&uacute;n no implementadas</h2>
-                <p>Esta pantalla no muestra m&eacute;tricas ficticias ni realiza llamadas a Google u otros proveedores.</p>
-            </section>
+            <x-reports.ui.empty-state
+                kicker="Pendiente de conexión"
+                title="Integraciones aún no implementadas"
+                title-id="seo-status-title"
+                description="Esta pantalla no muestra métricas ficticias ni realiza llamadas a Google u otros proveedores."
+                aria-labelledby="seo-status-title"
+            />
         </main>
     </div>
 </x-reports.app-shell>

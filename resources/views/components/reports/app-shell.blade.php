@@ -24,7 +24,10 @@
     <link rel="shortcut icon" href="/brand/favicon.ico">
     @include('partials.font-assets')
     {{ $head ?? '' }}
-    @vite(['resources/css/reports/app-shell.css'])
+    @vite([
+        'resources/css/reports/design-system.css',
+        'resources/css/reports/app-shell.css',
+    ])
     <script>
         (() => {
             try {
@@ -69,7 +72,7 @@
 
             <div class="app-topbar-actions">
                 @if (filled($updatedBadgeText))
-                    <div class="badge" id="updatedBadge">{{ $updatedBadgeText }}</div>
+                    <div class="badge report-ui-badge" id="updatedBadge">{{ $updatedBadgeText }}</div>
                 @endif
                 @if (filled($reportUserDisplayName))
                     <div class="app-user" title="{{ \App\Models\ReportUser::roleLabel($reportUser?->role) }}">

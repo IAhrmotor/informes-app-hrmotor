@@ -136,6 +136,7 @@ class StrategicReportNavigationTest extends TestCase
     {
         $javascript = file_get_contents(resource_path('js/reports/app-shell.js'));
         $css = file_get_contents(resource_path('css/reports/app-shell.css'));
+        $designCss = file_get_contents(resource_path('css/reports/design-system.css'));
 
         $this->assertStringContainsString("const storageKey = 'hrmotor-report-sidebar'", $javascript);
         $this->assertStringContainsString('localStorage.getItem(storageKey)', $javascript);
@@ -151,7 +152,8 @@ class StrategicReportNavigationTest extends TestCase
         $this->assertStringContainsString('.app-sidebar-collapsed .app-workspace', $css);
         $this->assertStringContainsString('body.app-shell-page.campaigns-report', $css);
         $this->assertStringContainsString('top: calc(var(--app-topbar-height) + 18px)', $css);
-        $this->assertStringContainsString('--brand-accent-accessible: #a50f23', $css);
+        $this->assertStringContainsString('--brand-accent-accessible: var(--report-ui-accent-strong)', $css);
+        $this->assertStringContainsString('--report-ui-accent-strong: #a50f23', $designCss);
         $this->assertStringContainsString('outline: 3px solid var(--focus-ring)', $css);
         $this->assertStringContainsString('--surface-muted:', $css);
         $this->assertStringNotContainsString('prefers-color-scheme', $css);

@@ -61,12 +61,21 @@
     "isEntry": true
   },
   "resources/css/reports/app-shell.css": {
-    "file": "assets/app-shell-XQa1HiLS.css",
+    "file": "assets/app-shell-Cu7rmgAB.css",
     "name": "app-shell",
     "names": [
       "app-shell.css"
     ],
     "src": "resources/css/reports/app-shell.css",
+    "isEntry": true
+  },
+  "resources/css/reports/design-system.css": {
+    "file": "assets/design-system-DfEvWmGL.css",
+    "name": "design-system",
+    "names": [
+      "design-system.css"
+    ],
+    "src": "resources/css/reports/design-system.css",
     "isEntry": true
   },
   "resources/css/reports/leads-dashboard.css": {
@@ -94,43 +103,43 @@
     "isEntry": true
   },
   "resources/js/reports/app-shell.js": {
-    "file": "assets/app-shell-BmQJxa-I.js",
+    "file": "assets/app-shell-DKbHEObD.js",
     "name": "app-shell",
     "src": "resources/js/reports/app-shell.js",
     "isEntry": true
   },
   "resources/js/reports/calls-dashboard.js": {
-    "file": "assets/calls-dashboard-BJs2iQ5y.js",
+    "file": "assets/calls-dashboard-ChWBTrt-.js",
     "name": "calls-dashboard",
     "src": "resources/js/reports/calls-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/campaigns-dashboard.js": {
-    "file": "assets/campaigns-dashboard-BC-NUKD7.js",
+    "file": "assets/campaigns-dashboard-C-OQybVX.js",
     "name": "campaigns-dashboard",
     "src": "resources/js/reports/campaigns-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/commercial-commissions-dashboard.js": {
-    "file": "assets/commercial-commissions-dashboard-DIzm5YT_.js",
+    "file": "assets/commercial-commissions-dashboard-d6jbYxSQ.js",
     "name": "commercial-commissions-dashboard",
     "src": "resources/js/reports/commercial-commissions-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/leads-dashboard.js": {
-    "file": "assets/leads-dashboard-DjrUUHW9.js",
+    "file": "assets/leads-dashboard-7DhTNQST.js",
     "name": "leads-dashboard",
     "src": "resources/js/reports/leads-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/reservations-sales-dashboard.js": {
-    "file": "assets/reservations-sales-dashboard-B6qyw6Xm.js",
+    "file": "assets/reservations-sales-dashboard-OHml3gNI.js",
     "name": "reservations-sales-dashboard",
     "src": "resources/js/reports/reservations-sales-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/stock-dashboard.js": {
-    "file": "assets/stock-dashboard-BtmXf4cT.js",
+    "file": "assets/stock-dashboard-BTOYj0Go.js",
     "name": "stock-dashboard",
     "src": "resources/js/reports/stock-dashboard.js",
     "isEntry": true

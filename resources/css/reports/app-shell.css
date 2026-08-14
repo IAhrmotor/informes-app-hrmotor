@@ -1,17 +1,17 @@
 :root {
-    --app-bg: #f8fafc;
-    --surface: #ffffff;
-    --surface-muted: #f1f5f9;
-    --text-primary: #1f2944;
-    --text-secondary: #64748b;
-    --border: rgba(31, 41, 68, .12);
-    --brand-primary: #1f2944;
-    --brand-accent: #e51a2e;
-    --brand-accent-accessible: #a50f23;
-    --focus-ring: #8f1020;
-    --status-success: #15803d;
-    --status-warning: #b45309;
-    --status-danger: #b91c1c;
+    --app-bg: var(--report-ui-bg);
+    --surface: var(--report-ui-surface);
+    --surface-muted: var(--report-ui-surface-muted);
+    --text-primary: var(--report-ui-text);
+    --text-secondary: var(--report-ui-text-muted);
+    --border: var(--report-ui-border);
+    --brand-primary: var(--report-ui-brand);
+    --brand-accent: var(--report-ui-accent);
+    --brand-accent-accessible: var(--report-ui-accent-strong);
+    --focus-ring: var(--report-ui-focus);
+    --status-success: var(--report-ui-status-ok-text);
+    --status-warning: var(--report-ui-status-observation-text);
+    --status-danger: var(--report-ui-status-critical-text);
     --app-sidebar-width: 272px;
     --app-topbar-height: 72px;
     --app-shadow: 0 12px 32px rgba(15, 23, 42, .08);
@@ -210,7 +210,7 @@ body.app-shell-page.campaigns-report {
 .app-topbar .logout-button {
     background: var(--surface);
     border: 1px solid rgba(229, 26, 46, .2);
-    border-radius: 999px;
+    border-radius: var(--report-ui-radius-control);
     color: var(--brand-accent);
     cursor: pointer;
     font: inherit;
@@ -311,33 +311,6 @@ body.app-shell-page.campaigns-report {
 .app-content {
     min-width: 0;
     width: 100%;
-}
-
-.app-module-placeholder {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 24px;
-    box-shadow: var(--app-shadow);
-    max-width: 760px;
-    padding: 28px;
-}
-
-.app-module-placeholder h2 {
-    margin: 8px 0;
-}
-
-.app-module-placeholder p {
-    color: var(--text-secondary);
-    line-height: 1.6;
-    margin: 0;
-}
-
-.app-module-status {
-    color: var(--brand-accent-accessible);
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: .12em;
-    text-transform: uppercase;
 }
 
 .app-content > .wrap > main > .header h1 {

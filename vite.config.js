@@ -9,6 +9,7 @@ export default defineConfig({
             input: [
                 'resources/css/app.css',
                 'resources/js/app.js',
+                'resources/css/reports/design-system.css',
                 'resources/css/reports/app-shell.css',
                 'resources/js/reports/app-shell.js',
                 'resources/css/reports/leads-dashboard.css',

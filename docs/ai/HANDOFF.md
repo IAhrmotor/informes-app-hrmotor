@@ -1,6 +1,6 @@
 # Handoff para agentes
 
-Actualizado: 2026-08-13.
+Actualizado: 2026-08-14.
 
 ## Lote 1 Fase 1 - Application shell y navegacion estrategica (2026-08-13)
 
@@ -34,6 +34,32 @@ Actualizado: 2026-08-13.
   aserciones) y 99 pruebas de dashboards complejos (857 aserciones), todas
   correctas. Consultar la entrega de la tarea para suite completa, Pint, build
   y diff-check finales.
+
+## Lote 2 Fase 1 - Design System compartido (2026-08-14)
+
+- `resources/css/reports/design-system.css` introduce tokens
+  `--report-ui-*` y primitives `report-ui-*` para cabeceras, superficies,
+  botones, badges, formularios, empty states, skeletons y tablas. No contiene
+  selectores globales legacy, `!important`, JavaScript ni dependencias nuevas.
+- Controles y superficies nuevos usan radio discreto de 8 px. El radio pill se
+  reserva a badges, estados y futuros chips; no se aplica globalmente al CSS
+  legacy. El logout del shell consume el radio de control.
+- El shell carga Design System antes de su CSS y conserva apariencia y
+  comportamiento mediante aliases. `--app-sidebar-width` y
+  `--app-topbar-height` siguen perteneciendo al shell. `updatedBadge` mantiene
+  ID y clase `badge` junto al nuevo primitive.
+- Componentes Blade nuevos: `x-reports.ui.page-header`,
+  `x-reports.ui.empty-state` y `x-reports.ui.status`. No consultan datos y usan
+  el escape estándar. Un estado desconocido cae en `not-evaluable`.
+- Solo Resumen y SEO/Analytics adoptan los primitives; mantienen sus mensajes
+  estructurales sin KPI, estados analíticos ni integraciones ficticias. Los seis
+  dashboards y sus vistas internas no se migran en este lote.
+- Contrato operativo: `docs/ai/DESIGN_SYSTEM.md`. No hay migraciones, cambios de
+  autorización, endpoints, consultas ni configuración sensible.
+- Verificación focal: Design System 5 pruebas/53 aserciones y navegación
+  estratégica 6/84. Suite completa 458 pruebas/3.205 aserciones, Pint sobre PHP
+  modificado y build Vite correctos. Consultar la entrega del lote para hashes
+  finales.
 
 ## Lote de cold-path: AI Leads y caches de Llamadas (2026-08-13)
 
