@@ -1,6 +1,32 @@
 # Handoff para agentes
 
-Actualizado: 2026-08-14.
+Actualizado: 2026-08-17.
+
+## SEO/Analytics Lote 1 - fundamento de integraciones (2026-08-17)
+
+- Configuración independiente para Search Console, GA4 y SISTRIX; Salesforce
+  reutiliza `SalesforceClient::describe()`. No se modifica Google Ads.
+- Clientes nuevos son exclusivamente read-only y usan Laravel Http, timeouts y
+  `IntegrationErrorSanitizer`. Search Console lista sites; GA4 verifica property,
+  metadata, timezone y Key Events paginados; SISTRIX solo llama `credits`.
+- `seo:diagnose-integrations` es config-only por defecto. `--live` realiza las
+  lecturas externas y aísla fallos por fuente sin imprimir credenciales, tokens,
+  respuestas OAuth completas ni saldo SISTRIX.
+- La pantalla muestra cuatro estados neutrales desde configuración local. No
+  ejecuta HTTP externo, no afirma acceso verificado y conserva el mensaje de que
+  todavía no existen métricas.
+- No hay migraciones, tablas, scheduler, jobs, KPI, snapshots o alertas SEO. El
+  contrato operativo y futuro está en `docs/ai/SEO_ANALYTICS.md`.
+- Diagnóstico real read-only del 2026-08-17: Salesforce verificó
+  `Medio_origen__c` (`Medio de origen`, picklist) como único candidato con el
+  valor exacto `Orgánico`; `LEA_SEL_Medio_Origen__c` ofrece `Organic`. Search
+  Console, GA4 y SISTRIX estaban sin configurar y no recibieron llamadas.
+- Acciones manuales: completar variables de entorno cuando existan credenciales,
+  refrescar config cache y ejecutar el diagnóstico live desde CLI. Nunca usar el
+  resultado config-only como acreditación de acceso.
+- Validación local final: filtro `Seo` (12 tests, 113 assertions), navegación
+  estratégica (6 tests, 84 assertions), suite completa (475 tests, 3.321
+  assertions), Pint `--dirty`, Vite 8.0.12 y `git diff --check`, correctos.
 
 ## Lote 1 Fase 1 - Application shell y navegacion estrategica (2026-08-13)
 

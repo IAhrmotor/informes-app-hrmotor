@@ -101,3 +101,12 @@ que se migraran progresivamente. Los KPI analiticos se agrupan preferentemente
 en strips continuos, las tabs usan texto y linea activa, y las tablas densas son
 el patron principal para datos detallados. Referencias externas solo orientan
 estructura y densidad; colores, marca e identidad permanecen HR Motor.
+
+## 2026-08-17 - Readiness SEO separado de verificacion externa
+
+La pantalla SEO solo interpreta configuración local y no llama proveedores. La
+verificación real es un diagnóstico CLI manual, read-only y sanitizado. Search
+Console y GA4 comparten únicamente el flujo técnico OAuth; sus credenciales,
+scopes y properties son independientes y no reutilizan Google Ads. Salesforce
+Lead orgánico y GA4 Key Events conservan cardinalidades separadas. No se crean
+tablas antes de verificar properties, metadata y campo Salesforce.

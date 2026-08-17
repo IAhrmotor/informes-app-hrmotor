@@ -59,6 +59,30 @@ return [
         'login_customer_id' => env('GOOGLE_ADS_LOGIN_CUSTOMER_ID'),
     ],
 
+    'google_search_console' => [
+        'client_id' => env('GOOGLE_SEARCH_CONSOLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET'),
+        'refresh_token' => env('GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN'),
+        'property' => env('GOOGLE_SEARCH_CONSOLE_PROPERTY'),
+        'token_url' => 'https://oauth2.googleapis.com/token',
+        'sites_url' => 'https://www.googleapis.com/webmasters/v3/sites',
+    ],
+
+    'google_analytics' => [
+        'client_id' => env('GOOGLE_ANALYTICS_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_ANALYTICS_CLIENT_SECRET'),
+        'refresh_token' => env('GOOGLE_ANALYTICS_REFRESH_TOKEN'),
+        'property_id' => env('GOOGLE_ANALYTICS_PROPERTY_ID'),
+        'token_url' => 'https://oauth2.googleapis.com/token',
+        'data_api_url' => 'https://analyticsdata.googleapis.com/v1beta',
+        'admin_api_url' => 'https://analyticsadmin.googleapis.com/v1beta',
+    ],
+
+    'sistrix' => [
+        'api_key' => env('SISTRIX_API_KEY'),
+        'credits_url' => 'https://api.sistrix.com/credits',
+    ],
+
     'report_admin' => [
         'email' => env('REPORT_ADMIN_EMAIL'),
         'password' => env('REPORT_ADMIN_PASSWORD'),

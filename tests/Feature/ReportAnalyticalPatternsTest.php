@@ -88,15 +88,20 @@ class ReportAnalyticalPatternsTest extends TestCase
         $this->assertStringNotContainsString('not-evaluable', $component);
     }
 
-    public function test_structural_pages_do_not_present_fictitious_analytical_patterns(): void
+    public function test_structural_pages_do_not_present_fictitious_metrics_or_analytical_states(): void
     {
-        foreach (['/informes', '/informes/seo-analytics'] as $uri) {
-            $this->get($uri)
-                ->assertOk()
-                ->assertDontSee('report-ui-kpi-strip', false)
-                ->assertDontSee('report-ui-table', false)
-                ->assertDontSee('report-ui-source-status', false)
-                ->assertDontSee('report-ui-status', false);
-        }
+        $this->get('/informes')
+            ->assertOk()
+            ->assertDontSee('report-ui-kpi-strip', false)
+            ->assertDontSee('report-ui-table', false)
+            ->assertDontSee('report-ui-source-status', false)
+            ->assertDontSee('report-ui-status', false);
+
+        $this->get('/informes/seo-analytics')
+            ->assertOk()
+            ->assertSee('report-ui-source-status', false)
+            ->assertDontSee('report-ui-kpi-strip', false)
+            ->assertDontSee('report-ui-table', false)
+            ->assertDontSee('report-ui-status', false);
     }
 }

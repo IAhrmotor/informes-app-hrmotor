@@ -1,6 +1,17 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-08-14.
+Actualizado: 2026-08-17.
+
+## SEO/Analytics
+
+- El fundamento de integraciones vive en `App\Services\SeoAnalytics`: OAuth
+  compartido solo en implementación, credenciales separadas para Search Console
+  y GA4, cliente SISTRIX básico y resolver puro de metadata Lead Salesforce.
+- `GET /informes/seo-analytics` muestra readiness neutral leyendo únicamente
+  `config()`. La red externa queda limitada al comando manual
+  `seo:diagnose-integrations --live`; el modo por defecto es config-only.
+- No existen todavía métricas, tablas, snapshots, scheduler o alertas SEO. El
+  contrato operativo y de persistencia futura está en `docs/ai/SEO_ANALYTICS.md`.
 
 ## Design System de informes
 

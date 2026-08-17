@@ -22,7 +22,8 @@ class ReportDesignSystemTest extends TestCase
             ->assertSee('report-ui-page-header', false)
             ->assertSee('report-ui-empty-state', false)
             ->assertSee('report-ui-badge', false)
-            ->assertSee('Integraciones aún no implementadas')
+            ->assertSee('report-ui-source-status', false)
+            ->assertSee('Sin métricas analíticas en este lote')
             ->assertSee('no muestra métricas ficticias')
             ->assertDontSee('report-ui-status', false);
     }
