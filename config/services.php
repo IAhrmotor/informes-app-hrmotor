@@ -66,6 +66,7 @@ return [
         'property' => env('GOOGLE_SEARCH_CONSOLE_PROPERTY'),
         'token_url' => 'https://oauth2.googleapis.com/token',
         'sites_url' => 'https://www.googleapis.com/webmasters/v3/sites',
+        'search_analytics_url' => 'https://www.googleapis.com/webmasters/v3/sites',
     ],
 
     'google_analytics' => [

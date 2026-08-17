@@ -2,6 +2,45 @@
 
 Actualizado: 2026-08-17.
 
+## SEO/Analytics Lote 2 - Search Console y Lead orgánico (2026-08-17)
+
+- Tres tablas nuevas separan agregados diarios exactos Search Console,
+  rankings top reemplazables y proyección diaria Salesforce. Las sync son
+  idempotentes y los rankings solo se reemplazan después de completar todas las
+  lecturas remotas.
+- `seo:sync-search-console` determina cutoff final en timezone Los Ángeles,
+  persiste ALL/ESP y brand/non-brand, y conserva rankings 7/28/90. La regex de
+  marca procede únicamente de configuración.
+- `seo:sync-salesforce-organic` consulta `Lead.Medio_origen__c = 'Orgánico'`,
+  cuenta registros y agrupa `CreatedDate` en Madrid. No toca el mapping legacy
+  `LEA_SEL_Medio_Origen__c -> salesforce_leads.medio_origen`.
+- Scheduler: Search Console 05:15 y Salesforce 05:30, 120 días, zona Madrid,
+  locks de 120 minutos y monitorización técnica existente.
+- El dashboard usa solo BD local/config y acepta exclusivamente los rangos
+  textuales 7/28/90. Cada KPI exige cobertura diaria completa acreditada por el
+  último `ReportSyncRun` completado; runs fallidos/en curso posteriores conservan
+  el último cutoff válido. Resumen/Tráfico usan periodo común y rankings el
+  periodo propio de Search Console/property configurada.
+- `ALL / all` y `ESP / all` son totales exactos. Marca/no marca son subconjuntos
+  filtrados no exhaustivos: pueden sumar menos que España porque Search Console
+  omite consultas anonimizadas al filtrar por query. No se fuerza conciliación ni
+  se inventa un tercer segmento.
+- El comando Search Console persiste `stats.property` al crear el run, antes de
+  cualquier HTTP. Así los estados `running`/`failed` se atribuyen a su property
+  sin guardar credenciales; completion sustituye esos stats por el resumen
+  completo. Los contenedores de tablas SEO focalizables tienen nombre accesible
+  y sus encabezados de columna declaran `scope="col"`.
+- Deploy requiere las tres migraciones, config cache y primera sync manual por
+  fuente solo después de validar configuración. No hay dependencias nuevas.
+- Seguridad: credenciales solo en entorno, OAuth/SOQL read-only, errores
+  sanitizados, inputs web whitelisteados y escaping Blade. Rendimiento: 14
+  consultas Search Analytics acotadas por sync, una consulta Salesforce
+  paginada por ventana y render exclusivamente sobre índices/BD local.
+- Validación final: SEO 29 pruebas/268 aserciones; regresión del mapping
+  Salesforce 2/17; suite completa 492/3.476. Pint
+  `--dirty --test`, Vite 8.0.12 y `git diff --check`, correctos. El build no
+  rotó assets porque no cambiaron fuentes CSS/JS.
+
 ## SEO/Analytics Lote 1 - fundamento de integraciones (2026-08-17)
 
 - Configuración independiente para Search Console, GA4 y SISTRIX; Salesforce

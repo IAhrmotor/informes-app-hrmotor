@@ -50,7 +50,7 @@ class SeoAnalyticsFoundationTest extends TestCase
             ->assertSee('Salesforce')
             ->assertSee('Google Analytics 4')
             ->assertSee('SISTRIX AI Check')
-            ->assertSee('Sin métricas analíticas en este lote')
+            ->assertSee('Todavía no hay métricas SEO persistidas')
             ->assertDontSee('report-ui-status', false)
             ->assertDontSee('report-ui-kpi-strip', false);
 

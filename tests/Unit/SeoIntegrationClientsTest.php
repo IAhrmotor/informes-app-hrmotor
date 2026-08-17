@@ -66,6 +66,30 @@ class SeoIntegrationClientsTest extends TestCase
         }
     }
 
+    public function test_search_console_posts_read_only_analytics_to_encoded_configured_property(): void
+    {
+        $this->setGoogleConfiguration(searchProperty: 'sc-domain:hrmotor.com');
+        Http::fake([
+            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'synthetic-token']),
+            'https://www.googleapis.com/webmasters/v3/sites/sc-domain%3Ahrmotor.com/searchAnalytics/query' => Http::response([
+                'rows' => [['keys' => ['2026-08-15'], 'clicks' => 2, 'impressions' => 10]],
+            ]),
+        ]);
+
+        $result = app(SearchConsoleClient::class)->searchAnalytics([
+            'startDate' => '2026-08-15',
+            'endDate' => '2026-08-15',
+            'dimensions' => ['date'],
+            'dataState' => 'final',
+        ]);
+
+        $this->assertSame(2, $result['rows'][0]['clicks']);
+        Http::assertSent(fn ($request): bool => $request->method() === 'POST'
+            && $request->url() === 'https://www.googleapis.com/webmasters/v3/sites/sc-domain%3Ahrmotor.com/searchAnalytics/query'
+            && $request->hasHeader('Authorization', 'Bearer synthetic-token')
+            && $request['dataState'] === 'final');
+    }
+
     public function test_ga4_checks_property_metadata_timezone_and_paginates_key_events(): void
     {
         $this->setGoogleConfiguration(analyticsProperty: '313695489');

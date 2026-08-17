@@ -107,3 +107,21 @@ $monitor(
     'reports-refresh-campaigns',
     'refresco del informe de campañas',
 );
+
+$monitor(
+    Schedule::command('seo:sync-search-console --days=120')
+        ->dailyAt('05:15')
+        ->timezone('Europe/Madrid')
+        ->withoutOverlapping(120),
+    'seo-sync-search-console',
+    'sincronizacion SEO de Search Console',
+);
+
+$monitor(
+    Schedule::command('seo:sync-salesforce-organic --days=120')
+        ->dailyAt('05:30')
+        ->timezone('Europe/Madrid')
+        ->withoutOverlapping(120),
+    'seo-sync-salesforce-organic',
+    'sincronizacion SEO de Leads organicos Salesforce',
+);

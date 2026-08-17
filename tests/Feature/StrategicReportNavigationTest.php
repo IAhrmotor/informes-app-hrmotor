@@ -29,7 +29,7 @@ class StrategicReportNavigationTest extends TestCase
                 ->get('/informes/seo-analytics')
                 ->assertOk()
                 ->assertSee('SEO y Analytics')
-                ->assertSee('Integraciones')
+                ->assertSee('Search Console')
                 ->assertSee('aria-current="page"', false);
         }
     }

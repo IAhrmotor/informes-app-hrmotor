@@ -120,6 +120,7 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
             'appointment_setter_name' => 'Maria Vidal',
             'appointment_call' => true,
             'appointment_attended_status' => 'ACUDIO',
+            'medio_origen' => 'Medio',
             'persona_que_trabajo_name' => 'Worker Uno',
             'portal_text' => 'Web',
             'resolved_portal' => 'Web',

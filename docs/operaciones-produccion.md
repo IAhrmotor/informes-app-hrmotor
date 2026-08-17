@@ -216,6 +216,32 @@ WHERE state = 'open' AND resolved_at IS NOT NULL;
 Verificar `/up` solo como liveness y una petición sintética autorizada por cada
 integración, comprobando status, rate headers y audit log sanitizado.
 
+## SEO/Analytics Lote 2
+
+Después de desplegar código y assets, sin ejecutar Node en producción:
+
+```bash
+php artisan migrate --force --no-interaction
+php artisan config:clear
+php artisan config:cache
+php artisan seo:diagnose-integrations
+php artisan seo:diagnose-integrations --live
+```
+
+Solo cuando el diagnóstico live confirme la fuente correspondiente:
+
+```bash
+php artisan seo:sync-search-console --days=120
+php artisan seo:sync-salesforce-organic --days=120
+```
+
+Verificar después `php artisan schedule:list`, los últimos `report_sync_runs` de
+`seo_search_console`/`seo_salesforce_organic` y el cutoff mostrado en el panel.
+No copiar secretos a comandos, logs o documentación. Las migraciones son
+aditivas; un rollback de esquema elimina datos SEO ya sincronizados y requiere
+backup/análisis explícito, por lo que se prefiere rollback de código compatible
+o forward fix.
+
 ## Rollback y pendientes
 
 - Preferir rollback de código si el esquema aditivo es compatible.

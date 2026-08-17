@@ -23,8 +23,8 @@ class ReportDesignSystemTest extends TestCase
             ->assertSee('report-ui-empty-state', false)
             ->assertSee('report-ui-badge', false)
             ->assertSee('report-ui-source-status', false)
-            ->assertSee('Sin métricas analíticas en este lote')
-            ->assertSee('no muestra métricas ficticias')
+            ->assertSee('Todavía no hay métricas SEO persistidas')
+            ->assertSee('nunca ejecuta llamadas externas')
             ->assertDontSee('report-ui-status', false);
     }
 

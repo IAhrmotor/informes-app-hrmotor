@@ -102,11 +102,21 @@ en strips continuos, las tabs usan texto y linea activa, y las tablas densas son
 el patron principal para datos detallados. Referencias externas solo orientan
 estructura y densidad; colores, marca e identidad permanecen HR Motor.
 
-## 2026-08-17 - Readiness SEO separado de verificacion externa
+## 2026-08-17 - Readiness e ingesta SEO desacoplados del render
 
 La pantalla SEO solo interpreta configuración local y no llama proveedores. La
-verificación real es un diagnóstico CLI manual, read-only y sanitizado. Search
+verificación real y la ingesta son procesos CLI/scheduler read-only y
+sanitizados. Search
 Console y GA4 comparten únicamente el flujo técnico OAuth; sus credenciales,
 scopes y properties son independientes y no reutilizan Google Ads. Salesforce
-Lead orgánico y GA4 Key Events conservan cardinalidades separadas. No se crean
-tablas antes de verificar properties, metadata y campo Salesforce.
+Lead orgánico y GA4 Key Events conservan cardinalidades separadas.
+
+Los agregados diarios exactos de Search Console se almacenan separados de sus
+rankings top, porque estos últimos no son exhaustivos y no pueden alimentar KPI
+ni ceros. SEO preserva la semántica legacy
+`LEA_SEL_Medio_Origen__c -> salesforce_leads.medio_origen`: su métrica orgánica
+vive en una proyección propia basada en `Medio_origen__c = 'Orgánico'`. Cada
+fuente conserva cutoff y timezone. El dataset publica únicamente cutoffs de
+ejecuciones completadas y solo habilita KPI con cobertura diaria local completa;
+el resumen conjunto usa el menor cutoff y los rankings conservan el periodo
+propio de Search Console.

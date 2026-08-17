@@ -1,0 +1,87 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\ReportSyncRun;
+use App\Services\SeoAnalytics\SearchConsoleSyncService;
+use App\Services\SeoAnalytics\SeoAnalyticsDatasetService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
+use Tests\TestCase;
+
+class SeoSyncCommandsTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_unconfigured_commands_skip_without_http_and_invalid_days_fail(): void
+    {
+        config([
+            'services.google_search_console.client_id' => null,
+            'services.google_search_console.client_secret' => null,
+            'services.google_search_console.refresh_token' => null,
+            'services.google_search_console.property' => null,
+            'salesforce.client_id' => null,
+            'salesforce.client_secret' => null,
+        ]);
+        Http::fake();
+
+        $this->artisan('seo:sync-search-console')->expectsOutputToContain('SKIPPED')->assertSuccessful();
+        $this->artisan('seo:sync-salesforce-organic')->expectsOutputToContain('SKIPPED')->assertSuccessful();
+        $this->artisan('seo:sync-search-console', ['--days' => 0])->assertFailed();
+        $this->artisan('seo:sync-salesforce-organic', ['--days' => 481])->assertFailed();
+        Http::assertNothingSent();
+    }
+
+    public function test_scheduler_declares_independent_windows_and_locks(): void
+    {
+        $scheduler = file_get_contents(base_path('routes/console.php'));
+
+        $this->assertStringContainsString('seo:sync-search-console --days=120', $scheduler);
+        $this->assertStringContainsString("dailyAt('05:15')", $scheduler);
+        $this->assertStringContainsString('seo:sync-salesforce-organic --days=120', $scheduler);
+        $this->assertStringContainsString("dailyAt('05:30')", $scheduler);
+        $this->assertGreaterThanOrEqual(2, substr_count($scheduler, 'withoutOverlapping(120)'));
+    }
+
+    public function test_failed_search_console_command_keeps_property_metadata_and_previous_completed_cutoff(): void
+    {
+        $property = 'sc-domain:example.test';
+        config([
+            'services.google_search_console.client_id' => 'synthetic-client',
+            'services.google_search_console.client_secret' => 'synthetic-secret',
+            'services.google_search_console.refresh_token' => 'synthetic-refresh',
+            'services.google_search_console.property' => $property,
+        ]);
+        ReportSyncRun::query()->create([
+            'dataset' => SearchConsoleSyncService::DATASET,
+            'source' => 'google_search_console',
+            'status' => 'completed',
+            'period_start_at' => '2026-08-09 00:00:00',
+            'period_end_at' => '2026-08-15 00:00:00',
+            'source_cutoff_at' => '2026-08-15 00:00:00',
+            'started_at' => '2026-08-15 05:15:00',
+            'completed_at' => '2026-08-15 05:16:00',
+            'timezone' => 'America/Los_Angeles',
+            'stats' => ['property' => $property],
+        ]);
+        Http::fake([
+            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'synthetic-token']),
+            '*' => Http::response(['error' => ['message' => 'synthetic failure']], 503),
+        ]);
+
+        $this->artisan('seo:sync-search-console', ['--days' => 7])->assertFailed();
+
+        $failed = ReportSyncRun::query()
+            ->where('dataset', SearchConsoleSyncService::DATASET)
+            ->where('status', 'failed')
+            ->latest('started_at')
+            ->firstOrFail();
+        $this->assertSame($property, data_get($failed->stats, 'property'));
+        $this->assertSame(['property' => $property], $failed->stats);
+
+        $dataset = app(SeoAnalyticsDatasetService::class)->build('7', 'summary');
+        $this->assertSame('2026-08-15', $dataset['cutoffs']['search_console']);
+        $this->assertSame('Error último sync', $dataset['sources'][0]['badge']);
+        $this->assertStringContainsString('Datos anteriores cerrados hasta: 2026-08-15', $dataset['sources'][0]['detail']);
+    }
+}

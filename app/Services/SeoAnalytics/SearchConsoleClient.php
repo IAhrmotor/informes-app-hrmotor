@@ -68,4 +68,35 @@ final class SearchConsoleClient
 
         return $property === '' ? null : $property;
     }
+
+    /** @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    public function searchAnalytics(array $payload): array
+    {
+        if (! $this->configured()) {
+            throw new RuntimeException('Search Console no configurado.');
+        }
+
+        $configuration = config('services.google_search_console');
+        $property = (string) $this->configuredProperty();
+        $token = $this->tokens->accessToken('Search Console', $configuration);
+        $url = rtrim((string) $configuration['search_analytics_url'], '/')
+            .'/'.rawurlencode($property).'/searchAnalytics/query';
+        $response = Http::withToken($token)
+            ->acceptJson()
+            ->connectTimeout((int) config('seo_analytics.http.connect_timeout', 5))
+            ->timeout((int) config('seo_analytics.http.timeout', 20))
+            ->post($url, $payload);
+
+        if ($response->failed()) {
+            throw new RuntimeException(IntegrationErrorSanitizer::remoteFailure(
+                'Search Console Search Analytics',
+                $response->status(),
+                $response->json()
+            ));
+        }
+
+        return $response->json() ?? [];
+    }
 }

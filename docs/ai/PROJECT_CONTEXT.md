@@ -4,14 +4,18 @@ Actualizado: 2026-08-17.
 
 ## SEO/Analytics
 
-- El fundamento de integraciones vive en `App\Services\SeoAnalytics`: OAuth
-  compartido solo en implementación, credenciales separadas para Search Console
-  y GA4, cliente SISTRIX básico y resolver puro de metadata Lead Salesforce.
-- `GET /informes/seo-analytics` muestra readiness neutral leyendo únicamente
-  `config()`. La red externa queda limitada al comando manual
-  `seo:diagnose-integrations --live`; el modo por defecto es config-only.
-- No existen todavía métricas, tablas, snapshots, scheduler o alertas SEO. El
-  contrato operativo y de persistencia futura está en `docs/ai/SEO_ANALYTICS.md`.
+- `App\Services\SeoAnalytics` separa clientes HTTP, sincronización/persistencia
+  y dataset de render. `GET /informes/seo-analytics` solo lee BD local y config.
+- Search Console conserva agregados diarios exactos finales separados de
+  rankings top 7/28/90 reemplazables. Salesforce SEO usa una proyección propia
+  de `Medio_origen__c = 'Orgánico'`, sin alterar `salesforce_leads.medio_origen`.
+- Las fuentes se sincronizan por comandos independientes y scheduler monitorizado;
+  cada cutoff visible procede del último `ReportSyncRun` completado. La
+  disponibilidad de KPI exige además cobertura diaria local completa.
+  Resumen/Tráfico usan el cutoff común mínimo; rankings usan el periodo propio
+  de Search Console y su property configurada.
+- GA4, salud técnica, SISTRIX AI y motor analítico permanecen fuera. Contrato:
+  `docs/ai/SEO_ANALYTICS.md`.
 
 ## Design System de informes
 

@@ -1,0 +1,292 @@
+<?php
+
+namespace App\Services\SeoAnalytics;
+
+use App\Models\ReportSyncRun;
+use App\Models\SeoSalesforceOrganicDailyMetric;
+use App\Models\SeoSearchConsoleDailyMetric;
+use App\Models\SeoSearchConsoleDimensionMetric;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
+
+final class SeoAnalyticsDatasetService
+{
+    public function __construct(
+        private readonly SearchConsoleClient $searchConsole,
+        private readonly SalesforceOrganicLeadSyncService $salesforceOrganic,
+    ) {}
+
+    /** @return array<string, mixed> */
+    public function build(mixed $requestedRange, mixed $requestedSection): array
+    {
+        $ranges = config('seo_analytics.dashboard_ranges', [7, 28, 90]);
+        $allowedRanges = array_map('strval', $ranges);
+        $range = is_string($requestedRange) && in_array($requestedRange, $allowedRanges, true)
+            ? (int) $requestedRange
+            : (int) config('seo_analytics.default_dashboard_range', 28);
+        $sections = ['summary', 'traffic', 'search', 'health', 'geo'];
+        $section = is_string($requestedSection) && in_array($requestedSection, $sections, true)
+            ? $requestedSection
+            : 'summary';
+
+        $configuredProperty = $this->searchConsole->configuredProperty();
+        $searchCompletedRun = $this->latestCompletedRun(SearchConsoleSyncService::DATASET, $configuredProperty);
+        $property = $configuredProperty ?? data_get($searchCompletedRun?->stats, 'property');
+        $salesforceCompletedRun = $this->latestCompletedRun(SalesforceOrganicLeadSyncService::DATASET);
+        $searchCutoff = is_string($property) && $property !== ''
+            ? $this->runCutoff($searchCompletedRun)
+            : null;
+        $salesforceCutoff = $this->runCutoff($salesforceCompletedRun);
+        $commonCutoff = $searchCutoff && $salesforceCutoff
+            ? ($searchCutoff->lessThan($salesforceCutoff) ? $searchCutoff : $salesforceCutoff)
+            : ($searchCutoff ?? $salesforceCutoff);
+        $commonStart = $commonCutoff?->subDays($range - 1);
+        $searchStart = $searchCutoff?->subDays($range - 1);
+
+        $searchRows = ($property && $searchCutoff && $commonCutoff)
+            ? SeoSearchConsoleDailyMetric::query()
+                ->where('property', $property)
+                ->where('is_final', true)
+                ->where('data_date', '>=', $commonStart->toDateString())
+                ->where('data_date', '<', $commonCutoff->addDay()->toDateString())
+                ->get()
+            : collect();
+        $salesforceRows = ($salesforceCutoff && $commonCutoff)
+            ? SeoSalesforceOrganicDailyMetric::query()
+                ->where('data_date', '>=', $commonStart->toDateString())
+                ->where('data_date', '<', $commonCutoff->addDay()->toDateString())
+                ->get()
+            : collect();
+
+        $spain = $this->summarize($searchRows->where('country_scope', 'ESP')->where('brand_segment', 'all'), $commonStart, $commonCutoff);
+        $global = $this->summarize($searchRows->where('country_scope', 'ALL')->where('brand_segment', 'all'), $commonStart, $commonCutoff);
+        $brand = $this->summarize($searchRows->where('country_scope', 'ESP')->where('brand_segment', 'brand'), $commonStart, $commonCutoff);
+        $nonBrand = $this->summarize($searchRows->where('country_scope', 'ESP')->where('brand_segment', 'non_brand'), $commonStart, $commonCutoff);
+        $rest = $this->restMetric($global, $spain);
+        $salesforceLeads = $this->hasCompleteCoverage($salesforceRows, $commonStart, $commonCutoff)
+            ? (int) $salesforceRows->sum('lead_count')
+            : null;
+        $hasSearchConsole = $spain['available'] && $global['available'];
+        $hasSalesforce = $salesforceLeads !== null;
+
+        $dailySearch = $searchRows->where('country_scope', 'ESP')->where('brand_segment', 'all')->keyBy(
+            fn (SeoSearchConsoleDailyMetric $row): string => $row->data_date->toDateString()
+        );
+        $dailySalesforce = $salesforceRows->keyBy(
+            fn (SeoSalesforceOrganicDailyMetric $row): string => $row->data_date->toDateString()
+        );
+        $daily = [];
+        if ($commonStart && $commonCutoff) {
+            for ($date = $commonStart; $date->lessThanOrEqualTo($commonCutoff); $date = $date->addDay()) {
+                $key = $date->toDateString();
+                $sc = $dailySearch->get($key);
+                $sf = $dailySalesforce->get($key);
+                $daily[] = [
+                    'date' => $key,
+                    'clicks' => $sc?->clicks,
+                    'impressions' => $sc?->impressions,
+                    'ctr' => $sc?->ctr !== null ? (float) $sc->ctr : null,
+                    'position' => $sc?->position !== null ? (float) $sc->position : null,
+                    'leads' => $sf?->lead_count,
+                ];
+            }
+        }
+
+        $dimensions = collect();
+        if ($property && $searchStart && $searchCutoff) {
+            $dimensions = SeoSearchConsoleDimensionMetric::query()
+                ->where('property', $property)
+                ->where('period_days', $range)
+                ->whereDate('period_end', $searchCutoff->toDateString())
+                ->orderBy('dimension_type')
+                ->orderBy('rank')
+                ->get();
+        }
+        $visibleLimit = (int) config('seo_analytics.visible_dimension_limit', 50);
+
+        return [
+            'range' => $range,
+            'ranges' => $ranges,
+            'section' => $section,
+            'sections' => [
+                'summary' => 'Resumen',
+                'traffic' => 'Tráfico y conversión',
+                'search' => 'Búsquedas y páginas',
+                'health' => 'Salud técnica',
+                'geo' => 'GEO / IA',
+            ],
+            'common_period' => ['start' => $commonStart?->toDateString(), 'end' => $commonCutoff?->toDateString()],
+            'search_console_period' => ['start' => $searchStart?->toDateString(), 'end' => $searchCutoff?->toDateString()],
+            'cutoffs' => ['search_console' => $searchCutoff?->toDateString(), 'salesforce' => $salesforceCutoff?->toDateString()],
+            'sources' => $this->sources($searchCutoff, $salesforceCutoff, $property),
+            'has_search_console' => $hasSearchConsole,
+            'has_salesforce' => $hasSalesforce,
+            'kpis' => [
+                'spain' => $spain,
+                'salesforce_leads' => $salesforceLeads,
+            ],
+            'segments' => ['brand' => $brand, 'non_brand' => $nonBrand],
+            'geography' => [
+                'spain' => $spain,
+                'rest' => $rest,
+            ],
+            'daily' => $daily,
+            'queries' => $dimensions->where('dimension_type', 'query')->take($visibleLimit)->values(),
+            'pages' => $dimensions->where('dimension_type', 'page')->take($visibleLimit)->values(),
+            'countries' => $dimensions->where('dimension_type', 'country')->take(100)->values(),
+        ];
+    }
+
+    /** @param Collection<int, SeoSearchConsoleDailyMetric> $rows
+     * @return array{available: bool, clicks: ?int, impressions: ?int, ctr: ?float, position: ?float}
+     */
+    private function summarize(Collection $rows, ?CarbonImmutable $start, ?CarbonImmutable $end): array
+    {
+        if (! $this->hasCompleteCoverage($rows, $start, $end)) {
+            return $this->emptyMetric();
+        }
+
+        $clicks = (int) $rows->sum('clicks');
+        $impressions = (int) $rows->sum('impressions');
+        $weightedPosition = $rows->sum(fn ($row): float => (float) ($row->position ?? 0) * (int) $row->impressions);
+
+        return [
+            'available' => true,
+            'clicks' => $clicks,
+            'impressions' => $impressions,
+            'ctr' => $impressions > 0 ? $clicks / $impressions : null,
+            'position' => $impressions > 0 ? $weightedPosition / $impressions : null,
+        ];
+    }
+
+    private function hasCompleteCoverage(Collection $rows, ?CarbonImmutable $start, ?CarbonImmutable $end): bool
+    {
+        if (! $start || ! $end || $end->lessThan($start)) {
+            return false;
+        }
+
+        $dates = $rows->mapWithKeys(fn ($row): array => [$row->data_date->toDateString() => true]);
+        for ($date = $start; $date->lessThanOrEqualTo($end); $date = $date->addDay()) {
+            if (! $dates->has($date->toDateString())) {
+                return false;
+            }
+        }
+
+        return $dates->count() === (int) $start->diffInDays($end) + 1;
+    }
+
+    /** @return array{available: false, clicks: null, impressions: null, ctr: null, position: null} */
+    private function emptyMetric(): array
+    {
+        return ['available' => false, 'clicks' => null, 'impressions' => null, 'ctr' => null, 'position' => null];
+    }
+
+    private function restMetric(array $global, array $spain): array
+    {
+        if (! $global['available'] || ! $spain['available']
+            || $global['clicks'] < $spain['clicks']
+            || $global['impressions'] < $spain['impressions']) {
+            return $this->emptyMetric();
+        }
+
+        $clicks = $global['clicks'] - $spain['clicks'];
+        $impressions = $global['impressions'] - $spain['impressions'];
+        $positionNumerator = ($global['position'] !== null && $spain['position'] !== null)
+            ? ($global['position'] * $global['impressions']) - ($spain['position'] * $spain['impressions'])
+            : null;
+
+        return [
+            'available' => true,
+            'clicks' => $clicks,
+            'impressions' => $impressions,
+            'ctr' => $impressions > 0 ? $clicks / $impressions : null,
+            'position' => $impressions > 0 && $positionNumerator !== null && $positionNumerator >= 0
+                ? $positionNumerator / $impressions
+                : null,
+        ];
+    }
+
+    /** @return array<int, array{key: string, title: string, detail: string, badge: string}> */
+    private function sources(?CarbonImmutable $searchCutoff, ?CarbonImmutable $salesforceCutoff, mixed $property): array
+    {
+        return [
+            $this->source('search-console', 'Search Console', $this->searchConsole->configured(), $searchCutoff, SearchConsoleSyncService::DATASET, is_string($property) ? $property : null),
+            $this->source('salesforce', 'Salesforce', $this->salesforceOrganic->configured(), $salesforceCutoff, SalesforceOrganicLeadSyncService::DATASET),
+            ['key' => 'ga4', 'title' => 'Google Analytics 4', 'detail' => 'Métricas pendientes del siguiente lote', 'badge' => filled(config('services.google_analytics.property_id')) ? 'Configuración detectada' : 'Pendiente de configurar'],
+            ['key' => 'sistrix', 'title' => 'SISTRIX AI Check', 'detail' => filled(config('services.sistrix.api_key')) ? 'Acceso AI pendiente de verificar' : 'Pendiente de conectar', 'badge' => filled(config('services.sistrix.api_key')) ? 'Configuración detectada' : 'No configurada'],
+        ];
+    }
+
+    private function latestCompletedRun(string $dataset, ?string $property = null): ?ReportSyncRun
+    {
+        return ReportSyncRun::query()
+            ->where('dataset', $dataset)
+            ->where('status', 'completed')
+            ->whereNotNull('source_cutoff_at')
+            ->latest('completed_at')
+            ->limit(50)
+            ->get()
+            ->first(function (ReportSyncRun $run) use ($property): bool {
+                if ($property === null) {
+                    return true;
+                }
+
+                $runProperty = data_get($run->stats, 'property');
+
+                return is_string($runProperty) && hash_equals($property, $runProperty);
+            });
+    }
+
+    private function runCutoff(?ReportSyncRun $run): ?CarbonImmutable
+    {
+        return $run?->source_cutoff_at
+            ? CarbonImmutable::parse($run->source_cutoff_at)
+            : null;
+    }
+
+    /** @return array{key: string, title: string, detail: string, badge: string} */
+    private function source(
+        string $key,
+        string $title,
+        bool $configured,
+        ?CarbonImmutable $cutoff,
+        string $dataset,
+        ?string $property = null,
+    ): array {
+        $latestRun = ReportSyncRun::query()
+            ->where('dataset', $dataset)
+            ->latest('started_at')
+            ->limit(50)
+            ->get()
+            ->first(function (ReportSyncRun $run) use ($property): bool {
+                if ($property === null) {
+                    return true;
+                }
+
+                $runProperty = data_get($run->stats, 'property');
+
+                return is_string($runProperty) && hash_equals($property, $runProperty);
+            });
+        if ($latestRun?->status === 'failed') {
+            $detail = $cutoff
+                ? 'Datos anteriores cerrados hasta: '.$cutoff->toDateString().'. La última sincronización falló.'
+                : 'La última sincronización finalizó con error técnico.';
+
+            return compact('key', 'title', 'detail') + ['badge' => 'Error último sync'];
+        }
+        if ($latestRun?->status === 'running' && $cutoff) {
+            return compact('key', 'title') + [
+                'detail' => 'Datos cerrados hasta: '.$cutoff->toDateString().'. Sincronización en curso.',
+                'badge' => 'Sincronizando',
+            ];
+        }
+        if ($cutoff) {
+            return compact('key', 'title') + ['detail' => 'Datos cerrados hasta: '.$cutoff->toDateString(), 'badge' => 'Sincronizada'];
+        }
+
+        return compact('key', 'title') + [
+            'detail' => $configured ? 'Configuración detectada; sin datos sincronizados' : 'Pendiente de configurar',
+            'badge' => $configured ? 'Sin datos' : 'No configurada',
+        ];
+    }
+}
