@@ -20,6 +20,10 @@ class SeoSyncCommandsTest extends TestCase
             'services.google_search_console.client_secret' => null,
             'services.google_search_console.refresh_token' => null,
             'services.google_search_console.property' => null,
+            'services.google_analytics.client_id' => null,
+            'services.google_analytics.client_secret' => null,
+            'services.google_analytics.refresh_token' => null,
+            'services.google_analytics.property_id' => null,
             'salesforce.client_id' => null,
             'salesforce.client_secret' => null,
         ]);
@@ -27,8 +31,12 @@ class SeoSyncCommandsTest extends TestCase
 
         $this->artisan('seo:sync-search-console')->expectsOutputToContain('SKIPPED')->assertSuccessful();
         $this->artisan('seo:sync-salesforce-organic')->expectsOutputToContain('SKIPPED')->assertSuccessful();
+        $this->artisan('seo:sync-ga4-organic')->expectsOutputToContain('SKIPPED')->assertSuccessful();
         $this->artisan('seo:sync-search-console', ['--days' => 0])->assertFailed();
         $this->artisan('seo:sync-salesforce-organic', ['--days' => 481])->assertFailed();
+        $this->artisan('seo:sync-ga4-organic', ['--days' => 0])->assertFailed();
+        $this->artisan('seo:sync-ga4-organic', ['--days' => 481])->assertFailed();
+        $this->artisan('seo:sync-ga4-organic', ['--days' => 'invalid'])->assertFailed();
         Http::assertNothingSent();
     }
 
@@ -40,7 +48,9 @@ class SeoSyncCommandsTest extends TestCase
         $this->assertStringContainsString("dailyAt('05:15')", $scheduler);
         $this->assertStringContainsString('seo:sync-salesforce-organic --days=120', $scheduler);
         $this->assertStringContainsString("dailyAt('05:30')", $scheduler);
-        $this->assertGreaterThanOrEqual(2, substr_count($scheduler, 'withoutOverlapping(120)'));
+        $this->assertStringContainsString('seo:sync-ga4-organic --days=120', $scheduler);
+        $this->assertStringContainsString("dailyAt('05:45')", $scheduler);
+        $this->assertGreaterThanOrEqual(3, substr_count($scheduler, 'withoutOverlapping(120)'));
     }
 
     public function test_failed_search_console_command_keeps_property_metadata_and_previous_completed_cutoff(): void
@@ -83,5 +93,29 @@ class SeoSyncCommandsTest extends TestCase
         $this->assertSame('2026-08-15', $dataset['cutoffs']['search_console']);
         $this->assertSame('Error último sync', $dataset['sources'][0]['badge']);
         $this->assertStringContainsString('Datos anteriores cerrados hasta: 2026-08-15', $dataset['sources'][0]['detail']);
+    }
+
+    public function test_failed_ga4_command_keeps_non_secret_property_metadata(): void
+    {
+        config([
+            'services.google_analytics.client_id' => 'synthetic-client',
+            'services.google_analytics.client_secret' => 'synthetic-secret',
+            'services.google_analytics.refresh_token' => 'synthetic-refresh',
+            'services.google_analytics.property_id' => '123',
+        ]);
+        Http::fake([
+            'https://oauth2.googleapis.com/token' => Http::response(['access_token' => 'synthetic-token']),
+            '*' => Http::response(['error' => ['message' => 'synthetic failure']], 503),
+        ]);
+
+        $this->artisan('seo:sync-ga4-organic', ['--days' => 7])->assertFailed();
+
+        $failed = ReportSyncRun::query()
+            ->where('dataset', 'seo_ga4_organic_conversions')
+            ->where('status', 'failed')
+            ->firstOrFail();
+        $this->assertSame(['property_id' => '123'], $failed->stats);
+        $this->assertStringNotContainsString('synthetic-secret', (string) $failed->error_message);
+        $this->assertStringNotContainsString('synthetic-refresh', (string) $failed->error_message);
     }
 }

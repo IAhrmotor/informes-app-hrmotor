@@ -3,6 +3,8 @@
 namespace App\Services\SeoAnalytics;
 
 use App\Models\ReportSyncRun;
+use App\Models\SeoGa4OrganicDailyMetric;
+use App\Models\SeoGa4OrganicKeyEventDailyMetric;
 use App\Models\SeoSalesforceOrganicDailyMetric;
 use App\Models\SeoSearchConsoleDailyMetric;
 use App\Models\SeoSearchConsoleDimensionMetric;
@@ -14,6 +16,7 @@ final class SeoAnalyticsDatasetService
     public function __construct(
         private readonly SearchConsoleClient $searchConsole,
         private readonly SalesforceOrganicLeadSyncService $salesforceOrganic,
+        private readonly GoogleAnalyticsClient $analytics,
     ) {}
 
     /** @return array<string, mixed> */
@@ -33,13 +36,23 @@ final class SeoAnalyticsDatasetService
         $searchCompletedRun = $this->latestCompletedRun(SearchConsoleSyncService::DATASET, $configuredProperty);
         $property = $configuredProperty ?? data_get($searchCompletedRun?->stats, 'property');
         $salesforceCompletedRun = $this->latestCompletedRun(SalesforceOrganicLeadSyncService::DATASET);
+        $ga4PropertyId = $this->analytics->configuredPropertyId();
+        $ga4CompletedRun = $ga4PropertyId
+            ? $this->latestCompletedRun(
+                Ga4OrganicConversionSyncService::DATASET,
+                $ga4PropertyId,
+                'property_id',
+            )
+            : null;
         $searchCutoff = is_string($property) && $property !== ''
             ? $this->runCutoff($searchCompletedRun)
             : null;
         $salesforceCutoff = $this->runCutoff($salesforceCompletedRun);
-        $commonCutoff = $searchCutoff && $salesforceCutoff
-            ? ($searchCutoff->lessThan($salesforceCutoff) ? $searchCutoff : $salesforceCutoff)
-            : ($searchCutoff ?? $salesforceCutoff);
+        $ga4Cutoff = $ga4PropertyId ? $this->runCutoff($ga4CompletedRun) : null;
+        $commonCutoff = collect([$searchCutoff, $salesforceCutoff, $ga4Cutoff])
+            ->filter()
+            ->sortBy(fn (CarbonImmutable $cutoff): int => $cutoff->getTimestamp())
+            ->first();
         $commonStart = $commonCutoff?->subDays($range - 1);
         $searchStart = $searchCutoff?->subDays($range - 1);
 
@@ -57,6 +70,13 @@ final class SeoAnalyticsDatasetService
                 ->where('data_date', '<', $commonCutoff->addDay()->toDateString())
                 ->get()
             : collect();
+        $ga4Rows = ($ga4PropertyId && $ga4Cutoff && $commonCutoff)
+            ? SeoGa4OrganicDailyMetric::query()
+                ->where('property_id', $ga4PropertyId)
+                ->where('data_date', '>=', $commonStart->toDateString())
+                ->where('data_date', '<', $commonCutoff->addDay()->toDateString())
+                ->get()
+            : collect();
 
         $spain = $this->summarize($searchRows->where('country_scope', 'ESP')->where('brand_segment', 'all'), $commonStart, $commonCutoff);
         $global = $this->summarize($searchRows->where('country_scope', 'ALL')->where('brand_segment', 'all'), $commonStart, $commonCutoff);
@@ -68,6 +88,10 @@ final class SeoAnalyticsDatasetService
             : null;
         $hasSearchConsole = $spain['available'] && $global['available'];
         $hasSalesforce = $salesforceLeads !== null;
+        $ga4Spain = $this->ga4Metric($ga4Rows->where('country_scope', 'ESP'), $commonStart, $commonCutoff);
+        $ga4Global = $this->ga4Metric($ga4Rows->where('country_scope', 'ALL'), $commonStart, $commonCutoff);
+        $ga4Rest = $this->ga4RestMetric($ga4Global, $ga4Spain);
+        $hasGa4 = $ga4Spain['available'];
 
         $dailySearch = $searchRows->where('country_scope', 'ESP')->where('brand_segment', 'all')->keyBy(
             fn (SeoSearchConsoleDailyMetric $row): string => $row->data_date->toDateString()
@@ -75,12 +99,16 @@ final class SeoAnalyticsDatasetService
         $dailySalesforce = $salesforceRows->keyBy(
             fn (SeoSalesforceOrganicDailyMetric $row): string => $row->data_date->toDateString()
         );
+        $dailyGa4 = $ga4Rows->where('country_scope', 'ESP')->keyBy(
+            fn (SeoGa4OrganicDailyMetric $row): string => $row->data_date->toDateString()
+        );
         $daily = [];
         if ($commonStart && $commonCutoff) {
             for ($date = $commonStart; $date->lessThanOrEqualTo($commonCutoff); $date = $date->addDay()) {
                 $key = $date->toDateString();
                 $sc = $dailySearch->get($key);
                 $sf = $dailySalesforce->get($key);
+                $ga4 = $dailyGa4->get($key);
                 $daily[] = [
                     'date' => $key,
                     'clicks' => $sc?->clicks,
@@ -88,6 +116,7 @@ final class SeoAnalyticsDatasetService
                     'ctr' => $sc?->ctr !== null ? (float) $sc->ctr : null,
                     'position' => $sc?->position !== null ? (float) $sc->position : null,
                     'leads' => $sf?->lead_count,
+                    'ga4_key_events' => $ga4?->key_events !== null ? (float) $ga4->key_events : null,
                 ];
             }
         }
@@ -103,6 +132,20 @@ final class SeoAnalyticsDatasetService
                 ->get();
         }
         $visibleLimit = (int) config('seo_analytics.visible_dimension_limit', 50);
+        $ga4Events = collect();
+        if ($ga4PropertyId && $commonStart && $commonCutoff) {
+            $ga4Events = SeoGa4OrganicKeyEventDailyMetric::query()
+                ->selectRaw('event_name, SUM(key_events) as key_events')
+                ->where('property_id', $ga4PropertyId)
+                ->where('country_scope', 'ESP')
+                ->where('data_date', '>=', $commonStart->toDateString())
+                ->where('data_date', '<', $commonCutoff->addDay()->toDateString())
+                ->groupBy('event_name')
+                ->orderByDesc('key_events')
+                ->orderBy('event_name')
+                ->limit((int) config('seo_analytics.visible_ga4_event_limit', 50))
+                ->get();
+        }
 
         return [
             'range' => $range,
@@ -117,13 +160,15 @@ final class SeoAnalyticsDatasetService
             ],
             'common_period' => ['start' => $commonStart?->toDateString(), 'end' => $commonCutoff?->toDateString()],
             'search_console_period' => ['start' => $searchStart?->toDateString(), 'end' => $searchCutoff?->toDateString()],
-            'cutoffs' => ['search_console' => $searchCutoff?->toDateString(), 'salesforce' => $salesforceCutoff?->toDateString()],
-            'sources' => $this->sources($searchCutoff, $salesforceCutoff, $property),
+            'cutoffs' => ['search_console' => $searchCutoff?->toDateString(), 'salesforce' => $salesforceCutoff?->toDateString(), 'ga4' => $ga4Cutoff?->toDateString()],
+            'sources' => $this->sources($searchCutoff, $salesforceCutoff, $ga4Cutoff, $property, $ga4PropertyId),
             'has_search_console' => $hasSearchConsole,
             'has_salesforce' => $hasSalesforce,
+            'has_ga4' => $hasGa4,
             'kpis' => [
                 'spain' => $spain,
                 'salesforce_leads' => $salesforceLeads,
+                'ga4_key_events' => $ga4Spain['key_events'],
             ],
             'segments' => ['brand' => $brand, 'non_brand' => $nonBrand],
             'geography' => [
@@ -131,6 +176,12 @@ final class SeoAnalyticsDatasetService
                 'rest' => $rest,
             ],
             'daily' => $daily,
+            'ga4' => [
+                'spain' => $ga4Spain,
+                'global' => $ga4Global,
+                'rest' => $ga4Rest,
+                'events' => $ga4Events,
+            ],
             'queries' => $dimensions->where('dimension_type', 'query')->take($visibleLimit)->values(),
             'pages' => $dimensions->where('dimension_type', 'page')->take($visibleLimit)->values(),
             'countries' => $dimensions->where('dimension_type', 'country')->take(100)->values(),
@@ -206,19 +257,54 @@ final class SeoAnalyticsDatasetService
         ];
     }
 
-    /** @return array<int, array{key: string, title: string, detail: string, badge: string}> */
-    private function sources(?CarbonImmutable $searchCutoff, ?CarbonImmutable $salesforceCutoff, mixed $property): array
+    /** @return array{available: bool, key_events: ?float} */
+    private function ga4Metric(Collection $rows, ?CarbonImmutable $start, ?CarbonImmutable $end): array
     {
+        if (! $this->hasCompleteCoverage($rows, $start, $end)) {
+            return ['available' => false, 'key_events' => null];
+        }
+
+        return ['available' => true, 'key_events' => (float) $rows->sum('key_events')];
+    }
+
+    /** @return array{available: bool, key_events: ?float} */
+    private function ga4RestMetric(array $global, array $spain): array
+    {
+        if (! $global['available'] || ! $spain['available']) {
+            return ['available' => false, 'key_events' => null];
+        }
+
+        $difference = $global['key_events'] - $spain['key_events'];
+        if ($difference < 0) {
+            return ['available' => false, 'key_events' => null];
+        }
+
+        return ['available' => true, 'key_events' => $difference];
+    }
+
+    /** @return array<int, array{key: string, title: string, detail: string, badge: string}> */
+    private function sources(
+        ?CarbonImmutable $searchCutoff,
+        ?CarbonImmutable $salesforceCutoff,
+        ?CarbonImmutable $ga4Cutoff,
+        mixed $property,
+        ?string $ga4PropertyId,
+    ): array {
         return [
             $this->source('search-console', 'Search Console', $this->searchConsole->configured(), $searchCutoff, SearchConsoleSyncService::DATASET, is_string($property) ? $property : null),
             $this->source('salesforce', 'Salesforce', $this->salesforceOrganic->configured(), $salesforceCutoff, SalesforceOrganicLeadSyncService::DATASET),
-            ['key' => 'ga4', 'title' => 'Google Analytics 4', 'detail' => 'Métricas pendientes del siguiente lote', 'badge' => filled(config('services.google_analytics.property_id')) ? 'Configuración detectada' : 'Pendiente de configurar'],
+            $ga4PropertyId
+                ? $this->source('ga4', 'Google Analytics 4', $this->analytics->configured(), $ga4Cutoff, Ga4OrganicConversionSyncService::DATASET, $ga4PropertyId, 'property_id')
+                : ['key' => 'ga4', 'title' => 'Google Analytics 4', 'detail' => 'Pendiente de configurar', 'badge' => 'No configurada'],
             ['key' => 'sistrix', 'title' => 'SISTRIX AI Check', 'detail' => filled(config('services.sistrix.api_key')) ? 'Acceso AI pendiente de verificar' : 'Pendiente de conectar', 'badge' => filled(config('services.sistrix.api_key')) ? 'Configuración detectada' : 'No configurada'],
         ];
     }
 
-    private function latestCompletedRun(string $dataset, ?string $property = null): ?ReportSyncRun
-    {
+    private function latestCompletedRun(
+        string $dataset,
+        ?string $property = null,
+        string $propertyStat = 'property',
+    ): ?ReportSyncRun {
         return ReportSyncRun::query()
             ->where('dataset', $dataset)
             ->where('status', 'completed')
@@ -226,12 +312,12 @@ final class SeoAnalyticsDatasetService
             ->latest('completed_at')
             ->limit(50)
             ->get()
-            ->first(function (ReportSyncRun $run) use ($property): bool {
+            ->first(function (ReportSyncRun $run) use ($property, $propertyStat): bool {
                 if ($property === null) {
                     return true;
                 }
 
-                $runProperty = data_get($run->stats, 'property');
+                $runProperty = data_get($run->stats, $propertyStat);
 
                 return is_string($runProperty) && hash_equals($property, $runProperty);
             });
@@ -252,18 +338,19 @@ final class SeoAnalyticsDatasetService
         ?CarbonImmutable $cutoff,
         string $dataset,
         ?string $property = null,
+        string $propertyStat = 'property',
     ): array {
         $latestRun = ReportSyncRun::query()
             ->where('dataset', $dataset)
             ->latest('started_at')
             ->limit(50)
             ->get()
-            ->first(function (ReportSyncRun $run) use ($property): bool {
+            ->first(function (ReportSyncRun $run) use ($property, $propertyStat): bool {
                 if ($property === null) {
                     return true;
                 }
 
-                $runProperty = data_get($run->stats, 'property');
+                $runProperty = data_get($run->stats, $propertyStat);
 
                 return is_string($runProperty) && hash_equals($property, $runProperty);
             });
@@ -274,9 +361,11 @@ final class SeoAnalyticsDatasetService
 
             return compact('key', 'title', 'detail') + ['badge' => 'Error último sync'];
         }
-        if ($latestRun?->status === 'running' && $cutoff) {
+        if ($latestRun?->status === 'running') {
             return compact('key', 'title') + [
-                'detail' => 'Datos cerrados hasta: '.$cutoff->toDateString().'. Sincronización en curso.',
+                'detail' => $cutoff
+                    ? 'Datos cerrados hasta: '.$cutoff->toDateString().'. Sincronización en curso.'
+                    : 'Sincronización en curso; todavía no existe un cutoff completado.',
                 'badge' => 'Sincronizando',
             ];
         }

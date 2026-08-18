@@ -107,6 +107,14 @@ class SeoIntegrationClientsTest extends TestCase
             'https://analyticsadmin.googleapis.com/v1beta/properties/313695489/keyEvents*' => Http::sequence()
                 ->push(['keyEvents' => [['eventName' => 'form_submit']], 'nextPageToken' => 'page-2'])
                 ->push(['keyEvents' => [['eventName' => 'phone_click']]]),
+            'https://analyticsadmin.googleapis.com/v1beta/properties/313695489/dataStreams*' => Http::response([
+                'dataStreams' => [[
+                    'name' => 'properties/313695489/dataStreams/1',
+                    'type' => 'WEB_DATA_STREAM',
+                    'displayName' => 'Web principal',
+                    'webStreamData' => ['defaultUri' => 'https://example.test'],
+                ]],
+            ]),
         ]);
 
         $result = app(GoogleAnalyticsClient::class)->diagnose();
@@ -117,6 +125,7 @@ class SeoIntegrationClientsTest extends TestCase
         $this->assertSame(2, $result['metrics']);
         $this->assertSame('Europe/Madrid', $result['timezone']);
         $this->assertSame(['form_submit', 'phone_click'], $result['key_events']);
+        $this->assertSame(1, $result['web_stream_count']);
         Http::assertSent(fn ($request): bool => $request->url() === 'https://analyticsadmin.googleapis.com/v1beta/properties/313695489/keyEvents?pageSize=200&pageToken=page-2');
     }
 

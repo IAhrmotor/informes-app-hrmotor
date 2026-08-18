@@ -13,6 +13,7 @@ return [
     'default_dashboard_range' => 28,
     'history_sync_days' => 120,
     'max_history_sync_days' => 480,
+    'ga4_reporting_lag_days' => env('SEO_GA4_REPORTING_LAG_DAYS', 3),
     'brand_regex_max_length' => 4096,
     'dimension_limits' => [
         'query' => 1000,
@@ -20,6 +21,7 @@ return [
         'country' => 100,
     ],
     'visible_dimension_limit' => 50,
+    'visible_ga4_event_limit' => 50,
     'brand_variants' => BrandVariantParser::parse(
         filled($configuredBrandVariants) ? (string) $configuredBrandVariants : $defaultBrandVariants
     ),

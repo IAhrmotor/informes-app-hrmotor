@@ -2,6 +2,45 @@
 
 Actualizado: 2026-08-17.
 
+## SEO/Analytics Lote 3 - Conversiones web orgánicas GA4 (2026-08-17)
+
+- GA4 sincroniza exclusivamente `keyEvents` atribuidos a
+  `defaultChannelGroup = Organic Search`, `platform = web`; España usa
+  `countryId = ES`. Salesforce y GA4 siguen siendo métricas separadas y nunca se
+  suman.
+- Dos tablas nuevas conservan totales diarios ALL/ESP y detalle España por
+  evento. `key_events` es `DECIMAL(18,6)`; los agregados cubiertos rellenan cero,
+  pero el detalle no fabrica filas. El reemplazo del detalle ocurre dentro de la
+  misma transacción que los upserts, después de completar las llamadas remotas.
+- `seo:sync-ga4-organic --days=120` valida property, timezone, web streams y Key
+  Events. Usa tres `runReport` habituales, paginación limit/offset y cutoff
+  operativo con lag 2–7 días (default 3) en timezone de la property. Scheduler:
+  05:45 Madrid, lock 120 y alerta técnica existente.
+- `ReportSyncRun` guarda `stats.property_id` antes del primer HTTP y conserva
+  estados por property. El dashboard incorpora GA4 al common cutoff, KPI, serie
+  diaria, source status y breakdown limitado a 50 eventos; el GET continúa sin
+  red.
+- Seguridad: OAuth `analytics.readonly`, property y filtros solo desde config y
+  código; no se consultan Measurement Protocol secrets ni se persisten tokens,
+  credenciales o payloads raw. No hay dependencias nuevas ni cambios CSS/JS.
+- Quality gate: cada página `runReport` se rechaza si GA4 declara thresholding,
+  pérdida por fila `other` o sampling. La validación sucede antes de acumular
+  filas y del zero filling; cualquier incidencia conserva todos los datos
+  anteriores y usa el flujo de fallo técnico existente.
+- Cambios de base de datos: dos migraciones aditivas crean exclusivamente los
+  agregados diarios GA4 y su detalle diario por Key Event. No se ejecutaron
+  migraciones ni sincronizaciones sobre producción.
+- Acciones manuales: configurar `SEO_GA4_REPORTING_LAG_DAYS` (2–7, default 3),
+  desplegar código y migraciones, refrescar la config cache, validar primero con
+  `seo:diagnose-integrations --live` y ejecutar la primera
+  `seo:sync-ga4-organic --days=120` solo tras aprobar la property. El riesgo
+  residual principal es validar con datos reales que la taxonomía de Key Events
+  y los valores `defaultChannelGroup`/`platform` coinciden con la property.
+- Validación local final tras la quality gate: sync GA4 8 pruebas/68
+  aserciones; GA4 17/127; suite SEO 47/414; suite completa 510/3.622. Pint
+  `--dirty --test`, Vite 8.0.12 y `git diff --check`, correctos. El build no
+  cambió `public/build` porque no existen cambios CSS/JS.
+
 ## SEO/Analytics Lote 2 - Search Console y Lead orgánico (2026-08-17)
 
 - Tres tablas nuevas separan agregados diarios exactos Search Console,

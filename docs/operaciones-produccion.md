@@ -216,7 +216,7 @@ WHERE state = 'open' AND resolved_at IS NOT NULL;
 Verificar `/up` solo como liveness y una petición sintética autorizada por cada
 integración, comprobando status, rate headers y audit log sanitizado.
 
-## SEO/Analytics Lote 2
+## SEO/Analytics Lotes 2 y 3
 
 Después de desplegar código y assets, sin ejecutar Node en producción:
 
@@ -233,10 +233,14 @@ Solo cuando el diagnóstico live confirme la fuente correspondiente:
 ```bash
 php artisan seo:sync-search-console --days=120
 php artisan seo:sync-salesforce-organic --days=120
+php artisan seo:sync-ga4-organic --days=120
 ```
 
 Verificar después `php artisan schedule:list`, los últimos `report_sync_runs` de
-`seo_search_console`/`seo_salesforce_organic` y el cutoff mostrado en el panel.
+`seo_search_console`/`seo_salesforce_organic`/`seo_ga4_organic_conversions` y los
+cutoffs mostrados en el panel. Para GA4, confirmar previamente property,
+timezone, web streams y Key Events con el diagnóstico live; después verificar
+`php artisan schedule:list` y el horario 05:45.
 No copiar secretos a comandos, logs o documentación. Las migraciones son
 aditivas; un rollback de esquema elimina datos SEO ya sincronizados y requiere
 backup/análisis explícito, por lo que se prefiere rollback de código compatible

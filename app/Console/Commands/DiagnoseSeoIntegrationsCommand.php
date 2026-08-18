@@ -136,6 +136,16 @@ class DiagnoseSeoIntegrationsCommand extends Command
             $this->line('Metadata: '.($result['metadata'] ? 'accesible' : 'no accesible'));
             $this->line(sprintf('Dimensiones: %d · Métricas: %d', $result['dimensions'], $result['metrics']));
             $this->line('Timezone: '.($result['timezone'] ?? '-'));
+            $this->line('Web streams: '.$result['web_stream_count']);
+            $this->table(
+                ['Stream', 'Tipo', 'Nombre', 'URI web'],
+                collect($result['data_streams'])->map(fn (array $stream): array => [
+                    $stream['name'],
+                    $stream['type'],
+                    $stream['display_name'],
+                    $stream['default_uri'] ?? '-',
+                ])->all()
+            );
             $this->line('Key Events: '.($result['key_events'] === [] ? 'ninguno' : implode(', ', $result['key_events'])));
 
             return true;

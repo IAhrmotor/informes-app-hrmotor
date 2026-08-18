@@ -9,12 +9,17 @@ Actualizado: 2026-08-17.
 - Search Console conserva agregados diarios exactos finales separados de
   rankings top 7/28/90 reemplazables. Salesforce SEO usa una proyección propia
   de `Medio_origen__c = 'Orgánico'`, sin alterar `salesforce_leads.medio_origen`.
+- GA4 persiste `keyEvents` Organic Search/web como decimal, con totales ALL/ESP
+  separados del detalle España por evento. Usa timezone de property, lag
+  operativo y rolling refresh; nunca se suma con Leads Salesforce. Cada página
+  Data API supera una quality gate de thresholding, data loss y sampling antes
+  de que una ausencia pueda convertirse en cero.
 - Las fuentes se sincronizan por comandos independientes y scheduler monitorizado;
   cada cutoff visible procede del último `ReportSyncRun` completado. La
   disponibilidad de KPI exige además cobertura diaria local completa.
   Resumen/Tráfico usan el cutoff común mínimo; rankings usan el periodo propio
   de Search Console y su property configurada.
-- GA4, salud técnica, SISTRIX AI y motor analítico permanecen fuera. Contrato:
+- Salud técnica, SISTRIX AI y motor analítico permanecen fuera. Contrato:
   `docs/ai/SEO_ANALYTICS.md`.
 
 ## Design System de informes

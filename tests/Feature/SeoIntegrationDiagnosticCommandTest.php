@@ -53,6 +53,14 @@ class SeoIntegrationDiagnosticCommandTest extends TestCase
             'https://analyticsadmin.googleapis.com/v1beta/properties/123/keyEvents*' => Http::response([
                 'keyEvents' => [['eventName' => 'synthetic_event']],
             ]),
+            'https://analyticsadmin.googleapis.com/v1beta/properties/123/dataStreams*' => Http::response([
+                'dataStreams' => [[
+                    'name' => 'properties/123/dataStreams/1',
+                    'type' => 'WEB_DATA_STREAM',
+                    'displayName' => 'Synthetic web',
+                    'webStreamData' => ['defaultUri' => 'https://example.test'],
+                ]],
+            ]),
             'https://api.sistrix.com/credits' => Http::response(['answer' => [['credits' => 1]]]),
         ]);
 
@@ -61,12 +69,14 @@ class SeoIntegrationDiagnosticCommandTest extends TestCase
             ->expectsOutputToContain('Orgánico')
             ->expectsOutputToContain('Property accesible: sí')
             ->expectsOutputToContain('synthetic_event')
+            ->expectsOutputToContain('Web streams: 1')
+            ->expectsOutputToContain('Synthetic web')
             ->expectsOutputToContain('API SISTRIX: accesible')
             ->expectsOutputToContain('AI Check: pendiente de verificar')
             ->doesntExpectOutputToContain($secret)
             ->assertExitCode(0);
 
-        Http::assertSentCount(7);
+        Http::assertSentCount(8);
         Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'ai.check'));
         $this->assertTrue(Http::recorded()->every(function (array $exchange): bool {
             $request = $exchange[0];

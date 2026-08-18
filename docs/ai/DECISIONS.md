@@ -120,3 +120,10 @@ fuente conserva cutoff y timezone. El dataset publica únicamente cutoffs de
 ejecuciones completadas y solo habilita KPI con cobertura diaria local completa;
 el resumen conjunto usa el menor cutoff y los rankings conservan el periodo
 propio de Search Console.
+
+GA4 define Conversiones web orgánicas exclusivamente como `keyEvents` con
+`defaultChannelGroup = Organic Search` y `platform = web`; España usa
+`countryId = ES`. Conserva crédito decimal y permanece separado de Lead orgánico
+Salesforce, sin suma ni deduplicación. Su cutoff es operativo, basado en timezone
+de property y lag configurable, y se refresca mediante ventana móvil: no se
+declara final como Search Console.

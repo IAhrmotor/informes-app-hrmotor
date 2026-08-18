@@ -125,3 +125,12 @@ $monitor(
     'seo-sync-salesforce-organic',
     'sincronizacion SEO de Leads organicos Salesforce',
 );
+
+$monitor(
+    Schedule::command('seo:sync-ga4-organic --days=120')
+        ->dailyAt('05:45')
+        ->timezone('Europe/Madrid')
+        ->withoutOverlapping(120),
+    'seo-sync-ga4-organic',
+    'sincronizacion SEO de Conversiones web organicas GA4',
+);

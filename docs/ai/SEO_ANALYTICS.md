@@ -2,13 +2,14 @@
 
 ## Alcance operativo
 
-El Lote 2 incorpora datos reales persistidos de Google Search Console y una
-proyección diaria aislada de Leads orgánicos Salesforce. `GET
+Los Lotes 2 y 3 incorporan datos persistidos de Google Search Console, una
+proyección diaria aislada de Leads orgánicos Salesforce y Conversiones web
+orgánicas GA4. `GET
 /informes/seo-analytics` consulta exclusivamente la base local y configuración:
 no llama Google, Salesforce, GA4 ni SISTRIX.
 
-Continúan pendientes GA4 diario, Key Events, salud técnica, crawler/sitemap,
-SISTRIX AI Check, motor comparativo, scoring, anomalías y correo.
+Continúan pendientes salud técnica, crawler/sitemap, SISTRIX AI Check, motor
+comparativo, scoring, anomalías y correo.
 
 ## Persistencia y cierre
 
@@ -23,6 +24,10 @@ SISTRIX AI Check, motor comparativo, scoring, anomalías y correo.
   condición es exactamente `Medio_origen__c = 'Orgánico'`. Timezone:
   `Europe/Madrid`; ayer es el último día cerrado y los días cubiertos sin Leads
   son ceros reales.
+- `seo_ga4_organic_daily_metrics`: total diario GA4 por property, fecha y
+  ámbito (`ALL`/`ESP`), con `key_events DECIMAL(18,6)`.
+- `seo_ga4_organic_key_event_daily_metrics`: detalle España por fecha y
+  `event_name`, identificado mediante SHA-256 sin sustituir el nombre original.
 
 Search Console determina `closed-through` consultando una ventana reciente con
 `dataState=all` y dimensión `date`. Si existe `metadata.first_incomplete_date`,
@@ -30,6 +35,34 @@ el cutoff es el día anterior; si no existe, se usa la última fecha devuelta. S
 una fecha fiable, la sync falla y no persiste días abiertos. Las cuatro series
 exactas se consultan con `dataState=final`; una fecha cerrada ausente se guarda
 como `0 clicks`, `0 impressions`, `ctr=null`, `position=null`.
+
+## Conversiones web orgánicas GA4
+
+La definición cerrada es `keyEvents` con atribución event-scoped
+`defaultChannelGroup = "Organic Search"` y `platform = "web"`. España añade
+`countryId = "ES"`; Search Console conserva independientemente `ESP`. No se usa
+`sessionDefaultChannelGroup`, `sessionMedium` ni Organic Social. Los totales
+global y España proceden de reportes agregados propios; nunca se derivan del
+detalle por evento.
+
+GA4 conserva crédito decimal/fraccional y solo redondea a dos decimales en la
+vista. `Lead orgánico Salesforce` y `Conversiones web orgánicas (GA4)` son
+cardinalidades distintas: no se suman, deduplican ni sustituyen. La sync verifica
+property, timezone, al menos un web stream y al menos un Key Event configurado.
+Lista Data Streams y Key Events mediante Admin API read-only; nunca consulta
+Measurement Protocol secrets.
+
+GA4 no ofrece el `dataState=final` de Search Console. El cutoff es operativo:
+fecha actual en la timezone real de la property menos
+`SEO_GA4_REPORTING_LAG_DAYS` (default 3; rango seguro 2–7). La ventana móvil se
+resincroniza completa para absorber revisiones posteriores de procesamiento y
+atribución. Cada página `runReport` se rechaza antes de interpretar sus filas si
+GA4 indica `subjectToThresholding`, `dataLossFromOtherRow` o
+`samplingMetadatas` no vacío. Solo una respuesta sin esas señales puede
+rellenar con cero las fechas cubiertas ausentes; el detalle no fabrica ceros. El
+detalle del rango se reemplaza solo dentro de una transacción después de
+descargar y validar todos los reportes. Una incidencia de calidad conserva los
+datos anteriores y finaliza el `ReportSyncRun` como fallo técnico.
 
 ## Marca y detalle
 
@@ -74,15 +107,15 @@ además que la property del run coincida con la configurada.
 Un KPI solo está disponible si las filas locales cubren todos los días desde el
 inicio hasta el cutoff, sin huecos. Las filas sincronizadas con cero son ceros
 reales; una fila ausente significa cobertura incompleta y se representa como
-ausencia. Resumen y Tráfico y conversión usan el menor cutoff común cuando
-mezclan fuentes. Búsquedas y páginas usa exclusivamente el periodo propio de
+ausencia. Resumen y Tráfico y conversión usan el menor cutoff común de Search
+Console, Salesforce y GA4 disponibles. Búsquedas y páginas usa exclusivamente el periodo propio de
 Search Console, por lo que puede terminar en una fecha distinta. Si solo existe
 una fuente, sus métricas disponibles no quedan bloqueadas por la ausente. Las
 secciones son Resumen, Tráfico y conversión, Búsquedas y páginas, Salud técnica
 y GEO/IA.
 
-- KPI España: clicks, impressions, CTR, posición ponderada y Lead orgánico
-  Salesforce.
+- KPI España: clicks, impressions, CTR, posición ponderada, Lead orgánico
+  Salesforce y Conversiones web orgánicas GA4 como métricas separadas.
 - `CTR = SUM(clicks) / SUM(impressions)`; posición = suma de
   `daily_position * daily_impressions` dividida por impressions.
 - Resto del mundo resta solo magnitudes aditivas y recalcula ratios; la posición
@@ -98,9 +131,10 @@ php artisan seo:diagnose-integrations
 php artisan seo:diagnose-integrations --live
 php artisan seo:sync-search-console --days=120
 php artisan seo:sync-salesforce-organic --days=120
+php artisan seo:sync-ga4-organic --days=120
 ```
 
-`--days` acepta 1–480; el scheduler usa 120 días a las 05:15 y 05:30
+`--days` acepta 1–480; el scheduler usa 120 días a las 05:15, 05:30 y 05:45
 Europe/Madrid, con `withoutOverlapping(120)` y alertas técnicas administrativas.
 Una fuente sin configurar devuelve `SKIPPED` exitoso y no inventa datos.
 Fallos configurados devuelven error, quedan en `ReportSyncRun` sanitizado y no
