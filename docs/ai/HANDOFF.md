@@ -1,6 +1,61 @@
 # Handoff para agentes
 
-Actualizado: 2026-08-17.
+## SEO/Analytics Lote 4 - Salud técnica acotada (hardening 2026-08-19)
+
+- Selección cerrada: Home, URLs estratégicas configuradas y hasta 150 páginas
+  del ranking local Search Console ESP/90; default 200 URLs y hard cap 500. No
+  existe crawler, navegación de enlaces ni fuente Stock directa.
+- El checker obtiene robots/sitemaps y realiza un GET por candidato más redirects
+  válidos. Guard SSRF único: HTTP/S y puertos estándar, hosts exactos, DNS
+  íntegramente público, IP fijada al transporte y redirects manuales. Bodies,
+  cookies, Authorization y headers completos no se persisten.
+- Dos migraciones aditivas crean el registro activo/inactivo y un check único por
+  URL/día. Sitemap membership diferencia `true`, `false` y `null`; la red se
+  completa antes de la transacción corta de upsert.
+- `seo:sync-technical-health` publica `ReportSyncRun` con host y contadores no
+  sensibles. Scheduler: 06:00 Madrid, lock 120 y monitor técnico. Los findings
+  URL no generan alertas operativas ni estados analíticos.
+- Salud técnica renderiza solo BD/config, fuera del common cutoff y sin selector
+  7/28/90. Muestra métricas descriptivas, infraestructura y hasta 100 URLs.
+- Config manual pendiente: `SEO_TECHNICAL_SITE_URL`, hosts adicionales, URLs
+  estratégicas y sitemaps explícitos. No se inventaron valores. Pendiente de
+  negocio: mapping verificable Stock -> URL pública y política de retención.
+- Seguridad/rendimiento: límites de bodies/sitemaps, XML `LIBXML_NONET`, gzip
+  acotado, cero dependencias nuevas, cero HTTP desde GET y ninguna transacción
+  abierta durante red.
+- Hardening final: Guzzle pasa de 7.10.0 a 7.15.3 y `composer.json` impide
+  resolver `<7.15.2`. El guard exige hosts DNS ASCII canónicos y que todas las
+  A/AAAA sean globales. El checker ignora proxies de entorno (`proxy=''`),
+  mantiene TLS y `CURLOPT_RESOLVE`, y añade `read_timeout`.
+- El streaming lee iterativamente hasta EOF/límite+1 y cierra en `finally`;
+  `body_read_error` queda como finding aislado. Sobre HTML truncado solo se
+  conservan señales positivas: noindex y canonical múltiple; las conclusiones
+  negativas o de unicidad/coincidencia quedan no evaluables.
+- Integridad de sitemap: el flag completo combina descubrimiento concluyente de
+  robots y procesamiento íntegro de documentos. Un error/truncamiento de robots
+  o una directiva `Sitemap:` bloqueada mantiene el scan parcial; los positivos
+  hallados siguen siendo `true` y las ausencias quedan `null`.
+- `composer audit --locked` ya no informa Guzzle, pero continúa devolviendo 17
+  advisories ajenos a este lote en 8 paquetes (Laravel Framework, CommonMark y
+  componentes Symfony). No se actualizaron automáticamente; requieren un lote
+  de seguridad separado con revisión de compatibilidad.
+- Archivos: configuración/env; comando, dos modelos y servicios
+  `SeoTechnical*`; dos migraciones `2026_08_18_090000/090100`; integración
+  acotada en dataset, vista y scheduler; cuatro tests SEO técnicos; documentación
+  SEO/contexto/decisiones/operación. No se modificaron Stock, Search Console,
+  GA4, Salesforce, CSS, JavaScript ni assets.
+- Validación local de este cierre: sitemap 12 pruebas/40 aserciones,
+  SeoTechnical 35/199, SEO 82/628 y suite completa 545/3.836, correctos. El
+  presupuesto temporal ajeno de Stock falló en la primera ejecución, pero pasó
+  aisladamente y en la repetición completa sin modificar Stock. Pint
+  `--dirty --test`, Vite 8.0.12 y `git diff --check`, correctos. Vite no cambió
+  `public/build`.
+- Cambios de BD: migraciones aditivas pendientes de producción. El histórico no
+  tiene todavía una retención aprobada y no debe purgarse por analogía. Acción
+  manual: configurar/validar el origen, hosts, estratégicas y sitemaps; migrar,
+  regenerar config cache y ejecutar la primera comprobación explícitamente.
+
+Actualizado: 2026-08-19.
 
 ## SEO/Analytics Lote 3 - Conversiones web orgánicas GA4 (2026-08-17)
 

@@ -17,6 +17,7 @@ final class SeoAnalyticsDatasetService
         private readonly SearchConsoleClient $searchConsole,
         private readonly SalesforceOrganicLeadSyncService $salesforceOrganic,
         private readonly GoogleAnalyticsClient $analytics,
+        private readonly SeoTechnicalHealthDatasetService $technicalHealth,
     ) {}
 
     /** @return array<string, mixed> */
@@ -146,6 +147,11 @@ final class SeoAnalyticsDatasetService
                 ->limit((int) config('seo_analytics.visible_ga4_event_limit', 50))
                 ->get();
         }
+        $health = $section === 'health' ? $this->technicalHealth->build() : null;
+        $sources = $this->sources($searchCutoff, $salesforceCutoff, $ga4Cutoff, $property, $ga4PropertyId);
+        if ($health !== null) {
+            $sources[] = $health['source'];
+        }
 
         return [
             'range' => $range,
@@ -161,7 +167,7 @@ final class SeoAnalyticsDatasetService
             'common_period' => ['start' => $commonStart?->toDateString(), 'end' => $commonCutoff?->toDateString()],
             'search_console_period' => ['start' => $searchStart?->toDateString(), 'end' => $searchCutoff?->toDateString()],
             'cutoffs' => ['search_console' => $searchCutoff?->toDateString(), 'salesforce' => $salesforceCutoff?->toDateString(), 'ga4' => $ga4Cutoff?->toDateString()],
-            'sources' => $this->sources($searchCutoff, $salesforceCutoff, $ga4Cutoff, $property, $ga4PropertyId),
+            'sources' => $sources,
             'has_search_console' => $hasSearchConsole,
             'has_salesforce' => $hasSalesforce,
             'has_ga4' => $hasGa4,
@@ -185,6 +191,7 @@ final class SeoAnalyticsDatasetService
             'queries' => $dimensions->where('dimension_type', 'query')->take($visibleLimit)->values(),
             'pages' => $dimensions->where('dimension_type', 'page')->take($visibleLimit)->values(),
             'countries' => $dimensions->where('dimension_type', 'country')->take(100)->values(),
+            'health' => $health,
         ];
     }
 

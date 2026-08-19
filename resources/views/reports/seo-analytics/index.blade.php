@@ -6,20 +6,22 @@
                 title="SEO y Analytics"
                 description="Visibilidad orgánica de Search Console y Leads orgánicos registrados en Salesforce."
             >
-                <x-slot:actions>
-                    <form method="GET" action="{{ route('reports.seo-analytics.index') }}" class="report-ui-filter-bar">
-                        <input type="hidden" name="section" value="{{ $section }}">
-                        <label class="report-ui-field">
-                            <span class="report-ui-label">Periodo cerrado</span>
-                            <select class="report-ui-select" name="range">
-                                @foreach ($ranges as $rangeOption)
-                                    <option value="{{ $rangeOption }}" @selected($range === $rangeOption)>{{ $rangeOption }} días</option>
-                                @endforeach
-                            </select>
-                        </label>
-                        <button class="report-ui-button report-ui-button--secondary" type="submit">Aplicar</button>
-                    </form>
-                </x-slot:actions>
+                @if (in_array($section, ['summary', 'traffic', 'search'], true))
+                    <x-slot:actions>
+                        <form method="GET" action="{{ route('reports.seo-analytics.index') }}" class="report-ui-filter-bar">
+                            <input type="hidden" name="section" value="{{ $section }}">
+                            <label class="report-ui-field">
+                                <span class="report-ui-label">Periodo cerrado</span>
+                                <select class="report-ui-select" name="range">
+                                    @foreach ($ranges as $rangeOption)
+                                        <option value="{{ $rangeOption }}" @selected($range === $rangeOption)>{{ $rangeOption }} días</option>
+                                    @endforeach
+                                </select>
+                            </label>
+                            <button class="report-ui-button report-ui-button--secondary" type="submit">Aplicar</button>
+                        </form>
+                    </x-slot:actions>
+                @endif
             </x-reports.ui.page-header>
 
             <nav class="report-ui-tabs" aria-label="Secciones SEO y Analytics">
@@ -149,7 +151,81 @@
                 @endforeach
                 <details class="report-ui-data-panel"><summary class="report-ui-data-panel__header">Principales países</summary><div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Principales países"><table class="report-ui-table"><thead><tr><th scope="col">País</th><th scope="col" class="report-ui-table__numeric">Clicks</th><th scope="col" class="report-ui-table__numeric">Impresiones</th></tr></thead><tbody>@foreach ($countries as $row)<tr class="{{ strtoupper($row->dimension_value) === 'ESP' ? 'report-ui-table-row--highlight' : '' }}"><td>{{ $row->dimension_value }}</td><td class="report-ui-table__numeric">{{ $row->clicks }}</td><td class="report-ui-table__numeric">{{ $row->impressions }}</td></tr>@endforeach</tbody></table></div></details>
             @elseif ($section === 'health')
-                <x-reports.ui.empty-state kicker="Siguiente lote" title="Salud técnica pendiente" description="No se ejecutan crawler, sitemap sync ni comprobaciones HTTP en este lote." />
+                @if (! $health['available'])
+                    <x-reports.ui.empty-state
+                        kicker="Salud técnica"
+                        title="Sin comprobaciones técnicas disponibles"
+                        :description="$health['source']['detail']"
+                    />
+                @else
+                    <section class="report-ui-kpi-strip" aria-label="Resumen de salud técnica SEO">
+                        @foreach ([
+                            ['URLs monitorizadas', data_get($health, 'stats.checked_urls', 0)],
+                            ['HTTP 2xx', data_get($health, 'stats.http_2xx', 0)],
+                            ['Con redirección', data_get($health, 'stats.redirected_urls', 0)],
+                            ['HTTP 4xx/5xx', data_get($health, 'stats.http_4xx', 0) + data_get($health, 'stats.http_5xx', 0)],
+                            ['Noindex', data_get($health, 'stats.noindex_urls', 0)],
+                            ['Errores de red', data_get($health, 'stats.network_errors', 0)],
+                        ] as [$label, $value])
+                            <div class="report-ui-kpi-strip__item">
+                                <div class="report-ui-kpi-strip__label">{{ $label }}</div>
+                                <div class="report-ui-kpi-strip__value">{{ number_format((int) $value, 0, ',', '.') }}</div>
+                            </div>
+                        @endforeach
+                    </section>
+
+                    <section class="report-ui-data-panel" style="margin-top: var(--report-ui-space-4)">
+                        <div class="report-ui-data-panel__header">
+                            <x-reports.ui.section-header title="Infraestructura de rastreo" description="Comprobaciones descriptivas; no equivalen a una evaluación completa de indexabilidad." />
+                        </div>
+                        <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Infraestructura de rastreo SEO">
+                            <table class="report-ui-table">
+                                <thead><tr><th scope="col">Elemento</th><th scope="col">Resultado</th></tr></thead>
+                                <tbody>
+                                    <tr><td>Sitio configurado</td><td>{{ data_get($health, 'stats.site_host', '—') }}</td></tr>
+                                    <tr><td>robots.txt HTTP</td><td>{{ data_get($health, 'stats.robots_status') ?? data_get($health, 'stats.robots_error_code', '—') }}</td></tr>
+                                    <tr><td>Sitemaps declarados/configurados</td><td>{{ data_get($health, 'stats.sitemap_sources', 0) }}</td></tr>
+                                    <tr><td>Documentos sitemap comprobados</td><td>{{ data_get($health, 'stats.sitemap_documents_checked', 0) }}</td></tr>
+                                    <tr><td>Scan sitemap</td><td>@if (data_get($health, 'stats.sitemap_scan_complete') === true) Completo @elseif (data_get($health, 'stats.sitemap_scan_complete') === false) Parcial @else No disponible @endif</td></tr>
+                                    <tr><td>Última comprobación</td><td>{{ data_get($health, 'stats.check_date', '—') }}</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="report-ui-data-panel" style="margin-top: var(--report-ui-space-4)">
+                        <div class="report-ui-data-panel__header">
+                            <x-reports.ui.section-header title="URLs monitorizadas" description="Hechos técnicos ordenados por prioridad de revisión; no constituyen scoring analítico." />
+                        </div>
+                        @if ($health['rows']->isEmpty())
+                            <div class="report-ui-data-panel__body"><x-reports.ui.empty-state title="Sin resultados URL para la última comprobación" /></div>
+                        @else
+                            <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="URLs monitorizadas por salud técnica SEO">
+                                <table class="report-ui-table report-ui-table--sticky-header">
+                                    <thead><tr><th scope="col">URL</th><th scope="col">Origen</th><th scope="col">HTTP</th><th scope="col">Redirecciones</th><th scope="col">Noindex</th><th scope="col">Canonical</th><th scope="col">Sitemap</th><th scope="col">Tiempo</th><th scope="col">Comprobado</th></tr></thead>
+                                    <tbody>
+                                        @foreach ($health['rows'] as $row)
+                                            <tr>
+                                                <td title="{{ $row->url }}">{{ $row->url }}</td>
+                                                <td>@if ($row->is_strategic && $row->is_search_console) Estratégica + Search Console @elseif ($row->is_strategic) Estratégica @else Search Console @endif</td>
+                                                <td>{{ $row->error_code ?: ($row->http_status ?? '—') }}</td>
+                                                <td>{{ $row->redirect_count }}</td>
+                                                <td>{{ $row->has_noindex === null ? '—' : ($row->has_noindex ? 'Sí' : 'No') }}</td>
+                                                <td>@if ($row->canonical_count > 1) Múltiple @elseif ($row->body_truncated) — @elseif ($row->canonical_count === 0) Ausente @elseif ($row->canonical_matches_final === true) Coincide @elseif ($row->canonical_matches_final === false) Distinta @else — @endif</td>
+                                                <td>{{ $row->in_sitemap === null ? '—' : ($row->in_sitemap ? 'Sí' : 'No') }}</td>
+                                                <td>{{ $row->response_time_ms === null ? '—' : $row->response_time_ms.' ms' }}</td>
+                                                <td>{{ $row->checked_at }}</td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                            @if ($health['total_count'] > $health['visible_count'])
+                                <div class="report-ui-data-panel__body"><p class="report-ui-help">Mostrando {{ $health['visible_count'] }} de {{ $health['total_count'] }} URLs.</p></div>
+                            @endif
+                        @endif
+                    </section>
+                @endif
             @else
                 <x-reports.ui.empty-state kicker="GEO / IA" title="SISTRIX AI Check pendiente" description="La configuración puede diagnosticarse por CLI; esta pantalla no consume créditos ni ejecuta AI Check." />
             @endif

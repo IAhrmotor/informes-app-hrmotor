@@ -127,3 +127,17 @@ GA4 define Conversiones web orgánicas exclusivamente como `keyEvents` con
 Salesforce, sin suma ni deduplicación. Su cutoff es operativo, basado en timezone
 de property y lag configurable, y se refresca mediante ventana móvil: no se
 declara final como Search Console.
+
+## 2026-08-18 - Salud técnica SEO acotada y factual
+
+Salud técnica no es un crawler: monitoriza únicamente Home, URLs estratégicas
+configuradas y páginas del ranking local Search Console. Sitemap se utiliza para
+infraestructura y membership de esos candidatos, nunca para rastrear todo el
+sitio. No se infieren URLs de Stock mientras no exista un mapping público
+verificable.
+
+Las comprobaciones HTTP persisten hechos técnicos (respuesta, redirects,
+noindex, canonical y sitemap). La clasificación de severidad y las alertas
+analíticas pertenecen a un motor posterior. Todo fetch pasa por allowlist exacta
+de hosts, validación DNS pública y redirects manuales; el dashboard nunca accede
+a la red.

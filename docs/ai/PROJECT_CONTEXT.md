@@ -1,6 +1,6 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-08-17.
+Actualizado: 2026-08-19.
 
 ## SEO/Analytics
 
@@ -19,8 +19,22 @@ Actualizado: 2026-08-17.
   disponibilidad de KPI exige además cobertura diaria local completa.
   Resumen/Tráfico usan el cutoff común mínimo; rankings usan el periodo propio
   de Search Console y su property configurada.
-- Salud técnica, SISTRIX AI y motor analítico permanecen fuera. Contrato:
-  `docs/ai/SEO_ANALYTICS.md`.
+- Salud técnica está implementada como monitor acotado y persistido. SISTRIX AI
+  y el motor analítico permanecen fuera. Contrato: `docs/ai/SEO_ANALYTICS.md`.
+
+### Salud técnica SEO
+
+- Un comando programado monitoriza únicamente Home, configuración estratégica
+  y páginas del ranking local Search Console; no recorre enlaces ni infiere URLs
+  de Stock.
+- Robots y sitemap describen infraestructura y membership del conjunto
+  seleccionado. Los checks HTTP diarios persisten hechos técnicos, no severidad
+  analítica.
+- Todo fetch usa allowlist exacta, host DNS ASCII canónico, todas las IP
+  globales, proxy desactivado, pin `CURLOPT_RESOLVE`, TLS verificado y redirects
+  manuales. La lectura streaming es acotada y un body parcial nunca acredita
+  conclusiones negativas de noindex/canonical. El dashboard sigue leyendo
+  exclusivamente BD/config y queda fuera del common cutoff.
 
 ## Design System de informes
 

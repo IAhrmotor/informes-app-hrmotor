@@ -2,14 +2,15 @@
 
 ## Alcance operativo
 
-Los Lotes 2 y 3 incorporan datos persistidos de Google Search Console, una
+Los Lotes 2, 3 y 4 incorporan datos persistidos de Google Search Console, una
 proyección diaria aislada de Leads orgánicos Salesforce y Conversiones web
 orgánicas GA4. `GET
 /informes/seo-analytics` consulta exclusivamente la base local y configuración:
 no llama Google, Salesforce, GA4 ni SISTRIX.
 
-Continúan pendientes salud técnica, crawler/sitemap, SISTRIX AI Check, motor
-comparativo, scoring, anomalías y correo.
+Continúan pendientes el crawler general, SISTRIX AI Check, motor comparativo,
+scoring, anomalías y correo. Salud técnica ya monitoriza un conjunto acotado,
+incluidos robots/sitemaps, sin convertirse en crawler.
 
 ## Persistencia y cierre
 
@@ -63,6 +64,76 @@ rellenar con cero las fechas cubiertas ausentes; el detalle no fabrica ceros. El
 detalle del rango se reemplaza solo dentro de una transacción después de
 descargar y validar todos los reportes. Una incidencia de calidad conserva los
 datos anteriores y finaliza el `ReportSyncRun` como fallo técnico.
+
+## Salud técnica SEO
+
+Salud técnica monitoriza un conjunto deliberadamente acotado; no es un crawler.
+Los candidatos se seleccionan en este orden: raíz de
+`SEO_TECHNICAL_SITE_URL`, URLs de `SEO_TECHNICAL_STRATEGIC_URLS` y ranking local
+Search Console de páginas España/90 días para la property configurada. Home
+siempre es estratégica. No se recorren enlaces HTML, no se descargan assets, no
+se ejecuta JavaScript y el sitemap no incorpora automáticamente todas sus URLs.
+Stock no aporta candidatos directos porque `SalesforceVehicle` carece de una URL
+pública verificable; una ficha solo entra si está configurada o aparece en el
+ranking local de Search Console.
+
+Toda petición usa `HRMotor-SEO-Health/1.0`, timeouts acotados y un guard SSRF
+único. Solo admite HTTP/HTTPS, puertos 80/443 y hosts DNS ASCII canónicos y
+exactos del sitio o de `SEO_TECHNICAL_ALLOWED_HOSTS`; rechaza userinfo, IP
+literal o numérica ambigua, percent escapes, trailing dot, localhost y toda
+resolución que no sea global. Si una sola A/AAAA no es global, se rechaza el
+host completo. Cada redirect se resuelve y valida antes de seguirlo, con
+redirects automáticos desactivados y máximo 5.
+
+El transporte usa Guzzle `>=7.15.2,<8` (lock 7.15.3), desactiva explícitamente
+el proxy de entorno, conserva TLS/hostname verification y fija mediante
+`CURLOPT_RESOLVE` la IP global validada para evitar DNS rebinding. No se envían
+cookies, Proxy-Authorization ni Authorization, y no se persisten bodies o
+headers completos.
+
+`robots.txt` se construye desde el origen y solo aporta su estado HTTP y
+directivas `Sitemap:`; no se interpretan `Allow`/`Disallow`. Los sitemaps de
+robots se combinan con `SEO_TECHNICAL_SITEMAP_URLS`, se deduplican y soportan
+`urlset`, `sitemapindex`, referencias recursivas y gzip acotado. El XML usa
+`LIBXML_NONET`, nunca expansión de entidades. Límites duros/configurados: 50
+documentos, 100.000 URLs escaneadas y 10 MiB por documento/descompresión. Una
+URL encontrada queda `in_sitemap=true`; una ausencia solo es `false` si todo el
+scan terminó, y es `null` si no existe sitemap, falla o queda parcial.
+
+`sitemap_scan_complete=true` exige simultáneamente un descubrimiento concluyente
+de fuentes y el procesamiento completo de sus documentos. `robots.txt` 2xx solo
+es concluyente si el body se leyó íntegramente y todas sus directivas `Sitemap:`
+fueron válidas; 404/410 acredita que no aporta directivas. Cualquier otro estado,
+error, truncamiento o directiva rechazada por seguridad deja el scan parcial sin
+solicitar destinos bloqueados. En un scan parcial, una pertenencia encontrada
+conserva `true`, pero una ausencia permanece `null`.
+
+Cada URL recibe un único GET más redirects válidos. En HTML 2xx se observan
+`meta robots`/`googlebot`, `X-Robots-Tag`, canonical y coincidencia con la URL
+final; otros content types no se parsean. El body se limita a 512 KiB y se
+descarta. La lectura streaming itera hasta EOF o límite+1, usa `read_timeout` y
+cierra siempre el stream. Un fallo posterior a headers produce
+`body_read_error` para esa URL y no aborta las demás. En un body truncado, una
+señal positiva noindex o canonical múltiple se conserva; la ausencia de
+noindex/canonical o la unicidad/coincidencia canonical quedan no evaluables.
+HTTP 4xx/5xx, noindex, redirects y errores de red se persisten como hechos
+técnicos, no como estados analíticos ni `OperationalAlert` individuales.
+
+`seo_technical_urls` conserva el registro activo/inactivo y metadata de origen;
+`seo_technical_url_checks` conserva un check idempotente por URL/día. El comando
+`seo:sync-technical-health` hace toda la red antes de la transacción corta de
+persistencia y publica `ReportSyncRun` (`seo_technical_health`,
+`public_website`). Se programa a las 06:00 Europe/Madrid con lock de 120 minutos.
+El panel Salud técnica lee exclusivamente BD/config, muestra el último run
+completado aunque exista uno fallido/en curso posterior, y no participa en el
+common cutoff ni en el selector 7/28/90. Límites: 200 candidatos por defecto,
+500 absoluto, 150 automáticos de Search Console y 100 filas visibles.
+
+Quedan expresamente fuera: indexabilidad completa, evaluación RFC de robots,
+crawler general, Core Web Vitals/Lighthouse, render JavaScript, schema.org,
+scoring, severidad, recomendaciones y alertas analíticas. La retención del nuevo
+histórico no se inventa en este lote. También queda pendiente un mapping
+verificable Stock -> URL pública.
 
 ## Marca y detalle
 

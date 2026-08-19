@@ -134,3 +134,12 @@ $monitor(
     'seo-sync-ga4-organic',
     'sincronizacion SEO de Conversiones web organicas GA4',
 );
+
+$monitor(
+    Schedule::command('seo:sync-technical-health')
+        ->dailyAt('06:00')
+        ->timezone('Europe/Madrid')
+        ->withoutOverlapping(120),
+    'seo-sync-technical-health',
+    'comprobacion de salud tecnica SEO',
+);

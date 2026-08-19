@@ -246,6 +246,44 @@ aditivas; un rollback de esquema elimina datos SEO ya sincronizados y requiere
 backup/análisis explícito, por lo que se prefiere rollback de código compatible
 o forward fix.
 
+## SEO/Analytics Lote 4 - Salud técnica
+
+Antes del despliegue, definir sin inventar valores:
+
+```dotenv
+SEO_TECHNICAL_SITE_URL=
+SEO_TECHNICAL_ALLOWED_HOSTS=
+SEO_TECHNICAL_STRATEGIC_URLS=
+SEO_TECHNICAL_SITEMAP_URLS=
+```
+
+`SITE_URL` es el origen público SEO, no `APP_URL`. Las otras variables son
+listas separadas por comas; los hosts son exactos y sin wildcards. Validar con
+el propietario SEO todas las URLs estratégicas y sitemaps antes de ejecutar.
+
+Desplegar las migraciones aditivas y refrescar configuración, sin Node:
+
+```bash
+php artisan migrate --force --no-interaction
+php artisan config:clear
+php artisan config:cache
+```
+
+La primera comprobación es una acción manual explícita y realiza HTTP contra el
+sitio configurado:
+
+```bash
+php artisan seo:sync-technical-health
+php artisan schedule:list
+```
+
+Comprobar después el último `report_sync_runs.dataset=seo_technical_health`, los
+contadores no sensibles, las tablas `seo_technical_urls` y
+`seo_technical_url_checks`, y el panel Salud técnica. No ejecutar el comando si
+el host, allowed hosts o sitemaps no han sido validados. El rollback de esquema
+eliminaría el histórico técnico y requiere backup/análisis explícito; se prefiere
+rollback de código compatible o forward fix.
+
 ## Rollback y pendientes
 
 - Preferir rollback de código si el esquema aditivo es compatible.
