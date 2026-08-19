@@ -71,6 +71,103 @@ class SeoGa4SyncTest extends TestCase
         ));
     }
 
+    public function test_sync_normalizes_real_scientific_values_exactly_in_daily_and_event_rows(): void
+    {
+        CarbonImmutable::setTestNow('2026-08-17 12:00:00 Europe/Madrid');
+        $this->configureGa4();
+        $this->fakeContextAndReports([
+            'global' => [$this->row(['20260813'], ['1.23e2'])],
+            'spain' => [$this->row(['20260813'], ['2.6E-05'])],
+            'events' => [
+                $this->row(['20260813', 'cita_reservada_tasacion_exp'], ['2.6e-05']),
+                $this->row(['20260813', 'necesito_mas_informacion_exp'], ['4e-06']),
+                $this->row(['20260813', 'positive_exponent'], ['1e+3']),
+                $this->row(['20260813', 'zero_extreme_exponent'], ['0e-999999']),
+                $this->row(['20260813', 'trailing_zero_precision'], ['1.1234560']),
+                $this->row(['20260813', 'leading_zero_decimal'], ['0001.2300']),
+                $this->row(['20260814', 'conventional_quarter'], ['0.25']),
+                $this->row(['20260814', 'conventional_fraction'], ['1.75']),
+                $this->row(['20260814', 'conventional_scale'], ['1.333333']),
+            ],
+        ]);
+
+        app(Ga4OrganicConversionSyncService::class)->sync(2);
+
+        $this->assertSame('123.000000', SeoGa4OrganicDailyMetric::query()->where('country_scope', 'ALL')->whereDate('data_date', '2026-08-13')->value('key_events'));
+        $this->assertSame('0.000026', SeoGa4OrganicDailyMetric::query()->where('country_scope', 'ESP')->whereDate('data_date', '2026-08-13')->value('key_events'));
+        $this->assertSame('0.000026', $this->eventValue('cita_reservada_tasacion_exp'));
+        $this->assertSame('0.000004', $this->eventValue('necesito_mas_informacion_exp'));
+        $this->assertSame('1000.000000', $this->eventValue('positive_exponent'));
+        $this->assertSame('0.000000', $this->eventValue('zero_extreme_exponent'));
+        $this->assertSame('1.123456', $this->eventValue('trailing_zero_precision'));
+        $this->assertSame('1.230000', $this->eventValue('leading_zero_decimal'));
+        $this->assertSame('0.250000', $this->eventValue('conventional_quarter'));
+        $this->assertSame('1.750000', $this->eventValue('conventional_fraction'));
+        $this->assertSame('1.333333', $this->eventValue('conventional_scale'));
+    }
+
+    public function test_sync_rejects_inexact_overflow_and_invalid_metric_values_without_rounding(): void
+    {
+        CarbonImmutable::setTestNow('2026-08-17 12:00:00 Europe/Madrid');
+        $this->configureGa4();
+        $cases = [
+            '4e-07' => 'precision superior',
+            '1.1234567' => 'precision superior',
+            '1000000000000' => 'fuera del rango',
+            '1e999999' => 'fuera del rango',
+            '1e-999999' => 'precision superior',
+            'NaN' => 'keyEvents invalido',
+            'Infinity' => 'keyEvents invalido',
+            '-1' => 'keyEvents invalido',
+            '-2.6e-05' => 'keyEvents invalido',
+            '1,25' => 'keyEvents invalido',
+            'abc' => 'keyEvents invalido',
+            '' => 'keyEvents invalido',
+        ];
+
+        foreach ($cases as $value => $expectedMessage) {
+            $this->fakeContextAndReports([
+                'global' => [$this->row(['20260813'], [$value])],
+            ]);
+
+            $exception = $this->captureRuntimeException(
+                fn () => app(Ga4OrganicConversionSyncService::class)->sync(2)
+            );
+
+            $this->assertStringContainsString($expectedMessage, $exception->getMessage());
+            $this->assertSame(0, SeoGa4OrganicDailyMetric::query()->count());
+            $this->assertSame(0, SeoGa4OrganicKeyEventDailyMetric::query()->count());
+        }
+    }
+
+    public function test_unrepresentable_scientific_value_preserves_previous_ga4_rows(): void
+    {
+        CarbonImmutable::setTestNow('2026-08-17 12:00:00 Europe/Madrid');
+        $this->configureGa4();
+        $this->fakeContextAndReports([
+            'global' => [$this->row(['20260813'], ['2.5'])],
+            'spain' => [$this->row(['20260813'], ['1.25'])],
+            'events' => [$this->row(['20260813', 'existing_event'], ['0.25'])],
+        ]);
+        app(Ga4OrganicConversionSyncService::class)->sync(2);
+        $dailyBefore = SeoGa4OrganicDailyMetric::query()->orderBy('id')->pluck('key_events', 'id')->all();
+        $detailBefore = SeoGa4OrganicKeyEventDailyMetric::query()->orderBy('id')->pluck('key_events', 'event_name')->all();
+
+        $this->fakeContextAndReports([
+            'global' => [$this->row(['20260813'], ['99'])],
+            'spain' => [$this->row(['20260813'], ['99'])],
+            'events' => [$this->row(['20260813', 'replacement_event'], ['4e-07'])],
+        ]);
+        $exception = $this->captureRuntimeException(
+            fn () => app(Ga4OrganicConversionSyncService::class)->sync(2)
+        );
+
+        $this->assertStringContainsString('precision superior', $exception->getMessage());
+        $this->assertSame($dailyBefore, SeoGa4OrganicDailyMetric::query()->orderBy('id')->pluck('key_events', 'id')->all());
+        $this->assertSame($detailBefore, SeoGa4OrganicKeyEventDailyMetric::query()->orderBy('id')->pluck('key_events', 'event_name')->all());
+        $this->assertDatabaseMissing('seo_ga4_organic_key_event_daily_metrics', ['event_name' => 'replacement_event']);
+    }
+
     public function test_resync_replaces_stale_event_detail_and_remote_failure_preserves_previous_rows(): void
     {
         CarbonImmutable::setTestNow('2026-08-17 12:00:00 Europe/Madrid');
@@ -361,6 +458,13 @@ class SeoGa4SyncTest extends TestCase
             'dimensionValues' => array_map(fn (string $value): array => ['value' => $value], $dimensions),
             'metricValues' => array_map(fn (string $value): array => ['value' => $value], $metrics),
         ];
+    }
+
+    private function eventValue(string $eventName): ?string
+    {
+        return SeoGa4OrganicKeyEventDailyMetric::query()
+            ->where('event_name', $eventName)
+            ->value('key_events');
     }
 
     /** @param array<int, string> $dimensions */

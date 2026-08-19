@@ -13,7 +13,9 @@ Actualizado: 2026-08-19.
   separados del detalle España por evento. Usa timezone de property, lag
   operativo y rolling refresh; nunca se suma con Leads Salesforce. Cada página
   Data API supera una quality gate de thresholding, data loss y sampling antes
-  de que una ausencia pueda convertirse en cero.
+  de que una ausencia pueda convertirse en cero. Sus strings `TYPE_FLOAT` se
+  normalizan a escala 6 mediante aritmética decimal textual, sin redondeo ni
+  conversión IEEE-754.
 - Las fuentes se sincronizan por comandos independientes y scheduler monitorizado;
   cada cutoff visible procede del último `ReportSyncRun` completado. La
   disponibilidad de KPI exige además cobertura diaria local completa.

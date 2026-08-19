@@ -47,7 +47,11 @@ global y España proceden de reportes agregados propios; nunca se derivan del
 detalle por evento.
 
 GA4 conserva crédito decimal/fraccional y solo redondea a dos decimales en la
-vista. `Lead orgánico Salesforce` y `Conversiones web orgánicas (GA4)` son
+vista. Los valores `TYPE_FLOAT` recibidos como strings, incluida notación
+científica, se normalizan exactamente a `DECIMAL(18,6)` sin punto flotante PHP;
+si requieren más de seis decimales reales o exceden 12 enteros, la sync falla
+antes de persistir y conserva los datos anteriores. `Lead orgánico Salesforce`
+y `Conversiones web orgánicas (GA4)` son
 cardinalidades distintas: no se suman, deduplican ni sustituyen. La sync verifica
 property, timezone, al menos un web stream y al menos un Key Event configurado.
 Lista Data Streams y Key Events mediante Admin API read-only; nunca consulta

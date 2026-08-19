@@ -18,6 +18,7 @@ final class Ga4OrganicConversionSyncService
 
     public function __construct(
         private readonly GoogleAnalyticsClient $client,
+        private readonly Ga4MetricDecimalNormalizer $metricNormalizer,
     ) {}
 
     public function configured(): bool
@@ -316,13 +317,8 @@ final class Ga4OrganicConversionSyncService
     private function metricValue(array $row): string
     {
         $value = (string) data_get($row, 'metricValues.0.value', '');
-        if (! preg_match('/^\d{1,12}(?:\.\d{1,6})?$/', $value)) {
-            throw new RuntimeException('Google Analytics devolvio keyEvents invalido.');
-        }
 
-        [$whole, $fraction] = array_pad(explode('.', $value, 2), 2, '');
-
-        return $whole.'.'.str_pad($fraction, 6, '0');
+        return $this->metricNormalizer->normalize($value);
     }
 
     private function validatedTimezone(mixed $timezone): string

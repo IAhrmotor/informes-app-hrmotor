@@ -83,6 +83,11 @@ Actualizado: 2026-08-19.
 
 ## SEO/Analytics Lote 3 - Conversiones web orgánicas GA4 (2026-08-17)
 
+- Fix productivo de métricas: `Ga4MetricDecimalNormalizer` acepta decimal y
+  notación científica `TYPE_FLOAT` mediante manipulación textual exacta. Los
+  valores reales `2.6e-05` y `4e-06` persisten como `0.000026` y `0.000004`.
+  No usa float; precisión real superior a seis decimales u overflow de
+  `DECIMAL(18,6)` falla antes de la transacción y conserva datos anteriores.
 - GA4 sincroniza exclusivamente `keyEvents` atribuidos a
   `defaultChannelGroup = Organic Search`, `platform = web`; España usa
   `countryId = ES`. Salesforce y GA4 siguen siendo métricas separadas y nunca se
@@ -115,9 +120,10 @@ Actualizado: 2026-08-19.
   `seo:sync-ga4-organic --days=120` solo tras aprobar la property. El riesgo
   residual principal es validar con datos reales que la taxonomía de Key Events
   y los valores `defaultChannelGroup`/`platform` coinciden con la property.
-- Validación local final tras la quality gate: sync GA4 8 pruebas/68
-  aserciones; GA4 17/127; suite SEO 47/414; suite completa 510/3.622. Pint
-  `--dirty --test`, Vite 8.0.12 y `git diff --check`, correctos. El build no
+- Validación local tras el normalizador científico: normalizador 2 pruebas/34
+  aserciones; sync GA4 11/119; GA4 20/178; SEO 85/679; suite completa
+  550/3.921 (272,30 s). Pint `--dirty --test`, Vite 8.0.12,
+  `composer audit --locked --no-dev` y `git diff --check`, correctos. El build no
   cambió `public/build` porque no existen cambios CSS/JS.
 
 ## SEO/Analytics Lote 2 - Search Console y Lead orgánico (2026-08-17)
