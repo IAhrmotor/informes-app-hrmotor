@@ -1,5 +1,28 @@
 # Handoff para agentes
 
+## Dependencias runtime sin advisories (2026-08-19)
+
+- Actualización focalizada dentro de majors: Laravel 13.8.0 -> 13.12.0,
+  CommonMark 2.8.2 -> 2.9.0, cinco componentes Symfony afectados -> 8.0.15 e
+  `symfony/polyfill-intl-idn` 1.37.0 -> 1.38.1. No cambió ningún otro paquete
+  del lock final.
+- Guzzle permanece 7.15.3 y PSR-7 2.13.0. `composer.json` bloquea tanto sus
+  rangos vulnerables como Guzzle 8/PSR-7 3 para conservar los majors aprobados.
+- GitHub Actions ejecuta `composer audit --locked --no-dev` después de instalar
+  dependencias, sin ignores ni tolerancia de fallo. Operación instala el lock y
+  repite el audit; nunca ejecuta update en producción.
+- Seguridad: `composer audit --locked --no-dev` y el audit completo devuelven
+  cero advisories. No se añadieron dependencias, supresiones, secretos ni
+  permisos de CI.
+- Rendimiento/funcionalidad: no cambian aplicación, consultas, scheduler,
+  sincronizadores, frontend, assets ni esquemas. Suite SEO 82/628,
+  autenticación 8/43, navegación estratégica 6/84 y suite completa 545/3.836
+  correctas (315,45 s). Pint, Vite 8.0.12 y `git diff --check`, correctos.
+- Archivos: `composer.json`, `composer.lock`, `.github/workflows/ci.yml` y
+  documentación operativa/AI. No hay migraciones ni configuración manual nueva;
+  producción deberá desplegar el lock aprobado mediante
+  `composer install --no-dev` y exigir audit runtime limpio.
+
 ## SEO/Analytics Lote 4 - Salud técnica acotada (hardening 2026-08-19)
 
 - Selección cerrada: Home, URLs estratégicas configuradas y hasta 150 páginas
@@ -35,10 +58,11 @@
   robots y procesamiento íntegro de documentos. Un error/truncamiento de robots
   o una directiva `Sitemap:` bloqueada mantiene el scan parcial; los positivos
   hallados siguen siendo `true` y las ausencias quedan `null`.
-- `composer audit --locked` ya no informa Guzzle, pero continúa devolviendo 17
-  advisories ajenos a este lote en 8 paquetes (Laravel Framework, CommonMark y
-  componentes Symfony). No se actualizaron automáticamente; requieren un lote
-  de seguridad separado con revisión de compatibilidad.
+- Hardening runtime final: Laravel 13.12.0, CommonMark 2.9.0, Symfony afectado
+  8.0.15 e IDN polyfill 1.38.1 eliminan los 17 advisories restantes. Guzzle
+  7.15.3 y PSR-7 2.13.0 se conservan; sus majors superiores quedan bloqueados
+  por `composer.json`. CI ejecuta `composer audit --locked --no-dev` sin
+  supresiones y producción debe instalar el lock, nunca actualizarlo.
 - Archivos: configuración/env; comando, dos modelos y servicios
   `SeoTechnical*`; dos migraciones `2026_08_18_090000/090100`; integración
   acotada en dataset, vista y scheduler; cuatro tests SEO técnicos; documentación

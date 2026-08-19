@@ -169,6 +169,8 @@ modificar datos hasta materializar y probar sus consumidores.
 
 ```bash
 php artisan down --retry=60
+composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+composer audit --locked --no-dev
 php artisan migrate --force --no-interaction
 php artisan optimize:clear
 php artisan config:cache
@@ -176,6 +178,9 @@ php artisan route:cache
 php artisan view:cache
 php artisan up
 ```
+
+El audit debe finalizar sin advisories antes de continuar. Producción instala el
+`composer.lock` aprobado; no se ejecuta `composer update` en el servidor.
 
 6. Reanudar `schedule:run` y ejecutar solo checks/dry-run. No ejecutar sync,
    reprocesados, backfills, pruning real ni rotación real como parte implícita.

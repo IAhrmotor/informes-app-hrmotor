@@ -74,8 +74,9 @@ Actualizado: 2026-08-19.
 
 ## Operación transversal
 
-- GitHub Actions es la CI canónica: PHP 8.4, Composer bloqueado, SQLite de
-  testing, suite, Pint, Vite y `git diff --check` con permisos de solo lectura.
+- GitHub Actions es la CI canónica: PHP 8.4, Composer bloqueado, audit runtime
+  `composer audit --locked --no-dev`, SQLite de testing, suite, Pint, Vite y
+  `git diff --check` con permisos de solo lectura.
 - Producción no dispone de Node/npm; despliega `public/build` ya construido.
 - Las APIs internas entrantes usan credenciales de entorno identificables por
   integración/versión, rate limit por integración y audit log diario sin body.

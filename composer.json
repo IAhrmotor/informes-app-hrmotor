@@ -10,7 +10,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
-        "laravel/framework": "^13.7",
+        "laravel/framework": "^13.12",
         "laravel/tinker": "^3.0"
     },
     "require-dev": {
@@ -24,7 +24,8 @@
         "pestphp/pest-plugin-laravel": "^4.1"
     },
     "conflict": {
-        "guzzlehttp/guzzle": "<7.15.2"
+        "guzzlehttp/guzzle": "<7.15.2 || >=8",
+        "guzzlehttp/psr7": "<2.12.3 || >=3"
     },
     "autoload": {
         "psr-4": {
