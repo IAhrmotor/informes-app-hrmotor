@@ -1,5 +1,56 @@
 # Handoff para agentes
 
+## API mensual canónica de Comisiones Comerciales (2026-08-20)
+
+- `GET /api/comisiones_comercial` mantiene `salesforce_id` obligatorio y añade
+  `month=YYYY-MM` opcional. El mes explícito se valida estrictamente: formato,
+  mes real y no futuro; los errores son `422` sin fallback silencioso. Sin mes se
+  usa `CommissionMonthResolver`.
+- La fuente y la fila se resuelven antes que la elegibilidad actual. Una fila de
+  snapshot definitivo se devuelve aunque el usuario haya quedado inactivo,
+  cambiado a perfil no comercial o desaparecido de `salesforce_users`. Reopened
+  continúa ignorando el snapshot anterior y usa el cálculo vivo.
+- Si no existe fila canónica, la elegibilidad fallback exige coincidencia PHP
+  exacta —también en mayúsculas/minúsculas—, `is_active=true` y las reglas ya
+  usadas por `CommercialCommissionDashboardService`. No hay búsqueda por
+  nombre/email, coincidencia parcial ni consulta Salesforce en vivo.
+- La respuesta mensual expone metadatos no económicos, `has_data` y la `row`
+  exacta de `summary_rows`, incluidos `details`. `200`/`row=null` significa solo
+  usuario activo/elegible sin fila; IDs inexistentes, técnicos, inactivos o no
+  elegibles reciben un `404` genérico si no existe fila congelada. Nunca se
+  devuelven las demás filas del dataset.
+- Los definitivos leen `definitiveSnapshot(month, commercials)` antes de
+  construir el cálculo vivo. Provisional, pendiente y reabierto ejecutan
+  `build(month, true, false, true)` una sola vez: sin Delegaciones ni las otras
+  pestañas. No se copiaron ni modificaron fórmulas económicas.
+- Un payload vivo con `ready !== true` devuelve `503` genérico, sin `issues`,
+  filas ni importes. La compatibilidad sin `month` también falla completa si el
+  mes actual o el mes anterior requerido no están disponibles; no fabrica cero.
+- Las peticiones sin `month` conservan temporalmente `current_month` y
+  `previous_closed_month`; además reciben el contrato mensual canónico. Las
+  peticiones con `month` no calculan el mes anterior.
+- Archivos modificados: controlador API, servicio de dashboard (consulta pública
+  de elegibilidad exacta), test feature de API, documentación funcional,
+  operativa, general, README y este handoff. Sin migraciones, dependencias,
+  variables de entorno ni cambios en middleware, cierres, snapshots o SEO.
+- Seguridad: se conservan `internal.api.audit`, `commissions.api.auth` e
+  `internal.api.throttle`, `X-Request-ID` y el logging sin query/body/details ni
+  secretos. Las pruebas usan exclusivamente credenciales y datos sintéticos.
+- Rendimiento: un mes explícito realiza una sola construcción económica y una
+  sola carga de sus `summary_rows`; un definitivo no ejecuta cálculo vivo. La
+  compatibilidad sin mes mantiene dos meses por contrato legacy.
+- Validación final de esta corrección: sintaxis PHP correcta; API 22 pruebas /
+  138 aserciones (`8187 ms`); dashboard 45 / 294 (`12199 ms`); cierres 9 / 72
+  (`5689 ms`); suite completa 586 / 4.206 (`261287 ms`), todo correcto.
+  `vendor/bin/pint --dirty --test`, `git diff --check` y la ruta con
+  `internal.api.audit`, `commissions.api.auth` e `internal.api.throttle`
+  también correctos.
+- Acciones manuales: ninguna migración ni configuración nueva. Antes de retirar
+  los campos legacy debe identificarse y migrarse el consumidor externo.
+- Riesgo residual: el consumidor externo no está localizado en el repositorio;
+  por ello no se eliminó el contrato anterior. No se desplegó, sincronizó ni
+  modificó información real.
+
 ## SEO/Analytics Lote 5 - Comparativa diaria (2026-08-19)
 
 - Se añadió el core transversal `SameWeekdayComparisonEngine`, sin queries ni

@@ -33,6 +33,24 @@ Este hardening no modifica KPIs, fórmulas, cierres ni reglas funcionales.
 |---|---|---|---|---|---|---|
 | `/api/comisiones_comercial` | GET | No verificable en repo | Basic por credencial activa | por integración | log diario estructurado | Salesforce User ID e importes |
 
+Contrato: `salesforce_id` es obligatorio y escalar; `month=YYYY-MM` es opcional.
+Con mes explícito solo se construye ese mes. Sin mes se usa
+`CommissionMonthResolver` y se mantienen temporalmente los bloques legacy
+`current_month` y `previous_closed_month`, además de la fila mensual canónica.
+La fila procede exactamente de `commercials.summary_rows`: del snapshot si el
+scope está definitivo y del dataset vivo para estados provisional, pendiente o
+reabierto. La fila definitiva precede a cualquier validación del perfil, estado
+o existencia actual del usuario. `200` con `row=null` queda reservado a un
+Salesforce User ID exacto, activo y elegible sin fila; un ID inexistente,
+técnico, inactivo o no elegible responde `404` cuando no hay fila congelada; mes
+inválido o futuro responde `422`. Un dataset vivo con `ready=false` responde
+`503` genérico sin incidencias internas y nunca fabrica importes cero, también
+en la respuesta legacy sin `month`.
+
+La ruta conserva, en este orden, `internal.api.audit`, `commissions.api.auth` e
+`internal.api.throttle`. La auditoría conserva `X-Request-ID` y no registra query
+completa, respuesta, `details`, Salesforce IDs, `Authorization` ni secretos.
+
 La compatibilidad `COMMISSIONS_API_USER` + `COMMISSIONS_API_PASSWORD` se mantiene
 durante la transición. La configuración recomendada es un JSON gestionado fuera
 del repositorio en `COMMISSIONS_API_CREDENTIALS`:

@@ -149,6 +149,11 @@ permisos y Reservas/Ventas también fueron correctas.
 - La Basic Auth de la API interna de Comisiones es independiente del login
   humano, falla cerrada, admite credenciales versionadas por integración,
   rate limit por integración y auditoría estructurada sin secretos.
+- La API interna de Comisiones acepta un `month=YYYY-MM` opcional y entrega solo
+  la fila canónica del Salesforce User ID solicitado; los meses definitivos leen
+  el mismo snapshot congelado que la pantalla con independencia del perfil o
+  estado actual, y los demás estados reutilizan el dataset vivo sin duplicar
+  fórmulas. Un dataset no calculable falla con `503`, nunca como comisión cero.
 - El login humano limita intentos fallidos; las sesiones de producción usan
   cookies Secure/HttpOnly y cifrado por defecto cuando no se sobrescribe.
 - Los logs rotan diariamente durante 90 días y pasan por sanitización central.

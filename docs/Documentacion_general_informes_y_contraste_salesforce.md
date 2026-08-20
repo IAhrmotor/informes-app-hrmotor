@@ -843,7 +843,11 @@ funcional.
 - CSV de Call Center sin captador:
   `/informes/comisiones-comerciales/export/call-center-missing-captador.csv`;
 - API Basic Auth:
-  `/api/comisiones_comercial?salesforce_id={ID}`;
+  `/api/comisiones_comercial?salesforce_id={ID}&month={YYYY-MM}`. `month` es
+  opcional; la fila completa procede de `commercials.summary_rows`, usa el
+  snapshot para cierres definitivos aunque cambie después la elegibilidad del
+  usuario, devuelve `row=null` solo para un ID exacto, activo y elegible sin fila
+  real, y responde `503` si el dataset vivo no está calculable;
 - configuración mensual: `/informes/configuracion-comisiones`;
 - penalizaciones: `/informes/penalizaciones-financiacion`.
 - reseñas: `/informes/comisiones-comerciales/export/reviews-audit.csv`.

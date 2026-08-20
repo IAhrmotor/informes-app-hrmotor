@@ -18,6 +18,41 @@ El mes solicitado se conserva en URL y selector. El mes actual puede consultarse
 y siempre se muestra como `Provisional`; ninguna pestaña cambia por su cuenta al
 último mes cerrado.
 
+## API mensual de Comerciales
+
+`GET /api/comisiones_comercial` exige `salesforce_id` y acepta opcionalmente
+`month=YYYY-MM`. La identidad se compara de forma exacta y exclusiva con el
+Salesforce User ID, incluida su capitalización; no existe fallback por nombre,
+email ni coincidencia parcial.
+
+Con `month`, la respuesta contiene `commercial_id`, `month`, `month_label`,
+`economic_status`, `has_data` y `row`. `row` es, sin mapeo ni redondeo adicional,
+la fila completa de `summary_rows` de la pestaña Comerciales e incluye `details`.
+`200`, `has_data=false` y `row=null` significa exclusivamente que el usuario
+actual existe, está activo, es elegible y no tiene fila real en ese período. Un
+ID inexistente, técnico, inactivo o no elegible recibe `404` genérico cuando no
+hay una fila histórica canónica. Formatos, meses imposibles y meses futuros
+reciben `422` y nunca se sustituyen por el mes actual.
+
+Si el dataset vivo devuelve `ready=false`, la API responde `503` con un mensaje
+genérico; no expone las incidencias internas ni convierte la indisponibilidad en
+`has_data=false` o comisión cero. Sin `month`, la indisponibilidad del mes actual
+o del bloque legacy del mes anterior invalida de forma segura toda la respuesta.
+
+Sin `month`, `CommissionMonthResolver` selecciona el mismo mes que el informe. Se
+añade la fila canónica mensual y se conservan temporalmente `current_month` y
+`previous_closed_month` con su forma legacy para no romper un consumidor externo
+que no puede identificarse en este repositorio.
+
+La API consulta `CommercialCommissionClosureService::definitiveSnapshot()` para
+el scope `commercials`. Si el bloque es definitivo, selecciona la fila del
+snapshot congelado que usa la pantalla antes de consultar la elegibilidad viva.
+Una fila definitiva sigue siendo válida aunque el usuario actual esté inactivo,
+haya cambiado de perfil o ya no exista localmente. Los meses provisionales,
+pendientes o reabiertos usan una única construcción viva
+`CommercialCommissionDashboardService::build($month, true, false, true)`: no se
+construyen Delegaciones ni otras pestañas y no existe una segunda fórmula.
+
 ## Cierre económico por bloque
 
 Estados persistentes:

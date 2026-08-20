@@ -103,16 +103,14 @@ class CommercialCommissionDashboardService
         private readonly CommercialCommissionDelegationReviewsService $delegationReviews,
         private readonly CommercialFinancingPenaltyService $financingPenalties,
         private readonly CommissionMonthResolver $monthResolver,
-    ) {
-    }
+    ) {}
 
     public function build(
         ?string $month,
         bool $includeSummaryRows = true,
         bool $includeDelegationRows = true,
         bool $includeDetails = true,
-    ): array
-    {
+    ): array {
         $monthContext = $this->monthResolver->resolveWithContext($month);
         $selectedMonth = $monthContext['month'];
         $periodStart = $selectedMonth->startOfMonth();
@@ -293,14 +291,34 @@ class CommercialCommissionDashboardService
         ];
     }
 
+    public function hasEligibleCommercial(string $commercialId): bool
+    {
+        $salesforceUser = SalesforceUser::query()
+            ->where('salesforce_id', $commercialId)
+            ->first(['salesforce_id', 'name', 'profile_name', 'is_active', 'commission_appraiser']);
+
+        if (
+            $salesforceUser === null
+            || (string) $salesforceUser->salesforce_id !== $commercialId
+            || $salesforceUser->is_active !== true
+        ) {
+            return false;
+        }
+
+        return $this->isEligibleCommercialUser(
+            $commercialId,
+            $salesforceUser->name,
+            $salesforceUser,
+        );
+    }
+
     private function buildSummaryRows(
         CarbonImmutable $periodStart,
         CarbonImmutable $periodEnd,
         array $formulaSettings,
         array $financingPenaltyLedger,
         bool $includeDetails = true,
-    ): array
-    {
+    ): array {
         if ($this->usesMonthlyPurchaseCommission($periodStart)) {
             return $this->buildMonthlyOperationSummaryRows($periodStart, $periodEnd, $formulaSettings, $financingPenaltyLedger, $includeDetails);
         }
@@ -314,8 +332,7 @@ class CommercialCommissionDashboardService
         array $formulaSettings,
         array $financingPenaltyLedger,
         bool $includeDetails = true,
-    ): array
-    {
+    ): array {
         $monthlyOperations = $this->monthlyOpportunities($periodStart, $periodEnd)->get();
         $deliveries = $monthlyOperations->filter(fn (SalesforceOpportunity $row) => $this->isDelivery($row));
         $operationsByOwner = $monthlyOperations->groupBy(fn (SalesforceOpportunity $row) => (string) $row->owner_id);
@@ -1440,8 +1457,7 @@ class CommercialCommissionDashboardService
         CarbonImmutable $periodEnd,
         bool $requireActiveOwner = true,
         bool $applySaleManagementFilter = true
-    ): Builder
-    {
+    ): Builder {
         $query = SalesforceOpportunity::query()
             ->select(self::OPPORTUNITY_COLUMNS)
             ->where('cv_signed', true)
@@ -1962,6 +1978,7 @@ class CommercialCommissionDashboardService
 
                 if ($value === 'tasacion') {
                     $builder->{$method}("LOWER(COALESCE(record_type_name, '')) LIKE ?", ['tas%']);
+
                     continue;
                 }
 
