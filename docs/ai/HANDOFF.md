@@ -25,6 +25,11 @@
   del contrato y `config/seo_analytics.php` las referencia. El default del
   builder consume `snapshot_refresh_days=30` y el scheduler invoca ese default
   sin duplicarlo; ingestas admiten 1–480 y builder 1–90.
+- Corrección CI: `SeoAnalyticalSnapshotsTest` configura credenciales sintéticas
+  y properties locales para que los guards `configured()` no dependan del
+  entorno, y bloquea cualquier request HTTP no simulada. Los casos que validan
+  ausencia de fuentes limpian explícitamente toda esa configuración. No se
+  añadieron secretos ni se modificó el builder productivo o el workflow.
 - Seguridad/rendimiento: cero credenciales/PII, cero endpoints de escritura,
   cero requests, una query de serie por fuente, sin N+1 y transacción corta solo
   para persistencia. No se tocaron ingestas Search Console/Salesforce/GA4,

@@ -35,9 +35,22 @@ class SeoAnalyticalSnapshotsTest extends TestCase
         parent::setUp();
 
         config([
+            'services.google_search_console.client_id' => 'test-search-console-client',
+            'services.google_search_console.client_secret' => 'test-search-console-secret',
+            'services.google_search_console.refresh_token' => 'test-search-console-refresh',
             'services.google_search_console.property' => self::SEARCH_PROPERTY,
+            'services.google_analytics.client_id' => 'test-google-analytics-client',
+            'services.google_analytics.client_secret' => 'test-google-analytics-secret',
+            'services.google_analytics.refresh_token' => 'test-google-analytics-refresh',
             'services.google_analytics.property_id' => self::GA4_PROPERTY,
+            'salesforce.auth_mode' => 'client_credentials',
+            'salesforce.token_url' => 'https://example.invalid/oauth2/token',
+            'salesforce.client_id' => 'test-salesforce-client',
+            'salesforce.client_secret' => 'test-salesforce-secret',
+            'salesforce.refresh_token' => null,
         ]);
+
+        Http::preventStrayRequests();
     }
 
     public function test_builder_creates_exactly_six_metrics_with_source_specific_cutoffs_and_one_series_query_per_source(): void
@@ -233,10 +246,7 @@ class SeoAnalyticalSnapshotsTest extends TestCase
 
     public function test_command_validates_days_records_run_and_succeeds_without_sources(): void
     {
-        config([
-            'services.google_search_console.property' => null,
-            'services.google_analytics.property_id' => null,
-        ]);
+        $this->disableIntegrations();
 
         $this->artisan('seo:build-analytical-snapshots', ['--days' => 0])->assertFailed();
         $this->artisan('seo:build-analytical-snapshots', ['--days' => 91])->assertFailed();
@@ -276,9 +286,9 @@ class SeoAnalyticalSnapshotsTest extends TestCase
 
     public function test_builder_default_consumes_snapshot_refresh_days_without_relaxing_maximum(): void
     {
+        $this->disableIntegrations();
+
         config([
-            'services.google_search_console.property' => null,
-            'services.google_analytics.property_id' => null,
             'seo_analytics.analytical_comparison.snapshot_refresh_days' => 2,
             'seo_analytics.analytical_comparison.max_snapshot_build_days' => 120,
         ]);
@@ -311,6 +321,22 @@ class SeoAnalyticalSnapshotsTest extends TestCase
         }
 
         $this->assertSame(0, AnalyticalMetricSnapshot::query()->count());
+    }
+
+    private function disableIntegrations(): void
+    {
+        config([
+            'services.google_search_console.client_id' => null,
+            'services.google_search_console.client_secret' => null,
+            'services.google_search_console.refresh_token' => null,
+            'services.google_search_console.property' => null,
+            'services.google_analytics.client_id' => null,
+            'services.google_analytics.client_secret' => null,
+            'services.google_analytics.refresh_token' => null,
+            'services.google_analytics.property_id' => null,
+            'salesforce.client_id' => null,
+            'salesforce.client_secret' => null,
+        ]);
     }
 
     private function seedSearchSeries(string $target): void
