@@ -113,6 +113,63 @@
                         </div>
                     </div>
                 @endif
+
+                <section class="report-ui-data-panel" style="margin-top: var(--report-ui-space-4)" aria-label="Comparativa diaria SEO">
+                    <div class="report-ui-data-panel__header">
+                        <x-reports.ui.section-header
+                            title="Comparativa diaria"
+                            description="Último día cerrado de cada fuente frente al mismo día de la semana de las cuatro semanas anteriores. Cada fuente puede tener una fecha cerrada diferente; el selector de periodo no modifica esta comparativa."
+                        />
+                    </div>
+                    @if ($analytical_comparisons === [])
+                        <div class="report-ui-data-panel__body">
+                            <x-reports.ui.empty-state
+                                title="Sin snapshots comparativos"
+                                description="La comparativa estará disponible después de ejecutar su construcción programada con datos diarios locales."
+                            />
+                        </div>
+                    @else
+                        <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Comparativa diaria de métricas SEO">
+                            <table class="report-ui-table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Métrica</th>
+                                        <th scope="col">Dato cerrado</th>
+                                        <th scope="col" class="report-ui-table__numeric">Actual</th>
+                                        <th scope="col" class="report-ui-table__numeric">Referencia semanal</th>
+                                        <th scope="col" class="report-ui-table__numeric">Diferencia</th>
+                                        <th scope="col" class="report-ui-table__numeric">Variación</th>
+                                        <th scope="col" class="report-ui-table__numeric">D-364</th>
+                                        <th scope="col">Cobertura</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($analytical_comparisons as $comparison)
+                                        <tr>
+                                            <td>
+                                                {{ $comparison['label'] }}
+                                                <div class="report-ui-help">{{ $comparison['source'] }} · {{ $comparison['scope'] }}</div>
+                                            </td>
+                                            <td>{{ $comparison['data_date'] }}</td>
+                                            <td class="report-ui-table__numeric">{{ $comparison['current'] }}</td>
+                                            <td class="report-ui-table__numeric">{{ $comparison['baseline'] }}</td>
+                                            <td class="report-ui-table__numeric">{{ $comparison['absolute_change'] }}</td>
+                                            <td class="report-ui-table__numeric">
+                                                @if ($comparison['baseline_is_zero'])
+                                                    <span aria-label="La variación porcentual no se calcula cuando la referencia es cero." title="La variación porcentual no se calcula cuando la referencia es cero.">—</span>
+                                                @else
+                                                    {{ $comparison['relative_change'] }}
+                                                @endif
+                                            </td>
+                                            <td class="report-ui-table__numeric">{{ $comparison['d364'] }}</td>
+                                            <td><span class="report-ui-badge">{{ $comparison['coverage'] }}</span></td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+                </section>
             @elseif ($section === 'traffic')
                 <div class="report-ui-data-panel"><div class="report-ui-data-panel__header"><x-reports.ui.section-header title="Tráfico y conversión" description="Search Console, Lead orgánico Salesforce y Conversiones web orgánicas GA4 son fuentes distintas y no se suman." /></div>
                     @if ($daily === []) <div class="report-ui-data-panel__body"><x-reports.ui.empty-state title="Sin serie diaria sincronizada" description="Las fuentes se cargan exclusivamente mediante sus comandos y scheduler." /></div>

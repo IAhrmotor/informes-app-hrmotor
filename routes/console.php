@@ -143,3 +143,12 @@ $monitor(
     'seo-sync-technical-health',
     'comprobacion de salud tecnica SEO',
 );
+
+$monitor(
+    Schedule::command('seo:build-analytical-snapshots')
+        ->dailyAt('06:15')
+        ->timezone('Europe/Madrid')
+        ->withoutOverlapping(120),
+    'seo-build-analytical-snapshots',
+    'construcción de snapshots analíticos SEO',
+);

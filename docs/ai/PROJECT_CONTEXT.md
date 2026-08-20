@@ -21,8 +21,26 @@ Actualizado: 2026-08-19.
   disponibilidad de KPI exige además cobertura diaria local completa.
   Resumen/Tráfico usan el cutoff común mínimo; rankings usan el periodo propio
   de Search Console y su property configurada.
-- Salud técnica está implementada como monitor acotado y persistido. SISTRIX AI
-  y el motor analítico permanecen fuera. Contrato: `docs/ai/SEO_ANALYTICS.md`.
+- Salud técnica está implementada como monitor acotado y persistido. El motor
+  comparativo transversal persiste snapshots diarios SEO con D-7/D-14/D-21/
+  D-28, mínimo 3/4 y D-364 opcional usando el cutoff propio de cada fuente. El
+  render solo lee snapshots y no asigna scoring ni severidad. SISTRIX AI y las
+  reglas analíticas permanecen fuera. Contrato: `docs/ai/SEO_ANALYTICS.md`.
+
+### Snapshots analíticos transversales
+
+- `App\Services\Analytics\SameWeekdayComparisonEngine` es un core sin queries,
+  modelos ni conceptos SEO. `same_weekday_v1` conserva ausencia distinta de
+  cero y deja sin porcentaje las referencias cero.
+- `analytical_metric_snapshots` es persistencia transversal e idempotente. SEO
+  es el primer adaptador con seis métricas y properties aisladas mediante una
+  identidad técnica y su hash SHA-256.
+- `seo:build-analytical-snapshots --days=30` carga una serie por fuente local,
+  hace rolling rebuild sin borrar historia y se ejecuta a las 06:15 Madrid.
+  Estos snapshots quedan fuera de pruning hasta aprobar una política propia.
+  El builder admite 1–90 días y su default operativo consume la configuración
+  interna de 30; los comandos de ingesta mantienen su contrato separado de
+  1–480 días y scheduler de 120.
 
 ### Salud técnica SEO
 

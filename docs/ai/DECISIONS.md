@@ -141,3 +141,17 @@ noindex, canonical y sitemap). La clasificación de severidad y las alertas
 analíticas pertenecen a un motor posterior. Todo fetch pasa por allowlist exacta
 de hosts, validación DNS pública y redirects manuales; el dashboard nunca accede
 a la red.
+
+## 2026-08-19 - Comparación factual transversal mediante snapshots
+
+Se adopta un motor transversal sin Eloquent ni conocimiento de SEO. La versión
+`same_weekday_v1` compara el día cerrado con D-7/D-14/D-21/D-28 exactos, exige
+3/4 referencias y conserva D-364 como dato opcional. Cada métrica usa el cutoff
+cerrado de su propia fuente; una ausencia nunca se convierte en cero y una
+referencia cero nunca produce una variación infinita.
+
+Los resultados se materializan en snapshots idempotentes separados de scoring,
+thresholds y severidad. SEO es el primer adaptador y aísla properties mediante
+identidades técnicas no secretas y SHA-256. El rolling rebuild no borra
+históricos. No se aplica pruning a snapshots hasta aprobar una retención
+específica, ni se extiende esta decisión a CSS o lógica de dashboards legacy.

@@ -289,6 +289,58 @@ el host, allowed hosts o sitemaps no han sido validados. El rollback de esquema
 eliminaría el histórico técnico y requiere backup/análisis explícito; se prefiere
 rollback de código compatible o forward fix.
 
+## SEO/Analytics Lote 5 - Snapshots comparativos
+
+La migración es aditiva y crea `analytical_metric_snapshots`. Desplegarla sin
+ejecutar sincronizaciones implícitas:
+
+```bash
+php artisan migrate --force --no-interaction
+php artisan config:clear
+php artisan config:cache
+```
+
+Para disponer de D-364 desde el inicio, el backfill manual recomendado es:
+
+```bash
+php artisan seo:sync-search-console --days=400
+php artisan seo:sync-salesforce-organic --days=400
+php artisan seo:sync-ga4-organic --days=400
+php artisan seo:build-analytical-snapshots --days=30
+```
+
+Los tres comandos de 400 días son una operación inicial explícita; el scheduler
+de fuentes continúa en 120 días. Si no se ejecuta ese backfill, la comparación
+semanal funciona con el histórico disponible y D-364 muestra `—`. Verificar sin
+exponer identities ni secretos:
+
+Los comandos de ingesta aceptan `--days=1..480`. El builder es distinto: acepta
+`--days=1..90`, usa 30 cuando se omite la opción y su scheduler invoca ese
+default para reconstruir 30 días. No ampliar el builder a 400 durante el backfill.
+
+```bash
+php artisan schedule:list
+php artisan tinker
+```
+
+```php
+DB::table('analytical_metric_snapshots')
+    ->select('module_key', 'metric_key', DB::raw('COUNT(*) AS snapshots'))
+    ->groupBy('module_key', 'metric_key')
+    ->orderBy('metric_key')
+    ->get();
+
+DB::table('report_sync_runs')
+    ->where('dataset', 'seo_analytical_snapshots')
+    ->latest('started_at')
+    ->first(['status', 'source_cutoff_at', 'stats']);
+```
+
+El `source_cutoff_at` del run del builder es un marcador local del máximo
+procesado, no el closed-through de una fuente externa. Los snapshots no se
+eliminan mediante pruning. El rollback de esquema destruiría histórico
+comparativo; se prefiere rollback de código compatible o forward fix.
+
 ## Rollback y pendientes
 
 - Preferir rollback de código si el esquema aditivo es compatible.

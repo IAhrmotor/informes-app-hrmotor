@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Analytics\SameWeekdayComparisonEngine;
 use App\Services\SeoAnalytics\BrandVariantParser;
 
 $defaultBrandVariants = 'hr motor,hrmotor,hr-motor,hrmotor.com';
@@ -22,6 +23,14 @@ return [
     ],
     'visible_dimension_limit' => 50,
     'visible_ga4_event_limit' => 50,
+    'analytical_comparison' => [
+        'reference_offsets_days' => SameWeekdayComparisonEngine::REFERENCE_OFFSETS,
+        'minimum_reference_samples' => SameWeekdayComparisonEngine::MINIMUM_REFERENCE_SAMPLES,
+        'year_reference_offset_days' => SameWeekdayComparisonEngine::YEAR_REFERENCE_OFFSET,
+        'snapshot_refresh_days' => 30,
+        'max_snapshot_build_days' => 90,
+        'engine_version' => SameWeekdayComparisonEngine::VERSION,
+    ],
     'brand_variants' => BrandVariantParser::parse(
         filled($configuredBrandVariants) ? (string) $configuredBrandVariants : $defaultBrandVariants
     ),

@@ -2,7 +2,6 @@
 
 namespace App\Services\SeoAnalytics;
 
-use App\Models\ReportSyncRun;
 use App\Models\SeoGa4OrganicDailyMetric;
 use App\Models\SeoGa4OrganicKeyEventDailyMetric;
 use App\Models\SeoSalesforceOrganicDailyMetric;
@@ -18,6 +17,8 @@ final class SeoAnalyticsDatasetService
         private readonly SalesforceOrganicLeadSyncService $salesforceOrganic,
         private readonly GoogleAnalyticsClient $analytics,
         private readonly SeoTechnicalHealthDatasetService $technicalHealth,
+        private readonly SeoSourceStateResolver $sourceStates,
+        private readonly SeoAnalyticalComparisonDatasetService $analyticalComparisons,
     ) {}
 
     /** @return array<string, mixed> */
@@ -34,22 +35,22 @@ final class SeoAnalyticsDatasetService
             : 'summary';
 
         $configuredProperty = $this->searchConsole->configuredProperty();
-        $searchCompletedRun = $this->latestCompletedRun(SearchConsoleSyncService::DATASET, $configuredProperty);
+        $searchCompletedRun = $this->sourceStates->latestCompletedRun(SearchConsoleSyncService::DATASET, $configuredProperty);
         $property = $configuredProperty ?? data_get($searchCompletedRun?->stats, 'property');
-        $salesforceCompletedRun = $this->latestCompletedRun(SalesforceOrganicLeadSyncService::DATASET);
+        $salesforceCompletedRun = $this->sourceStates->latestCompletedRun(SalesforceOrganicLeadSyncService::DATASET);
         $ga4PropertyId = $this->analytics->configuredPropertyId();
         $ga4CompletedRun = $ga4PropertyId
-            ? $this->latestCompletedRun(
+            ? $this->sourceStates->latestCompletedRun(
                 Ga4OrganicConversionSyncService::DATASET,
                 $ga4PropertyId,
                 'property_id',
             )
             : null;
         $searchCutoff = is_string($property) && $property !== ''
-            ? $this->runCutoff($searchCompletedRun)
+            ? $this->sourceStates->cutoff($searchCompletedRun)
             : null;
-        $salesforceCutoff = $this->runCutoff($salesforceCompletedRun);
-        $ga4Cutoff = $ga4PropertyId ? $this->runCutoff($ga4CompletedRun) : null;
+        $salesforceCutoff = $this->sourceStates->cutoff($salesforceCompletedRun);
+        $ga4Cutoff = $ga4PropertyId ? $this->sourceStates->cutoff($ga4CompletedRun) : null;
         $commonCutoff = collect([$searchCutoff, $salesforceCutoff, $ga4Cutoff])
             ->filter()
             ->sortBy(fn (CarbonImmutable $cutoff): int => $cutoff->getTimestamp())
@@ -192,6 +193,7 @@ final class SeoAnalyticsDatasetService
             'pages' => $dimensions->where('dimension_type', 'page')->take($visibleLimit)->values(),
             'countries' => $dimensions->where('dimension_type', 'country')->take(100)->values(),
             'health' => $health,
+            'analytical_comparisons' => $section === 'summary' ? $this->analyticalComparisons->build() : [],
         ];
     }
 
@@ -307,36 +309,6 @@ final class SeoAnalyticsDatasetService
         ];
     }
 
-    private function latestCompletedRun(
-        string $dataset,
-        ?string $property = null,
-        string $propertyStat = 'property',
-    ): ?ReportSyncRun {
-        return ReportSyncRun::query()
-            ->where('dataset', $dataset)
-            ->where('status', 'completed')
-            ->whereNotNull('source_cutoff_at')
-            ->latest('completed_at')
-            ->limit(50)
-            ->get()
-            ->first(function (ReportSyncRun $run) use ($property, $propertyStat): bool {
-                if ($property === null) {
-                    return true;
-                }
-
-                $runProperty = data_get($run->stats, $propertyStat);
-
-                return is_string($runProperty) && hash_equals($property, $runProperty);
-            });
-    }
-
-    private function runCutoff(?ReportSyncRun $run): ?CarbonImmutable
-    {
-        return $run?->source_cutoff_at
-            ? CarbonImmutable::parse($run->source_cutoff_at)
-            : null;
-    }
-
     /** @return array{key: string, title: string, detail: string, badge: string} */
     private function source(
         string $key,
@@ -347,20 +319,7 @@ final class SeoAnalyticsDatasetService
         ?string $property = null,
         string $propertyStat = 'property',
     ): array {
-        $latestRun = ReportSyncRun::query()
-            ->where('dataset', $dataset)
-            ->latest('started_at')
-            ->limit(50)
-            ->get()
-            ->first(function (ReportSyncRun $run) use ($property, $propertyStat): bool {
-                if ($property === null) {
-                    return true;
-                }
-
-                $runProperty = data_get($run->stats, $propertyStat);
-
-                return is_string($runProperty) && hash_equals($property, $runProperty);
-            });
+        $latestRun = $this->sourceStates->latestRun($dataset, $property, $propertyStat);
         if ($latestRun?->status === 'failed') {
             $detail = $cutoff
                 ? 'Datos anteriores cerrados hasta: '.$cutoff->toDateString().'. La última sincronización falló.'

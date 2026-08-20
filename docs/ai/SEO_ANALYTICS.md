@@ -199,6 +199,51 @@ y GEO/IA.
   día.
 - Readiness es estado técnico neutral, no uno de los cinco estados analíticos.
 
+## Comparativa diaria y snapshots analíticos
+
+El motor transversal `SameWeekdayComparisonEngine` compara una observación
+cerrada con D-7, D-14, D-21 y D-28 exactos. La referencia semanal es la media
+de las muestras disponibles y requiere al menos 3/4. D-364 es opcional y no
+condiciona la evaluación semanal. Una fila persistida con cero es una muestra
+válida; una fila ausente o un valor diario `NULL` permanece ausente. Si falta el
+actual se registra `missing_current`; con menos de tres referencias se registra
+`insufficient_history`.
+
+La versión estable es `same_weekday_v1`. La diferencia absoluta es
+`actual - referencia`; la variación relativa se guarda como ratio y solo existe
+si la referencia es distinta de cero. Los valores fuente se trasladan a escala
+8 sin alterar su precisión; únicamente medias, diferencias y ratios derivados
+usan aritmética PHP con redondeo explícito a ocho decimales. El motor no conoce
+SEO, Eloquent ni Blade y no asigna scoring, severidad ni estado analítico.
+
+`analytical_metric_snapshots` conserva snapshots factuales por módulo, métrica,
+scope, identidad SHA-256 de fuente y fecha. Guarda valores actual/D-7/D-14/D-21/
+D-28/D-364, cobertura, baseline, diferencias, versión y cutoff real. Search
+Console y GA4 se aíslan por la property actualmente configurada; Salesforce usa
+la identidad interna no secreta `salesforce-organic-leads`. Los seis KPI son:
+
+- `search_console_clicks`, `search_console_impressions`,
+  `search_console_ctr` y `search_console_position`: property actual, ESP/all,
+  fila final.
+- `salesforce_organic_leads`: scope neutral `all`, sin inventar geografía.
+- `ga4_organic_key_events`: property actual y ESP.
+
+Cada fuente usa su propio último cutoff completado; no se degrada al cutoff
+común descriptivo. El builder carga una serie acotada por fuente, construye en
+memoria y hace upsert transaccional por chunks. `seo:build-analytical-snapshots
+--days=30` reconstruye de forma idempotente 1–90 fechas, no borra históricos y
+no realiza HTTP. El scheduler lo ejecuta a las 06:15 Europe/Madrid con lock de
+120 minutos y `ReportSyncRun` local. Los snapshots no participan en cutoffs de
+fuente ni se purgan hasta aprobar una retención específica.
+
+El panel Resumen lee únicamente el último snapshot compatible con las identities
+actuales. Es independiente del selector descriptivo 7/28/90, muestra la fecha
+cerrada de cada fuente y no renderiza severidad. Salud técnica queda excluida
+hasta definir una métrica estable con denominador/cohorte verificable.
+Los valores fuente de métricas de conteo (actual y D-364) se presentan como
+enteros, mientras que sus medias y diferencias derivadas conservan dos
+decimales para no ocultar fracciones válidas.
+
 ## Operación y seguridad
 
 ```bash
@@ -207,10 +252,16 @@ php artisan seo:diagnose-integrations --live
 php artisan seo:sync-search-console --days=120
 php artisan seo:sync-salesforce-organic --days=120
 php artisan seo:sync-ga4-organic --days=120
+php artisan seo:build-analytical-snapshots --days=30
 ```
 
-`--days` acepta 1–480; el scheduler usa 120 días a las 05:15, 05:30 y 05:45
-Europe/Madrid, con `withoutOverlapping(120)` y alertas técnicas administrativas.
+Los tres comandos de ingesta (`seo:sync-search-console`,
+`seo:sync-salesforce-organic` y `seo:sync-ga4-organic`) aceptan `--days` entre
+1 y 480; sus schedulers usan 120 días a las 05:15, 05:30 y 05:45
+Europe/Madrid. `seo:build-analytical-snapshots` acepta 1–90 y, cuando se omite
+la opción, consume `analytical_comparison.snapshot_refresh_days` (30); el
+scheduler de las 06:15 invoca ese default sin duplicar el literal. Todos usan `withoutOverlapping(120)` y
+alertas técnicas administrativas.
 Una fuente sin configurar devuelve `SKIPPED` exitoso y no inventa datos.
 Fallos configurados devuelven error, quedan en `ReportSyncRun` sanitizado y no
 vacían rankings anteriores. No se persisten tokens, secretos ni payloads raw.

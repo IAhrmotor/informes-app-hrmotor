@@ -1,5 +1,44 @@
 # Handoff para agentes
 
+## SEO/Analytics Lote 5 - Comparativa diaria (2026-08-19)
+
+- Se añadió el core transversal `SameWeekdayComparisonEngine`, sin queries ni
+  conceptos SEO. `same_weekday_v1` usa D-7/D-14/D-21/D-28 exactos, mínimo 3/4,
+  D-364 opcional, ausencia distinta de cero y variación relativa nula cuando el
+  baseline es cero. No existen thresholds, scoring ni severidad.
+- La migración aditiva `2026_08_19_090000` crea
+  `analytical_metric_snapshots` con DECIMAL, unique por módulo/métrica/scope/
+  hash de fuente/fecha e índices de lectura. No hay pruning aprobado.
+- `SeoAnalyticalSnapshotService` carga una serie local por fuente, construye
+  exactamente seis KPI y hace upsert transaccional por chunks. Search Console y
+  GA4 se aíslan por property; Salesforce usa `salesforce-organic-leads` y scope
+  `all`. Cada fuente conserva su cutoff propio.
+- `seo:build-analytical-snapshots --days=30` admite 1–90, registra
+  `ReportSyncRun`, no hace HTTP y se agenda a las 06:15 Madrid con lock 120. Un
+  fallo interno se sanitiza; una fuente ausente no bloquea las disponibles.
+- Resumen lee solo el último snapshot compatible mediante un dataset separado.
+  La tabla factual es independiente de range 7/28/90, accesible, sin colores ni
+  estados de severidad. Salud técnica queda fuera.
+- Corrección de revisión: actual y D-364 conservan formato entero para métricas
+  de conteo, pero baseline y diferencia muestran dos decimales (`9,50` y
+  `+0,50`). Las constantes de `SameWeekdayComparisonEngine` son la única fuente
+  del contrato y `config/seo_analytics.php` las referencia. El default del
+  builder consume `snapshot_refresh_days=30` y el scheduler invoca ese default
+  sin duplicarlo; ingestas admiten 1–480 y builder 1–90.
+- Seguridad/rendimiento: cero credenciales/PII, cero endpoints de escritura,
+  cero requests, una query de serie por fuente, sin N+1 y transacción corta solo
+  para persistencia. No se tocaron ingestas Search Console/Salesforce/GA4,
+  normalizador científico, Salud técnica, CSS ni JavaScript.
+- Operación pendiente: migrar; opcionalmente sincronizar 400 días para D-364;
+  construir 30 días; verificar scheduler, run local y conteos. Producción no
+  requiere Node y no debe borrar snapshots.
+- Validación final: motor 7 pruebas/42 aserciones, SEO analítico 10/82, suite SEO
+  95/771 y suite completa 569/4.081, correctos. Pint `--dirty --test`, Composer
+  audit runtime (cero advisories), Vite 8.0.12 y `git diff --check`, correctos.
+  El build regeneró únicamente el bundle CSS general: retiró el hash anterior,
+  creó el nuevo y actualizó `public/build/manifest.json`; no cambió CSS o
+  JavaScript fuente en esta corrección.
+
 ## Dependencias runtime sin advisories (2026-08-19)
 
 - Actualización focalizada dentro de majors: Laravel 13.8.0 -> 13.12.0,
