@@ -244,6 +244,55 @@ Los valores fuente de métricas de conteo (actual y D-364) se presentan como
 enteros, mientras que sus medias y diferencias derivadas conservan dos
 decimales para no ocultar fracciones válidas.
 
+## Evaluación analítica versionada
+
+Los snapshots son proyecciones factuales locales, no registros append-only: el
+rolling rebuild puede actualizar una misma identidad/fecha cuando una fuente
+revisa datos recientes. La interpretación vive en una capa separada:
+`analytical_rule_sets` versiona el contrato,
+`analytical_metric_rules` materializa sus seis reglas y
+`analytical_metric_evaluations` conserva el resultado de aplicar una versión a
+un snapshot. Cada evaluación captura current, baseline, diferencia absoluta,
+diferencia relativa, evaluabilidad y motivo exactos usados, además de un
+fingerprint SHA-256 canónico de esos inputs, métrica, fecha y versión del motor.
+El fingerprint excluye D-364 y timestamps porque no intervienen en v1. Así, el
+dashboard no combina una clasificación anterior con hechos revisados: muestra
+«Evaluación pendiente de actualizar» hasta que el evaluador actualiza
+idempotentemente esa evaluación. Las señales históricas renderizan los valores
+capturados, no los valores mutables de la proyección actual.
+
+`seo_rules_v1` define cuatro métricas de volumen por variación relativa con
+bandas inclusivas 10/20/35 % y puertas de materialidad: clicks 50/10,
+impresiones 1000/100, leads 5/2 y conversiones GA4 10/3 (baseline/cambio
+absoluto mínimos). Un baseline bajo limita el estado a Observación y baseline
+cero nunca genera porcentajes infinitos. CTR usa diferencias absolutas de
+0,5/1/2 puntos porcentuales; Posición usa 0,5/1/2 posiciones y considera
+favorable una disminución. D-364 es solo contexto y no interviene en v1.
+
+Los estados persistidos son `ok`, `observation`, `deviation`, `critical` y
+`not-evaluable`; las direcciones son `stable`, `favorable`, `unfavorable` y
+`not_evaluable`. Una mejora material conserva su banda matemática, pero se
+representa como Observación favorable con la lectura «Oportunidad / posible
+anomalía»; nunca se convierte automáticamente en un incidente crítico.
+
+`/informes/seo-analytics/configuracion` permite exclusivamente a Administrador
+y Director editar los valores numéricos y exige un motivo. Las identidades,
+unidades, modos y direcciones se resuelven en servidor. Cada guardado crea v2,
+v3, etc., conserva las versiones/evaluaciones anteriores y reevalúa solo los
+seis snapshots actuales. Una transacción con bloqueo y la versión base impide
+sobrescrituras concurrentes. El actor se conserva como ID histórico sin FK a
+`report_users`, para no impedir la eliminación física prevista por ese módulo.
+Ante conflicto el redirect descarta todo el old input y vuelve a renderizar la
+versión activa; un formulario obsoleto no puede reaplicarse sobre la nueva base
+sin que el usuario introduzca deliberadamente otra vez sus cambios.
+
+`seo:evaluate-analytical-snapshots` evalúa el último snapshot por defecto, no
+hace HTTP y se agenda a las 06:30 Europe/Madrid con lock de 120 minutos. El
+backfill manual admite 1–90 días únicamente mientras v1 siga siendo la versión
+activa inicial; después de crear v2 no existe reinterpretación retroactiva
+automática. El dashboard muestra la evaluación más reciente aplicable por
+snapshot y un máximo de 50 señales no `ok` de los últimos 30 días.
+
 ## Operación y seguridad
 
 ```bash
@@ -253,6 +302,7 @@ php artisan seo:sync-search-console --days=120
 php artisan seo:sync-salesforce-organic --days=120
 php artisan seo:sync-ga4-organic --days=120
 php artisan seo:build-analytical-snapshots --days=30
+php artisan seo:evaluate-analytical-snapshots
 ```
 
 Los tres comandos de ingesta (`seo:sync-search-console`,

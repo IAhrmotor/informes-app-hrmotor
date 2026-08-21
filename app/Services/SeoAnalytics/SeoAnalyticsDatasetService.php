@@ -19,6 +19,7 @@ final class SeoAnalyticsDatasetService
         private readonly SeoTechnicalHealthDatasetService $technicalHealth,
         private readonly SeoSourceStateResolver $sourceStates,
         private readonly SeoAnalyticalComparisonDatasetService $analyticalComparisons,
+        private readonly SeoAnalyticalEvaluationDatasetService $analyticalEvaluations,
     ) {}
 
     /** @return array<string, mixed> */
@@ -194,6 +195,7 @@ final class SeoAnalyticsDatasetService
             'countries' => $dimensions->where('dimension_type', 'country')->take(100)->values(),
             'health' => $health,
             'analytical_comparisons' => $section === 'summary' ? $this->analyticalComparisons->build() : [],
+            'analytical_signals' => $section === 'summary' ? $this->analyticalEvaluations->recentSignals() : [],
         ];
     }
 

@@ -43,6 +43,7 @@
             <thead>
             <tr>
                 <th data-sortable="true">Responsable/Zona financiera</th>
+                <th class="num" data-sortable="true">Total comision</th>
                 <th class="num" data-sortable="true">Ops.</th>
                 <th class="num" data-sortable="true">Imp. total</th>
                 <th class="num" data-sortable="true">Imp. financiado</th>
@@ -60,13 +61,13 @@
                 <th class="num" data-sortable="true">Inc. bloque 3</th>
                 <th class="num" data-sortable="true">Com. bloque 3</th>
                 <th class="num" data-sortable="true">Regla especial</th>
-                <th class="num" data-sortable="true">Total comision</th>
             </tr>
             </thead>
             <tbody data-sort-body="financial-zones-summary">
             @foreach ($financialSummaryRows as $row)
                 <tr>
                     <td>{{ $row['summary_label'] ?? $row['zone_name'] }}</td>
+                    <td class="num"><strong>{{ number_format((float) ($row['final_commission'] ?? 0), 2, ',', '.') }}</strong></td>
                     <td class="num">{{ number_format((int) ($row['operations_count'] ?? 0), 0, ',', '.') }}</td>
                     <td class="num">{{ number_format((float) ($row['amount_total'] ?? 0), 2, ',', '.') }}</td>
                     <td class="num">{{ number_format((float) ($row['amount_financed'] ?? 0), 2, ',', '.') }}</td>
@@ -90,7 +91,6 @@
                             -
                         @endif
                     </td>
-                    <td class="num"><strong>{{ number_format((float) ($row['final_commission'] ?? 0), 2, ',', '.') }}</strong></td>
                 </tr>
             @endforeach
             </tbody>

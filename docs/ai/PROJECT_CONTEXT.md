@@ -1,6 +1,6 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-08-19.
+Actualizado: 2026-08-21.
 
 ## SEO/Analytics
 
@@ -24,23 +24,44 @@ Actualizado: 2026-08-19.
 - Salud técnica está implementada como monitor acotado y persistido. El motor
   comparativo transversal persiste snapshots diarios SEO con D-7/D-14/D-21/
   D-28, mínimo 3/4 y D-364 opcional usando el cutoff propio de cada fuente. El
-  render solo lee snapshots y no asigna scoring ni severidad. SISTRIX AI y las
-  reglas analíticas permanecen fuera. Contrato: `docs/ai/SEO_ANALYTICS.md`.
+  Lote 6 mantiene esos hechos intactos y añade evaluaciones versionadas locales,
+  configurables por Administrador/Director, sin scoring IA. SISTRIX AI permanece
+  fuera. Contrato: `docs/ai/SEO_ANALYTICS.md`.
 
 ### Snapshots analíticos transversales
 
 - `App\Services\Analytics\SameWeekdayComparisonEngine` es un core sin queries,
   modelos ni conceptos SEO. `same_weekday_v1` conserva ausencia distinta de
   cero y deja sin porcentaje las referencias cero.
-- `analytical_metric_snapshots` es persistencia transversal e idempotente. SEO
-  es el primer adaptador con seis métricas y properties aisladas mediante una
-  identidad técnica y su hash SHA-256.
+- `analytical_metric_snapshots` es una proyección transversal e idempotente con
+  rolling upsert, no un histórico append-only. SEO es el primer adaptador con
+  seis métricas y properties aisladas mediante una identidad técnica y su hash
+  SHA-256.
 - `seo:build-analytical-snapshots --days=30` carga una serie por fuente local,
   hace rolling rebuild sin borrar historia y se ejecuta a las 06:15 Madrid.
   Estos snapshots quedan fuera de pruning hasta aprobar una política propia.
   El builder admite 1–90 días y su default operativo consume la configuración
   interna de 30; los comandos de ingesta mantienen su contrato separado de
   1–480 días y scheduler de 120.
+
+### Evaluaciones analíticas SEO
+
+- `AnalyticalEvaluationEngine` es un core transversal sin Eloquent, Request ni
+  conceptos SEO. Recibe snapshot y regla resueltos y devuelve estado, dirección,
+  banda y reason code cerrados.
+- `analytical_rule_sets` y `analytical_metric_rules` conservan versiones
+  inmutables; `analytical_metric_evaluations` mantiene auditoría por snapshot y
+  versión. `seo_rules_v1` contiene exactamente seis reglas.
+- Cada evaluación captura sus cuatro magnitudes factuales, evaluabilidad, motivo
+  y fingerprint SHA-256. Una revisión rolling invalida temporalmente la unión
+  visible hasta reevaluar; las señales históricas leen la captura, no el
+  snapshot mutable. Recalcular solo timestamps o D-364 no invalida v1.
+- La configuración vive en BD, no `.env`. Solo Administrador/Director pueden
+  crear la siguiente versión; cada cambio exige motivo y reevalúa el estado
+  actual sin reescribir el histórico.
+- `seo:evaluate-analytical-snapshots` es local, idempotente y se ejecuta a las
+  06:30 Madrid. El panel de señales limita la lectura a 30 días/50 filas y usa
+  las properties actualmente configuradas.
 
 ### Salud técnica SEO
 

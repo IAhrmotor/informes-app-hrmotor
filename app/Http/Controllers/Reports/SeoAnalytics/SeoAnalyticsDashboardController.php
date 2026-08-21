@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Reports\SeoAnalytics;
 
 use App\Http\Controllers\Controller;
 use App\Services\SeoAnalytics\SeoAnalyticsDatasetService;
+use App\Support\ReportUserAccess;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -14,6 +15,8 @@ class SeoAnalyticsDashboardController extends Controller
         return view('reports.seo-analytics.index', $dataset->build(
             $request->query('range'),
             $request->query('section'),
-        ));
+        ) + [
+            'canManageAnalyticalRules' => ReportUserAccess::canManageSeoAnalyticalRules($request),
+        ]);
     }
 }

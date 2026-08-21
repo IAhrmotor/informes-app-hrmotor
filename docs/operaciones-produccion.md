@@ -359,6 +359,56 @@ procesado, no el closed-through de una fuente externa. Los snapshots no se
 eliminan mediante pruning. El rollback de esquema destruiría histórico
 comparativo; se prefiere rollback de código compatible o forward fix.
 
+## SEO/Analytics Lote 6 - Evaluaciones versionadas
+
+La migración es aditiva: crea `analytical_rule_sets`,
+`analytical_metric_rules` y `analytical_metric_evaluations`, e inicializa
+`seo_rules_v1` con seis reglas. No modifica snapshots ni ingestas. Las
+evaluaciones capturan los inputs de clasificación y su fingerprint; los
+snapshots siguen siendo proyecciones rolling actualizables.
+
+```bash
+php artisan migrate --force --no-interaction
+php artisan config:clear
+php artisan config:cache
+php artisan schedule:list
+```
+
+Verificar el bootstrap sin mostrar identities de fuentes:
+
+```php
+DB::table('analytical_rule_sets')
+    ->where('module_key', 'seo')
+    ->get(['version_number', 'version_key', 'status', 'activated_at']);
+
+DB::table('analytical_metric_rules')
+    ->where('rule_set_id', DB::table('analytical_rule_sets')
+        ->where('module_key', 'seo')->where('version_key', 'seo_rules_v1')
+        ->value('id'))
+    ->count(); // debe ser 6
+```
+
+Solo mientras `seo_rules_v1` sea la única versión activa puede ejecutarse el
+backfill inicial:
+
+```bash
+php artisan seo:evaluate-analytical-snapshots --days=30
+```
+
+Después de crear v2 o superior no ejecutar backfills históricos: el contrato no
+reinterpreta retroactivamente hechos antiguos. El scheduler ordinario evalúa
+solo la situación actual a las 06:30 Europe/Madrid con lock de 120 minutos.
+Comprobar la pantalla SEO, «Señales recientes» y el último
+`report_sync_runs.dataset=seo_analytical_evaluations`. Un rollback de esquema
+elimina configuración y auditoría; se prefiere rollback de código compatible o
+forward fix.
+
+Si una revisión de fuente actualiza un snapshot después de las 06:15, el panel
+puede mostrar temporalmente «Evaluación pendiente de actualizar» en lugar del
+estado anterior. El evaluador ordinario de las 06:30 actualiza el mismo registro
+snapshot/rule set y su fingerprint sin crear duplicados. No intervenir ni copiar
+manualmente clasificaciones durante esa ventana.
+
 ## Rollback y pendientes
 
 - Preferir rollback de código si el esquema aditivo es compatible.

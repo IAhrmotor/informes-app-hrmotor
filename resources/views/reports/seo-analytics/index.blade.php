@@ -6,20 +6,25 @@
                 title="SEO y Analytics"
                 description="Visibilidad orgánica de Search Console y Leads orgánicos registrados en Salesforce."
             >
-                @if (in_array($section, ['summary', 'traffic', 'search'], true))
+                @if ($canManageAnalyticalRules || in_array($section, ['summary', 'traffic', 'search'], true))
                     <x-slot:actions>
-                        <form method="GET" action="{{ route('reports.seo-analytics.index') }}" class="report-ui-filter-bar">
-                            <input type="hidden" name="section" value="{{ $section }}">
-                            <label class="report-ui-field">
-                                <span class="report-ui-label">Periodo cerrado</span>
-                                <select class="report-ui-select" name="range">
-                                    @foreach ($ranges as $rangeOption)
-                                        <option value="{{ $rangeOption }}" @selected($range === $rangeOption)>{{ $rangeOption }} días</option>
-                                    @endforeach
-                                </select>
-                            </label>
-                            <button class="report-ui-button report-ui-button--secondary" type="submit">Aplicar</button>
-                        </form>
+                        @if ($canManageAnalyticalRules)
+                            <a class="report-ui-button report-ui-button--secondary" href="{{ route('reports.seo-analytics.settings.index') }}">Configurar evaluación</a>
+                        @endif
+                        @if (in_array($section, ['summary', 'traffic', 'search'], true))
+                            <form method="GET" action="{{ route('reports.seo-analytics.index') }}" class="report-ui-filter-bar">
+                                <input type="hidden" name="section" value="{{ $section }}">
+                                <label class="report-ui-field">
+                                    <span class="report-ui-label">Periodo cerrado</span>
+                                    <select class="report-ui-select" name="range">
+                                        @foreach ($ranges as $rangeOption)
+                                            <option value="{{ $rangeOption }}" @selected($range === $rangeOption)>{{ $rangeOption }} días</option>
+                                        @endforeach
+                                    </select>
+                                </label>
+                                <button class="report-ui-button report-ui-button--secondary" type="submit">Aplicar</button>
+                            </form>
+                        @endif
                     </x-slot:actions>
                 @endif
             </x-reports.ui.page-header>
@@ -141,6 +146,8 @@
                                         <th scope="col" class="report-ui-table__numeric">Variación</th>
                                         <th scope="col" class="report-ui-table__numeric">D-364</th>
                                         <th scope="col">Cobertura</th>
+                                        <th scope="col">Estado</th>
+                                        <th scope="col">Lectura</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -163,6 +170,42 @@
                                             </td>
                                             <td class="report-ui-table__numeric">{{ $comparison['d364'] }}</td>
                                             <td><span class="report-ui-badge">{{ $comparison['coverage'] }}</span></td>
+                                            <td><x-reports.ui.status :state="$comparison['status']" /></td>
+                                            <td>
+                                                {{ $comparison['reading'] }}
+                                                @if ($comparison['rule_version'])
+                                                    <div class="report-ui-help">{{ $comparison['direction_label'] }} · {{ $comparison['rule_version'] }}</div>
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+                </section>
+
+                <section class="report-ui-data-panel" style="margin-top: var(--report-ui-space-4)" aria-label="Señales analíticas recientes">
+                    <div class="report-ui-data-panel__header">
+                        <x-reports.ui.section-header title="Señales recientes" description="Últimos 30 días disponibles. Se muestra una sola interpretación vigente por snapshot y se omiten estados Correcto para reducir ruido." />
+                    </div>
+                    @if ($analytical_signals === [])
+                        <div class="report-ui-data-panel__body"><x-reports.ui.empty-state title="Sin señales recientes" description="No existen evaluaciones no ordinarias para las fuentes y properties actuales." /></div>
+                    @else
+                        <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Histórico reciente de señales analíticas SEO">
+                            <table class="report-ui-table">
+                                <thead><tr><th scope="col">Fecha</th><th scope="col">Métrica</th><th scope="col">Estado</th><th scope="col">Dirección</th><th scope="col" class="report-ui-table__numeric">Actual</th><th scope="col" class="report-ui-table__numeric">Referencia</th><th scope="col" class="report-ui-table__numeric">Variación</th><th scope="col">Versión</th></tr></thead>
+                                <tbody>
+                                    @foreach ($analytical_signals as $signal)
+                                        <tr>
+                                            <td>{{ $signal['data_date'] }}</td>
+                                            <td>{{ $signal['metric'] }}<div class="report-ui-help">{{ $signal['reading'] }}</div></td>
+                                            <td><x-reports.ui.status :state="$signal['status']" /></td>
+                                            <td>{{ $signal['direction_label'] }}</td>
+                                            <td class="report-ui-table__numeric">{{ $signal['current'] }}</td>
+                                            <td class="report-ui-table__numeric">{{ $signal['baseline'] }}</td>
+                                            <td class="report-ui-table__numeric">{{ $signal['variation'] }}</td>
+                                            <td><span class="report-ui-badge">{{ $signal['rule_version'] }}</span></td>
                                         </tr>
                                     @endforeach
                                 </tbody>

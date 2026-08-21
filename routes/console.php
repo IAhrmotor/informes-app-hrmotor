@@ -152,3 +152,12 @@ $monitor(
     'seo-build-analytical-snapshots',
     'construcción de snapshots analíticos SEO',
 );
+
+$monitor(
+    Schedule::command('seo:evaluate-analytical-snapshots')
+        ->dailyAt('06:30')
+        ->timezone('Europe/Madrid')
+        ->withoutOverlapping(120),
+    'seo-evaluate-analytical-snapshots',
+    'evaluación analítica SEO',
+);

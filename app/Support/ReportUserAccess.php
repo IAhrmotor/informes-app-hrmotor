@@ -211,6 +211,11 @@ class ReportUserAccess
         return self::isAdmin($request);
     }
 
+    public static function canManageSeoAnalyticalRules(Request $request): bool
+    {
+        return self::isAdmin($request) || self::isDirector($request);
+    }
+
     public static function canExport(Request $request): bool
     {
         return self::isAdmin($request) || self::isDirector($request);

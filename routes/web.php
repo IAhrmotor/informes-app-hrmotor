@@ -16,6 +16,7 @@ use App\Http\Controllers\Reports\Leads\MonthlyCommercialReportDataController;
 use App\Http\Controllers\Reports\Operations\OperationalAlertController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardController;
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
+use App\Http\Controllers\Reports\SeoAnalytics\SeoAnalyticalRuleSettingsController;
 use App\Http\Controllers\Reports\SeoAnalytics\SeoAnalyticsDashboardController;
 use App\Http\Controllers\Reports\Settings\ReportAccessManagementController;
 use App\Http\Controllers\Reports\Stock\StockCapacityController;
@@ -39,6 +40,13 @@ Route::middleware('reports.auth')->group(function () {
     Route::get('informes/seo-analytics', [SeoAnalyticsDashboardController::class, 'index'])
         ->middleware('report.access:seo-analytics')
         ->name('reports.seo-analytics.index');
+
+    Route::prefix('informes/seo-analytics/configuracion')
+        ->name('reports.seo-analytics.settings.')
+        ->group(function () {
+            Route::get('/', [SeoAnalyticalRuleSettingsController::class, 'index'])->name('index');
+            Route::put('/', [SeoAnalyticalRuleSettingsController::class, 'update'])->name('update');
+        });
 
     Route::prefix('informes/leads')
         ->name('reports.leads.')

@@ -155,3 +155,25 @@ thresholds y severidad. SEO es el primer adaptador y aísla properties mediante
 identidades técnicas no secretas y SHA-256. El rolling rebuild no borra
 históricos. No se aplica pruning a snapshots hasta aprobar una retención
 específica, ni se extiende esta decisión a CSS o lógica de dashboards legacy.
+
+## 2026-08-21 - Evaluaciones analíticas separadas y versionadas
+
+Los snapshots factuales no incorporan estado ni severidad. La interpretación se
+persiste aparte, vinculada a una versión inmutable de reglas. SEO inicia este
+contrato con 10/20/35 % más puertas de materialidad para volúmenes; CTR y
+Posición se evalúan por unidades absolutas. Las mejoras materiales se señalan
+como oportunidad favorable, nunca automáticamente como Crítico.
+
+Administrador y Director pueden crear una nueva versión desde la pantalla SEO,
+con motivo, actor y protección frente a edición concurrente. No se actualiza ni
+reactiva una versión histórica y un cambio no reinterpreta automáticamente el
+histórico: solo reevalúa los snapshots actuales. El ID del actor queda como
+referencia histórica sin FK para respetar la eliminación física de usuarios.
+
+Los snapshots son proyecciones rolling y pueden revisarse mediante upsert. Por
+ello cada evaluación captura los inputs factuales usados y su SHA-256 canónico.
+La UI solo considera vigente una evaluación cuyo fingerprint coincide con la
+proyección actual; mientras no coincida muestra un estado pendiente neutral. El
+histórico presenta los valores capturados por la evaluación, evitando mezclar
+hechos revisados con una clasificación anterior. D-364 y timestamps se excluyen
+del hash porque no alteran la regla v1.

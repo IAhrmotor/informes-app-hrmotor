@@ -1,5 +1,51 @@
 # Handoff para agentes
 
+## SEO/Analytics Lote 6 - Evaluación analítica versionada (2026-08-21)
+
+- Se mantiene `analytical_metric_snapshots` como capa factual separada. Es una
+  proyección rolling mutable por identidad/fecha, no append-only. El
+  core `AnalyticalEvaluationEngine`, sin DB/SEO/HTTP, aplica una regla resuelta y
+  devuelve estado, dirección, banda y reason code cerrados.
+- La migración aditiva `2026_08_21_090000` crea rule sets, seis reglas por
+  versión y evaluaciones por snapshot/versión. Inicializa `seo_rules_v1` con
+  10/20/35 % y materialidad para volúmenes, más 0,5/1/2 pp para CTR y
+  0,5/1/2 posiciones. No modifica tablas del Lote 5.
+- Baseline bajo no escala por encima de Observación; baseline cero no inventa
+  infinito. Una mejora fuerte conserva su banda, pero aparece como Observación
+  favorable «Oportunidad / posible anomalía». D-364 no interviene.
+- `/informes/seo-analytics/configuracion` es server-side y solo permite
+  Administrador/Director. Solo acepta los valores numéricos whitelisteados y un
+  motivo; cada save crea vN, audita actor/fecha, bloquea ediciones obsoletas y
+  reevalúa únicamente los seis snapshots actuales.
+- Un conflicto concurrente redirige sin `withInput`: se descartan thresholds
+  stale y la pantalla carga íntegramente la versión activa. Tras una validación
+  ordinaria fallida, los hidden conservan con `old()` la identidad y versión de
+  origen junto con los campos editables; un retry stale vuelve así a entrar en
+  el control transaccional y no puede adoptar silenciosamente la versión nueva.
+  Cada evaluación captura current/baseline/cambios/evaluabilidad/motivo y un
+  SHA-256 canónico. El dashboard compara el hash con los hechos actuales,
+  muestra pendiente si no coincide y las señales históricas usan exclusivamente
+  valores capturados.
+- El dashboard conserva la tabla factual, añade Estado/Lectura y hasta 50
+  señales no `ok` de los últimos 30 días, siempre aisladas por la property
+  configurada y escogiendo una sola evaluación reciente por snapshot.
+- `seo:evaluate-analytical-snapshots` registra `ReportSyncRun`, no usa red y se
+  agenda a las 06:30 Madrid con lock 120. Backfill 1–90 solo mientras v1 siga
+  activa; versiones posteriores no reinterpretan automáticamente el histórico.
+- No se generan `OperationalAlert` por señales de negocio, email, SISTRIX,
+  scoring o recomendaciones. El monitor del scheduler conserva únicamente su
+  alerta técnica habitual.
+- Producción: migrar, comprobar `seo_rules_v1`/seis reglas, ejecutar
+  opcionalmente `--days=30` antes de crear v2 y verificar scheduler/dashboard.
+  No se desplegó ni se ejecutó ningún backfill real.
+- Validación final: retry `ValidationException`/conflicto 1 prueba/21 aserciones,
+  `AnalyticalEvaluation` 30/267, `SeoAnalytical` 21/295, SEO 106/996,
+  patrones 5/46, Design System 5/54, navegación estratégica 6/84 y suite
+  completa 618/4.499, correctos. Pint `--dirty --test`, Composer audit runtime
+  (cero advisories) y `git diff --check` también correctos. El build Vite previo
+  del mismo Lote 6 fue correcto y no modificó assets; este cierre no toca
+  fuentes frontend compilables.
+
 ## API mensual canónica de Comisiones Comerciales (2026-08-20)
 
 - `GET /api/comisiones_comercial` mantiene `salesforce_id` obligatorio y añade

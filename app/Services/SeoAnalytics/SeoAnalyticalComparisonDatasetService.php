@@ -2,29 +2,24 @@
 
 namespace App\Services\SeoAnalytics;
 
+use App\Models\AnalyticalMetricEvaluation;
 use App\Models\AnalyticalMetricSnapshot;
-use Illuminate\Database\Eloquent\Builder;
 
 final class SeoAnalyticalComparisonDatasetService
 {
     public function __construct(
         private readonly SeoAnalyticalMetricRegistry $registry,
-        private readonly SearchConsoleClient $searchConsole,
-        private readonly GoogleAnalyticsClient $analytics,
+        private readonly SeoAnalyticalSnapshotScope $scope,
+        private readonly SeoAnalyticalEvaluationDatasetService $evaluations,
     ) {}
 
     /** @return array<int, array<string, mixed>> */
     public function build(): array
     {
-        $identities = $this->currentIdentities();
-        if ($identities === []) {
-            return [];
-        }
-
         $latest = AnalyticalMetricSnapshot::query()
             ->selectRaw('metric_key, scope_key, source_identifier_hash, MAX(data_date) as max_data_date')
             ->where('module_key', SeoAnalyticalMetricRegistry::MODULE)
-            ->where(fn (Builder $query) => $this->applyIdentityFilter($query, $identities))
+            ->where(fn ($query) => $this->scope->apply($query))
             ->groupBy('metric_key', 'scope_key', 'source_identifier_hash');
 
         $snapshots = AnalyticalMetricSnapshot::query()
@@ -37,58 +32,38 @@ final class SeoAnalyticalComparisonDatasetService
                     ->on('snapshots.data_date', '=', 'latest_snapshots.max_data_date');
             })
             ->where('snapshots.module_key', SeoAnalyticalMetricRegistry::MODULE)
-            ->where(fn (Builder $query) => $this->applyIdentityFilter($query, $identities, 'snapshots.'))
-            ->get()
-            ->keyBy('metric_key');
+            ->where(fn ($query) => $this->scope->apply($query, 'snapshots.'))
+            ->get();
+        $evaluations = $this->evaluations->latestForSnapshots($snapshots);
+        $snapshots = $snapshots->keyBy('metric_key');
 
         return collect($this->registry->metrics())
-            ->map(function (array $definition) use ($snapshots): ?array {
+            ->map(function (array $definition) use ($snapshots, $evaluations): ?array {
                 $snapshot = $snapshots->get($definition['key']);
 
-                return $snapshot ? $this->present($definition, $snapshot) : null;
+                return $snapshot ? $this->present(
+                    $definition,
+                    $snapshot,
+                    $evaluations->get($snapshot->id),
+                ) : null;
             })
             ->filter()
             ->values()
             ->all();
     }
 
-    /** @return array<string, string> */
-    private function currentIdentities(): array
-    {
-        $identities = [
-            'salesforce' => hash('sha256', SeoAnalyticalMetricRegistry::SALESFORCE_SOURCE_IDENTIFIER),
-        ];
-        $searchProperty = $this->searchConsole->configuredProperty();
-        if (is_string($searchProperty) && $searchProperty !== '') {
-            $identities['search_console'] = hash('sha256', $searchProperty);
-        }
-        $ga4Property = $this->analytics->configuredPropertyId();
-        if (is_string($ga4Property) && $ga4Property !== '') {
-            $identities['ga4'] = hash('sha256', $ga4Property);
-        }
-
-        return $identities;
-    }
-
-    /** @param array<string, string> $identities */
-    private function applyIdentityFilter(Builder $query, array $identities, string $prefix = ''): void
-    {
-        foreach ($identities as $source => $hash) {
-            $method = $source === array_key_first($identities) ? 'where' : 'orWhere';
-            $query->{$method}(function (Builder $identityQuery) use ($source, $hash, $prefix): void {
-                $identityQuery
-                    ->where($prefix.'source_key', $source)
-                    ->where($prefix.'source_identifier_hash', $hash);
-            });
-        }
-    }
-
     /**
      * @param  array{key: string, label: string, source: string, source_label: string, scope: string, format: string, field: string}  $definition
      * @return array<string, mixed>
      */
-    private function present(array $definition, AnalyticalMetricSnapshot $snapshot): array
-    {
+    private function present(
+        array $definition,
+        AnalyticalMetricSnapshot $snapshot,
+        ?AnalyticalMetricEvaluation $evaluation,
+    ): array {
+        $evaluationIsStale = $evaluation !== null && ! $this->evaluations->matchesSnapshot($evaluation, $snapshot);
+        $visibleEvaluation = $evaluationIsStale ? null : $evaluation;
+
         return [
             'metric_key' => $snapshot->metric_key,
             'label' => $snapshot->metric_label,
@@ -105,6 +80,15 @@ final class SeoAnalyticalComparisonDatasetService
             'is_evaluable' => $snapshot->is_evaluable,
             'evaluation_reason' => $snapshot->evaluation_reason,
             'baseline_is_zero' => $snapshot->baseline_value !== null && (float) $snapshot->baseline_value === 0.0,
+            'status' => $visibleEvaluation?->status ?? 'not-evaluable',
+            'direction' => $visibleEvaluation?->direction ?? 'not_evaluable',
+            'direction_label' => $this->evaluations->directionLabel($visibleEvaluation?->direction ?? 'not_evaluable'),
+            'magnitude_band' => $visibleEvaluation?->magnitude_band ?? 'not-evaluable',
+            'reason_code' => $evaluationIsStale ? 'evaluation_stale' : ($visibleEvaluation?->reason_code ?? 'missing_evaluation'),
+            'reading' => $evaluationIsStale
+                ? 'Evaluación pendiente de actualizar.'
+                : $this->evaluations->reading($visibleEvaluation),
+            'rule_version' => $visibleEvaluation?->ruleSet?->version_key,
         ];
     }
 
