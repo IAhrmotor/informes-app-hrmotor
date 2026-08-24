@@ -14,6 +14,18 @@ final class SeoTechnicalHealthDatasetService
     /** @return array<string, mixed> */
     public function build(): array
     {
+        return $this->resolve(true);
+    }
+
+    /** @return array<string, mixed> */
+    public function summary(): array
+    {
+        return $this->resolve(false);
+    }
+
+    /** @return array<string, mixed> */
+    private function resolve(bool $includeRows): array
+    {
         if (! $this->guard->configured()) {
             return $this->empty('Pendiente de configurar', 'Configure el sitio publico SEO antes de ejecutar comprobaciones.');
         }
@@ -35,7 +47,7 @@ final class SeoTechnicalHealthDatasetService
         $stats = $completed?->stats ?? [];
         $checkDate = data_get($stats, 'check_date');
         $rows = collect();
-        if (is_string($checkDate)) {
+        if ($includeRows && is_string($checkDate)) {
             $rows = SeoTechnicalUrl::query()
                 ->join('seo_technical_url_checks as checks', function ($join): void {
                     $join->on('checks.seo_technical_url_id', '=', 'seo_technical_urls.id');

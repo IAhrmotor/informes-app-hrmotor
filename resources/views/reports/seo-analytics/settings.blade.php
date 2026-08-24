@@ -16,9 +16,14 @@
                     {{ session('status') }}
                 </div>
             @endif
+            @if (session('email_status'))
+                <div class="report-ui-card report-ui-card--muted" role="status" style="margin-bottom: var(--report-ui-space-4)">
+                    {{ session('email_status') }}
+                </div>
+            @endif
             @if ($errors->any())
                 <div class="report-ui-card" role="alert" style="margin-bottom: var(--report-ui-space-4)">
-                    <strong>No se han guardado los umbrales.</strong>
+                    <strong>No se han guardado los cambios.</strong>
                     <ul>@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul>
                 </div>
             @endif
@@ -84,6 +89,28 @@
                             <span class="report-ui-help">Obligatorio, entre 1 y 500 caracteres. No incluyas credenciales ni datos personales.</span>
                         </label>
                         <button class="report-ui-button" type="submit">Crear nueva versión y aplicar</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="report-ui-data-panel" style="margin-top: var(--report-ui-space-4)" aria-label="Correo ejecutivo diario">
+                <div class="report-ui-data-panel__header">
+                    <x-reports.ui.section-header
+                        title="Correo ejecutivo diario"
+                        description="Se envía todos los días a las 08:00 Europe/Madrid. Una dirección por línea, con un máximo de 10."
+                    />
+                </div>
+                <form method="POST" action="{{ route('reports.seo-analytics.settings.email.update') }}">
+                    @csrf
+                    @method('PUT')
+                    <div class="report-ui-data-panel__body">
+                        <p><span class="report-ui-badge">{{ $mailReadiness['label'] }}</span></p>
+                        <label class="report-ui-field">
+                            <span class="report-ui-label">Destinatarios</span>
+                            <textarea class="report-ui-textarea" name="email_recipients" rows="6" maxlength="5000" required>{{ old('email_recipients', $emailRecipients) }}</textarea>
+                            <span class="report-ui-help">Solo Administrador y Director pueden modificar esta lista. Las credenciales del transporte permanecen en la configuración segura del servidor.</span>
+                        </label>
+                        <button class="report-ui-button" type="submit">Guardar destinatarios</button>
                     </div>
                 </form>
             </section>

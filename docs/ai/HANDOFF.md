@@ -1,5 +1,78 @@
 # Handoff para agentes
 
+## Documentación de comisiones financieras (2026-08-24)
+
+- Tarea: se auditó el flujo completo de la pestaña Financieros desde la SOQL de
+  `Opportunity`, su materialización en `salesforce_opportunities`, la configuración
+  mensual, el servicio de cálculo, el controlador, el front, la exportación XLSX y
+  las pruebas. Se creó una guía de presentación/revisión con universo, diccionario
+  Salesforce-local, query de contraste, zonas, tramos, fórmulas, ejemplo,
+  explicación de cada dato visible y checklist de aprobación.
+- Archivos modificados por esta tarea:
+  `docs/informe-comisiones-financieras.md`, `docs/informe-comisiones.md`,
+  `docs/Calculo_comisiones_comerciales.txt`,
+  `docs/Documentacion_general_informes_y_contraste_salesforce.md` y este handoff.
+- Decisiones: no se cambió ninguna regla. La documentación refleja que el bloque 2
+  usa comisión financiera válida menos descuento financiero; los intereses vacíos
+  o excluidos solo retiran la operación del bloque 2; las excepciones personales
+  sustituyen los tres bloques y se resuelven por Salesforce User ID. También se
+  corrigió la descripción de cierres: Financieros sigue operativo/provisional y no
+  dispone de snapshot definitivo propio.
+- Base de datos/configuración: sin migraciones, cambios de esquema, `.env`, datos
+  ni configuración. Los tramos documentados son defaults; una revisión debe usar
+  siempre `commercial_commission_month_settings` del mes seleccionado.
+- Seguridad: no se añadieron credenciales, IDs personales ni datos de producción.
+  Se documentó que el detalle contiene Opportunity ID/nombre y que el rol Financiero
+  ve actualmente todas las zonas; debe validarse ese alcance con mínimo privilegio.
+- Rendimiento: sin cambios de ejecución. Quedan documentados el cálculo mensual en
+  memoria, el detalle sin paginación y la necesidad de vigilar el plan de la consulta
+  por fecha si aumenta el volumen.
+- Pruebas: `php artisan test --filter=financieros` correcto (7/41);
+  `php artisan test tests/Feature/CommercialCommissionDashboardTest.php` correcto
+  (45/294); `php artisan test tests/Feature/CommercialCommissionFormulaSettingsTest.php`
+  correcto (10/51); `git diff --check` final correcto.
+- Acciones manuales: ninguna para desplegar documentación. Para presentar un mes
+  real, sincronizar el rango explícito de Opportunities, confirmar la configuración
+  efectiva y conservar fecha/hora del corte y evidencias de conciliación.
+- Riesgos/pendientes: `Zonas financieras` cuenta filas agregadas y puede incluir
+  excepciones personales; Sin Zona/General no aparece en el detalle; el detalle no
+  expone bases unitarias completas de bloques 1/3; una resincronización puede cambiar
+  meses históricos. No se modificaron `PROJECT_CONTEXT.md` ni `DECISIONS.md` porque
+  no cambió arquitectura, módulos, convenciones ni decisiones funcionales.
+
+## SEO/Analytics Lote 7 - Correo ejecutivo diario (2026-08-21)
+
+- Se separó el resultado del transporte de la confirmación local. Solo una
+  excepción de SMTP permite `sending -> failed`; después de que el sender
+  retorna, la transición `sending -> sent` comprueba filas afectadas y, si no
+  puede demostrarse `sent`, conserva/restaura `sending`, incrementa
+  `confirmation_pending_count` y hace fallar el comando. Así un posible correo
+  aceptado no entra de nuevo en el circuito automático de retry.
+- Se añadieron settings de 1–10 destinatarios en BD, gestionables únicamente
+  por Administrador/Director desde la configuración SEO. La lista se normaliza
+  por trim/lowercase y deduplicación; no usa DNS ni contiene secretos SMTP.
+- El dataset ejecutivo consume las seis comparativas/evaluaciones actuales, la
+  frescura compartida de Search Console/Salesforce/GA4 y un resumen factual de
+  Salud técnica. Siempre representa seis filas, respeta fingerprints stale y no
+  llama APIs, builders, evaluadores, IA ni SISTRIX.
+- Un report diario congelado conserva payload y hash SHA-256. El ledger por
+  fecha+recipient hash hace claim atómico antes del envío individual, evita
+  duplicados y reintenta solo `failed`; `sending` exige revisión manual.
+- `SeoExecutiveDailyReportMail` ofrece HTML y texto plano sin tracking, imágenes
+  remotas, JavaScript ni contenido sin escapar. El transporte es síncrono y
+  exige mailer distinto de `log`/`array` y remitente distinto del fallback.
+- `seo:send-executive-daily-email` registra `ReportSyncRun` sin emails/secretos
+  y se agenda a las 08:00 Europe/Madrid con `$monitor` y lock de 30 minutos. No
+  crea alertas de negocio por métricas SEO.
+- Migración aditiva `2026_08_21_120000`: settings, reports diarios y deliveries.
+  No se ha migrado producción ni enviado correo real.
+- Validación final: `SeoExecutive` 17 pruebas/183 aserciones,
+  `AnalyticalEvaluation` 30/267, `SeoAnalytical` 21/295, SEO 123/1.179,
+  patrones 5/46, Design System 5/54 y navegación 6/84, correctos. Suite
+  completa: 635/4.682. Pint, Composer audit
+  runtime (cero advisories), Vite y `git diff --check` correctos; el build no
+  modificó assets versionados.
+
 ## SEO/Analytics Lote 6 - Evaluación analítica versionada (2026-08-21)
 
 - Se mantiene `analytical_metric_snapshots` como capa factual separada. Es una

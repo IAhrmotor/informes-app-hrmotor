@@ -63,6 +63,23 @@ Actualizado: 2026-08-21.
   06:30 Madrid. El panel de señales limita la lectura a 30 días/50 filas y usa
   las properties actualmente configuradas.
 
+### Correo ejecutivo SEO
+
+- `SeoExecutiveDailyReportDatasetService` compone solo las seis comparativas,
+  la frescura compartida de Search Console/Salesforce/GA4 y Salud técnica
+  factual. No construye el dashboard descriptivo ni llama proveedores.
+- Los destinatarios (1–10) viven en `seo_executive_email_settings`; solo
+  Administrador/Director los gestionan. SMTP y remitente permanecen en `MAIL_*`.
+- `seo_executive_daily_reports` congela un payload por fecha y
+  `seo_executive_email_deliveries` aporta ledger idempotente individual. Un
+  retry no reconstruye el contenido ni reenvía estados `sent`/`sending`. El
+  retorno correcto del SMTP cierra la fase reintentable: si la confirmación
+  local de `sent` queda incierta, el ledger conserva `sending` y requiere
+  reconciliación manual.
+- `seo:send-executive-daily-email` usa Laravel Mail síncrono, registra
+  `ReportSyncRun` y se ejecuta a las 08:00 Madrid con lock de 30 minutos. Solo el
+  fallo técnico del scheduler participa en `OperationalAlert`.
+
 ### Salud técnica SEO
 
 - Un comando programado monitoriza únicamente Home, configuración estratégica

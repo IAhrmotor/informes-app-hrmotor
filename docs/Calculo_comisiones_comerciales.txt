@@ -1,7 +1,7 @@
 ESPECIFICACIÓN FUNCIONAL Y TÉCNICA DE COMISIONES COMERCIALES
 ============================================================
 
-Fecha de revisión: 2026-07-30
+Fecha de revisión: 2026-08-24
 Proyecto: informes-app-hrmotor
 
 Este documento describe la lógica que está implementada en el proyecto. No es
@@ -13,6 +13,10 @@ La documentación transversal, las queries completas del resto de informes y el
 mapa de fuentes están en:
 
   Documentacion_general_informes_y_contraste_salesforce.md
+
+La guía de presentación y conciliación detallada de Financieros está en:
+
+  informe-comisiones-financieras.md
 
 
 ACCESO RESTRINGIDO POR AREA
@@ -715,12 +719,18 @@ la implementación usa la media de porcentajes por delegación.
 - Zona desde el campo financiero; como fallback, mapeo por delegación del
   propietario.
 - Se excluyen General y Sin Zona.
+- No se exige el booleano CV firmado, owner activo, gestión de venta ni
+  financiación pagada.
 
   comision_neta =
-      importe_comision_financiera - descuento
+      suma(Comisi_n_Financiera__c)
+    - suma(OPO_DIV_Descuento_financiera__c)
 
   porcentaje_financiado =
       suma_importe_financiado / suma_importe_total * 100
+
+La query exacta de contraste, el diccionario Salesforce-local y el fallback
+completo de zonas están en informe-comisiones-financieras.md.
 
 9.2 Bloque 1: comisión neta
 ---------------------------
@@ -729,6 +739,16 @@ la implementación usa la media de porcentajes por delegación.
       suma(comision_neta) * coeficiente_por_porcentaje_financiado
 
 Los tramos se leen de la configuración vigente.
+
+Tramos por defecto:
+
+- > 47,00 %: 1,25 %.
+- 44,10 % a 47,00 %: 1,00 %.
+- 42,10 % a < 44,10 %: 0,75 %.
+- 40,10 % a < 42,10 %: 0,50 %.
+- 39,10 % a < 40,10 %: 0,40 %.
+- 38,00 % a < 39,10 %: 0,20 %.
+- < 38,00 %: 0,10 %.
 
 9.3 Bloque 2: interés y beneficio
 ---------------------------------
@@ -739,21 +759,33 @@ Se excluyen:
 - Intereses 3,99; 4,99; 5,99.
 
   ratio_beneficio =
-      beneficio_financiero_valido / importe_financiado_valido
+      beneficio_financiero_valido / importe_financiado_valido * 100
+
+  beneficio_financiero_valido =
+      suma(Comisi_n_Financiera__c valida)
+    - suma(OPO_DIV_Descuento_financiera__c valido)
 
   bloque_2 =
       beneficio_financiero_valido * coeficiente_por_ratio
 
 Si el interés no llega de Salesforce, el bloque queda a cero por diseño.
+Beneficio_financiacion_comercial__c no interviene en este cálculo.
+
+Tramos por defecto: >= 16,60 % aplica 0,75 %; >= 15,60 %, 0,50 %;
+>= 14,50 %, 0,40 %; >= 14,00 %, 0,20 %; >= 13,00 %, 0,10 %;
+por debajo de 13,00 %, 0,00 %.
 
 9.4 Bloque 3: garantía
 ----------------------
 
   ratio_garantia =
-      importe_garantia / importe_financiado
+      importe_garantia / importe_financiado * 100
 
   bloque_3 =
       importe_garantia * coeficiente_por_ratio
+
+Tramos por defecto: >= 7,00 % aplica 0,50 %; >= 6,00 %, 0,30 %;
+>= 5,00 %, 0,20 %; por debajo de 5,00 %, 0,00 %.
 
 9.5 Excepción individual desde junio de 2026
 --------------------------------------------
@@ -764,6 +796,19 @@ Para las identidades configuradas de Nuria e Irene:
       suma(comision_neta) * 0,005
 
 Este cálculo sustituye los tres bloques; no se suma a ellos.
+La identidad se resuelve exclusivamente por OwnerId/Salesforce User ID y la
+regla solo está vigente desde 2026-06.
+
+9.6 Comisión final y alcance del interés
+-----------------------------------------
+
+  total_financiero_ordinario = bloque_1 + bloque_2 + bloque_3
+
+Una operación sin interés o con interés 3,99/4,99/5,99 solo queda fuera del
+bloque 2. Continúa en los importes y bases de los bloques 1 y 3.
+
+Financieros es un bloque operativo/provisional. Se calcula sobre los datos
+locales actuales y no dispone de snapshot económico definitivo propio.
 
 
 10. PENALIZACIONES DE FINANCIACIÓN
@@ -825,9 +870,9 @@ La pantalla dispone de:
 - desglose de Area Manager;
 - desglose de Financieros;
 - endpoints de auditoría;
-- exportación XLSX con seis hojas.
+- exportación XLSX agregada.
 
-Las seis hojas corresponden a:
+Para roles con visión global, las seis hojas corresponden a:
 
 1. Comerciales
 2. Delegaciones
@@ -835,6 +880,9 @@ Las seis hojas corresponden a:
 4. Contact Center
 5. Area Manager
 6. Financieros
+
+Para el rol Financiero, la exportación contiene únicamente la hoja Financieros
+con responsable/zona y comisión final; el detalle auditable permanece en pantalla.
 
 Para validar una cifra:
 

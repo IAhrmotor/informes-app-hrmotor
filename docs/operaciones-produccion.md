@@ -409,6 +409,48 @@ estado anterior. El evaluador ordinario de las 06:30 actualiza el mismo registro
 snapshot/rule set y su fingerprint sin crear duplicados. No intervenir ni copiar
 manualmente clasificaciones durante esa ventana.
 
+## SEO/Analytics Lote 7 - Correo ejecutivo diario
+
+La migración aditiva crea settings, fotografías diarias y ledger de entregas.
+No ejecutar ningún envío hasta validar el transporte real y configurar
+destinatarios desde la aplicación:
+
+```bash
+php artisan migrate --force --no-interaction
+php artisan config:clear
+php artisan config:cache
+php artisan schedule:list
+```
+
+Verificar en el entorno, sin imprimir `MAIL_PASSWORD`, las variables
+`MAIL_MAILER`, `MAIL_SCHEME`, `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`,
+`MAIL_FROM_ADDRESS` y `MAIL_FROM_NAME`. `log`, `array` y
+`MAIL_FROM_ADDRESS=hello@example.com` no son operativos. Los destinatarios se
+configuran como Administrador/Director en
+`/informes/seo-analytics/configuracion`; no se almacenan en `.env`.
+
+`schedule:list` debe mostrar `seo:send-executive-daily-email` a las 08:00
+Europe/Madrid. Una validación manual opcional:
+
+```bash
+php artisan seo:send-executive-daily-email
+```
+
+Ese comando cuenta como el envío real del día. El scheduler posterior no lo
+duplica. Verificar `seo_executive_daily_reports`,
+`seo_executive_email_deliveries` y
+`report_sync_runs.dataset=seo_executive_daily_email` sin copiar emails ni
+secretos a logs o tickets. Un delivery `sending` residual no se reintenta
+automáticamente: confirmar primero con el proveedor si aceptó el mensaje y
+resolverlo mediante procedimiento manual controlado. Si el proveedor confirma
+la aceptación, registrar la entrega como `sent` y conservar la fecha; solo si
+confirma que no fue aceptada puede devolverse a `failed` para reintento. No
+resetear `sending` a ciegas. Un `confirmation_pending_count` positivo indica que
+SMTP retornó correctamente pero no pudo verificarse la transición local a
+`sent`; el comando falla y ese delivery permanece no reintentable hasta esta
+reconciliación. Se prefiere rollback de código compatible o forward
+fix; revertir la migración elimina trazabilidad.
+
 ## Rollback y pendientes
 
 - Preferir rollback de código si el esquema aditivo es compatible.

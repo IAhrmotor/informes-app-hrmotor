@@ -1,5 +1,22 @@
 # Decisiones técnicas
 
+## 2026-08-21 — Correo ejecutivo SEO congelado e idempotente
+
+El resumen ejecutivo SEO se envía siempre a las 08:00 Europe/Madrid y consume
+las evaluaciones versionadas existentes; no tiene scoring, thresholds ni motor
+analítico propio. Los destinatarios se configuran en BD exclusivamente por
+Administrador/Director, mientras transporte y secretos SMTP permanecen en el
+entorno.
+
+El contenido se congela por fecha antes del primer envío y cada destinatario
+recibe un mensaje individual. Un ledger con unique fecha+destinatario y claim
+atómico evita duplicados y permite reintentar solo fallos. Las entregas que
+quedan `sending` no se reintentan automáticamente porque el SMTP pudo aceptar el
+mensaje antes de que el proceso cayera. El fallo SMTP y la confirmación local se
+tratan como fases separadas: después de un retorno correcto del transporte, una
+confirmación local fallida o de cero filas permanece `sending` salvo que la BD
+demuestre que ya está `sent`; nunca vuelve automáticamente a `failed`.
+
 ## 2026-08-11 — Hardening transversal y recuperabilidad
 
 Se conserva Basic Auth de Comisiones por compatibilidad, pero las credenciales

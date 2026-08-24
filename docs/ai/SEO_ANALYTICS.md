@@ -2,15 +2,53 @@
 
 ## Alcance operativo
 
-Los Lotes 2, 3 y 4 incorporan datos persistidos de Google Search Console, una
+Los Lotes 2 a 7 incorporan datos persistidos de Google Search Console, una
 proyección diaria aislada de Leads orgánicos Salesforce y Conversiones web
 orgánicas GA4. `GET
 /informes/seo-analytics` consulta exclusivamente la base local y configuración:
 no llama Google, Salesforce, GA4 ni SISTRIX.
 
-Continúan pendientes el crawler general, SISTRIX AI Check, motor comparativo,
-scoring, anomalías y correo. Salud técnica ya monitoriza un conjunto acotado,
-incluidos robots/sitemaps, sin convertirse en crawler.
+El motor comparativo y las evaluaciones analíticas versionadas ya están
+implementados. Continúan fuera el crawler general y SISTRIX/GEO. Salud técnica
+monitoriza un conjunto acotado, incluidos robots/sitemaps, sin convertirse en
+crawler. El correo ejecutivo diario representa evaluaciones existentes y no
+incorpora scoring, reglas o inferencias propias.
+
+## Correo ejecutivo diario
+
+`seo:send-executive-daily-email` genera y envía todos los días, también cuando
+todo está correcto, una fotografía ejecutiva a las 08:00 Europe/Madrid. Consume
+solo la comparativa materializada, sus evaluaciones versionadas, el estado
+compartido de Search Console/Salesforce/GA4 y el resumen factual de Salud
+técnica. No ejecuta sincronizaciones, builders, evaluadores, Google, Salesforce,
+SISTRIX ni OpenAI.
+
+El correo muestra siempre las seis métricas del registry con su fecha real,
+valor actual, referencia, variación, estado y lectura de Lote 6. Una evaluación
+stale continúa como `not-evaluable`/«Evaluación pendiente de actualizar» y la
+ausencia de snapshot produce guiones, nunca ceros. Las oportunidades favorables
+conservan `observation + favorable`. Salud técnica expone contadores sin recibir
+clasificación analítica; `outside_sitemap_urls` solo aparece cuando el scan fue
+completo.
+
+Administrador y Director gestionan entre 1 y 10 destinatarios normalizados en
+`/informes/seo-analytics/configuracion`. Se almacenan en
+`seo_executive_email_settings`; las credenciales y transporte continúan
+exclusivamente en `MAIL_*`. `log`, `array` y el remitente fallback
+`hello@example.com` no se consideran preparados para envío real.
+
+Cada fecha se congela una vez en `seo_executive_daily_reports`; el SHA-256 del
+JSON canónico permite comprobar su integridad y no incluye destinatarios. El
+ledger `seo_executive_email_deliveries` tiene unique fecha+hash de destinatario,
+envía individualmente y usa un claim atómico `failed -> sending` antes del SMTP,
+sin mantener transacciones durante red. `sent` nunca se reenvía; `failed` puede
+reintentarse con el mismo payload; `sending` no se reclama automáticamente por
+la incertidumbre de entrega tras una caída. Un fallo del transporte convierte
+`sending -> failed`; una vez que el transporte retorna correctamente, un fallo
+o un resultado inconcluyente al confirmar `sending -> sent` conserva `sending`
+y hace fallar el comando para exigir reconciliación manual, nunca un reenvío
+automático. Cada comando registra
+`ReportSyncRun` sin emails ni secretos.
 
 ## Persistencia y cierre
 

@@ -161,3 +161,12 @@ $monitor(
     'seo-evaluate-analytical-snapshots',
     'evaluación analítica SEO',
 );
+
+$monitor(
+    Schedule::command('seo:send-executive-daily-email')
+        ->dailyAt('08:00')
+        ->timezone('Europe/Madrid')
+        ->withoutOverlapping(30),
+    'seo-send-executive-daily-email',
+    'envío diario del resumen ejecutivo SEO',
+);

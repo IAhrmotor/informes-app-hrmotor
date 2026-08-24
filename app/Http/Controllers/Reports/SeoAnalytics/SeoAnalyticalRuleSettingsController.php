@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Reports\SeoAnalytics;
 use App\Http\Controllers\Controller;
 use App\Services\SeoAnalytics\SeoAnalyticalRuleSetConflictException;
 use App\Services\SeoAnalytics\SeoAnalyticalRuleSetService;
+use App\Services\SeoAnalytics\SeoExecutiveEmailSettingsService;
+use App\Services\SeoAnalytics\SeoExecutiveMailReadinessService;
 use App\Support\ReportUserAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -12,13 +14,20 @@ use Illuminate\View\View;
 
 class SeoAnalyticalRuleSettingsController extends Controller
 {
-    public function __construct(private readonly SeoAnalyticalRuleSetService $ruleSets) {}
+    public function __construct(
+        private readonly SeoAnalyticalRuleSetService $ruleSets,
+        private readonly SeoExecutiveEmailSettingsService $emailSettings,
+        private readonly SeoExecutiveMailReadinessService $mailReadiness,
+    ) {}
 
     public function index(Request $request): View
     {
         abort_unless(ReportUserAccess::canManageSeoAnalyticalRules($request), 403);
 
-        return view('reports.seo-analytics.settings', $this->ruleSets->settings());
+        return view('reports.seo-analytics.settings', $this->ruleSets->settings() + [
+            'emailRecipients' => implode("\n", $this->emailSettings->recipients()),
+            'mailReadiness' => $this->mailReadiness->status(),
+        ]);
     }
 
     public function update(Request $request): RedirectResponse

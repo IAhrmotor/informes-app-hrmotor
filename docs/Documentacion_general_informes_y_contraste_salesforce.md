@@ -1,6 +1,6 @@
 # Documentación general de informes y contraste con Salesforce
 
-Versión: 2026-08-06
+Versión: 2026-08-24
 Proyecto: `informes-app-hrmotor`
 
 ## 1. Propósito y criterio de verdad
@@ -804,7 +804,8 @@ detalles y exportaciones. El mes actual se permite y es siempre Provisional.
   no operativo cae a tienda.
 - Financieros:
   firma en mes, no cerrada perdida, tipo fórmula Venta/Cambio, zona financiera
-  válida.
+  válida. La explicación completa de campos, SOQL, tramos y front está en
+  `docs/informe-comisiones-financieras.md`.
 - Call Center:
   oportunidades firmadas del rango; Tasación, Venta y Cambio con captador y sin
   gestión de venta; German desde `Tasacion__c`; Facilitea por regla específica.
@@ -827,8 +828,10 @@ funcional.
 - Solo Dirección y Administrador/IT preparan, aprueban o reabren.
 - El definitivo exige mes natural terminado, cinco componentes confirmados y
   ausencia de incidencias relevantes.
-- El snapshot conserva las seis vistas, ámbitos de Área Manager, detalles,
-  fórmulas, corte y fuentes.
+- Los cierres se separan por `Comerciales`, `Delegaciones` y `Área Manager`; cada
+  snapshot conserva únicamente el universo y detalle de su bloque. Call Center,
+  Contact Center y Financieros siguen siendo operativos/provisionales y no se
+  congelan en esos cierres.
 - Salesforce no sobrescribe un definitivo. Una corrección se registra como
   ajuste del siguiente mes abierto o exige reapertura manual con motivo.
 - El libro de ajustes conserva operación, mes original/aplicación, importe,
@@ -872,6 +875,10 @@ Código fuente:
 - `app/Services/Reports/CommercialCommissions/CommercialCommissionFormulaConfigService.php`
 - `app/Services/Reports/CommercialCommissions/CommissionMonthResolver.php`
 - `app/Services/Reports/CommercialCommissions/CommercialCommissionClosureService.php`
+
+Guía funcional específica:
+
+- `docs/informe-comisiones-financieras.md`
 
 ## 8. Stock
 

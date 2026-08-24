@@ -1,6 +1,11 @@
 # Informe de Comisiones
 
-Actualizado: 2026-08-10.
+Actualizado: 2026-08-24.
+
+La guía completa, orientada a presentar y auditar la pestaña **Financieros**, se
+encuentra en `docs/informe-comisiones-financieras.md`. Incluye campos Salesforce,
+SOQL de contraste, universo, tramos, fórmulas, lectura de cada columna, ejemplo y
+checklist de aprobación.
 
 ## Mes compartido
 
@@ -103,7 +108,9 @@ Resumen funcional:
   configuración.
 - Contact Center: citas y resultados con su ventana funcional vigente.
 - Área Manager: ámbito de zona y delegaciones normalizadas.
-- Financieros: operaciones y productos financieros del mes seleccionado.
+- Financieros: ventas/cambios por fecha de firma y zona financiera. Los bloques 1
+  y 3 usan todo el universo elegible; el bloque 2 usa solo operaciones con interés
+  informado y no excluido. La comisión final se recalcula sobre la réplica local.
 
 La identidad principal de una persona es Salesforce User ID; el nombre es solo
 una etiqueta y no debe usarse para unir registros.

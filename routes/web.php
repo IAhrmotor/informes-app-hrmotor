@@ -18,6 +18,7 @@ use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardCon
 use App\Http\Controllers\Reports\ReservationsSales\ReservationsSalesDashboardDataController;
 use App\Http\Controllers\Reports\SeoAnalytics\SeoAnalyticalRuleSettingsController;
 use App\Http\Controllers\Reports\SeoAnalytics\SeoAnalyticsDashboardController;
+use App\Http\Controllers\Reports\SeoAnalytics\SeoExecutiveEmailSettingsController;
 use App\Http\Controllers\Reports\Settings\ReportAccessManagementController;
 use App\Http\Controllers\Reports\Stock\StockCapacityController;
 use App\Http\Controllers\Reports\Stock\StockCatalogAliasApprovalController;
@@ -46,6 +47,7 @@ Route::middleware('reports.auth')->group(function () {
         ->group(function () {
             Route::get('/', [SeoAnalyticalRuleSettingsController::class, 'index'])->name('index');
             Route::put('/', [SeoAnalyticalRuleSettingsController::class, 'update'])->name('update');
+            Route::put('/correo-diario', [SeoExecutiveEmailSettingsController::class, 'update'])->name('email.update');
         });
 
     Route::prefix('informes/leads')

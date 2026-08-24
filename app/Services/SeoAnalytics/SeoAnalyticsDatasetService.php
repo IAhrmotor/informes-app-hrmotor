@@ -13,11 +13,8 @@ use Illuminate\Support\Collection;
 final class SeoAnalyticsDatasetService
 {
     public function __construct(
-        private readonly SearchConsoleClient $searchConsole,
-        private readonly SalesforceOrganicLeadSyncService $salesforceOrganic,
-        private readonly GoogleAnalyticsClient $analytics,
         private readonly SeoTechnicalHealthDatasetService $technicalHealth,
-        private readonly SeoSourceStateResolver $sourceStates,
+        private readonly SeoSourceStatusDatasetService $sourceStatus,
         private readonly SeoAnalyticalComparisonDatasetService $analyticalComparisons,
         private readonly SeoAnalyticalEvaluationDatasetService $analyticalEvaluations,
     ) {}
@@ -35,23 +32,12 @@ final class SeoAnalyticsDatasetService
             ? $requestedSection
             : 'summary';
 
-        $configuredProperty = $this->searchConsole->configuredProperty();
-        $searchCompletedRun = $this->sourceStates->latestCompletedRun(SearchConsoleSyncService::DATASET, $configuredProperty);
-        $property = $configuredProperty ?? data_get($searchCompletedRun?->stats, 'property');
-        $salesforceCompletedRun = $this->sourceStates->latestCompletedRun(SalesforceOrganicLeadSyncService::DATASET);
-        $ga4PropertyId = $this->analytics->configuredPropertyId();
-        $ga4CompletedRun = $ga4PropertyId
-            ? $this->sourceStates->latestCompletedRun(
-                Ga4OrganicConversionSyncService::DATASET,
-                $ga4PropertyId,
-                'property_id',
-            )
-            : null;
-        $searchCutoff = is_string($property) && $property !== ''
-            ? $this->sourceStates->cutoff($searchCompletedRun)
-            : null;
-        $salesforceCutoff = $this->sourceStates->cutoff($salesforceCompletedRun);
-        $ga4Cutoff = $ga4PropertyId ? $this->sourceStates->cutoff($ga4CompletedRun) : null;
+        $sourceStatus = $this->sourceStatus->build();
+        $property = $sourceStatus['search_property'];
+        $ga4PropertyId = $sourceStatus['ga4_property_id'];
+        $searchCutoff = $sourceStatus['cutoffs']['search_console'];
+        $salesforceCutoff = $sourceStatus['cutoffs']['salesforce'];
+        $ga4Cutoff = $sourceStatus['cutoffs']['ga4'];
         $commonCutoff = collect([$searchCutoff, $salesforceCutoff, $ga4Cutoff])
             ->filter()
             ->sortBy(fn (CarbonImmutable $cutoff): int => $cutoff->getTimestamp())
@@ -150,7 +136,8 @@ final class SeoAnalyticsDatasetService
                 ->get();
         }
         $health = $section === 'health' ? $this->technicalHealth->build() : null;
-        $sources = $this->sources($searchCutoff, $salesforceCutoff, $ga4Cutoff, $property, $ga4PropertyId);
+        $sources = $sourceStatus['sources'];
+        $sources[] = ['key' => 'sistrix', 'title' => 'SISTRIX AI Check', 'detail' => filled(config('services.sistrix.api_key')) ? 'Acceso AI pendiente de verificar' : 'Pendiente de conectar', 'badge' => filled(config('services.sistrix.api_key')) ? 'Configuración detectada' : 'No configurada'];
         if ($health !== null) {
             $sources[] = $health['source'];
         }
@@ -291,59 +278,5 @@ final class SeoAnalyticsDatasetService
         }
 
         return ['available' => true, 'key_events' => $difference];
-    }
-
-    /** @return array<int, array{key: string, title: string, detail: string, badge: string}> */
-    private function sources(
-        ?CarbonImmutable $searchCutoff,
-        ?CarbonImmutable $salesforceCutoff,
-        ?CarbonImmutable $ga4Cutoff,
-        mixed $property,
-        ?string $ga4PropertyId,
-    ): array {
-        return [
-            $this->source('search-console', 'Search Console', $this->searchConsole->configured(), $searchCutoff, SearchConsoleSyncService::DATASET, is_string($property) ? $property : null),
-            $this->source('salesforce', 'Salesforce', $this->salesforceOrganic->configured(), $salesforceCutoff, SalesforceOrganicLeadSyncService::DATASET),
-            $ga4PropertyId
-                ? $this->source('ga4', 'Google Analytics 4', $this->analytics->configured(), $ga4Cutoff, Ga4OrganicConversionSyncService::DATASET, $ga4PropertyId, 'property_id')
-                : ['key' => 'ga4', 'title' => 'Google Analytics 4', 'detail' => 'Pendiente de configurar', 'badge' => 'No configurada'],
-            ['key' => 'sistrix', 'title' => 'SISTRIX AI Check', 'detail' => filled(config('services.sistrix.api_key')) ? 'Acceso AI pendiente de verificar' : 'Pendiente de conectar', 'badge' => filled(config('services.sistrix.api_key')) ? 'Configuración detectada' : 'No configurada'],
-        ];
-    }
-
-    /** @return array{key: string, title: string, detail: string, badge: string} */
-    private function source(
-        string $key,
-        string $title,
-        bool $configured,
-        ?CarbonImmutable $cutoff,
-        string $dataset,
-        ?string $property = null,
-        string $propertyStat = 'property',
-    ): array {
-        $latestRun = $this->sourceStates->latestRun($dataset, $property, $propertyStat);
-        if ($latestRun?->status === 'failed') {
-            $detail = $cutoff
-                ? 'Datos anteriores cerrados hasta: '.$cutoff->toDateString().'. La última sincronización falló.'
-                : 'La última sincronización finalizó con error técnico.';
-
-            return compact('key', 'title', 'detail') + ['badge' => 'Error último sync'];
-        }
-        if ($latestRun?->status === 'running') {
-            return compact('key', 'title') + [
-                'detail' => $cutoff
-                    ? 'Datos cerrados hasta: '.$cutoff->toDateString().'. Sincronización en curso.'
-                    : 'Sincronización en curso; todavía no existe un cutoff completado.',
-                'badge' => 'Sincronizando',
-            ];
-        }
-        if ($cutoff) {
-            return compact('key', 'title') + ['detail' => 'Datos cerrados hasta: '.$cutoff->toDateString(), 'badge' => 'Sincronizada'];
-        }
-
-        return compact('key', 'title') + [
-            'detail' => $configured ? 'Configuración detectada; sin datos sincronizados' : 'Pendiente de configurar',
-            'badge' => $configured ? 'Sin datos' : 'No configurada',
-        ];
     }
 }

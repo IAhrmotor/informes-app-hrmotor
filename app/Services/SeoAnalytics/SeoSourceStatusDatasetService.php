@@ -1,0 +1,128 @@
+<?php
+
+namespace App\Services\SeoAnalytics;
+
+use Carbon\CarbonImmutable;
+
+final class SeoSourceStatusDatasetService
+{
+    public function __construct(
+        private readonly SearchConsoleClient $searchConsole,
+        private readonly SalesforceOrganicLeadSyncService $salesforceOrganic,
+        private readonly GoogleAnalyticsClient $analytics,
+        private readonly SeoSourceStateResolver $sourceStates,
+    ) {}
+
+    /**
+     * @return array{
+     *     search_property: ?string,
+     *     ga4_property_id: ?string,
+     *     cutoffs: array{search_console: ?CarbonImmutable, salesforce: ?CarbonImmutable, ga4: ?CarbonImmutable},
+     *     sources: array<int, array{key: string, title: string, detail: string, badge: string}>
+     * }
+     */
+    public function build(): array
+    {
+        $configuredProperty = $this->searchConsole->configuredProperty();
+        $searchCompletedRun = $this->sourceStates->latestCompletedRun(
+            SearchConsoleSyncService::DATASET,
+            $configuredProperty,
+        );
+        $property = $configuredProperty ?? data_get($searchCompletedRun?->stats, 'property');
+        $property = is_string($property) && $property !== '' ? $property : null;
+        $salesforceCompletedRun = $this->sourceStates->latestCompletedRun(SalesforceOrganicLeadSyncService::DATASET);
+        $ga4PropertyId = $this->analytics->configuredPropertyId();
+        $ga4CompletedRun = $ga4PropertyId
+            ? $this->sourceStates->latestCompletedRun(
+                Ga4OrganicConversionSyncService::DATASET,
+                $ga4PropertyId,
+                'property_id',
+            )
+            : null;
+        $searchCutoff = $property ? $this->sourceStates->cutoff($searchCompletedRun) : null;
+        $salesforceCutoff = $this->sourceStates->cutoff($salesforceCompletedRun);
+        $ga4Cutoff = $ga4PropertyId ? $this->sourceStates->cutoff($ga4CompletedRun) : null;
+
+        return [
+            'search_property' => $property,
+            'ga4_property_id' => $ga4PropertyId,
+            'cutoffs' => [
+                'search_console' => $searchCutoff,
+                'salesforce' => $salesforceCutoff,
+                'ga4' => $ga4Cutoff,
+            ],
+            'sources' => [
+                $this->source(
+                    'search-console',
+                    'Search Console',
+                    $this->searchConsole->configured(),
+                    $searchCutoff,
+                    SearchConsoleSyncService::DATASET,
+                    $property,
+                ),
+                $this->source(
+                    'salesforce',
+                    'Salesforce',
+                    $this->salesforceOrganic->configured(),
+                    $salesforceCutoff,
+                    SalesforceOrganicLeadSyncService::DATASET,
+                ),
+                $ga4PropertyId
+                    ? $this->source(
+                        'ga4',
+                        'Google Analytics 4',
+                        $this->analytics->configured(),
+                        $ga4Cutoff,
+                        Ga4OrganicConversionSyncService::DATASET,
+                        $ga4PropertyId,
+                        'property_id',
+                    )
+                    : [
+                        'key' => 'ga4',
+                        'title' => 'Google Analytics 4',
+                        'detail' => 'Pendiente de configurar',
+                        'badge' => 'No configurada',
+                    ],
+            ],
+        ];
+    }
+
+    /** @return array{key: string, title: string, detail: string, badge: string} */
+    private function source(
+        string $key,
+        string $title,
+        bool $configured,
+        ?CarbonImmutable $cutoff,
+        string $dataset,
+        ?string $property = null,
+        string $propertyStat = 'property',
+    ): array {
+        $latestRun = $this->sourceStates->latestRun($dataset, $property, $propertyStat);
+        if ($latestRun?->status === 'failed') {
+            $detail = $cutoff
+                ? 'Datos anteriores cerrados hasta: '.$cutoff->toDateString().'. La última sincronización falló.'
+                : 'La última sincronización finalizó con error técnico.';
+
+            return compact('key', 'title', 'detail') + ['badge' => 'Error último sync'];
+        }
+        if ($latestRun?->status === 'running') {
+            return compact('key', 'title') + [
+                'detail' => $cutoff
+                    ? 'Datos cerrados hasta: '.$cutoff->toDateString().'. Sincronización en curso.'
+                    : 'Sincronización en curso; todavía no existe un cutoff completado.',
+                'badge' => 'Sincronizando',
+            ];
+        }
+        if ($cutoff) {
+            return compact('key', 'title') + [
+                'detail' => 'Datos cerrados hasta: '.$cutoff->toDateString(),
+                'badge' => 'Sincronizada',
+            ];
+        }
+
+        return compact('key', 'title') + [
+            'detail' => $configured ? 'Configuración detectada; sin datos sincronizados' : 'Pendiente de configurar',
+            'badge' => $configured ? 'Sin datos' : 'No configurada',
+        ];
+    }
+}
