@@ -1,5 +1,25 @@
 # Handoff para agentes
 
+## Presentacion financiera de Irene y Nuria (2026-08-24)
+
+- Tarea: ajuste exclusivamente visual del cuadro `Irene y Nuria` en la pestaña
+  Financieros. `Comision final` pasa a la segunda columna y se recuperan como
+  contexto importe total, importe financiado, porcentaje financiado,
+  rentabilidad, garantia y porcentaje de garantias.
+- Decision: se reutilizan directamente las metricas existentes de `summary_rows`;
+  no se modifican servicios, formulas, conciliacion, sincronizacion ni mappings.
+  Los bloques 1, 2 y 3 siguen sin mostrarse ni aplicarse a Irene/Nuria, cuya regla
+  exclusiva permanece en comision neta por 0,50%.
+- Archivos: Blade financiero, prueba feature de Comisiones y este handoff.
+- Base de datos/configuracion: sin migraciones, variables de entorno ni cambios de
+  configuracion.
+- Seguridad/rendimiento: sin cambios de autorizacion, consultas o volumen del
+  payload; solo se presentan campos agregados ya calculados.
+- Pruebas: la prueba focalizada valida el contrato y orden de las 13 columnas, los
+  valores informativos formateados y que las tres comisiones estandar permanecen
+  en cero. Las verificaciones completas de esta tarea se detallan en la entrega.
+- Acciones manuales: ninguna. No requiere sincronizacion Salesforce.
+
 ## Auditoria y correccion de Financieros (2026-08-24)
 
 - Tarea: se concilio julio de 2026 por `Opportunity.Id` contra Salesforce y se

@@ -128,21 +128,30 @@
         <div class="table-shell area-manager-summary-shell">
             <table data-sortable-table="financial-special-summary">
                 <thead><tr>
-                    <th data-sortable="true">Responsable</th><th class="num" data-sortable="true">Ops.</th>
+                    <th data-sortable="true">Responsable</th><th class="num" data-sortable="true">Comision final</th>
+                    <th class="num" data-sortable="true">Ops.</th><th class="num" data-sortable="true">Imp. total</th>
+                    <th class="num" data-sortable="true">Imp. financiado</th><th class="num" data-sortable="true">% financiado</th>
                     <th class="num" data-sortable="true">Com. financiera</th><th class="num" data-sortable="true">Desc. financiera</th>
-                    <th class="num" data-sortable="true">Com. neta</th><th class="num" data-sortable="true">Multiplicador</th>
-                    <th class="num" data-sortable="true">Comision final</th>
+                    <th class="num" data-sortable="true">Com. neta</th><th class="num" data-sortable="true">Rentabilidad</th>
+                    <th class="num" data-sortable="true">Garantia</th><th class="num" data-sortable="true">% garantias</th>
+                    <th class="num" data-sortable="true">Multiplicador</th>
                 </tr></thead>
                 <tbody data-sort-body="financial-special-summary">
                 @foreach ($financialSpecialRows as $row)
                     <tr>
                         <td>{{ $row['summary_label'] }}</td>
+                        <td class="num"><strong>{{ number_format((float) $row['final_commission'], 2, ',', '.') }}</strong></td>
                         <td class="num">{{ number_format((int) $row['operations_count'], 0, ',', '.') }}</td>
+                        <td class="num">{{ number_format((float) $row['amount_total'], 2, ',', '.') }}</td>
+                        <td class="num">{{ number_format((float) $row['amount_financed'], 2, ',', '.') }}</td>
+                        <td class="num">{{ number_format((float) $row['financed_percentage'], 2, ',', '.') }}%</td>
                         <td class="num">{{ number_format((float) $row['financial_commission_total'], 2, ',', '.') }}</td>
                         <td class="num">{{ number_format((float) $row['financial_discount_total'], 2, ',', '.') }}</td>
                         <td class="num">{{ number_format((float) $row['net_commission'], 2, ',', '.') }}</td>
+                        <td class="num">{{ number_format((float) $row['profitability_percentage'], 2, ',', '.') }}%</td>
+                        <td class="num">{{ number_format((float) $row['premium_guarantee_total'], 2, ',', '.') }}</td>
+                        <td class="num">{{ number_format((float) $row['guarantee_percentage'], 2, ',', '.') }}%</td>
                         <td class="num">{{ number_format(((float) $row['special_responsible_percent']) * 100, 2, ',', '.') }}%</td>
-                        <td class="num"><strong>{{ number_format((float) $row['final_commission'], 2, ',', '.') }}</strong></td>
                     </tr>
                 @endforeach
                 </tbody>

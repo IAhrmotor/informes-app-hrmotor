@@ -340,10 +340,10 @@ class CommercialCommissionDashboardTest extends TestCase
     public function test_dashboard_financieros_aplica_reglas_especiales_por_zona_y_suma_delegaciones_con_distintos_owners(): void
     {
         foreach ([
-            ['id' => 'FIN-IRENE-ALICANTE', 'owner_id' => '005-COMMERCIAL-1', 'zone' => 'Zona Irene', 'delegation' => 'HR MOTOR ALICANTE', 'commission' => 12000, 'discount' => 2000],
-            ['id' => 'FIN-IRENE-PATERNA', 'owner_id' => '005-COMMERCIAL-2', 'zone' => 'Zona Irene', 'delegation' => 'HR MOTOR PATERNA', 'commission' => 8000, 'discount' => 0],
-            ['id' => 'FIN-NURIA-SEDAVI', 'owner_id' => '005-COMMERCIAL-3', 'zone' => 'Zona Nuria', 'delegation' => 'HR MOTOR SEDAVI', 'commission' => 10000, 'discount' => 1000],
-            ['id' => 'FIN-NURIA-CASTELLON', 'owner_id' => '005-COMMERCIAL-4', 'zone' => 'Zona Nuria', 'delegation' => 'HR MOTOR CASTELLON', 'commission' => 5000, 'discount' => 0],
+            ['id' => 'FIN-IRENE-ALICANTE', 'owner_id' => '005-COMMERCIAL-1', 'zone' => 'Zona Irene', 'delegation' => 'HR MOTOR ALICANTE', 'commission' => 12000, 'discount' => 2000, 'guarantee' => 300, 'interest' => null],
+            ['id' => 'FIN-IRENE-PATERNA', 'owner_id' => '005-COMMERCIAL-2', 'zone' => 'Zona Irene', 'delegation' => 'HR MOTOR PATERNA', 'commission' => 8000, 'discount' => 0, 'guarantee' => 700, 'interest' => '8,99%'],
+            ['id' => 'FIN-NURIA-SEDAVI', 'owner_id' => '005-COMMERCIAL-3', 'zone' => 'Zona Nuria', 'delegation' => 'HR MOTOR SEDAVI', 'commission' => 10000, 'discount' => 1000, 'guarantee' => 0, 'interest' => null],
+            ['id' => 'FIN-NURIA-CASTELLON', 'owner_id' => '005-COMMERCIAL-4', 'zone' => 'Zona Nuria', 'delegation' => 'HR MOTOR CASTELLON', 'commission' => 5000, 'discount' => 0, 'guarantee' => 0, 'interest' => null],
         ] as $operation) {
             SalesforceOpportunity::create([
                 'salesforce_id' => $operation['id'],
@@ -358,8 +358,8 @@ class CommercialCommissionDashboardTest extends TestCase
                 'importe_financiado' => 50000,
                 'financial_commission' => $operation['commission'],
                 'financial_discount' => $operation['discount'],
-                'garantia_total' => 0,
-                'interest_rate' => null,
+                'garantia_total' => $operation['guarantee'],
+                'interest_rate' => $operation['interest'],
                 'cv_signed_date' => '2026-06-15',
             ]);
         }
@@ -375,6 +375,13 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEqualsWithDelta(0.005, $nuria['special_responsible_percent'], 0.0001);
         $this->assertEqualsWithDelta(70.0, $nuria['final_commission'], 0.01);
         $this->assertEqualsWithDelta(90.0, $irene['final_commission'], 0.01);
+        $this->assertEqualsWithDelta(200000.0, $irene['amount_total'], 0.01);
+        $this->assertEqualsWithDelta(100000.0, $irene['amount_financed'], 0.01);
+        $this->assertEqualsWithDelta(50.0, $irene['financed_percentage'], 0.01);
+        $this->assertEqualsWithDelta(16.0, $irene['profitability_percentage'], 0.01);
+        $this->assertEqualsWithDelta(1000.0, $irene['premium_guarantee_total'], 0.01);
+        $this->assertEqualsWithDelta(1.0, $irene['guarantee_percentage'], 0.01);
+        $this->assertEqualsWithDelta(0.005, $irene['special_responsible_percent'], 0.0001);
         $this->assertSame(0.0, $irene['block_1_commission']);
         $this->assertSame(0.0, $irene['block_2_commission']);
         $this->assertSame(0.0, $irene['block_3_commission']);
@@ -393,6 +400,57 @@ class CommercialCommissionDashboardTest extends TestCase
             0.001
         );
         $this->assertSame('Tipo de interes vacio', $payload['detail_rows'][0]['profitability_reason']);
+
+        $response = $this->withSession($this->authenticatedSession(ReportUser::ROLE_ADMIN))
+            ->get('/informes/comisiones-comerciales?tab=financials&month=2026-06')
+            ->assertOk();
+        $html = $response->getContent();
+        $sectionStart = strpos($html, '<h2>Irene y Nuria</h2>');
+        $sectionEnd = strpos($html, '<h2>Detalle por responsable y delegacion</h2>', $sectionStart);
+
+        $this->assertNotFalse($sectionStart);
+        $this->assertNotFalse($sectionEnd);
+
+        $section = substr($html, $sectionStart, $sectionEnd - $sectionStart);
+        $headerStart = strpos($section, '<thead>');
+        $headerEnd = strpos($section, '</thead>', $headerStart);
+
+        $this->assertNotFalse($headerStart);
+        $this->assertNotFalse($headerEnd);
+
+        $header = substr($section, $headerStart, $headerEnd - $headerStart);
+        $expectedHeaders = [
+            'Responsable',
+            'Comision final',
+            'Ops.',
+            'Imp. total',
+            'Imp. financiado',
+            '% financiado',
+            'Com. financiera',
+            'Desc. financiera',
+            'Com. neta',
+            'Rentabilidad',
+            'Garantia',
+            '% garantias',
+            'Multiplicador',
+        ];
+        $previousPosition = -1;
+
+        foreach ($expectedHeaders as $expectedHeader) {
+            $position = strpos($header, '>'.$expectedHeader.'</th>');
+
+            $this->assertNotFalse($position, "No se encontro la cabecera {$expectedHeader}.");
+            $this->assertGreaterThan($previousPosition, $position, "La cabecera {$expectedHeader} esta fuera de orden.");
+            $previousPosition = $position;
+        }
+
+        foreach (['200.000,00', '100.000,00', '50,00%', '20.000,00', '2.000,00', '18.000,00', '16,00%', '1.000,00', '1,00%', '0,50%', '90,00'] as $formattedValue) {
+            $this->assertStringContainsString($formattedValue, $section);
+        }
+
+        $this->assertStringNotContainsString('Com. bloque 1', $section);
+        $this->assertStringNotContainsString('Com. bloque 2', $section);
+        $this->assertStringNotContainsString('Com. bloque 3', $section);
     }
 
     public function test_dashboard_financieros_respeta_limites_tipo_y_etapa_del_universo_mensual(): void
