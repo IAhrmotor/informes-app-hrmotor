@@ -804,8 +804,15 @@ detalles y exportaciones. El mes actual se permite y es siempre Provisional.
   no operativo cae a tienda.
 - Financieros:
   firma en mes, no cerrada perdida, tipo fórmula Venta/Cambio, zona financiera
-  válida. La explicación completa de campos, SOQL, tramos y front está en
+  válida. El responsable se resuelve por una clave estable de zona, nunca por el
+  OwnerId comercial. Irene agrega Alicante/Paterna y Nuria Sedaví/Castellón; su
+  regla 0,50 % sustituye los tres bloques desde junio de 2026. La explicación
+  completa de campos, SOQL, tramos y front está en
   `docs/informe-comisiones-financieras.md`.
+  El detalle usa primero `Owner.USR_SEL_Delegacion__c` y después
+  `Delegacion_del_propietario__c` como fallback. Una zona explícita desconocida
+  con comisión/descuento bloquea la integridad y la exportación; nunca se asigna
+  por aproximación.
 - Call Center:
   oportunidades firmadas del rango; Tasación, Venta y Cambio con captador y sin
   gestión de venta; German desde `Tasacion__c`; Facilitea por regla específica.

@@ -18,9 +18,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
     {
         $client = new class extends SalesforceClient
         {
-            public function __construct()
-            {
-            }
+            public function __construct() {}
 
             public function query(string $soql): array
             {
@@ -53,6 +51,9 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                         'CloseDate' => '2026-05-31',
                         'Amount' => 12500.50,
                         'OPO_FOR_Importe_total__c' => 13000.75,
+                        'Comisi_n_Financiera__c' => 1234.56,
+                        'OPO_DIV_Descuento_financiera__c' => 78.90,
+                        'zona_financiera__c' => 'Zona Carlos',
                         'StageName' => 'Reserva',
                         'RecordType' => ['Name' => 'Venta'],
                         'OwnerId' => '005-owner-1',
@@ -191,6 +192,9 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             'delivery_store' => 'HR MOTOR ALICANTE',
             'amount' => 12500.50,
             'opo_for_importe_total' => 13000.75,
+            'financial_commission' => 1234.56,
+            'financial_discount' => 78.90,
+            'financial_zone' => 'Zona Carlos',
             'portal_resolved' => 'Web',
             'portal_resolution_source' => 'opportunity',
             'reservation' => true,
@@ -230,5 +234,67 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertSame('2026-05-10', $storedOpportunity->raw_payload['OPO_FEC_Fecha_entrega__c'] ?? null);
         $this->assertSame('1234ABC Opel Corsa', data_get($storedOpportunity->raw_payload, 'OPO_BUS_Vehiculo_a_tasar__r.Name'));
         $this->assertSame('5678DEF Peugeot 308', data_get($storedOpportunity->raw_payload, 'OPP_BUS_Vehiculo_de_interes__r.Name'));
+    }
+
+    public function test_reintenta_sin_email_de_empresa_cuando_salesforce_rechaza_el_campo_opcional(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            public int $queries = 0;
+
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $this->queries++;
+
+                if (str_contains($soql, 'Account.AC_C_EMA_email__c')) {
+                    throw new \RuntimeException('Salesforce SOQL: error remoto HTTP 400.');
+                }
+
+                return [];
+            }
+        };
+
+        $service = new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class));
+        $result = $service->sync(
+            CarbonImmutable::parse('2026-07-01 00:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-07-02 00:00:00', 'UTC'),
+        );
+
+        $this->assertSame(2, $client->queries);
+        $this->assertSame(0, $result['saved']);
+        $this->assertStringNotContainsString('Account.AC_C_EMA_email__c', $result['soql']);
+    }
+
+    public function test_no_reintenta_errores_remotos_que_no_sean_un_rechazo_http_400(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            public int $queries = 0;
+
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $this->queries++;
+
+                throw new \RuntimeException('Salesforce SOQL: error remoto HTTP 503.');
+            }
+        };
+
+        $service = new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class));
+
+        try {
+            $service->sync(
+                CarbonImmutable::parse('2026-07-01 00:00:00', 'UTC'),
+                CarbonImmutable::parse('2026-07-02 00:00:00', 'UTC'),
+            );
+            $this->fail('Se esperaba propagar el error remoto.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Salesforce SOQL: error remoto HTTP 503.', $exception->getMessage());
+        }
+
+        $this->assertSame(1, $client->queries);
     }
 }

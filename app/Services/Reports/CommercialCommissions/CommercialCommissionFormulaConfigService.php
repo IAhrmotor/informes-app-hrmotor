@@ -374,7 +374,7 @@ class CommercialCommissionFormulaConfigService
         $defaults = $this->defaults();
         $defaults['delegations']['goals'] = $this->inheritedDelegationGoals($selectedMonth);
         $defaults['area_manager']['assignments'] = $this->inheritedAreaManagerAssignments($selectedMonth);
-        $defaults = $this->withSpecialFinancialUserRules($defaults, $selectedMonth);
+        $defaults = $this->withSpecialFinancialResponsibleRules($defaults, $selectedMonth);
 
         if (! Schema::hasTable('commercial_commission_month_settings')) {
             return $this->normalizeSettings($defaults);
@@ -388,7 +388,7 @@ class CommercialCommissionFormulaConfigService
             return $this->normalizeSettings($defaults);
         }
 
-        return $this->withSpecialFinancialUserRules(
+        return $this->withSpecialFinancialResponsibleRules(
             $this->normalizeSettings(array_replace_recursive($defaults, $stored->settings)),
             $selectedMonth
         );
@@ -687,32 +687,39 @@ class CommercialCommissionFormulaConfigService
             ->filter()
             ->values()
             ->all();
-        unset($settings['financials']['special_zone_net_commission_percentages']);
+        unset(
+            $settings['financials']['special_zone_net_commission_percentages'],
+            $settings['financials']['special_user_net_commission_percentages']
+        );
 
         return $settings;
     }
 
-    private function withSpecialFinancialUserRules(array $settings, CarbonImmutable $month): array
+    private function withSpecialFinancialResponsibleRules(array $settings, CarbonImmutable $month): array
     {
-        $rules = collect(config('commercial_commissions.financial_special_user_net_commission_percentages', []))
-            ->mapWithKeys(function (mixed $rule, mixed $salesforceUserId) use ($month): array {
-                $id = trim((string) $salesforceUserId);
+        $rules = collect(config('commercial_commissions.financial_special_responsible_net_commission_percentages', []))
+            ->mapWithKeys(function (mixed $rule, mixed $responsibleKey) use ($month): array {
+                $key = trim((string) $responsibleKey);
                 $effectiveFrom = trim((string) data_get($rule, 'effective_from'));
 
-                if ($id === '' || $effectiveFrom === '' || $month->lessThan(CarbonImmutable::parse($effectiveFrom)->startOfMonth())) {
+                if ($key === '' || $effectiveFrom === '' || $month->lessThan(CarbonImmutable::parse($effectiveFrom)->startOfMonth())) {
                     return [];
                 }
 
-                return [$id => [
+                return [$key => [
                     'label' => trim((string) data_get($rule, 'label')),
+                    'zone_name' => trim((string) data_get($rule, 'zone_name')),
                     'percent' => max(0, min(1, (float) data_get($rule, 'percent', 0))),
                 ]];
             })
-            ->filter(fn (array $rule): bool => $rule['percent'] > 0)
+            ->filter(fn (array $rule): bool => $rule['percent'] > 0 && $rule['zone_name'] !== '')
             ->all();
 
-        unset($settings['financials']['special_zone_net_commission_percentages']);
-        $settings['financials']['special_user_net_commission_percentages'] = $rules;
+        unset(
+            $settings['financials']['special_zone_net_commission_percentages'],
+            $settings['financials']['special_user_net_commission_percentages']
+        );
+        $settings['financials']['special_responsible_net_commission_percentages'] = $rules;
 
         return $settings;
     }

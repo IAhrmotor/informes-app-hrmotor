@@ -787,8 +787,8 @@ por debajo de 13,00 %, 0,00 %.
 Tramos por defecto: >= 7,00 % aplica 0,50 %; >= 6,00 %, 0,30 %;
 >= 5,00 %, 0,20 %; por debajo de 5,00 %, 0,00 %.
 
-9.5 Excepción individual desde junio de 2026
---------------------------------------------
+9.5 Regla especial por responsable desde junio de 2026
+-------------------------------------------------------
 
 Para las identidades configuradas de Nuria e Irene:
 
@@ -796,8 +796,11 @@ Para las identidades configuradas de Nuria e Irene:
       suma(comision_neta) * 0,005
 
 Este cálculo sustituye los tres bloques; no se suma a ellos.
-La identidad se resuelve exclusivamente por OwnerId/Salesforce User ID y la
-regla solo está vigente desde 2026-06.
+La identidad se resuelve con las claves estables zona_nuria y zona_irene,
+derivadas de zona_financiera__c o del fallback de delegación. OwnerId identifica
+al comercial de la Opportunity y no al responsable financiero. Irene agrega
+Alicante y Paterna; Nuria agrega Sedaví y Castellón. La regla solo está vigente
+desde 2026-06.
 
 9.6 Comisión final y alcance del interés
 -----------------------------------------
@@ -809,6 +812,16 @@ bloque 2. Continúa en los importes y bases de los bloques 1 y 3.
 
 Financieros es un bloque operativo/provisional. Se calcula sobre los datos
 locales actuales y no dispone de snapshot económico definitivo propio.
+
+Conciliación julio 2026: 680 operaciones, 718.638,40 EUR de comisión financiera
+y 27.086,00 EUR de descuento. Los 29 casos Sin Zona/General aportan cero a ambos
+sumatorios y permanecen excluidos de responsables. El detalle principal se
+agrega por responsable/delegación y conserva Opportunity.Id como trazabilidad.
+Los 680 IDs proceden de la SOQL de contraste y coinciden con la réplica local;
+los sumatorios coinciden con el report, cuya metadata/lista interna de IDs no se
+pudo exportar. El detalle usa Owner.USR_SEL_Delegacion__c y solo si falta usa
+Delegacion_del_propietario__c. Una zona explícita desconocida con comisión o
+descuento deja el dataset no conciliado y bloquea la exportación.
 
 
 10. PENALIZACIONES DE FINANCIACIÓN

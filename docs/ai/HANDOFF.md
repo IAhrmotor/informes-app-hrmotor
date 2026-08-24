@@ -1,5 +1,56 @@
 # Handoff para agentes
 
+## Auditoria y correccion de Financieros (2026-08-24)
+
+- Tarea: se concilio julio de 2026 por `Opportunity.Id` contra Salesforce y se
+  corrigieron la frescura de la replica, la resolucion del responsable financiero,
+  la regla exclusiva de Irene/Nuria y la presentacion auditable por delegacion.
+- Causa raiz: Salesforce rechazaba `Account.AC_C_EMA_email__c`, un campo opcional;
+  el error sanitizado impedia activar el fallback y dejaba la replica incompleta.
+  Tras reintentar una vez sin ese campo, el sync acotado guardo julio completo.
+  Ademas, Irene/Nuria estaban asociadas al OwnerId comercial en lugar de a su
+  zona financiera.
+- Conciliacion: la SOQL de contraste Salesforce y la replica local contienen los
+  mismos 680 IDs, con 0 ausentes, 0 extras y 0 diferencias en
+  comision/descuento. Totales: 12.085.921,06 EUR de importe total,
+  5.064.691,00 EUR financiado, 718.638,40 EUR de comision financiera,
+  27.086,00 EUR de descuento y 243.080,00 EUR de garantia. Los 29 Sin Zona/General
+  aportan cero a comision y descuento y quedan fuera de responsables.
+- Resultado: Carlos 4.791,84 EUR; Cristina 1.350,77 EUR; Irene Simon 352,68 EUR
+  sobre Alicante/Paterna; Nuria Moracho 149,03 EUR sobre Castellon/Sedavi. La
+  suma final de responsables y delegaciones coincide en 6.644,32 EUR.
+- Revision previa al commit: una zona financiera explicita desconocida queda
+  excluida y visible en diagnostico con sus IDs. Si contiene comision o descuento,
+  marca `ready=false` y bloquea el XLSX con HTTP 409. General/Sin Zona mantienen
+  su exclusion permitida. Los ajustes de centimos se muestran por delegacion y
+  se cuantifican en diagnostico.
+- Delegacion de detalle: prioridad actual
+  `Owner.USR_SEL_Delegacion__c`; `Delegacion_del_propietario__c` solo es fallback.
+  No se certifica igualdad con la agrupacion del report porque no se obtuvo su
+  metadata ni exportacion interna de IDs.
+- Archivos: servicios financiero/configuracion/sync, controlador, Blade financiero,
+  config de comisiones, pruebas de dashboard/sync y documentacion financiera,
+  general, contexto, decisiones y este handoff.
+- Base de datos: sin migraciones ni datos manuales. Config cambia de excepcion por
+  Salesforce User ID a reglas por clave estable de responsable. No hay variables
+  de entorno nuevas.
+- Seguridad: Salesforce se uso solo en lectura; no se registraron payloads,
+  credenciales ni IDs en documentos. Diagnosticos siguen limitados a Admin/IT y
+  las autorizaciones de Comisiones no se ampliaron.
+- Rendimiento: una consulta local mensual, sin N+1 ni Salesforce en render; los
+  tres niveles del payload se derivan de la misma coleccion.
+- Pruebas finales: focalizadas de Comisiones/sync/permisos 78/537 y suite completa
+  640/4.710, correctas. Un primer pase completo tuvo un timeout del benchmark de
+  Stock; paso aislado (2/13) y en la repeticion completa. Pint, Blade y
+  `git diff --check` finales tambien son correctos.
+- Acciones de despliegue: `php artisan optimize:clear` y sync acotado con
+  `php artisan salesforce:sync-opportunities --from=2026-07-01 --to=2026-08-01 -vvv`.
+- Riesgo: no se preservo el dataset incompleto anterior de produccion, por lo que
+  el delta aproximado de 105.128,40 EUR no puede atribuirse honestamente a una
+  lista historica exacta de IDs. La metadata/lista interna del report tampoco
+  estuvo accesible; la SOQL produjo 680 IDs y los mismos sumatorios del report,
+  pero no se afirma que sus IDs internos fueran exportados.
+
 ## Documentación de comisiones financieras (2026-08-24)
 
 - Tarea: se auditó el flujo completo de la pestaña Financieros desde la SOQL de
@@ -12,10 +63,10 @@
   `docs/informe-comisiones-financieras.md`, `docs/informe-comisiones.md`,
   `docs/Calculo_comisiones_comerciales.txt`,
   `docs/Documentacion_general_informes_y_contraste_salesforce.md` y este handoff.
-- Decisiones: no se cambió ninguna regla. La documentación refleja que el bloque 2
+- Decisiones de aquella revisión documental: el bloque 2
   usa comisión financiera válida menos descuento financiero; los intereses vacíos
-  o excluidos solo retiran la operación del bloque 2; las excepciones personales
-  sustituyen los tres bloques y se resuelven por Salesforce User ID. También se
+  o excluidos solo retiran la operación del bloque 2. La resolución anterior por
+  Salesforce User ID fue reemplazada por la auditoría descrita arriba. También se
   corrigió la descripción de cierres: Financieros sigue operativo/provisional y no
   dispone de snapshot definitivo propio.
 - Base de datos/configuración: sin migraciones, cambios de esquema, `.env`, datos
@@ -34,8 +85,7 @@
 - Acciones manuales: ninguna para desplegar documentación. Para presentar un mes
   real, sincronizar el rango explícito de Opportunities, confirmar la configuración
   efectiva y conservar fecha/hora del corte y evidencias de conciliación.
-- Riesgos/pendientes: `Zonas financieras` cuenta filas agregadas y puede incluir
-  excepciones personales; Sin Zona/General no aparece en el detalle; el detalle no
+- Riesgos/pendientes de aquella revisión: Sin Zona/General no aparecía en el detalle; el detalle no
   expone bases unitarias completas de bloques 1/3; una resincronización puede cambiar
   meses históricos. No se modificaron `PROJECT_CONTEXT.md` ni `DECISIONS.md` porque
   no cambió arquitectura, módulos, convenciones ni decisiones funcionales.
@@ -835,13 +885,13 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Valores inválidos y campañas excluidas se contabilizan por separado; las
   exclusiones exactas informan motivo y muestra de IDs.
 
-## Excepciones personales de Financieros (2026-08-11)
+## Regla anterior de Financieros, sustituida (2026-08-11)
 
-- La excepción del 0,50 % desde `2026-06` para Nuria e Irene se configura en
-  `config/commercial_commissions.php` por Salesforce User ID y se aplica al
-  `owner_id` ya sincronizado en `salesforce_opportunities`.
-- El resultado especial sustituye los tres bloques normales; no usa nombre,
-  zona ni email. Las reglas temporales editables por zona se retiraron.
+- Esta sección conserva la decisión histórica para explicar el cambio. La
+  auditoría de 2026-08-24 demostró que `owner_id` pertenece al comercial y
+  sustituyó la selección por las claves `zona_irene` y `zona_nuria`.
+- El resultado especial continúa sustituyendo los tres bloques normales y no
+  usa nombre ni email.
 - La regla histórica del 40 % atribuida a Oscar no está en la especificación
   vigente y sigue desactivada; no se agregó ninguna identidad ni fila sintética.
 - No hay migraciones, llamadas Salesforce ni cambios de universos. Financieros

@@ -268,7 +268,7 @@ class CommercialCommissionDashboardTest extends TestCase
             'financial_zone' => 'Sin Zona',
             'opo_for_importe_total' => 10000,
             'importe_financiado' => 1000,
-            'financial_commission' => 100,
+            'financial_commission' => 0,
             'financial_discount' => 0,
             'garantia_total' => 0,
             'interest_rate' => '6,99%',
@@ -281,6 +281,8 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertTrue($payload['ready']);
         $this->assertSame(2, $payload['diagnostics']['eligible_operations_count']);
         $this->assertSame(1, $payload['diagnostics']['profitability_excluded_operations_count']);
+        $this->assertSame(1, $payload['diagnostics']['general_or_without_zone_operations_count']);
+        $this->assertSame(0, $payload['diagnostics']['unknown_financial_zone_operations_count']);
 
         $zone = collect($payload['summary_rows'])->firstWhere('zone_name', 'Zona Cristina');
 
@@ -301,12 +303,47 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertEqualsWithDelta(251.25, $zone['final_commission'], 0.01);
     }
 
-    public function test_dashboard_financieros_aplica_excepciones_por_salesforce_user_id_desde_junio(): void
+    public function test_dashboard_financieros_bloquea_zona_desconocida_con_importes_economicos(): void
+    {
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'FIN-UNKNOWN-ZONE',
+            'name' => 'Zona no configurada',
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Venta',
+            'opportunity_record_type_formula' => 'Venta',
+            'owner_delegation' => 'HR MOTOR BILBAO',
+            'financial_zone' => 'Zona Atlantico',
+            'opo_for_importe_total' => 10000,
+            'importe_financiado' => 5000,
+            'financial_commission' => 100,
+            'financial_discount' => 10,
+            'garantia_total' => 0,
+            'interest_rate' => '8,99%',
+            'cv_signed_date' => '2026-07-15',
+        ]);
+
+        $payload = app(FinancialCommissionDashboardService::class)->build('2026-07');
+
+        $this->assertFalse($payload['ready']);
+        $this->assertStringContainsString('Dataset financiero no conciliado', $payload['issues'][0]);
+        $this->assertSame(1, $payload['diagnostics']['unknown_financial_zone_operations_count']);
+        $this->assertSame('Zona Atlantico', $payload['diagnostics']['unknown_financial_zones'][0]['zone_name']);
+        $this->assertSame(['FIN-UNKNOWN-ZONE'], $payload['diagnostics']['unknown_financial_zones'][0]['opportunity_ids']);
+        $this->assertEqualsWithDelta(100.0, $payload['diagnostics']['financial_commission_excluded'], 0.01);
+        $this->assertEmpty($payload['summary_rows']);
+
+        $this->withSession($this->authenticatedSession(ReportUser::ROLE_FINANCIAL))
+            ->get('/informes/comisiones-comerciales/export/comisiones.xlsx?month=2026-07')
+            ->assertStatus(409);
+    }
+
+    public function test_dashboard_financieros_aplica_reglas_especiales_por_zona_y_suma_delegaciones_con_distintos_owners(): void
     {
         foreach ([
-            ['id' => 'FIN-NURIA', 'owner_id' => '005Qx00000Bzv33IAB', 'zone' => 'Zona compartida', 'commission' => 19219.76],
-            ['id' => 'FIN-IRENE', 'owner_id' => '005Qx00000E7ZQnIAN', 'zone' => 'Otra zona', 'commission' => 53029.32],
-            ['id' => 'FIN-OTHER-NURIA', 'owner_id' => '005-OTHER-NURIA', 'zone' => 'Zona compartida', 'commission' => 1000],
+            ['id' => 'FIN-IRENE-ALICANTE', 'owner_id' => '005-COMMERCIAL-1', 'zone' => 'Zona Irene', 'delegation' => 'HR MOTOR ALICANTE', 'commission' => 12000, 'discount' => 2000],
+            ['id' => 'FIN-IRENE-PATERNA', 'owner_id' => '005-COMMERCIAL-2', 'zone' => 'Zona Irene', 'delegation' => 'HR MOTOR PATERNA', 'commission' => 8000, 'discount' => 0],
+            ['id' => 'FIN-NURIA-SEDAVI', 'owner_id' => '005-COMMERCIAL-3', 'zone' => 'Zona Nuria', 'delegation' => 'HR MOTOR SEDAVI', 'commission' => 10000, 'discount' => 1000],
+            ['id' => 'FIN-NURIA-CASTELLON', 'owner_id' => '005-COMMERCIAL-4', 'zone' => 'Zona Nuria', 'delegation' => 'HR MOTOR CASTELLON', 'commission' => 5000, 'discount' => 0],
         ] as $operation) {
             SalesforceOpportunity::create([
                 'salesforce_id' => $operation['id'],
@@ -316,10 +353,11 @@ class CommercialCommissionDashboardTest extends TestCase
                 'record_type_name' => 'Venta',
                 'opportunity_record_type_formula' => 'Venta',
                 'financial_zone' => $operation['zone'],
+                'owner_delegation' => $operation['delegation'],
                 'opo_for_importe_total' => 100000,
                 'importe_financiado' => 50000,
                 'financial_commission' => $operation['commission'],
-                'financial_discount' => 0,
+                'financial_discount' => $operation['discount'],
                 'garantia_total' => 0,
                 'interest_rate' => null,
                 'cv_signed_date' => '2026-06-15',
@@ -329,60 +367,146 @@ class CommercialCommissionDashboardTest extends TestCase
         $payload = app(FinancialCommissionDashboardService::class)
             ->build('2026-06');
 
-        $nuria = collect($payload['summary_rows'])->firstWhere('financial_user_id', '005Qx00000Bzv33IAB');
-        $irene = collect($payload['summary_rows'])->firstWhere('financial_user_id', '005Qx00000E7ZQnIAN');
-        $otherNuria = collect($payload['summary_rows'])->first(
-            fn (array $row): bool => ($row['zone_name'] ?? null) === 'Zona compartida'
-                && ($row['financial_user_id'] ?? null) === null
-        );
+        $nuria = collect($payload['summary_rows'])->firstWhere('responsible_key', 'zona_nuria');
+        $irene = collect($payload['summary_rows'])->firstWhere('responsible_key', 'zona_irene');
+        $ireneDelegations = collect($payload['delegation_rows'])->where('responsible_key', 'zona_irene');
+        $nuriaDelegations = collect($payload['delegation_rows'])->where('responsible_key', 'zona_nuria');
 
-        $this->assertEqualsWithDelta(0.005, $nuria['special_user_percent'], 0.0001);
-        $this->assertEqualsWithDelta(96.10, $nuria['final_commission'], 0.01);
-        $this->assertEqualsWithDelta(265.15, $irene['final_commission'], 0.01);
-        $this->assertSame(0.0, $nuria['block_1_commission']);
-        $this->assertSame(0.0, $nuria['block_2_commission']);
-        $this->assertSame(0.0, $nuria['block_3_commission']);
-        $this->assertSame(0.0, $otherNuria['special_user_percent']);
+        $this->assertEqualsWithDelta(0.005, $nuria['special_responsible_percent'], 0.0001);
+        $this->assertEqualsWithDelta(70.0, $nuria['final_commission'], 0.01);
+        $this->assertEqualsWithDelta(90.0, $irene['final_commission'], 0.01);
+        $this->assertSame(0.0, $irene['block_1_commission']);
+        $this->assertSame(0.0, $irene['block_2_commission']);
+        $this->assertSame(0.0, $irene['block_3_commission']);
+        $this->assertEqualsCanonicalizing(['Alicante', 'Paterna'], $ireneDelegations->pluck('delegation_name')->all());
+        $this->assertEqualsCanonicalizing(['Castellón', 'Sedavi'], $nuriaDelegations->pluck('delegation_name')->all());
+        $this->assertEqualsWithDelta($irene['final_commission'], $ireneDelegations->sum('final_commission'), 0.001);
+        $this->assertEqualsWithDelta($nuria['final_commission'], $nuriaDelegations->sum('final_commission'), 0.001);
+        $this->assertEqualsWithDelta(
+            collect($payload['summary_rows'])->sum('financial_commission_total'),
+            collect($payload['delegation_rows'])->sum('financial_commission_total'),
+            0.001
+        );
+        $this->assertEqualsWithDelta(
+            collect($payload['summary_rows'])->sum('final_commission'),
+            collect($payload['delegation_rows'])->sum('final_commission'),
+            0.001
+        );
         $this->assertSame('Tipo de interes vacio', $payload['detail_rows'][0]['profitability_reason']);
     }
 
-    public function test_dashboard_financieros_no_aplica_la_excepcion_personal_antes_de_junio(): void
+    public function test_dashboard_financieros_respeta_limites_tipo_y_etapa_del_universo_mensual(): void
+    {
+        foreach ([
+            ['id' => 'FIN-JUL-01', 'date' => '2026-07-01', 'type' => 'Venta', 'stage' => 'Entrega'],
+            ['id' => 'FIN-JUL-31', 'date' => '2026-07-31', 'type' => 'Cambio', 'stage' => 'Entrega'],
+            ['id' => 'FIN-AUG-01', 'date' => '2026-08-01', 'type' => 'Venta', 'stage' => 'Entrega'],
+            ['id' => 'FIN-LOST', 'date' => '2026-07-15', 'type' => 'Venta', 'stage' => 'Cerrada perdida'],
+            ['id' => 'FIN-APPRAISAL', 'date' => '2026-07-15', 'type' => 'Tasacion', 'stage' => 'Entrega'],
+        ] as $operation) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $operation['id'],
+                'name' => $operation['id'],
+                'stage_name' => $operation['stage'],
+                'record_type_name' => $operation['type'],
+                'opportunity_record_type_formula' => $operation['type'],
+                'financial_zone' => 'Zona Carlos',
+                'owner_delegation' => 'HR MOTOR RIVAS',
+                'opo_for_importe_total' => 10000,
+                'importe_financiado' => 5000,
+                'financial_commission' => 1000,
+                'financial_discount' => 100,
+                'garantia_total' => 500,
+                'interest_rate' => '8,99%',
+                'cv_signed_date' => $operation['date'],
+            ]);
+        }
+
+        $payload = app(FinancialCommissionDashboardService::class)->build('2026-07');
+
+        $this->assertSame(2, $payload['diagnostics']['universe_operations_count']);
+        $this->assertEqualsCanonicalizing(
+            ['FIN-JUL-01', 'FIN-JUL-31'],
+            collect($payload['detail_rows'])->pluck('opportunity_id')->all()
+        );
+    }
+
+    public function test_dashboard_financieros_expone_el_ajuste_de_redondeo_por_delegacion(): void
+    {
+        foreach ([
+            ['id' => 'FIN-ROUND-ALICANTE', 'delegation' => 'HR MOTOR ALICANTE'],
+            ['id' => 'FIN-ROUND-PATERNA', 'delegation' => 'HR MOTOR PATERNA'],
+        ] as $operation) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $operation['id'],
+                'name' => $operation['id'],
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'opportunity_record_type_formula' => 'Venta',
+                'owner_delegation' => $operation['delegation'],
+                'financial_zone' => 'Zona Irene',
+                'opo_for_importe_total' => 100,
+                'importe_financiado' => 50,
+                'financial_commission' => 1,
+                'financial_discount' => 0,
+                'garantia_total' => 0,
+                'interest_rate' => null,
+                'cv_signed_date' => '2026-07-15',
+            ]);
+        }
+
+        $payload = app(FinancialCommissionDashboardService::class)->build('2026-07');
+        $summary = collect($payload['summary_rows'])->firstWhere('responsible_key', 'zona_irene');
+        $delegations = collect($payload['delegation_rows'])->where('responsible_key', 'zona_irene');
+        $adjusted = $delegations->first(fn (array $row): bool => (float) $row['rounding_adjustment'] !== 0.0);
+
+        $this->assertTrue($payload['ready']);
+        $this->assertEqualsWithDelta(0.01, $summary['final_commission'], 0.001);
+        $this->assertEqualsWithDelta($summary['final_commission'], $delegations->sum('final_commission'), 0.001);
+        $this->assertEqualsWithDelta(-0.01, $adjusted['rounding_adjustment'], 0.001);
+        $this->assertSame(1, $payload['diagnostics']['rounding_adjustments_count']);
+        $this->assertEqualsWithDelta(-0.01, $payload['diagnostics']['rounding_adjustments_total'], 0.001);
+    }
+
+    public function test_dashboard_financieros_no_aplica_la_regla_especial_antes_de_junio(): void
     {
         SalesforceOpportunity::create([
             'salesforce_id' => 'FIN-NURIA-MAY',
             'name' => 'Nombre visible modificado',
-            'owner_id' => '005Qx00000Bzv33IAB',
+            'owner_id' => '005-COMMERCIAL',
             'stage_name' => 'Contrato',
             'record_type_name' => 'Venta',
             'opportunity_record_type_formula' => 'Venta',
-            'financial_zone' => 'Zona compartida',
+            'financial_zone' => 'Zona Irene',
+            'owner_delegation' => 'HR MOTOR ALICANTE',
             'opo_for_importe_total' => 100000,
             'importe_financiado' => 50000,
             'financial_commission' => 19219.76,
             'financial_discount' => 0,
             'garantia_total' => 0,
-            'interest_rate' => null,
+            'interest_rate' => '8,99%',
             'cv_signed_date' => '2026-05-15',
         ]);
 
         $payload = app(FinancialCommissionDashboardService::class)
             ->build('2026-05');
-        $row = collect($payload['summary_rows'])->firstWhere('zone_name', 'Zona compartida');
+        $row = collect($payload['summary_rows'])->firstWhere('responsible_key', 'zona_irene');
 
-        $this->assertSame(0.0, $row['special_user_percent']);
+        $this->assertSame(0.0, $row['special_responsible_percent']);
         $this->assertGreaterThan(0, $row['block_1_commission']);
     }
 
-    public function test_export_financieros_uses_the_same_special_user_total_as_dashboard(): void
+    public function test_export_financieros_uses_the_same_special_responsible_total_as_dashboard(): void
     {
         SalesforceOpportunity::create([
             'salesforce_id' => 'FIN-IRENE-EXPORT',
             'name' => 'Operacion financiera',
-            'owner_id' => '005Qx00000E7ZQnIAN',
+            'owner_id' => '005-COMMERCIAL',
             'stage_name' => 'Contrato',
             'record_type_name' => 'Venta',
             'opportunity_record_type_formula' => 'Venta',
-            'financial_zone' => 'Zona cualquiera',
+            'financial_zone' => 'Zona Irene',
+            'owner_delegation' => 'HR MOTOR ALICANTE',
             'opo_for_importe_total' => 100000,
             'importe_financiado' => 50000,
             'financial_commission' => 53029.32,
@@ -393,7 +517,7 @@ class CommercialCommissionDashboardTest extends TestCase
         ]);
 
         $dashboard = app(FinancialCommissionDashboardService::class)->build('2026-06');
-        $row = collect($dashboard['summary_rows'])->firstWhere('financial_user_id', '005Qx00000E7ZQnIAN');
+        $row = collect($dashboard['summary_rows'])->firstWhere('responsible_key', 'zona_irene');
 
         $response = $this->withSession($this->authenticatedSession(ReportUser::ROLE_FINANCIAL))
             ->get('/informes/comisiones-comerciales/export/comisiones.xlsx?month=2026-06');

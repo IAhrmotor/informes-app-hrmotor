@@ -1,6 +1,23 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-08-21.
+Actualizado: 2026-08-24.
+
+## Comisiones financieras
+
+- `FinancialCommissionDashboardService` construye un unico universo mensual de
+  Opportunities firmadas Venta/Cambio y deriva resumen por responsable,
+  agregados por delegacion, detalle por Opportunity y diagnostico.
+- El responsable financiero se identifica mediante claves estables de zona
+  (`zona_carlos`, `zona_cristina`, `zona_irene`, `zona_nuria`). `OwnerId` sigue
+  siendo el comercial propietario y no selecciona reglas financieras.
+- Carlos/Cristina usan los tres bloques configurables. Desde 2026-06,
+  Irene/Nuria usan exclusivamente `(comision financiera - descuento) * 0.005`.
+- Una zona explicita desconocida no usa fallback: con impacto economico deja el
+  payload no conciliado y bloquea exportaciones; sin impacto queda excluida y
+  visible solo en el diagnostico autorizado.
+- El sincronizador de Opportunities permite un unico reintento sin el email
+  opcional de Account cuando Salesforce rechaza la consulta; nunca elimina
+  campos financieros ni consulta Salesforce durante el render.
 
 ## SEO/Analytics
 

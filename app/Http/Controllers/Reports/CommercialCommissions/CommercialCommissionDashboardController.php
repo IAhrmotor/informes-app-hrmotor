@@ -17,6 +17,7 @@ use App\Support\SimpleXlsxWorkbookWriter;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class CommercialCommissionDashboardController extends Controller
 {
@@ -430,6 +431,7 @@ class CommercialCommissionDashboardController extends Controller
             $sheets = [];
             if ($role === ReportUser::ROLE_FINANCIAL) {
                 $financialPayload = $financialDashboard->build($request->query('month'));
+                abort_unless($financialPayload['ready'], 409, implode(' | ', $financialPayload['issues']));
                 $month = $financialPayload['month'];
                 $sheets[] = $this->commissionSheet(
                     'Financieros',
@@ -571,6 +573,7 @@ class CommercialCommissionDashboardController extends Controller
             gc_collect_cycles();
 
             $financialPayload = $financialDashboard->build($month);
+            abort_unless($financialPayload['ready'], 409, implode(' | ', $financialPayload['issues']));
             $sheets[] = $this->commissionSheet(
                 'Financieros',
                 'Responsable/Zona financiera',
@@ -588,6 +591,8 @@ class CommercialCommissionDashboardController extends Controller
                     'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 ])
                 ->deleteFileAfterSend(true);
+        } catch (HttpExceptionInterface $exception) {
+            throw $exception;
         } catch (\Throwable $exception) {
             Log::error('No se pudo exportar el XLSX de comisiones.', [
                 'month' => $request->query('month'),

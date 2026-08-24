@@ -1059,7 +1059,7 @@
                             <div class="panel-title compact">
                                 <div>
                                     <h2>Comisiones Financieros</h2>
-                                    <div class="small">Agrupacion por `zona_financiera__c`, con fallback a la delegacion del propietario si aun no se ha resincronizado ese campo.</div>
+                                    <div class="small">Responsables resueltos por `zona_financiera__c` y detalle auditable por delegacion.</div>
                                 </div>
                             </div>
 

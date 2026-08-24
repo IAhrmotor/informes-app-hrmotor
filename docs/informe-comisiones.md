@@ -110,7 +110,9 @@ Resumen funcional:
 - Área Manager: ámbito de zona y delegaciones normalizadas.
 - Financieros: ventas/cambios por fecha de firma y zona financiera. Los bloques 1
   y 3 usan todo el universo elegible; el bloque 2 usa solo operaciones con interés
-  informado y no excluido. La comisión final se recalcula sobre la réplica local.
+  informado y no excluido. Carlos/Cristina conservan los tres bloques; desde
+  2026-06 Irene/Nuria usan exclusivamente comisión neta por 0,005. La comisión
+  final se recalcula sobre la réplica local.
 
 La identidad principal de una persona es Salesforce User ID; el nombre es solo
 una etiqueta y no debe usarse para unir registros.
@@ -145,14 +147,14 @@ rating en nulo donde procede, sin romper el informe ni bloquear por sí sola el
 cierre de un bloque. Debe revisarse mediante los avisos administrativos del
 informe y los logs técnicos sanitizados.
 
-## Excepciones personales
+## Regla financiera especial por responsable
 
-Las excepciones económicas personales se resuelven exclusivamente mediante el
-Salesforce User ID materializado como `owner_id` de la Opportunity. Desde
-`2026-06`, los IDs configurados de Nuria e Irene reciben el 0,50 % de la suma de
-comisión neta, sustituyendo completamente los bloques 1, 2 y 3. Los nombres son
-solo etiquetas visuales: ni el nombre, ni la zona, ni el email intervienen en la
-decisión.
+El responsable financiero se resuelve mediante una clave técnica estable de
+`zona_financiera__c`, con fallback por delegación cuando la zona está vacía.
+`Opportunity.OwnerId` identifica al comercial propietario y no selecciona esta
+regla. Desde `2026-06`, `zona_nuria` y `zona_irene` reciben el 0,50 % de la
+comisión neta, sustituyendo completamente los bloques 1, 2 y 3. El nombre sigue
+siendo únicamente una etiqueta visual.
 
 La regla histórica atribuida a Oscar del 40 % no aparece en la especificación
 económica vigente; permanece desactivada hasta una aprobación funcional expresa

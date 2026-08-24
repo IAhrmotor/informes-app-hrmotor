@@ -1,586 +1,315 @@
-# Guía de revisión de comisiones financieras
+# Guia de revision de comisiones financieras
 
-Actualizado: 2026-08-24  
-Fuente de verdad: implementación y pruebas vigentes del proyecto.
+## Alcance
 
-## 1. Objetivo de esta guía
-
-Esta guía permite presentar y revisar la pestaña **Financieros** del informe de
-comisiones sin tener que conocer el código. Explica:
-
-- qué operaciones entran;
-- de dónde procede cada dato;
-- cómo se asigna una zona o una excepción personal;
-- cómo se calculan los tres bloques y la comisión final;
-- qué representa cada tarjeta y columna del front;
-- cómo reproducir el resultado con Salesforce;
-- qué comprobaciones hacer antes de aprobar una cifra.
-
-La pantalla se encuentra en:
+La pestana `Financieros` calcula comisiones mensuales desde la replica local de
+`Opportunity`. Salesforce es la fuente de verdad y la pantalla no realiza
+llamadas remotas durante el render.
 
 ```text
 /informes/comisiones-comerciales?tab=financials&month=YYYY-MM
 ```
 
-El rol `Financiero` aterriza directamente en esta pestaña. Dirección,
-Administrador/IT y Auditor de comisiones también pueden consultarla. Los controles
-de acceso se aplican en servidor; no dependen únicamente de que el enlace esté
-visible.
+El acceso sigue protegido en servidor por los permisos de Comisiones. El
+diagnostico interno solo se muestra a Administrador/IT.
 
-## 2. Resumen para una presentación
+## Universo mensual
 
-El cálculo se puede explicar en cinco pasos:
+Una Opportunity entra en el universo si cumple:
 
-1. Se toman las `Opportunity` cuya **fecha de firma** está dentro del mes.
-2. Se conservan ventas y cambios no cerrados como perdidos y con zona financiera
-   válida.
-3. Se agrupan por zona financiera, salvo las excepciones personales configuradas,
-   que se separan por Salesforce User ID.
-4. Se calculan tres incentivos: financiación, rentabilidad financiera válida y
-   garantías.
-5. La comisión final es la suma de los tres bloques, excepto en una regla personal,
-   que sustituye completamente esa suma.
+1. `Fecha_firma_contrato__c >= primer dia del mes`.
+2. `Fecha_firma_contrato__c < primer dia del mes siguiente`.
+3. `StageName != Cerrada perdida`, sin distinguir mayusculas.
+4. `Tipo_de_registro_oportunidad__c` es `Venta` o `Cambio`.
+5. Si la formula de tipo es nula o vacia, se usa `RecordType.Name` como fallback.
 
-```text
-Opportunity de Salesforce
-        ↓ sincronización
-salesforce_opportunities
-        ↓ filtros de mes, etapa, tipo y zona
-operaciones elegibles
-        ↓ agrupación por zona o excepción personal
-Bloque 1 + Bloque 2 + Bloque 3
-        ↓
-comisión final mostrada
-```
+No se mezclan `CreatedDate`, `CloseDate` ni otras fechas con la fecha de firma.
+`General`, `Sin Zona` y zonas no reconocidas permanecen en el diagnostico del
+universo, pero no se asignan a un responsable.
 
-Dos ideas evitan la mayoría de errores de conciliación:
-
-- el bloque 2 no usa `Beneficio_financiacion_comercial__c`; usa la comisión
-  financiera válida menos su descuento financiero;
-- un interés vacío o excluido retira la operación **solo del bloque 2**. La misma
-  operación sigue participando en los bloques 1 y 3.
-
-## 3. Fuente de los datos
-
-### 3.1 Origen y persistencia
-
-La fuente externa es el objeto `Opportunity` de Salesforce. La pantalla no consulta
-Salesforce en tiempo real: el comando de sincronización copia los campos a
-`salesforce_opportunities` y el informe calcula sobre esa réplica local.
-
-```bash
-php artisan salesforce:sync-opportunities --from=2026-07-01 --to=2026-08-01
-```
-
-El límite `--from` es inclusivo y `--to` es exclusivo. El sincronizador trae una
-oportunidad si su creación, reserva o firma entra en el rango; después la pestaña
-Financieros vuelve a filtrar exclusivamente por la fecha de firma.
-
-Para ver la SOQL construida por el sincronizador sin cambiar la lógica:
-
-```bash
-php artisan salesforce:sync-opportunities --from=2026-07-01 --to=2026-08-01 --debug-soql
-```
-
-Este comando realiza una sincronización real. No debe usarse `--fresh` para una
-revisión ordinaria porque vacía previamente la tabla local de oportunidades.
-
-### 3.2 Diccionario de campos
-
-| Concepto del informe | Campo Salesforce | Columna local | Uso |
-|---|---|---|---|
-| Opportunity ID | `Id` | `salesforce_id` | Trazabilidad y detalle |
-| Opportunity | `Name` | `name` | Etiqueta visible |
-| Etapa | `StageName` | `stage_name` | Excluir `Cerrada Perdida` |
-| Tipo estándar | `RecordType.Name` | `record_type_name` | Fallback de Venta/Cambio |
-| Tipo fórmula | `Tipo_de_registro_oportunidad__c` | `opportunity_record_type_formula` | Filtro principal Venta/Cambio |
-| Fecha de firma | `Fecha_firma_contrato__c` | `cv_signed_date` | Mes del informe |
-| Propietario | `OwnerId` | `owner_id` | Aplicar excepciones personales |
-| Delegación del propietario | `Owner.USR_SEL_Delegacion__c` | `owner_delegation` | Fallback de zona |
-| Zona financiera | `zona_financiera__c` | `financial_zone` | Agrupación principal |
-| Importe total | `OPO_FOR_Importe_total__c` | `opo_for_importe_total` | Denominador del % financiado |
-| Importe financiado | `Importe_financiado__c` | `importe_financiado` | Financiación y denominadores |
-| Comisión financiera | `Comisi_n_Financiera__c` | `financial_commission` | Comisión neta y beneficio válido |
-| Descuento financiero | `OPO_DIV_Descuento_financiera__c` | `financial_discount` | Resta a la comisión financiera |
-| Tipo de interés | `Inter_s_elegido__c` | `interest_rate` | Elegibilidad exclusiva del bloque 2 |
-| Garantía premium | `Garant_a_Total__c` | `garantia_total` | Base del bloque 3 |
-
-`OPO_CAS_Contrato_CV_firmado__c` también se sincroniza como `cv_signed`, pero la
-implementación vigente de Financieros no lo exige: la inclusión depende de que
-`Fecha_firma_contrato__c` tenga una fecha dentro del mes.
-
-`Beneficio_financiacion_comercial__c` se sincroniza y está disponible localmente,
-pero **no interviene en ninguno de los tres bloques de Financieros**.
-
-Los importes nulos se convierten en cero al calcular. Cada importe por oportunidad
-se redondea primero a dos decimales; las sumas y resultados de bloque vuelven a
-redondearse a dos decimales. Los ratios también se muestran con dos decimales.
-
-## 4. Universo de operaciones
-
-Una oportunidad entra en el cálculo cuando cumple todas estas condiciones:
-
-1. `Fecha_firma_contrato__c >= primer día del mes`.
-2. `Fecha_firma_contrato__c < primer día del mes siguiente`.
-3. `StageName` no es `Cerrada Perdida`, sin distinguir mayúsculas.
-4. `Tipo_de_registro_oportunidad__c` es `Venta` o `Cambio`, sin distinguir
-   mayúsculas.
-5. Solo si el tipo fórmula es `NULL`, se acepta como fallback
-   `RecordType.Name = Venta` o `Cambio`.
-6. La zona resuelta no es `General` ni `Sin Zona`.
-
-No se filtra por propietario activo, por `Gestion_de_venta__c`, por financiación
-pagada ni por el booleano de contrato firmado. Tampoco se incluyen Tasación,
-Facilitea u otros tipos.
-
-### 4.1 SOQL de contraste
-
-La siguiente consulta aproxima exactamente el universo funcional. Las fechas son
-un ejemplo para julio de 2026 y deben sustituirse por el mes revisado.
+Consulta de contraste para julio de 2026:
 
 ```sql
 SELECT
-    Id,
-    Name,
-    StageName,
-    RecordType.Name,
-    OwnerId,
-    Owner.Name,
-    Owner.USR_SEL_Delegacion__c,
-    OPO_CAS_Contrato_CV_firmado__c,
-    Fecha_firma_contrato__c,
-    Tipo_de_registro_oportunidad__c,
-    zona_financiera__c,
-    OPO_FOR_Importe_total__c,
-    Importe_financiado__c,
-    Comisi_n_Financiera__c,
-    OPO_DIV_Descuento_financiera__c,
-    Inter_s_elegido__c,
-    Garant_a_Total__c,
-    Beneficio_financiacion_comercial__c
+    Id, Name, StageName, RecordType.Name, OwnerId, Owner.Name,
+    Owner.USR_SEL_Delegacion__c, Delegacion_del_propietario__c,
+    Fecha_firma_contrato__c, Tipo_de_registro_oportunidad__c,
+    zona_financiera__c, OPO_FOR_Importe_total__c,
+    Importe_financiado__c, Comisi_n_Financiera__c,
+    OPO_DIV_Descuento_financiera__c, Garant_a_Total__c,
+    Inter_s_elegido__c
 FROM Opportunity
 WHERE IsDeleted = FALSE
   AND Fecha_firma_contrato__c >= 2026-07-01
   AND Fecha_firma_contrato__c < 2026-08-01
-  AND StageName != 'Cerrada Perdida'
-  AND (
-      Tipo_de_registro_oportunidad__c IN ('Venta', 'Cambio')
-      OR (
-          Tipo_de_registro_oportunidad__c = NULL
-          AND RecordType.Name IN ('Venta', 'Cambio')
-      )
-  )
-ORDER BY zona_financiera__c, OwnerId, Name, Id
+ORDER BY Id
 ```
 
-Salesforce puede devolver etiquetas con distinta capitalización. El servicio local
-compara etapa y tipos sin distinguir mayúsculas; al contrastar manualmente debe
-aplicarse el mismo criterio.
+Los filtros de tipo y etapa se aplican como se describe arriba. La metadata y la
+lista interna de IDs del informe Salesforce de referencia no estuvieron
+accesibles. La SOQL de contraste devolvio 680 IDs y sus sumatorios coinciden
+exactamente con los publicados por el report de julio. No se anadio ningun filtro
+para forzar esa coincidencia ni se afirma que los IDs internos del report se
+hayan exportado.
 
-La exclusión de `General`/`Sin Zona` y el fallback por delegación se hacen en la
-aplicación, por lo que deben aplicarse después de exportar la query.
+## Campos materializados
 
-## 5. Cómo se resuelve la zona
+| Concepto | Salesforce | Columna local |
+|---|---|---|
+| ID auditable | `Id` | `salesforce_id` |
+| Fecha del periodo | `Fecha_firma_contrato__c` | `cv_signed_date` |
+| Tipo formula | `Tipo_de_registro_oportunidad__c` | `opportunity_record_type_formula` |
+| Tipo fallback | `RecordType.Name` | `record_type_name` |
+| Etapa | `StageName` | `stage_name` |
+| Delegacion | `Owner.USR_SEL_Delegacion__c` | `owner_delegation` |
+| Delegacion reportada | `Delegacion_del_propietario__c` | `report_owner_delegation` |
+| Zona financiera | `zona_financiera__c` | `financial_zone` |
+| Importe total | `OPO_FOR_Importe_total__c` | `opo_for_importe_total` |
+| Importe financiado | `Importe_financiado__c` | `importe_financiado` |
+| Comision financiera | `Comisi_n_Financiera__c` | `financial_commission` |
+| Descuento financiero | `OPO_DIV_Descuento_financiera__c` | `financial_discount` |
+| Garantia | `Garant_a_Total__c` | `garantia_total` |
+| Tipo de interes | `Inter_s_elegido__c` | `interest_rate` |
 
-La prioridad es:
+`financial_commission` se persiste sin sustituirla por beneficio comercial ni
+por una formula derivada. Los nulos economicos se calculan como cero.
 
-1. `zona_financiera__c`, si contiene un valor no vacío;
-2. si no existe, mapeo de `Owner.USR_SEL_Delegacion__c`;
-3. si tampoco se puede resolver, `Sin Zona`, que queda fuera del informe.
+## Sincronizacion
 
-Las etiquetas `Zona Cristina`, `Zona Nuria`, `Zona Carlos` y `Zona Irene` se
-normalizan sin distinguir mayúsculas. `General`, vacío y `Sin Zona` se excluyen.
+```bash
+php artisan salesforce:sync-opportunities --from=2026-07-01 --to=2026-08-01 -vvv
+```
 
-Fallback vigente por delegación:
+No usar `--fresh`, `--all-history` ni una sincronizacion global para esta
+conciliacion. El sincronizador materializa los datos en
+`salesforce_opportunities`.
 
-| Zona resultante | Delegaciones |
-|---|---|
-| Zona Cristina | Bilbao, Fontellas, Gijón, Pamplona, San Sebastián, Zaragoza, A Coruña, Valladolid, Badalona, Manresa, Girona, Lleida, Sant Boi, Lliçà de Valls, Barcelona, Elche, Alcoy, Villareal |
-| Zona Nuria | Sedaví, Castellón |
-| Zona Carlos | Alcalá de Guadaíra, Badajoz, Málaga, Málaga Centro, Palma, Sevilla, Torrejón de Ardoz, Rivas, Call Rivas, Alcobendas, Collado Villalba, Valencia, Murcia, Dos Hermanas |
-| Zona Irene | Alicante, Paterna |
+`Account.AC_C_EMA_email__c` es opcional para otros informes. Algunas
+organizaciones Salesforce no lo exponen. Si Salesforce rechaza la primera SOQL,
+el sincronizador reintenta una sola vez sin ese campo. Si el segundo intento
+falla, propaga el error. Este fallback no elimina ningun campo financiero ni
+modifica los filtros.
 
-La delegación se normaliza antes del mapeo para tolerar tildes, mayúsculas y
-separadores. Un valor financiero explícito desconocido no se remapea: se conserva
-como su propia zona.
+## Responsable y delegacion
 
-## 6. Configuración mensual
+La resolucion funcional es:
 
-Los tramos se leen de `commercial_commission_month_settings.settings` para el mes
-seleccionado. Si no hay configuración guardada, se usan los valores por defecto de
-`CommercialCommissionFormulaConfigService`.
+1. Normalizar `zona_financiera__c`.
+2. Si esta vacia, resolver zona desde la delegacion del propietario.
+3. Traducir la zona a una clave tecnica estable de responsable.
+4. Mantener la delegacion normalizada como segundo nivel de agregacion.
 
-Los umbrales se normalizan en orden descendente y se aplica el primer tramo cuyo
-mínimo se cumple. Administrador/IT puede gestionar la configuración en:
+| Clave | Responsable | Zona |
+|---|---|---|
+| `zona_carlos` | Carlos | Zona Carlos |
+| `zona_cristina` | Cristina | Zona Cristina |
+| `zona_irene` | Irene Simon | Zona Irene |
+| `zona_nuria` | Nuria Moracho | Zona Nuria |
+
+`Opportunity.OwnerId` no identifica al responsable financiero: identifica al
+comercial propietario. Por ello no participa en la seleccion de la regla de
+comision. Distintos owners de Alicante y Paterna se agregan bajo `zona_irene`;
+Sedavi y Castellon se agregan bajo `zona_nuria`.
+
+Fallback de delegaciones vigente:
+
+- Cristina: Bilbao, Fontellas, Gijon, Pamplona, San Sebastian, Zaragoza,
+  A Coruna, Valladolid, Badalona, Manresa, Girona, Lleida, Sant Boi,
+  Llica de Valls, Barcelona, Elche, Alcoy y Villareal.
+- Nuria: Sedavi y Castellon.
+- Carlos: Alcala de Guadaira, Badajoz, Malaga, Malaga Centro, Palma, Sevilla,
+  Torrejon de Ardoz, Rivas, Call Rivas, Alcobendas, Collado Villalba, Valencia,
+  Murcia y Dos Hermanas.
+- Irene: Alicante y Paterna.
+
+No se asigna una zona desconocida por aproximacion.
+
+Para el detalle por delegacion se usa primero
+`Owner.USR_SEL_Delegacion__c`. Solo si ese valor esta vacio se usa
+`Delegacion_del_propietario__c`. Esta prioridad es la implementacion vigente y
+no se cambio durante la auditoria. Como no se obtuvo una exportacion ni la
+metadata interna del report, no se afirma que esta agrupacion sea identica a la
+dimension de delegacion usada por el report; debe contrastarse con una
+exportacion real si se necesita certificar esa equivalencia.
+
+Una zona explicita distinta de las cuatro conocidas no usa el fallback de
+delegacion y nunca se asigna automaticamente. Se muestra en el diagnostico
+administrativo con sus IDs e importes. Si contiene comision o descuento
+financiero, `ready=false` bloquea cierres/exportaciones hasta resolverla.
+`General` y `Sin Zona` siguen excluidas por diseno y no se consideran zonas
+desconocidas.
+
+## Formulas
+
+### Carlos y Cristina
+
+Conservan los tres bloques configurables del periodo:
 
 ```text
-/informes/configuracion-comisiones?month=YYYY-MM
+porcentaje financiado = importe financiado / importe total
+comision neta = comision financiera - descuento financiero
+bloque 1 = comision neta * incentivo financiado
 ```
 
-El mes actual es editable. Un mes anterior requiere apertura temporal y vuelve a
-cerrarse al guardar. Para una auditoría histórica siempre se deben leer los tramos
-efectivos de ese mes; no se debe asumir que coinciden con los defaults siguientes.
-
-### 6.1 Tramos por defecto del bloque 1
-
-| % financiado de la zona | Incentivo aplicado a comisión neta |
-|---:|---:|
-| Mayor que 47,00 % (`>= 47,0001`) | 1,25 % |
-| 44,10 % a 47,00 % | 1,00 % |
-| 42,10 % a menos de 44,10 % | 0,75 % |
-| 40,10 % a menos de 42,10 % | 0,50 % |
-| 39,10 % a menos de 40,10 % | 0,40 % |
-| 38,00 % a menos de 39,10 % | 0,20 % |
-| Menos de 38,00 % | 0,10 % |
-
-### 6.2 Tramos por defecto del bloque 2
-
-| Rentabilidad financiera válida | Incentivo aplicado al beneficio válido |
-|---:|---:|
-| 16,60 % o más | 0,75 % |
-| 15,60 % a menos de 16,60 % | 0,50 % |
-| 14,50 % a menos de 15,60 % | 0,40 % |
-| 14,00 % a menos de 14,50 % | 0,20 % |
-| 13,00 % a menos de 14,00 % | 0,10 % |
-| Menos de 13,00 % | 0,00 % |
-
-### 6.3 Tramos por defecto del bloque 3
-
-| % de garantías | Incentivo aplicado a garantía premium |
-|---:|---:|
-| 7,00 % o más | 0,50 % |
-| 6,00 % a menos de 7,00 % | 0,30 % |
-| 5,00 % a menos de 6,00 % | 0,20 % |
-| Menos de 5,00 % | 0,00 % |
-
-### 6.4 Intereses excluidos por defecto
-
-`3,99 %`, `4,99 %` y `5,99 %` quedan fuera del bloque 2. Para comparar, el
-sistema elimina `%`, convierte coma en punto y recorta espacios. Por ejemplo,
-`4,99%` y `4.99` coinciden.
-
-## 7. Cálculos implementados
-
-Todas las fórmulas se calculan sobre el conjunto agrupado por zona, salvo una
-regla personal activa, que se agrupa por `OwnerId`.
-
-### 7.1 Comisión neta
+Para el bloque 2 solo entran operaciones con interes informado y distinto de
+`3,99%`, `4,99%` y `5,99%`:
 
 ```text
-comisión financiera total = suma(Comisi_n_Financiera__c)
-descuento financiero total = suma(OPO_DIV_Descuento_financiera__c)
-comisión neta = comisión financiera total - descuento financiero total
+beneficio valido = comision financiera valida - descuento financiero valido
+rentabilidad = beneficio valido / importe financiado valido
+bloque 2 = beneficio valido * incentivo de rentabilidad
 ```
 
-### 7.2 Bloque 1: porcentaje financiado
-
-Todas las operaciones elegibles de la zona participan, aunque no tengan interés o
-su interés esté excluido del bloque 2.
+El interes solo afecta al bloque 2. La operacion continua en los bloques 1 y 3.
 
 ```text
-% financiado = suma(Importe_financiado__c)
-               / suma(OPO_FOR_Importe_total__c) × 100
-
-comisión bloque 1 = comisión neta × incentivo del tramo de % financiado
+porcentaje garantia = garantia / importe financiado
+bloque 3 = garantia * incentivo de garantia
+total = bloque 1 + bloque 2 + bloque 3
 ```
 
-Si el importe total es cero o negativo, el porcentaje es `0 %`.
+Los tramos se leen de la configuracion efectiva del mes. No se modificaron en
+esta auditoria.
 
-### 7.3 Bloque 2: rentabilidad financiera válida
+### Irene y Nuria
 
-Primero se crea un subconjunto de operaciones válidas. Una operación es válida
-solo cuando `Inter_s_elegido__c` está informado y su valor normalizado no aparece
-en la lista mensual de intereses excluidos.
+Desde junio de 2026 su regla sustituye completamente los tres bloques:
 
 ```text
-beneficio financiero válido =
-    suma(Comisi_n_Financiera__c de operaciones válidas)
-  - suma(OPO_DIV_Descuento_financiera__c de operaciones válidas)
-
-importe financiado válido =
-    suma(Importe_financiado__c de operaciones válidas)
-
-rentabilidad = beneficio financiero válido
-               / importe financiado válido × 100
-
-comisión bloque 2 = beneficio financiero válido
-                    × incentivo del tramo de rentabilidad
+comision neta = comision financiera - descuento financiero
+total = comision neta * 0.005
 ```
 
-Si el importe financiado válido es cero o negativo, la rentabilidad es `0 %`.
-El campo Salesforce `Beneficio_financiacion_comercial__c` no se usa en esta
-fórmula.
+`0.005` equivale a `0,50%`, no a `50%`. Los bloques 1, 2 y 3 quedan en cero y no
+se suman al total especial. La configuracion usa las claves tecnicas de zona,
+no nombres visibles ni Salesforce User IDs.
 
-### 7.4 Bloque 3: garantías
+## Payload y UI
 
-Todas las operaciones elegibles de la zona participan.
+El servicio construye una sola coleccion y deriva de ella:
+
+- `summary_rows`: total por responsable;
+- `delegation_rows`: total por responsable y delegacion;
+- `detail_rows`: Opportunities incluidas con su `Opportunity.Id`;
+- `diagnostics`: universo, incluidos, excluidos y sumas economicas.
+
+La UI separa Carlos/Cristina de Irene/Nuria. La tabla por delegacion permite
+contrastar agregados y el detalle por Opportunity permanece plegado. El Blade
+solo presenta valores ya calculados.
+
+Por redondeo a centimos, la ultima delegacion de un responsable puede recibir un
+ajuste maximo de centimos para garantizar:
 
 ```text
-garantía premium = suma(Garant_a_Total__c)
-
-% garantías = garantía premium
-              / suma(Importe_financiado__c) × 100
-
-comisión bloque 3 = garantía premium
-                    × incentivo del tramo de % garantías
+total responsable = suma de sus delegaciones
 ```
 
-Si el importe financiado es cero o negativo, el porcentaje es `0 %`.
+La suma de comision financiera no requiere ajuste y se conserva exactamente.
+Cuando existe, `rounding_adjustment` se muestra en la tabla por delegacion y se
+cuenta en el diagnostico administrativo; no modifica las bases economicas.
 
-### 7.5 Comisión final ordinaria
+## Conciliacion de julio de 2026
 
-```text
-comisión final = comisión bloque 1
-               + comisión bloque 2
-               + comisión bloque 3
-```
+Tras la sincronizacion acotada, la comparacion entre la SOQL de contraste y la
+replica local por `Opportunity.Id` dio:
 
-### 7.6 Excepciones personales
+- SOQL de contraste Salesforce: 680 IDs.
+- Replica local: los mismos 680 IDs.
+- IDs ausentes localmente: 0.
+- IDs extra localmente: 0.
+- diferencias en `Comisi_n_Financiera__c`: 0.
+- diferencias en `OPO_DIV_Descuento_financiera__c`: 0.
 
-Desde junio de 2026 existen dos reglas personales configuradas por Salesforce
-User ID. La etiqueta visible es informativa: ni nombre, zona ni email seleccionan
-la regla.
+Los sumatorios coinciden exactamente con el report de referencia. No se pudo
+verificar directamente su metadata ni exportar su lista interna de IDs.
 
-```text
-comisión personal = comisión neta × 0,50 %
-comisión final = comisión personal
-```
-
-Cuando se aplica, los bloques 1, 2 y 3 se muestran a cero porque la regla personal
-los **sustituye**; no se suma a ellos. Antes de junio de 2026 no se aplica.
-
-## 8. Qué significa cada elemento del front
-
-### 8.1 Tarjetas superiores
-
-| Tarjeta | Significado real |
-|---|---|
-| Zonas financieras | Número de filas agregadas. Normalmente son zonas, pero una excepción personal genera una fila propia; por eso no siempre equivale al número de zonas distintas. |
-| Operaciones elegibles | Oportunidades que superan mes, etapa, tipo y zona. |
-| Rentabilidad válida | Operaciones elegibles que además tienen interés informado y no excluido; son las que forman el bloque 2. |
-| Total comisión | Suma de `comisión final` de todas las filas agregadas. |
-
-La tarjeta `Excluidas bloque 2` cuenta operaciones sin interés o con interés
-excluido. No implica que estén excluidas de la comisión completa.
-
-### 8.2 Tabla de resumen
-
-| Columna | Cómo leerla |
-|---|---|
-| Responsable/Zona financiera | Zona agregada o etiqueta de la excepción personal. |
-| Total comisión | Resultado final ordinario o personal. |
-| Ops. | Número de oportunidades del grupo. |
-| Imp. total | Suma de `OPO_FOR_Importe_total__c`. |
-| Imp. financiado | Suma de `Importe_financiado__c` de todas las operaciones. |
-| % financiado | Importe financiado / importe total. |
-| Com. financiera | Suma de `Comisi_n_Financiera__c`. |
-| Desc. financiera | Suma de `OPO_DIV_Descuento_financiera__c`. |
-| Com. neta | Comisión financiera menos descuento financiero. |
-| Inc. bloque 1 | Porcentaje del tramo alcanzado. |
-| Com. bloque 1 | Comisión neta por incentivo del bloque 1. |
-| Rentabilidad | Beneficio válido / importe financiado válido. |
-| Inc. bloque 2 | Porcentaje del tramo de rentabilidad alcanzado. |
-| Com. bloque 2 | Beneficio válido por incentivo del bloque 2. |
-| Garantía premium | Suma de `Garant_a_Total__c`. |
-| % garantías | Garantía premium / importe financiado total. |
-| Inc. bloque 3 | Porcentaje del tramo de garantía alcanzado. |
-| Com. bloque 3 | Garantía premium por incentivo del bloque 3. |
-| Regla especial | Porcentaje personal y resultado, o `-` si no aplica. |
-
-La columna `Rentabilidad` no permite por sí sola reconstruir el numerador y
-denominador porque la tabla no muestra `beneficio financiero válido` ni `importe
-financiado válido` como columnas separadas. Para esa comprobación debe usarse el
-detalle de oportunidades.
-
-### 8.3 Detalle auditable de rentabilidad
-
-El detalle muestra una fila por oportunidad elegible con:
-
-- zona;
-- Opportunity ID y nombre;
-- tipo de interés;
-- motivo de inclusión o exclusión del bloque 2;
-- importe financiado;
-- comisión financiera;
-- descuento financiero.
-
-Los estados posibles son:
-
-- `Incluida`;
-- `Tipo de interes vacio`;
-- `Tipo de interes excluido`.
-
-Este detalle está orientado al bloque 2. No muestra el importe total ni la garantía
-por oportunidad, aunque ambos sí forman parte de los cálculos agregados.
-
-### 8.4 Exportación XLSX
-
-La exportación de un usuario con rol `Financiero` genera una hoja `Financieros`
-con dos columnas: `Responsable/Zona financiera` y `Comision final`. El resultado
-usa el mismo servicio que el dashboard, pero no incluye el desglose de fórmulas ni
-el detalle por oportunidad.
-
-## 9. Ejemplo completo
-
-Ejemplo ilustrativo de una zona, suponiendo que todos los intereses del subconjunto
-indicado son válidos:
-
-| Dato agregado | Valor |
+| Metrica | Resultado |
 |---|---:|
-| Importe total | 200.000,00 € |
-| Importe financiado total | 90.000,00 € |
-| Comisión financiera total | 12.000,00 € |
-| Descuento financiero total | 2.000,00 € |
-| Garantía premium | 5.400,00 € |
-| Importe financiado válido para bloque 2 | 70.000,00 € |
-| Beneficio financiero válido | 10.500,00 € |
+| Operaciones | 680 |
+| Importe total | 12.085.921,06 EUR |
+| Importe financiado | 5.064.691,00 EUR |
+| Comision financiera | 718.638,40 EUR |
+| Descuento financiero | 27.086,00 EUR |
+| Garantia | 243.080,00 EUR |
 
-Cálculo:
+Hay 29 operaciones `Sin Zona/General`. Se conservan en diagnostico y quedan fuera
+de responsables. Su comision y descuento financiero suman cero, por lo que los
+totales economicos incluidos siguen siendo los del universo.
 
-```text
-comisión neta = 12.000 - 2.000 = 10.000 €
+| Responsable | Ops | Comision financiera | Descuento | Total final |
+|---|---:|---:|---:|---:|
+| Carlos | 259 | 318.593,94 | 5.177,00 | 4.791,84 |
+| Cristina | 313 | 290.201,96 | 12.409,00 | 1.350,77 |
+| Irene Simon | 54 | 79.035,84 | 8.500,00 | 352,68 |
+| Nuria Moracho | 25 | 30.806,66 | 1.000,00 | 149,03 |
 
-% financiado = 90.000 / 200.000 × 100 = 45,00 %
-incentivo bloque 1 = 1,00 %
-comisión bloque 1 = 10.000 × 1,00 % = 100,00 €
+Irene se compone de Alicante (32) y Paterna (22). Nuria se compone de Castellon
+(4) y Sedavi (21). La suma global final es `6.644,32 EUR` y coincide entre
+responsables y delegaciones.
 
-rentabilidad = 10.500 / 70.000 × 100 = 15,00 %
-incentivo bloque 2 = 0,40 %
-comisión bloque 2 = 10.500 × 0,40 % = 42,00 €
+Detalle conciliado por delegacion (`Ops / comision financiera / descuento /
+comision final`):
 
-% garantías = 5.400 / 90.000 × 100 = 6,00 %
-incentivo bloque 3 = 0,30 %
-comisión bloque 3 = 5.400 × 0,30 % = 16,20 €
+| Responsable | Delegacion | Ops | Comision financiera | Descuento | Comision final |
+|---|---|---:|---:|---:|---:|
+| Carlos | Alcala de Guadaira | 21 | 40.261,39 | 131,00 | 604,11 |
+| Carlos | Alcobendas | 27 | 25.511,23 | 0,00 | 389,97 |
+| Carlos | Collado Villalba | 10 | 19.786,39 | 0,00 | 292,80 |
+| Carlos | Dos Hermanas | 3 | 2.850,00 | 0,00 | 43,69 |
+| Carlos | Malaga | 22 | 21.645,12 | 0,00 | 343,85 |
+| Carlos | Malaga Centro | 7 | 6.590,61 | 0,00 | 106,18 |
+| Carlos | Murcia | 21 | 26.108,58 | 560,00 | 388,16 |
+| Carlos | Palma | 33 | 38.848,00 | 0,00 | 616,80 |
+| Carlos | Rivas | 27 | 33.170,00 | 3.430,00 | 445,93 |
+| Carlos | Sevilla | 35 | 48.306,58 | 0,00 | 738,81 |
+| Carlos | Torrejon de Ardoz | 32 | 36.342,34 | 166,00 | 546,97 |
+| Carlos | Valencia | 21 | 19.173,70 | 890,00 | 274,57 |
+| Cristina | A Coruna | 25 | 12.243,98 | 1.800,00 | 43,95 |
+| Cristina | Alcoy | 13 | 15.280,17 | 0,00 | 76,40 |
+| Cristina | Badalona | 7 | 7.262,86 | 0,00 | 36,31 |
+| Cristina | Bilbao | 31 | 19.936,18 | 3.190,00 | 74,90 |
+| Cristina | Elche | 8 | 8.653,94 | 0,00 | 41,59 |
+| Cristina | Fontellas | 25 | 18.293,61 | 1.301,00 | 76,97 |
+| Cristina | Gijon | 18 | 17.167,25 | 0,00 | 85,84 |
+| Cristina | Girona | 3 | 1.467,20 | 0,00 | 7,34 |
+| Cristina | Lleida | 10 | 11.340,60 | 0,00 | 56,70 |
+| Cristina | Llica de Valls | 11 | 9.506,77 | 900,00 | 43,04 |
+| Cristina | Manresa | 15 | 10.283,17 | 0,00 | 51,41 |
+| Cristina | Pamplona | 27 | 14.123,58 | 1.790,00 | 61,14 |
+| Cristina | San Sebastian | 12 | 3.364,00 | 900,00 | 12,32 |
+| Cristina | Sant Boi | 38 | 66.495,16 | 1.548,00 | 324,74 |
+| Cristina | Valladolid | 22 | 24.091,96 | 0,00 | 118,81 |
+| Cristina | Villareal | 33 | 43.345,73 | 980,00 | 202,59 |
+| Cristina | Zaragoza | 15 | 7.345,80 | 0,00 | 36,72 |
+| Irene Simon | Alicante | 32 | 53.084,96 | 8.500,00 | 222,92 |
+| Irene Simon | Paterna | 22 | 25.950,88 | 0,00 | 129,76 |
+| Nuria Moracho | Castellon | 4 | 688,80 | 0,00 | 3,44 |
+| Nuria Moracho | Sedavi | 21 | 30.117,86 | 1.000,00 | 145,59 |
 
-comisión final = 100,00 + 42,00 + 16,20 = 158,20 €
+## Causa raiz del descuadre previo
+
+El dashboard anterior se apoyaba en una replica incompleta. La SOQL de
+sincronizacion incluia un campo opcional de `Account` no accesible y Salesforce
+respondia HTTP 400. El error se sanitizaba antes de llegar al fallback, por lo
+que el reintento condicionado al nombre del campo nunca ocurria y la replica no
+se refrescaba. La diferencia aproximada observada era `105.128,40 EUR`
+(`718.638,40 - ~613.510`), pero el corte anterior de produccion no se conservo y
+no es posible atribuir honestamente esa cifra a una lista exacta de IDs.
+
+En local, al inicio de la auditoria faltaban los 680 IDs de julio. Tras el
+resync, la comparacion por ID y campos economicos dio cero diferencias. El
+segundo defecto era independiente: Irene/Nuria se seleccionaban por el owner
+comercial, por lo que la regla especial no cubria sus delegaciones completas.
+
+## Despliegue y verificacion
+
+No hay migraciones ni variables de entorno nuevas.
+
+```bash
+php artisan optimize:clear
+php artisan salesforce:sync-opportunities --from=2026-07-01 --to=2026-08-01 -vvv
 ```
 
-## 10. Procedimiento de revisión recomendado
-
-### Paso 1. Fijar el período
-
-Confirmar el `month=YYYY-MM` de la URL. El intervalo siempre es `[primer día,
-primer día del mes siguiente)`.
-
-### Paso 2. Confirmar la configuración efectiva
-
-Revisar en Configuración de comisiones los tres juegos de tramos y la lista de
-intereses excluidos para ese mes.
-
-### Paso 3. Extraer Salesforce
-
-Ejecutar la SOQL de contraste y exportar al menos los campos del diccionario. No
-usar la query genérica de Comerciales porque su universo exige otros filtros.
-
-### Paso 4. Reconciliar el universo
-
-Comprobar, en este orden:
-
-1. fecha de firma;
-2. etapa;
-3. tipo fórmula y fallback de Record Type;
-4. zona explícita o fallback por delegación;
-5. exclusión de General/Sin Zona;
-6. agrupación personal por `OwnerId`, si corresponde.
-
-### Paso 5. Recalcular importes
-
-Comparar primero cantidades y sumas de campos. Después calcular porcentajes y
-aplicar los tramos. Mantener separados:
-
-- conjunto total de la zona para bloques 1 y 3;
-- subconjunto de interés válido para bloque 2.
-
-### Paso 6. Revisar el detalle
-
-Cada diferencia del bloque 2 debe poder explicarse con el Opportunity ID, el
-interés sincronizado y su estado. Para bloques 1 y 3 se necesita complementar el
-detalle del front con la exportación de Salesforce, porque sus bases unitarias no
-se muestran completas.
-
-### Paso 7. Documentar el corte
-
-Anotar fecha/hora de sincronización, mes, configuración efectiva y cantidad de
-operaciones. Financieros no dispone actualmente de snapshot económico definitivo,
-por lo que una resincronización posterior puede cambiar un mes histórico.
-
-## 11. Preguntas frecuentes
-
-### ¿Por qué una operación aparece pero no suma rentabilidad?
-
-Porque tiene `Inter_s_elegido__c` vacío o uno de los tipos excluidos. Sigue
-afectando al importe financiado, comisión neta y garantías de los bloques 1 y 3.
-
-### ¿Por qué el beneficio no coincide con Beneficio financiación comercial?
-
-Porque Financieros no usa ese campo. El beneficio válido es comisión financiera
-menos descuento financiero, limitado a operaciones con interés válido.
-
-### ¿Por qué una operación está en una zona distinta a la delegación?
-
-Porque `zona_financiera__c` tiene prioridad. La delegación solo es fallback cuando
-el campo financiero está vacío.
-
-### ¿Por qué los tres bloques están a cero y hay total?
-
-Porque se ha aplicado una regla personal que calcula el 0,50 % de la comisión neta
-y sustituye los tres bloques.
-
-### ¿Por qué una cifra histórica cambió?
-
-La pestaña se recalcula sobre los datos locales actuales y su configuración
-mensual; no participa en los snapshots definitivos de Comerciales, Delegaciones o
-Área Manager.
-
-### ¿Por qué el bloque 2 completo está a cero?
-
-Puede deberse a que todas las operaciones carecen de interés, todas usan intereses
-excluidos, el importe financiado válido es cero o la rentabilidad cae por debajo
-del 13 %. La pantalla emite un aviso específico si todas quedan fuera y hay
-intereses vacíos.
-
-## 12. Consideraciones de seguridad, rendimiento y auditoría
-
-- El front muestra nombres e IDs de oportunidades. Solo debe darse acceso a roles
-  con necesidad operativa y no se deben copiar esos datos a documentación pública.
-- El rol `Financiero` ve el conjunto completo de zonas financieras; actualmente no
-  existe un ámbito por zona o por `OwnerId`. Conviene validar que este alcance cumple
-  el principio de mínimo privilegio.
-- Financieros es operativo/provisional: no tiene cierre económico ni snapshot
-  definitivo propio. Para una aprobación formal debe conservarse externamente el
-  corte de datos y la configuración revisada.
-- La tarjeta `Zonas financieras` cuenta filas agregadas, no zonas distintas. Las
-  excepciones personales pueden hacer que el número sea mayor.
-- Las operaciones descartadas por `Sin Zona`/`General` no aparecen en el detalle
-  visible. Deben controlarse desde Salesforce para detectar problemas de calidad.
-- El cálculo carga en memoria todas las oportunidades elegibles del mes y el front
-  representa todo el detalle sin paginación. Un volumen mensual muy alto puede
-  aumentar memoria, tiempo de respuesta y exposición de datos.
-- La consulta local usa un índice simple de `cv_signed_date`, aunque `whereDate`
-  puede limitar su aprovechamiento según el motor de base de datos. Debe vigilarse
-  el plan de ejecución si crece el volumen.
-
-## 13. Archivos que definen el comportamiento
-
-- `app/Services/Reports/FinancialCommissions/FinancialCommissionDashboardService.php`
-- `app/Services/Reports/CommercialCommissions/CommercialCommissionFormulaConfigService.php`
-- `app/Services/Reports/CommercialCommissions/CommissionMonthResolver.php`
-- `app/Services/Reports/ReservationsSales/Sync/SalesforceOpportunitySyncService.php`
-- `app/Http/Controllers/Reports/CommercialCommissions/CommercialCommissionDashboardController.php`
-- `resources/views/reports/commercial-commissions/partials/financial-tab.blade.php`
-- `resources/views/reports/commercial-commissions/settings.blade.php`
-- `config/commercial_commissions.php`
-- `tests/Feature/CommercialCommissionDashboardTest.php`
-
-## 14. Checklist breve para aprobar una comisión
-
-- [ ] El mes de la URL es el correcto.
-- [ ] La réplica de Opportunity está sincronizada para todo el rango de firma.
-- [ ] Cantidad de operaciones conciliada con Salesforce.
-- [ ] Venta/Cambio, etapa y zona revisados.
-- [ ] Tramos mensuales e intereses excluidos confirmados.
-- [ ] Comisión y descuento financiero conciliados.
-- [ ] Bloque 2 recalculado solo con intereses válidos.
-- [ ] Garantías e importe financiado conciliados para bloque 3.
-- [ ] Excepciones personales verificadas por Salesforce User ID.
-- [ ] Fecha/hora del corte y evidencias de revisión conservadas.
+Validar despues que el diagnostico de julio muestre 680 operaciones y los
+sumatorios anteriores. Si Salesforce cambia desde el corte auditado, comparar de
+nuevo por `Opportunity.Id`; no hardcodear cifras historicas.

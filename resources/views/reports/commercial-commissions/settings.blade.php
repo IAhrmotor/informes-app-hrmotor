@@ -448,8 +448,8 @@
                     </article>
 
                     <article class="card report-access-card">
-                        <strong>Excepciones personales</strong>
-                        <div class="small">Las excepciones financieras se resuelven exclusivamente por Salesforce User ID desde la configuración de aplicación; no se editan por nombre ni por zona.</div>
+                        <strong>Reglas por responsable financiero</strong>
+                        <div class="small">Las reglas especiales se resuelven mediante claves estables de zona financiera desde la configuración de aplicación. El OwnerId comercial y el nombre visible no seleccionan la regla.</div>
                     </article>
                 </div>
             </section>

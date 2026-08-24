@@ -212,10 +212,12 @@ SOQL;
         try {
             return $this->client->query($soql);
         } catch (RuntimeException $exception) {
-            if (! str_contains($exception->getMessage(), 'AC_C_EMA_email__c')) {
+            if (! $includeCompanyEmail || ! str_contains($exception->getMessage(), 'HTTP 400')) {
                 throw $exception;
             }
 
+            // Salesforce may hide inaccessible field names from sanitized errors.
+            // Retry a rejected query once without the optional company email.
             $includeCompanyEmail = false;
             $soql = $this->buildSoql($periodStart, $periodEnd, false);
 

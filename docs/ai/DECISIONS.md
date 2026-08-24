@@ -1,5 +1,30 @@
 # Decisiones técnicas
 
+## 2026-08-24 - Responsable financiero por dimension de zona
+
+El responsable financiero no se deriva de `Opportunity.OwnerId`, porque ese ID
+pertenece al comercial de la operacion. Se adopta una clave tecnica estable por
+zona financiera y la delegacion normalizada como segundo nivel auditable. Esto
+permite agregar distintos owners comerciales sin nombres humanos como clave y
+mantiene una sola coleccion para resumen, delegaciones y trazabilidad.
+
+Las reglas de Irene y Nuria se asocian a `zona_irene` y `zona_nuria` desde
+2026-06 y sustituyen por completo los bloques estandar con comision neta por
+`0.005`. El redondeo se reconcilia a centimos en el ultimo agregado de
+delegacion para que su suma coincida con el total del responsable; las bases
+economicas y la comision financiera nunca se ajustan. El ajuste distinto de cero
+se expone en la fila y en el diagnostico administrativo.
+
+Una zona financiera explicita desconocida nunca cae al mapping de delegacion. Si
+contiene comision o descuento, el payload queda `ready=false` y las exportaciones
+se bloquean; si no tiene impacto economico permanece excluida y auditable. Esta
+politica evita asignaciones silenciosas sin ampliar el catalogo por aproximacion.
+
+La sincronizacion puede reintentar una sola vez sin un campo opcional de Account
+si la primera SOQL es rechazada. Un segundo fallo se propaga. Se prefiere este
+fallback acotado frente a impedir la actualizacion de todos los campos
+financieros por una dependencia no funcional del modulo.
+
 ## 2026-08-21 — Correo ejecutivo SEO congelado e idempotente
 
 El resumen ejecutivo SEO se envía siempre a las 08:00 Europe/Madrid y consume
