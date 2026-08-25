@@ -3,11 +3,14 @@
 namespace Tests\Feature;
 
 use App\Models\MasterPortal;
+use App\Models\ReportSyncRun;
 use App\Models\ReportUser;
 use App\Models\SalesforceLead;
+use App\Models\SalesforceLeadActivitySummary;
 use App\Models\SalesforceUser;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class SalesforceDashboardRowsTest extends TestCase
@@ -117,6 +120,69 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertEquals(50.0, $conversion['periodo_actual_pct']);
         $this->assertEquals(0.0, $conversion['periodo_comparado_pct']);
         $this->assertEquals(50.0, $conversion['diferencia_pct_puntos']);
+    }
+
+    public function test_metadata_usa_ultimo_run_incremental_para_frescura_sin_alterar_filas_ni_cutoff_de_cobertura(): void
+    {
+        Cache::flush();
+
+        $lead = $this->lead('00Q-freshness', 'Potencial', [
+            'synced_at' => '2026-05-01 08:00:00',
+            'salesforce_last_modified_at' => '2026-05-01 07:55:00',
+        ]);
+        SalesforceLead::query()->whereKey($lead->id)->update([
+            'synced_at' => '2026-05-01 08:00:00',
+            'updated_at' => '2026-05-01 08:00:00',
+        ]);
+        $summary = SalesforceLeadActivitySummary::create([
+            'lead_salesforce_id' => $lead->salesforce_id,
+            'total_actividades' => 0,
+            'total_tasks' => 0,
+            'total_events' => 0,
+        ]);
+        SalesforceLeadActivitySummary::query()->whereKey($summary->id)->update([
+            'updated_at' => '2026-05-02 09:00:00',
+        ]);
+
+        ReportSyncRun::create([
+            'dataset' => 'leads_dashboard',
+            'source' => 'salesforce',
+            'status' => 'completed',
+            'period_start_at' => '2026-04-12 00:00:00',
+            'period_end_at' => '2026-05-14 00:00:00',
+            'source_cutoff_at' => '2026-05-10 23:00:00',
+            'started_at' => '2026-05-10 22:50:00',
+            'completed_at' => '2026-05-10 23:05:00',
+            'timezone' => 'Europe/Madrid',
+        ]);
+        $run = ReportSyncRun::create([
+            'dataset' => 'leads_dashboard',
+            'source' => 'salesforce',
+            'status' => 'completed',
+            'period_start_at' => '2026-05-11 12:00:00',
+            'period_end_at' => '2026-05-13 12:00:00',
+            'source_cutoff_at' => '2026-05-13 11:45:00',
+            'started_at' => '2026-05-13 11:40:00',
+            'completed_at' => '2026-05-13 11:50:00',
+            'timezone' => 'Europe/Madrid',
+        ]);
+
+        $leadBefore = $lead->fresh();
+        $summaryBefore = $summary->fresh();
+        $response = $this->getJson('/informes/leads/data/summary')->assertOk();
+
+        $response
+            ->assertJsonPath('salesforce_leads_synced_at', '2026-05-13 11:45:00')
+            ->assertJsonPath('activities_synced_at', '2026-05-13 11:45:00')
+            ->assertJsonPath('dataset_sync_run_id', $run->id)
+            ->assertJsonPath('dataset_sync_run_status', 'completed')
+            ->assertJsonPath('dataset_cutoff_at', '2026-05-10 23:00:00');
+
+        $leadAfter = $lead->fresh();
+        $summaryAfter = $summary->fresh();
+        $this->assertTrue($leadAfter->synced_at->equalTo($leadBefore->synced_at));
+        $this->assertTrue($leadAfter->updated_at->equalTo($leadBefore->updated_at));
+        $this->assertTrue($summaryAfter->updated_at->equalTo($summaryBefore->updated_at));
     }
 
     public function test_kpi_audit_exporta_leads_filtrados_por_metrica(): void

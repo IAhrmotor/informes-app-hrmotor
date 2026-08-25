@@ -963,3 +963,76 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   Verificación: `StrategicReportNavigationTest` 6 pruebas/83 aserciones, suite
   completa 453/3.151, Pint sobre PHP modificado, build Vite y
   `git diff --check` correctos.
+
+## Reducción de amplificación de escrituras del sync mensual (2026-08-25)
+
+- Se auditó `salesforce:sync-monthly-commercial --days=2`. La causa era el
+  `upsert` incondicional de Leads y Activities, el `synced_at` nuevo en cada
+  Lead, el `updated_at = now()` de summaries y la persistencia individual de
+  Users con `raw_payload`. Una repetición idéntica generaba `UPDATE` aunque el
+  estado funcional no cambiara.
+- Se añadió `ChangedRowUpsert`, que por chunk carga en una consulta las filas
+  locales, normaliza casts, fechas UTC, booleanos y JSON (incluyendo orden de
+  claves y equivalencia `null`/cadena vacía), y separa `inserted`, `updated` y
+  `unchanged` antes de escribir. La comparación usa todos los atributos de la
+  proyección recibida; no depende únicamente de `LastModifiedDate`.
+- Leads excluye `synced_at` de la decisión de cambio, pero lo actualiza junto
+  con `updated_at` cuando cambia un atributo persistible. La reconciliación de
+  ausentes ya no usa `synced_at` como marca de presencia: compara por chunks
+  contra los Salesforce IDs activos observados en el run. Deleted/merged
+  repetidos se clasifican sin volver a escribir.
+- Tasks, Events y Users usan la misma clasificación por chunks. Summaries se
+  siguen recalculando para todo el período, conservando las reglas matemáticas,
+  pero solo se persisten si cambia el resultado; el recálculo incremental queda
+  como optimización posterior para no introducir riesgo funcional en este lote.
+- `saved` conserva compatibilidad y en Leads significa registros activos válidos
+  procesados, no escrituras físicas. `active_inserted`/`active_updated`/
+  `active_unchanged` desglosan ese universo; `persisted_inserted`/
+  `persisted_updated`/`persisted_unchanged` incluyen también deleted/merged. Las
+  claves compatibles `inserted`/`updated`/`unchanged` son aliases del total
+  `persisted_*`. Leads añade `deleted_merged_changed`/
+  `deleted_merged_unchanged`, y summaries añade `summaries_changed`/
+  `summaries_unchanged`. `ReportSyncRun` conserva `summaries` como entero y
+  publica el desglose adicional sin payloads ni datos personales.
+- La metadata separa el último run completado del último run que cubre todo el
+  período del dashboard. `salesforce_leads_synced_at`, `activities_synced_at`,
+  `sync_run_id` y `sync_run_status` proceden del último `ReportSyncRun`
+  completado aunque el scheduler solo haya sincronizado dos días;
+  `dataset_cutoff_at` conserva el run con cobertura completa o el mínimo cutoff
+  local como fallback. Los `synced_at` por fila quedan como fecha del último
+  cambio real.
+  El uso de `MAX(salesforce_leads.synced_at)` en alertas de atribución de
+  Campañas se mantiene como señal de cambio de datos, evitando reconstrucciones
+  tras consultas idénticas. La invalidación de caché por run se conserva para
+  publicar el nuevo cutoff.
+- Archivos modificados: comando mensual; servicios de Leads, Activities, Users
+  y summaries; nuevo comparador `ChangedRowUpsert`; metadata del dashboard de
+  Leads; pruebas unitarias de los cuatro syncs/summaries y prueba funcional del
+  comando.
+- Base de datos/configuración: sin migraciones, backfills, cambios de `.env` ni
+  cambios MySQL. No se modificaron `binlog_format`, `binlog_row_image` ni
+  compresión. No hay acciones manuales previas al despliegue.
+- Seguridad: no se registran payloads, IDs, emails ni datos personales en las
+  nuevas estadísticas. Se conserva el alcance SOQL y la autorización existente.
+- Rendimiento: una lectura local por chunk (200 Leads; 500 Activities/Users/
+  summaries) sustituye escrituras redundantes. El conjunto de IDs observados es
+  proporcional a la ventana consultada; con la ventana operativa de dos días es
+  acotado. `withoutOverlapping(30)` permanece activo.
+- Pruebas: regresión específica final 21 tests/179 aserciones, incluyendo
+  dashboard de 30 días con run incremental de dos días sin cambios locales;
+  grupos Monthly Commercial, Leads, Campañas, Comisiones y auditorías
+  190/1.370; suite completa 646/4.818. Pint correcto.
+  `composer audit --locked --no-dev`: sin advisories.
+  `git diff --check`: correcto. No hubo requests reales a Salesforce ni otros
+  servicios externos.
+- Medición recomendada tras despliegue autorizado: capturar posición de binlog
+  y contadores Performance Schema inmediatamente antes y después de dos runs
+  consecutivos con la misma ventana; usar el segundo run como AFTER estable.
+  Correlacionar del `ReportSyncRun` los contadores `inserted`/`updated` con los
+  deltas de `salesforce_leads`, `salesforce_activities`, `salesforce_users` y
+  summaries. Persistirán las escrituras pequeñas del propio run/caché y cualquier
+  cambio real ocurrido en Salesforce.
+- Riesgo residual: el cálculo completo de summaries conserva su coste de CPU y
+  lectura aunque ya no amplifique escrituras. La clasificación es previa al
+  `upsert`; el lock programado evita solapamiento normal, pero ejecuciones
+  manuales concurrentes siguen dependiendo de los índices únicos existentes.

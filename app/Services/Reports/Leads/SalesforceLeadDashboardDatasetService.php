@@ -1436,14 +1436,24 @@ class SalesforceLeadDashboardDatasetService
     /** @return array<string, mixed> */
     private function syncMetadata(array $period): array
     {
-        $completedRun = Schema::hasTable('report_sync_runs')
+        $completedRuns = Schema::hasTable('report_sync_runs')
             ? ReportSyncRun::query()
                 ->where('dataset', 'leads_dashboard')
                 ->where('source', 'salesforce')
                 ->where('status', 'completed')
+            : null;
+        $latestCompletedRun = $completedRuns !== null
+            ? (clone $completedRuns)
+                ->latest('completed_at')
+                ->latest('id')
+                ->first()
+            : null;
+        $coveringCompletedRun = $completedRuns !== null
+            ? (clone $completedRuns)
                 ->where('period_start_at', '<=', $period['start'])
                 ->where('period_end_at', '>=', $period['end'])
                 ->latest('completed_at')
+                ->latest('id')
                 ->first()
             : null;
         $leadsSyncedAt = SalesforceLead::query()->max('synced_at');
@@ -1452,27 +1462,33 @@ class SalesforceLeadDashboardDatasetService
             ? CarbonImmutable::parse($leadsSyncedAt)
             : $this->lastUpdated();
         $activitiesCutoff = $activitiesSyncedAt ? CarbonImmutable::parse($activitiesSyncedAt) : null;
-        $cutoff = $completedRun?->source_cutoff_at
-            ? CarbonImmutable::parse($completedRun->source_cutoff_at)
+        $cutoff = $coveringCompletedRun?->source_cutoff_at
+            ? CarbonImmutable::parse($coveringCompletedRun->source_cutoff_at)
             : collect([$leadsCutoff, $activitiesCutoff])
                 ->filter()
                 ->sortBy(fn (CarbonImmutable $date) => $date->getTimestamp())
                 ->first();
+        $leadsFreshness = $latestCompletedRun?->source_cutoff_at
+            ? CarbonImmutable::parse($latestCompletedRun->source_cutoff_at)
+            : $leadsCutoff;
+        $activitiesFreshness = $latestCompletedRun?->source_cutoff_at
+            ? CarbonImmutable::parse($latestCompletedRun->source_cutoff_at)
+            : $activitiesCutoff;
         $periodLeadQuery = SalesforceLead::query()
             ->where('created_date', '>=', $period['start'])
             ->where('created_date', '<=', $period['end']);
         $periodCount = (clone $periodLeadQuery)->count();
 
         return [
-            'salesforce_leads_synced_at' => $leadsCutoff?->toDateTimeString(),
-            'activities_synced_at' => $activitiesCutoff?->toDateTimeString(),
+            'salesforce_leads_synced_at' => $leadsFreshness?->toDateTimeString(),
+            'activities_synced_at' => $activitiesFreshness?->toDateTimeString(),
             'dataset_generated_at' => CarbonImmutable::now(self::DATASET_TIMEZONE)->toDateTimeString(),
             'dataset_cutoff_at' => $cutoff?->toDateTimeString(),
             'period_start' => CarbonImmutable::parse($period['start'])->toDateTimeString(),
             'period_end' => CarbonImmutable::parse($period['end'])->toDateTimeString(),
             'timezone' => self::DATASET_TIMEZONE,
-            'sync_run_id' => $completedRun?->id,
-            'sync_run_status' => $completedRun?->status,
+            'sync_run_id' => $latestCompletedRun?->id,
+            'sync_run_status' => $latestCompletedRun?->status,
             'metadata_coverage' => [
                 'total' => $periodCount,
                 'without_synced_at' => (clone $periodLeadQuery)->whereNull('synced_at')->count(),

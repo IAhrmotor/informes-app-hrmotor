@@ -11,6 +11,7 @@ class SalesforceMonthlyActivitiesSyncService
 {
     public function __construct(
         private readonly SalesforceClient $client,
+        private readonly ChangedRowUpsert $changedRowUpsert = new ChangedRowUpsert,
     ) {}
 
     public function syncTasks(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
@@ -92,6 +93,9 @@ SOQL;
     {
         $queried = 0;
         $saved = 0;
+        $inserted = 0;
+        $updated = 0;
+        $unchanged = 0;
 
         foreach ($this->client->queryPages($soql) as $records) {
             $queried += count($records);
@@ -122,11 +126,14 @@ SOQL;
             }
 
             foreach (array_chunk($values, 500) as $chunk) {
-                SalesforceActivity::query()->upsert(
+                $stats = $this->changedRowUpsert->persist(
+                    SalesforceActivity::class,
                     $chunk,
-                    ['salesforce_id'],
-                    array_values(array_diff(array_keys($chunk[0]), ['salesforce_id']))
+                    'salesforce_id',
                 );
+                $inserted += $stats['inserted'];
+                $updated += $stats['updated'];
+                $unchanged += $stats['unchanged'];
             }
 
             unset($records);
@@ -136,6 +143,9 @@ SOQL;
             'soql' => $soql,
             'queried' => $queried,
             'saved' => $saved,
+            'inserted' => $inserted,
+            'updated' => $updated,
+            'unchanged' => $unchanged,
         ];
     }
 

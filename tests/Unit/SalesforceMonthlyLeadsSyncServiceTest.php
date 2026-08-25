@@ -226,4 +226,146 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
             'deletion_detection_source' => 'missing_from_salesforce',
         ]);
     }
+
+    public function test_no_reescribe_lead_identico_y_actualiza_un_cambio_real(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            public array $record = [
+                'Id' => '00Q-stable',
+                'Name' => 'Lead estable',
+                'CreatedDate' => '2026-05-01T10:00:00.000+0000',
+                'LastModifiedDate' => '2026-05-01T11:00:00.000+0000',
+                'Status' => 'Potencial',
+                'RecordType' => ['Name' => 'Venta'],
+                'OwnerId' => '005-owner',
+                'Owner' => ['Name' => 'Owner'],
+                'Portal_Text__c' => 'Web',
+            ];
+
+            public function __construct() {}
+
+            public function queryAll(string $soql): array
+            {
+                return [];
+            }
+
+            public function queryPages(string $soql, bool $includeDeleted = false): \Generator
+            {
+                yield [$this->record];
+            }
+        };
+
+        $service = new SalesforceMonthlyLeadsSyncService(
+            $client,
+            new LeadRecordTypeNormalizer,
+            new LeadPortalResolver,
+        );
+        $start = CarbonImmutable::parse('2026-05-01', 'UTC');
+        $end = CarbonImmutable::parse('2026-05-03', 'UTC');
+
+        CarbonImmutable::setTestNow('2026-05-03 10:00:00');
+        $first = $service->sync($start, $end);
+        $lead = SalesforceLead::where('salesforce_id', '00Q-stable')->firstOrFail();
+        $originalUpdatedAt = $lead->updated_at;
+        $originalSyncedAt = $lead->synced_at;
+
+        CarbonImmutable::setTestNow('2026-05-03 10:15:00');
+        $second = $service->sync($start, $end);
+        $lead->refresh();
+
+        $this->assertSame(1, $first['inserted']);
+        $this->assertSame(1, $first['active_inserted']);
+        $this->assertSame(1, $first['persisted_inserted']);
+        $this->assertSame(1, $second['unchanged']);
+        $this->assertSame(1, $second['active_unchanged']);
+        $this->assertSame(1, $second['persisted_unchanged']);
+        $this->assertSame(0, $second['updated']);
+        $this->assertTrue($lead->updated_at->equalTo($originalUpdatedAt));
+        $this->assertTrue($lead->synced_at->equalTo($originalSyncedAt));
+
+        $client->record['Name'] = 'Lead modificado';
+        $client->record['LastModifiedDate'] = '2026-05-03T10:20:00.000+0000';
+        CarbonImmutable::setTestNow('2026-05-03 10:30:00');
+        $third = $service->sync($start, $end);
+        $lead->refresh();
+
+        $this->assertSame(1, $third['updated']);
+        $this->assertSame('Lead modificado', $lead->name);
+        $this->assertFalse($lead->updated_at->equalTo($originalUpdatedAt));
+        $this->assertFalse($lead->synced_at->equalTo($originalSyncedAt));
+    }
+
+    public function test_no_reescribe_deleted_merged_identico_y_actualiza_transicion_desde_activo(): void
+    {
+        $active = [
+            'Id' => '00Q-deleted',
+            'Name' => 'Lead a eliminar',
+            'CreatedDate' => '2026-05-01T10:00:00.000+0000',
+            'LastModifiedDate' => '2026-05-01T11:00:00.000+0000',
+            'Status' => 'Potencial',
+            'RecordType' => ['Name' => 'Venta'],
+            'Portal_Text__c' => 'Web',
+        ];
+        $client = new class($active) extends SalesforceClient
+        {
+            public array $records;
+
+            public array $deleted = [];
+
+            public function __construct(array $active)
+            {
+                $this->records = [$active];
+            }
+
+            public function queryAll(string $soql): array
+            {
+                return $this->deleted;
+            }
+
+            public function queryPages(string $soql, bool $includeDeleted = false): \Generator
+            {
+                yield $this->records;
+            }
+        };
+
+        $service = new SalesforceMonthlyLeadsSyncService(
+            $client,
+            new LeadRecordTypeNormalizer,
+            new LeadPortalResolver,
+        );
+        $start = CarbonImmutable::parse('2026-05-01', 'UTC');
+        $end = CarbonImmutable::parse('2026-05-03', 'UTC');
+
+        CarbonImmutable::setTestNow('2026-05-03 10:00:00');
+        $service->sync($start, $end);
+
+        $client->records = [];
+        $client->deleted = [[
+            ...$active,
+            'IsDeleted' => true,
+            'MasterRecordId' => '00Q-master',
+            'LastModifiedDate' => '2026-05-03T10:05:00.000+0000',
+        ]];
+        CarbonImmutable::setTestNow('2026-05-03 10:15:00');
+        $transition = $service->sync($start, $end);
+        $lead = SalesforceLead::where('salesforce_id', '00Q-deleted')->firstOrFail();
+        $deletedUpdatedAt = $lead->updated_at;
+        $deletedSyncedAt = $lead->synced_at;
+
+        $this->assertSame(1, $transition['deleted_merged_changed']);
+        $this->assertSame(0, $transition['active_updated']);
+        $this->assertSame(1, $transition['persisted_updated']);
+        $this->assertTrue($lead->is_deleted);
+        $this->assertSame('00Q-master', $lead->salesforce_master_record_id);
+
+        CarbonImmutable::setTestNow('2026-05-03 10:30:00');
+        $repeated = $service->sync($start, $end);
+        $lead->refresh();
+
+        $this->assertSame(1, $repeated['deleted_merged_unchanged']);
+        $this->assertSame(0, $repeated['deleted_merged_changed']);
+        $this->assertTrue($lead->updated_at->equalTo($deletedUpdatedAt));
+        $this->assertTrue($lead->synced_at->equalTo($deletedSyncedAt));
+    }
 }

@@ -16,6 +16,7 @@ class SalesforceMonthlyLeadsSyncService
         private readonly SalesforceClient $client,
         private readonly LeadRecordTypeNormalizer $recordTypeNormalizer,
         private readonly LeadPortalResolver $portalResolver,
+        private readonly ChangedRowUpsert $changedRowUpsert = new ChangedRowUpsert,
     ) {}
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
@@ -47,16 +48,36 @@ class SalesforceMonthlyLeadsSyncService
             $result = $this->persistPages($this->client->queryPages($soql), $syncedAt, false);
         }
 
-        $deleted = $campaignOnly ? 0 : $this->syncDeleted($periodStart, $periodEnd, $syncedAt);
-        $missing = $campaignOnly ? 0 : $this->reconcileMissing($periodStart, $periodEnd, $syncedAt);
+        $seenIds = $result['seen_ids'];
+        unset($result['seen_ids']);
+
+        $deleted = $campaignOnly
+            ? ['queried' => 0, 'inserted' => 0, 'updated' => 0, 'unchanged' => 0]
+            : $this->syncDeleted($periodStart, $periodEnd, $syncedAt);
+        $missing = $campaignOnly ? 0 : $this->reconcileMissing($periodStart, $periodEnd, $syncedAt, $seenIds);
+        $deletedChanged = $deleted['inserted'] + $deleted['updated'] + $missing;
+        $persistedInserted = $result['inserted'] + $deleted['inserted'];
+        $persistedUpdated = $result['updated'] + $deleted['updated'] + $missing;
+        $persistedUnchanged = $result['unchanged'] + $deleted['unchanged'];
 
         return [
             'soql' => $soql,
             'queried' => $result['queried'],
             'saved' => $result['saved'],
-            'deleted' => $deleted + $missing,
-            'deleted_query_all' => $deleted,
+            'active_inserted' => $result['inserted'],
+            'active_updated' => $result['updated'],
+            'active_unchanged' => $result['unchanged'],
+            'persisted_inserted' => $persistedInserted,
+            'persisted_updated' => $persistedUpdated,
+            'persisted_unchanged' => $persistedUnchanged,
+            'inserted' => $persistedInserted,
+            'updated' => $persistedUpdated,
+            'unchanged' => $persistedUnchanged,
+            'deleted' => $deleted['queried'] + $missing,
+            'deleted_query_all' => $deleted['queried'],
             'deleted_missing' => $missing,
+            'deleted_merged_changed' => $deletedChanged,
+            'deleted_merged_unchanged' => $deleted['unchanged'],
             'synced_at' => $syncedAt->toIso8601String(),
             'warnings' => $warnings,
         ];
@@ -79,12 +100,16 @@ class SalesforceMonthlyLeadsSyncService
 
     /**
      * @param  iterable<array<int, array<string, mixed>>>  $pages
-     * @return array{queried:int, saved:int}
+     * @return array{queried:int, saved:int, inserted:int, updated:int, unchanged:int, seen_ids:array<string, true>}
      */
     private function persistPages(iterable $pages, CarbonImmutable $syncedAt, bool $includeOptionalFields): array
     {
         $queried = 0;
         $saved = 0;
+        $inserted = 0;
+        $updated = 0;
+        $unchanged = 0;
+        $seenIds = [];
 
         foreach ($pages as $records) {
             $queried += count($records);
@@ -94,6 +119,8 @@ class SalesforceMonthlyLeadsSyncService
                 if (blank(data_get($record, 'Id'))) {
                     continue;
                 }
+
+                $seenIds[(string) data_get($record, 'Id')] = true;
 
                 $recordTypeName = data_get($record, 'RecordType.Name');
                 $portalResolution = $this->portalResolver->resolve([
@@ -172,17 +199,28 @@ class SalesforceMonthlyLeadsSyncService
             }
 
             foreach (array_chunk($values, 200) as $chunk) {
-                SalesforceLead::query()->upsert(
+                $stats = $this->changedRowUpsert->persist(
+                    SalesforceLead::class,
                     $chunk,
-                    ['salesforce_id'],
-                    array_values(array_diff(array_keys($chunk[0]), ['salesforce_id']))
+                    'salesforce_id',
+                    ['synced_at'],
                 );
+                $inserted += $stats['inserted'];
+                $updated += $stats['updated'];
+                $unchanged += $stats['unchanged'];
             }
 
             unset($records);
         }
 
-        return ['queried' => $queried, 'saved' => $saved];
+        return [
+            'queried' => $queried,
+            'saved' => $saved,
+            'inserted' => $inserted,
+            'updated' => $updated,
+            'unchanged' => $unchanged,
+            'seen_ids' => $seenIds,
+        ];
     }
 
     private function leadSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $includeOptionalDashboardFields, bool $campaignOnly): string
@@ -279,7 +317,8 @@ WHERE
 SOQL;
     }
 
-    private function syncDeleted(CarbonInterface $periodStart, CarbonInterface $periodEnd, CarbonImmutable $syncedAt): int
+    /** @return array{queried:int, inserted:int, updated:int, unchanged:int} */
+    private function syncDeleted(CarbonInterface $periodStart, CarbonInterface $periodEnd, CarbonImmutable $syncedAt): array
     {
         $start = $this->soqlDateTime($periodStart);
         $end = $this->soqlDateTime($periodEnd);
@@ -357,34 +396,60 @@ SOQL;
             ];
         }
 
+        $stats = ['inserted' => 0, 'updated' => 0, 'unchanged' => 0];
         foreach (array_chunk($values, 200) as $chunk) {
-            SalesforceLead::query()->upsert(
+            $chunkStats = $this->changedRowUpsert->persist(
+                SalesforceLead::class,
                 $chunk,
-                ['salesforce_id'],
-                array_values(array_diff(array_keys($chunk[0]), ['salesforce_id', 'created_date']))
+                'salesforce_id',
+                ['synced_at', 'created_date'],
+                ['created_date'],
             );
+            foreach ($stats as $key => $value) {
+                $stats[$key] += $chunkStats[$key];
+            }
         }
 
-        return count($values);
+        return ['queried' => count($values), ...$stats];
     }
 
-    private function reconcileMissing(CarbonInterface $periodStart, CarbonInterface $periodEnd, CarbonImmutable $syncedAt): int
-    {
-        return SalesforceLead::query()
+    /** @param array<string, true> $seenIds */
+    private function reconcileMissing(
+        CarbonInterface $periodStart,
+        CarbonInterface $periodEnd,
+        CarbonImmutable $syncedAt,
+        array $seenIds,
+    ): int {
+        $changed = 0;
+
+        SalesforceLead::query()
+            ->select(['id', 'salesforce_id'])
             ->where('is_deleted', false)
             ->where('created_date', '>=', $periodStart)
             ->where('created_date', '<', $periodEnd)
-            ->where(function ($query) use ($syncedAt): void {
-                $query->whereNull('synced_at')->orWhere('synced_at', '<', $syncedAt);
-            })
-            ->update([
-                'is_deleted' => true,
-                'salesforce_deleted_at' => $syncedAt,
-                'deletion_detection_source' => 'missing_from_salesforce',
-                'sync_metadata_source' => 'missing_reconciliation',
-                'synced_at' => $syncedAt,
-                'updated_at' => $syncedAt,
-            ]);
+            ->chunkById(500, function ($leads) use (&$changed, $seenIds, $syncedAt): void {
+                $missingIds = $leads
+                    ->reject(fn (SalesforceLead $lead): bool => isset($seenIds[(string) $lead->salesforce_id]))
+                    ->pluck('id');
+
+                if ($missingIds->isEmpty()) {
+                    return;
+                }
+
+                $changed += SalesforceLead::query()
+                    ->where('is_deleted', false)
+                    ->whereIn('id', $missingIds)
+                    ->update([
+                        'is_deleted' => true,
+                        'salesforce_deleted_at' => $syncedAt,
+                        'deletion_detection_source' => 'missing_from_salesforce',
+                        'sync_metadata_source' => 'missing_reconciliation',
+                        'synced_at' => $syncedAt,
+                        'updated_at' => $syncedAt,
+                    ]);
+            });
+
+        return $changed;
     }
 
     private function looksLikeMissingOptionalField(string $message): bool

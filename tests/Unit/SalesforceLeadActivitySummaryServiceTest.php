@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Models\SalesforceActivity;
 use App\Models\SalesforceLeadActivitySummary;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceLeadActivitySummaryService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -53,5 +54,37 @@ class SalesforceLeadActivitySummaryServiceTest extends TestCase
         $this->assertSame('Primera', $summary->primer_contacto_subject);
         $this->assertSame('005-first', $summary->primer_contacto_owner_id);
         $this->assertSame('2026-05-03 12:00:00', $summary->fecha_ultima_actividad->format('Y-m-d H:i:s'));
+    }
+
+    public function test_no_reescribe_summary_identico_y_actualiza_si_cambia_el_resultado(): void
+    {
+        SalesforceActivity::create([
+            'salesforce_id' => '00T-stable',
+            'lead_salesforce_id' => '00Q-stable',
+            'activity_kind' => 'Task',
+            'created_date' => '2026-05-01 12:00:00',
+            'subject' => 'Primera version',
+        ]);
+
+        $service = app(SalesforceLeadActivitySummaryService::class);
+        CarbonImmutable::setTestNow('2026-05-03 10:00:00');
+        $first = $service->recalculateWithStats(['00Q-stable']);
+        $originalUpdatedAt = SalesforceLeadActivitySummary::where('lead_salesforce_id', '00Q-stable')->value('updated_at');
+
+        CarbonImmutable::setTestNow('2026-05-03 10:15:00');
+        $second = $service->recalculateWithStats(['00Q-stable']);
+
+        $this->assertSame(1, $first['summaries_changed']);
+        $this->assertSame(1, $second['summaries_unchanged']);
+        $this->assertSame(0, $second['summaries_changed']);
+        $this->assertEquals($originalUpdatedAt, SalesforceLeadActivitySummary::where('lead_salesforce_id', '00Q-stable')->value('updated_at'));
+
+        SalesforceActivity::where('salesforce_id', '00T-stable')->update(['subject' => 'Version modificada']);
+        CarbonImmutable::setTestNow('2026-05-03 10:30:00');
+        $third = $service->recalculateWithStats(['00Q-stable']);
+
+        $this->assertSame(1, $third['summaries_changed']);
+        $this->assertSame('Version modificada', SalesforceLeadActivitySummary::where('lead_salesforce_id', '00Q-stable')->value('primer_contacto_subject'));
+        $this->assertNotEquals($originalUpdatedAt, SalesforceLeadActivitySummary::where('lead_salesforce_id', '00Q-stable')->value('updated_at'));
     }
 }

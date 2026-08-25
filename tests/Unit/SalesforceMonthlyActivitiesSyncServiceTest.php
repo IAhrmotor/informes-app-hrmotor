@@ -89,4 +89,55 @@ class SalesforceMonthlyActivitiesSyncServiceTest extends TestCase
             'created_by_name' => 'Created Event',
         ]);
     }
+
+    public function test_no_reescribe_actividad_identica_y_actualiza_un_cambio_real(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            public array $record = [
+                'Id' => '00T-stable',
+                'WhoId' => '00Q1',
+                'OwnerId' => '005-owner',
+                'Owner' => ['Name' => 'Owner'],
+                'CreatedById' => '005-created',
+                'CreatedBy' => ['Name' => 'Created'],
+                'CreatedDate' => '2026-05-01T12:00:00.000+0000',
+                'ActivityDate' => '2026-05-01',
+                'Subject' => 'Llamada inicial',
+                'Type' => 'Call',
+                'Status' => 'Completed',
+            ];
+
+            public function __construct() {}
+
+            public function queryPages(string $soql, bool $includeDeleted = false): \Generator
+            {
+                yield [$this->record];
+            }
+        };
+
+        $service = new SalesforceMonthlyActivitiesSyncService($client);
+        $start = CarbonImmutable::parse('2026-05-01', 'UTC');
+        $end = CarbonImmutable::parse('2026-05-03', 'UTC');
+
+        CarbonImmutable::setTestNow('2026-05-03 10:00:00');
+        $first = $service->syncTasks($start, $end);
+        $originalUpdatedAt = SalesforceActivity::where('salesforce_id', '00T-stable')->value('updated_at');
+
+        CarbonImmutable::setTestNow('2026-05-03 10:15:00');
+        $second = $service->syncTasks($start, $end);
+
+        $this->assertSame(1, $first['inserted']);
+        $this->assertSame(1, $second['unchanged']);
+        $this->assertSame(0, $second['updated']);
+        $this->assertEquals($originalUpdatedAt, SalesforceActivity::where('salesforce_id', '00T-stable')->value('updated_at'));
+
+        $client->record['Subject'] = 'Llamada modificada';
+        CarbonImmutable::setTestNow('2026-05-03 10:30:00');
+        $third = $service->syncTasks($start, $end);
+
+        $this->assertSame(1, $third['updated']);
+        $this->assertSame('Llamada modificada', SalesforceActivity::where('salesforce_id', '00T-stable')->value('subject'));
+        $this->assertNotEquals($originalUpdatedAt, SalesforceActivity::where('salesforce_id', '00T-stable')->value('updated_at'));
+    }
 }

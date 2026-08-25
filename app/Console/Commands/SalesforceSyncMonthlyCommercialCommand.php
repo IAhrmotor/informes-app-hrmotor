@@ -70,12 +70,17 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
             $users = $usersSync->sync();
             $this->line('Usuarios consultados: '.$users['queried']);
             $this->line('Usuarios sincronizados: '.$users['saved']);
+            $this->line('  Insertados/actualizados/sin cambios: '.($users['inserted'] ?? 0).'/'.($users['updated'] ?? 0).'/'.($users['unchanged'] ?? 0));
 
             $leads = $leadsSync->sync($periodStart, $periodEnd);
             $this->line('Leads consultados: '.$leads['queried']);
             $this->line('Leads guardados: '.$leads['saved']);
             $this->line('Leads sincronizados: '.$leads['saved']);
+            $this->line('  Contrato saved: Leads activos validos procesados (no escrituras fisicas).');
+            $this->line('  Leads activos insertados/actualizados/sin cambios: '.($leads['active_inserted'] ?? 0).'/'.($leads['active_updated'] ?? 0).'/'.($leads['active_unchanged'] ?? 0));
+            $this->line('  Persistencia total insertados/actualizados/sin cambios (incluye eliminados/fusionados): '.($leads['persisted_inserted'] ?? $leads['inserted'] ?? 0).'/'.($leads['persisted_updated'] ?? $leads['updated'] ?? 0).'/'.($leads['persisted_unchanged'] ?? $leads['unchanged'] ?? 0));
             $this->line('Leads eliminados/fusionados marcados: '.($leads['deleted'] ?? 0));
+            $this->line('  Eliminados/fusionados cambiados/sin cambios: '.($leads['deleted_merged_changed'] ?? 0).'/'.($leads['deleted_merged_unchanged'] ?? 0));
             $this->line('  Detectados por queryAll: '.($leads['deleted_query_all'] ?? 0));
             $this->line('  Ausentes en reconciliacion: '.($leads['deleted_missing'] ?? 0));
             $this->line('Corte sincronizacion Leads: '.($leads['synced_at'] ?? '-'));
@@ -88,19 +93,23 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
             $this->line('Tasks consultadas: '.$tasks['queried']);
             $this->line('Tasks guardadas: '.$tasks['saved']);
             $this->line('Tasks sincronizadas: '.$tasks['saved']);
+            $this->line('  Insertadas/actualizadas/sin cambios: '.($tasks['inserted'] ?? 0).'/'.($tasks['updated'] ?? 0).'/'.($tasks['unchanged'] ?? 0));
             $this->warnIfEmpty('tasks', $tasks['queried'], $periodStart, $periodEnd);
 
             $events = $activitiesSync->syncEvents($periodStart, $periodEnd);
             $this->line('Events consultados: '.$events['queried']);
             $this->line('Events guardados: '.$events['saved']);
             $this->line('Events sincronizados: '.$events['saved']);
+            $this->line('  Insertados/actualizados/sin cambios: '.($events['inserted'] ?? 0).'/'.($events['updated'] ?? 0).'/'.($events['unchanged'] ?? 0));
             $this->warnIfEmpty('events', $events['queried'], $periodStart, $periodEnd);
 
             $this->line('Activities totales guardadas: '.($tasks['saved'] + $events['saved']));
 
-            $summaries = $summaryService->recalculateForPeriod($periodStart, $periodEnd);
-            $this->line("Summaries generados: {$summaries}");
-            $this->line("Summaries por lead generados: {$summaries}");
+            $summaries = $summaryService->recalculateForPeriodWithStats($periodStart, $periodEnd);
+            $this->line("Summaries generados: {$summaries['saved']}");
+            $this->line("Summaries por lead generados: {$summaries['saved']}");
+            $this->line("Summaries cambiados: {$summaries['summaries_changed']}");
+            $this->line("Summaries sin cambios: {$summaries['summaries_unchanged']}");
 
             $this->info('Sincronizacion mensual comercial completada.');
             $this->invalidateDashboardCache();
@@ -109,7 +118,10 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
                 'leads' => $leads,
                 'tasks' => $tasks,
                 'events' => $events,
-                'summaries' => $summaries,
+                'summaries' => $summaries['saved'],
+                'summary_stats' => $summaries,
+                'summaries_changed' => $summaries['summaries_changed'],
+                'summaries_unchanged' => $summaries['summaries_unchanged'],
             ]);
 
             return self::SUCCESS;

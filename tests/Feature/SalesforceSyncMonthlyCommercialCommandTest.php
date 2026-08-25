@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ReportSyncRun;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceLeadActivitySummaryService;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyActivitiesSyncService;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyLeadsSyncService;
@@ -46,7 +47,14 @@ class SalesforceSyncMonthlyCommercialCommandTest extends TestCase
         });
 
         $this->mock(SalesforceLeadActivitySummaryService::class, function ($mock): void {
-            $mock->shouldReceive('recalculateForPeriod')->once()->andReturn(2);
+            $mock->shouldReceive('recalculateForPeriodWithStats')->once()->andReturn([
+                'saved' => 2,
+                'inserted' => 0,
+                'updated' => 0,
+                'unchanged' => 2,
+                'summaries_changed' => 0,
+                'summaries_unchanged' => 2,
+            ]);
         });
 
         $this->artisan('salesforce:sync-monthly-commercial', ['--days' => 60])
@@ -56,5 +64,11 @@ class SalesforceSyncMonthlyCommercialCommandTest extends TestCase
             ->expectsOutputToContain('Events consultados: 4')
             ->expectsOutputToContain('Summaries por lead generados: 2')
             ->assertSuccessful();
+
+        $run = ReportSyncRun::query()->sole();
+        $this->assertSame('completed', $run->status);
+        $this->assertSame(2, $run->stats['summaries']);
+        $this->assertSame(0, $run->stats['summaries_changed']);
+        $this->assertSame(2, $run->stats['summaries_unchanged']);
     }
 }
