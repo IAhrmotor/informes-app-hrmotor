@@ -706,6 +706,26 @@ multiplicador configurado.
 No debe calcularse el porcentaje de zona sumando numeradores y denominadores:
 la implementación usa la media de porcentajes por delegación.
 
+8.4 Dirección Comercial
+-----------------------
+
+Oscar Ortega se identifica de forma estable con Salesforce User ID
+0057R00000B2SGg. No es un quinto Area Manager y no tiene delegaciones, objetivos
+ni KPI propios.
+
+En el dataset global:
+
+  base_direccion_comercial =
+      suma(final_total de todos los Area Managers)
+
+  comision_oscar =
+      redondear(base_direccion_comercial * 0,40, 2)
+
+El resultado vive en el bloque canónico commercial_director. El front, el XLSX
+global y el snapshot definitivo de Area Manager consumen ese mismo valor. Un
+dataset restringido por zona no incluye el bloque y nunca calcula el 40 % sobre
+un subconjunto. Los snapshots definitivos existentes no se reescriben.
+
 
 9. PESTAÑA FINANCIEROS
 =====================

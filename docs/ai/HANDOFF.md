@@ -1,5 +1,25 @@
 # Handoff para agentes
 
+## Comisión de Dirección Comercial en Area Manager (2026-08-26)
+
+- Tarea: se restaura la comisión de Oscar Ortega como el 40 % de la suma de los
+  `final_total` de todos los Area Managers globales, redondeada a dos decimales.
+- Identidad: Salesforce User ID funcional confirmado `0057R00000B2SGg`; el nombre
+  `Oscar Ortega` es solo presentación. El usuario no estaba presente en la réplica
+  local durante la comprobación de solo lectura, por lo que no se inventó otra
+  identidad ni se bloqueó el cálculo.
+- Diseño: `AreaManagerCommissionDashboardService` publica `commercial_director`
+  solo en el dataset global. Front, XLSX y snapshot definitivo consumen ese dato;
+  los builds por zona lo dejan en nulo y nunca calculan un Oscar parcial.
+- Base de datos/configuración: sin migraciones, esquema, variables de entorno,
+  rutas, permisos ni configuración administrativa nueva. No se modifican
+  snapshots definitivos existentes.
+- Seguridad/rendimiento: identidad por ID estable, sin exposición en vistas por
+  zona, consultas adicionales, llamadas externas ni segundo build.
+- Pruebas: cálculo 1.000 + 2.000 + 3.000 + 4.000 = 10.000 EUR y comisión de 4.000
+  EUR; identidad, front global, restricción por zona, XLSX, snapshot y reapertura.
+- Acciones manuales: ninguna. No requiere migración, backfill ni sincronización.
+
 ## Rendimiento comercial en Reservas / Ventas (2026-08-25)
 
 - Correctivo MySQL/UI 26/08: la migración evita los nombres automáticos de 72 y

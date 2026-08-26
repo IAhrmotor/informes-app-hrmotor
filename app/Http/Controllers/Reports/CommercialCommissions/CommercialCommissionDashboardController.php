@@ -561,15 +561,14 @@ class CommercialCommissionDashboardController extends Controller
 
             $areaManagerSnapshot = $closureService->definitiveSnapshot($month, 'area_manager');
             $areaManagerPayload = $areaManagerSnapshot['area_manager'] ?? $areaManagerDashboard->build($month);
-            $areaManagerRows = collect($areaManagerPayload['summary_rows'] ?? []);
             $sheets[] = $this->commissionSheet(
                 'Area Managers',
                 'Area Manager',
-                $areaManagerRows->all(),
+                $this->globalAreaManagerExportRows($areaManagerPayload),
                 'manager_name',
                 'final_total',
             );
-            unset($areaManagerPayload, $areaManagerRows);
+            unset($areaManagerPayload);
             gc_collect_cycles();
 
             $financialPayload = $financialDashboard->build($month);
@@ -628,6 +627,22 @@ class CommercialCommissionDashboardController extends Controller
         ];
     }
 
+    /** @return array<int, array<string, mixed>> */
+    private function globalAreaManagerExportRows(array $payload): array
+    {
+        $rows = collect($payload['summary_rows'] ?? []);
+        $commercialDirector = $payload['commercial_director'] ?? null;
+
+        if (is_array($commercialDirector)) {
+            $rows->push([
+                'manager_name' => (string) ($commercialDirector['name'] ?? '-'),
+                'final_total' => round((float) ($commercialDirector['final_total'] ?? 0), 2),
+            ]);
+        }
+
+        return $rows->values()->all();
+    }
+
     private function resolveActiveTab(mixed $value, bool $isAreaRestricted = false): string
     {
         if ($value === 'detail') {
@@ -669,6 +684,7 @@ class CommercialCommissionDashboardController extends Controller
             'warnings' => [],
             'diagnostics' => [],
             'summary_rows' => [],
+            'commercial_director' => null,
             'global_incidents' => [],
         ];
     }

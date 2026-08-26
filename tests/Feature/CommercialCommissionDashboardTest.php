@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\CommercialCommissionClosure;
 use App\Models\ReportUser;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceReview;
 use App\Models\SalesforceUser;
 use App\Services\Reports\AreaManagerCommissions\AreaManagerCommissionDashboardService;
+use App\Services\Reports\CommercialCommissions\CommercialCommissionClosureService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDelegationReviewsService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
@@ -160,7 +162,7 @@ class CommercialCommissionDashboardTest extends TestCase
             ->assertOk()
             ->assertSee('Comisiones Area Manager')
             ->assertSee('KPIs por delegacion')
-            ->assertDontSee('Comisión Oscar');
+            ->assertSee('Oscar Ortega');
     }
 
     public function test_dashboard_renderiza_pestana_financieros(): void
@@ -2226,6 +2228,98 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertSame(['kosta-plamenov'], collect($payload['summary_rows'])->pluck('manager_key')->all());
         $this->assertSame(1, $payload['summary_rows'][0]['delegations_count']);
         $this->assertSame(1.0, $payload['summary_rows'][0]['deliveries_actual']);
+        $this->assertNull($payload['commercial_director']);
+    }
+
+    public function test_dashboard_area_manager_calcula_direccion_comercial_global_y_no_la_expone_por_zona(): void
+    {
+        $this->seedAreaManagerDirectorScenario('2026-03');
+
+        $payload = app(AreaManagerCommissionDashboardService::class)->build('2026-03');
+        $managerTotals = collect($payload['summary_rows'])->mapWithKeys(
+            fn (array $row): array => [$row['manager_key'] => $row['final_total']]
+        );
+        $commercialDirector = $payload['commercial_director'];
+
+        $this->assertSame(1000.0, $managerTotals->get('david-baeza'));
+        $this->assertSame(2000.0, $managerTotals->get('kosta-plamenov'));
+        $this->assertSame(3000.0, $managerTotals->get('nicolas-fernandez'));
+        $this->assertSame(4000.0, $managerTotals->get('luis-lopez'));
+        $this->assertSame('0057R00000B2SGg', $commercialDirector['salesforce_user_id']);
+        $this->assertSame('Oscar Ortega', $commercialDirector['name']);
+        $this->assertSame(10000.0, $commercialDirector['basis_amount']);
+        $this->assertSame(40.0, $commercialDirector['commission_percent']);
+        $this->assertSame(4000.0, $commercialDirector['final_total']);
+
+        $globalSession = $this->authenticatedSession(ReportUser::ROLE_DIRECTOR);
+        $this->withSession($globalSession)
+            ->get('/informes/comisiones-comerciales?tab=area-manager&month=2026-03')
+            ->assertOk()
+            ->assertSee('Direccion Comercial')
+            ->assertSee('Oscar Ortega')
+            ->assertSee('10.000,00 EUR')
+            ->assertSee('40,00%')
+            ->assertSee('4.000,00 EUR');
+
+        $restrictedPayload = app(AreaManagerCommissionDashboardService::class)->build('2026-03', 'Zona Norte');
+
+        $this->assertNull($restrictedPayload['commercial_director']);
+        $this->withSession($this->authenticatedSession(ReportUser::ROLE_AREA_MANAGER))
+            ->get('/informes/comisiones-comerciales?tab=area-manager&month=2026-03')
+            ->assertOk()
+            ->assertDontSee('Oscar Ortega');
+    }
+
+    public function test_area_manager_definitivo_congela_direccion_comercial_en_front_y_xlsx_y_reapertura_vuelve_al_vivo(): void
+    {
+        $this->seedAreaManagerDirectorScenario('2026-03');
+        $session = $this->authenticatedSession(ReportUser::ROLE_DIRECTOR);
+        $director = ReportUser::query()->findOrFail($session['report_user_id']);
+        $closureService = app(CommercialCommissionClosureService::class);
+        $components = array_fill_keys(CommercialCommissionClosureService::REQUIRED_COMPONENTS, true);
+
+        $closureService->prepare('2026-03', CommercialCommissionClosure::SCOPE_AREA_MANAGER, $components, $director);
+        $closureService->approve('2026-03', CommercialCommissionClosure::SCOPE_AREA_MANAGER, $director);
+
+        $snapshot = $closureService->definitiveSnapshot('2026-03', CommercialCommissionClosure::SCOPE_AREA_MANAGER);
+        $this->assertEquals(4000.0, data_get($snapshot, 'area_manager.commercial_director.final_total'));
+
+        SalesforceOpportunity::query()->delete();
+        $this->assertSame(0.0, data_get(
+            app(AreaManagerCommissionDashboardService::class)->build('2026-03'),
+            'commercial_director.final_total'
+        ));
+
+        $this->withSession($session)
+            ->get('/informes/comisiones-comerciales?tab=area-manager&month=2026-03')
+            ->assertOk()
+            ->assertViewHas('areaManagerDashboard', fn (array $dashboard): bool => (float) data_get($dashboard, 'commercial_director.final_total') === 4000.0)
+            ->assertSee('4.000,00 EUR');
+
+        $export = $this->withSession($session)
+            ->get('/informes/comisiones-comerciales/export/comisiones.xlsx?month=2026-03')
+            ->assertOk();
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($export->baseResponse->getFile()->getPathname()) === true);
+        $areaManagerSheet = (string) $zip->getFromName('xl/worksheets/sheet5.xml');
+        $zip->close();
+
+        $this->assertMatchesRegularExpression(
+            '/<row r="\d+">.*Oscar Ortega.*<v>4000\.00<\/v>.*<\/row>/s',
+            $areaManagerSheet
+        );
+
+        $closureService->reopen(
+            '2026-03',
+            CommercialCommissionClosure::SCOPE_AREA_MANAGER,
+            'Recalculo auditado',
+            $director,
+        );
+
+        $this->withSession($session)
+            ->get('/informes/comisiones-comerciales?tab=area-manager&month=2026-03')
+            ->assertOk()
+            ->assertViewHas('areaManagerDashboard', fn (array $dashboard): bool => data_get($dashboard, 'commercial_director.final_total') === 0.0);
     }
 
     public function test_dashboard_delegaciones_incluye_oportunidades_facilitea_por_nombre_en_entregas(): void
@@ -2792,5 +2886,53 @@ class CommercialCommissionDashboardTest extends TestCase
             'profile_name' => $profile,
             'is_active' => $isActive,
         ]);
+    }
+
+    private function seedAreaManagerDirectorScenario(string $month): void
+    {
+        $assignments = collect([
+            ['label' => 'Malaga', 'manager_key' => 'david-baeza'],
+            ['label' => 'Bilbao', 'manager_key' => 'kosta-plamenov'],
+            ['label' => 'Pamplona', 'manager_key' => 'kosta-plamenov'],
+            ['label' => 'Alicante', 'manager_key' => 'nicolas-fernandez'],
+            ['label' => 'Paterna', 'manager_key' => 'nicolas-fernandez'],
+            ['label' => 'Elche', 'manager_key' => 'nicolas-fernandez'],
+            ['label' => 'Badalona', 'manager_key' => 'luis-lopez'],
+            ['label' => 'Girona', 'manager_key' => 'luis-lopez'],
+            ['label' => 'Lleida', 'manager_key' => 'luis-lopez'],
+            ['label' => 'Manresa', 'manager_key' => 'luis-lopez'],
+        ])->mapWithKeys(fn (array $assignment): array => [
+            str($assignment['label'])->slug()->toString() => [
+                ...$assignment,
+                'active' => true,
+                'objectives' => ['deliveries' => 1, 'benefit' => 0, 'guarantee' => 0, 'purchases' => 0],
+            ],
+        ])->all();
+
+        app(CommercialCommissionFormulaConfigService::class)->saveForMonth($month, [
+            'area_manager' => [
+                'kpi_bases' => ['deliveries' => 1000, 'benefit' => 0, 'guarantee' => 0, 'purchases' => 0],
+                'zone_keys' => [['min_percent' => 0, 'multiplier' => 1.0]],
+                'assignments' => $assignments,
+            ],
+        ]);
+
+        foreach (array_values($assignments) as $index => $assignment) {
+            SalesforceOpportunity::query()->create([
+                'salesforce_id' => 'AM-DIRECTOR-'.str_pad((string) ($index + 1), 2, '0', STR_PAD_LEFT),
+                'name' => 'Entrega '.$assignment['label'],
+                'owner_id' => '005-AM-DIRECTOR-'.$index,
+                'owner_name' => 'Comercial '.$assignment['label'],
+                'owner_is_active' => true,
+                'owner_delegation' => $assignment['label'],
+                'delivery_store' => $assignment['label'],
+                'stage_name' => 'Contrato',
+                'record_type_name' => 'Venta',
+                'cv_signed' => true,
+                'cv_signed_date' => $month.'-15',
+                'beneficio_financiacion_comercial' => 0,
+                'garantia_total' => 0,
+            ]);
+        }
     }
 }

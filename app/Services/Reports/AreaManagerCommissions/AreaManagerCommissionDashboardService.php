@@ -15,6 +15,12 @@ use Illuminate\Support\Str;
 
 class AreaManagerCommissionDashboardService
 {
+    private const COMMERCIAL_DIRECTOR_COMMISSION_RATE = 0.40;
+
+    private const COMMERCIAL_DIRECTOR_NAME = 'Oscar Ortega';
+
+    private const COMMERCIAL_DIRECTOR_SALESFORCE_USER_ID = '0057R00000B2SGg';
+
     private const OPPORTUNITY_COLUMNS = [
         'salesforce_id',
         'name',
@@ -33,8 +39,7 @@ class AreaManagerCommissionDashboardService
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
         private readonly CommissionMonthResolver $monthResolver,
         private readonly LeadDelegationNormalizer $delegationNormalizer,
-    ) {
-    }
+    ) {}
 
     public function build(?string $month, ?string $zoneLabel = null): array
     {
@@ -53,6 +58,7 @@ class AreaManagerCommissionDashboardService
                 'warnings' => [],
                 'diagnostics' => $this->emptyDiagnostics(),
                 'summary_rows' => [],
+                'commercial_director' => null,
                 'global_incidents' => [],
             ];
         }
@@ -96,6 +102,9 @@ class AreaManagerCommissionDashboardService
             ->sortByDesc('automatic_total')
             ->values()
             ->all();
+        $commercialDirector = filled($zoneLabel)
+            ? null
+            : $this->buildCommercialDirector($managerRows);
 
         $globalIncidents = $delegationPayloads
             ->flatMap(function (array $payload) use ($managerDefinitions): array {
@@ -134,7 +143,22 @@ class AreaManagerCommissionDashboardService
                 'incidents_count' => count($globalIncidents),
             ],
             'summary_rows' => $managerRows,
+            'commercial_director' => $commercialDirector,
             'global_incidents' => $globalIncidents,
+        ];
+    }
+
+    /** @param array<int, array<string, mixed>> $managerRows */
+    private function buildCommercialDirector(array $managerRows): array
+    {
+        $basisAmount = round((float) collect($managerRows)->sum('final_total'), 2);
+
+        return [
+            'salesforce_user_id' => self::COMMERCIAL_DIRECTOR_SALESFORCE_USER_ID,
+            'name' => self::COMMERCIAL_DIRECTOR_NAME,
+            'basis_amount' => $basisAmount,
+            'commission_percent' => self::COMMERCIAL_DIRECTOR_COMMISSION_RATE * 100,
+            'final_total' => round($basisAmount * self::COMMERCIAL_DIRECTOR_COMMISSION_RATE, 2),
         ];
     }
 
@@ -440,6 +464,7 @@ class AreaManagerCommissionDashboardService
 
                 if ($value === 'tasacion') {
                     $builder->{$method}("LOWER(COALESCE(record_type_name, '')) LIKE ?", ['tas%']);
+
                     continue;
                 }
 

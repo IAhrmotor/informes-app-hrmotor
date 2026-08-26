@@ -2,6 +2,7 @@
     $areaManagerSummaryRows = collect($areaManagerDashboard['summary_rows'] ?? []);
     $areaManagerActiveRow = $areaManagerSummaryRows->first();
     $areaManagerDiagnostics = $areaManagerDashboard['diagnostics'] ?? [];
+    $commercialDirector = $areaManagerDashboard['commercial_director'] ?? null;
     $areaManagerGlobalIncidents = collect($areaManagerDashboard['global_incidents'] ?? []);
     $areaManagerKpiSections = [
         'deliveries' => ['label' => 'Entregas', 'money' => false],
@@ -28,6 +29,27 @@
         <strong>{{ number_format((int) ($areaManagerDiagnostics['delegations_count'] ?? 0), 0, ',', '.') }}</strong>
     </article>
 </section>
+
+@if (is_array($commercialDirector))
+    <section class="call-center-agent-hero">
+        <article class="card campaign-context-card">
+            <span>Direccion Comercial</span>
+            <strong>{{ $commercialDirector['name'] }}</strong>
+        </article>
+        <article class="card campaign-context-card">
+            <span>Base Area Managers</span>
+            <strong>{{ number_format((float) $commercialDirector['basis_amount'], 2, ',', '.') }} EUR</strong>
+        </article>
+        <article class="card campaign-context-card">
+            <span>Porcentaje</span>
+            <strong>{{ number_format((float) $commercialDirector['commission_percent'], 2, ',', '.') }}%</strong>
+        </article>
+        <article class="card campaign-context-card">
+            <span>Comision final</span>
+            <strong>{{ number_format((float) $commercialDirector['final_total'], 2, ',', '.') }} EUR</strong>
+        </article>
+    </section>
+@endif
 
 <section class="platform-comparison-grid commission-overview-grid call-center-overview-grid">
     <article class="card platform-comparison-card">

@@ -1,5 +1,17 @@
 # Decisiones técnicas
 
+## 2026-08-26 - Dirección Comercial como derivación canónica de Area Manager
+
+La comisión de Oscar Ortega se identifica por el Salesforce User ID estable
+`0057R00000B2SGg`; el nombre no participa en la decisión económica. No se modela
+como Area Manager porque no tiene delegaciones, objetivos ni KPI propios.
+
+`AreaManagerCommissionDashboardService` calcula una sola vez el 40 % de la suma
+global de `final_total` y lo publica como `commercial_director`. Blade, XLSX y el
+snapshot consumen ese bloque sin fórmulas paralelas. Los builds por zona lo dejan
+en nulo para impedir exposición o cálculos parciales. Esta decisión evita que un
+cambio de nombre o un refactor del export eliminen silenciosamente la comisión.
+
 ## 2026-08-25 - Actividad mensual y hechos históricos verificables
 
 La pestaña Rendimiento comercial se separa del dataset de cohorte existente. Un

@@ -156,11 +156,22 @@ regla. Desde `2026-06`, `zona_nuria` y `zona_irene` reciben el 0,50 % de la
 comisión neta, sustituyendo completamente los bloques 1, 2 y 3. El nombre sigue
 siendo únicamente una etiqueta visual.
 
-La regla histórica atribuida a Oscar del 40 % no aparece en la especificación
-económica vigente; permanece desactivada hasta una aprobación funcional expresa
-y no existe ninguna fila sintética basada en su nombre. Financieros es un bloque
-operativo, por lo que no participa en los snapshots de cierre de Comerciales,
-Delegaciones o Área Manager.
+## Dirección Comercial derivada de Área Manager
+
+El payload global de Área Manager incluye un bloque separado
+`commercial_director` para Oscar Ortega, identificado exclusivamente por el
+Salesforce User ID `0057R00000B2SGg`. Su nombre es solo una etiqueta visible.
+La base es la suma de `final_total` de todos los Area Managers globales y su
+comisión es esa base por el 40 %, redondeada a dos decimales.
+
+No se añade como un quinto Area Manager ni recibe delegaciones, objetivos o KPI.
+Los builds restringidos por zona devuelven este bloque en nulo para evitar tanto
+la exposición global como un cálculo parcial. El snapshot global del scope
+`area_manager` lo congela junto con el resto del payload; front y XLSX consumen
+ese mismo dato. Los snapshots definitivos anteriores no se modifican.
+
+Financieros es un bloque operativo, por lo que no participa en los snapshots de
+cierre de Comerciales, Delegaciones o Área Manager.
 
 ## Roles y datos sensibles
 
