@@ -10,6 +10,7 @@ class SalesforceOpportunity extends Model
         'salesforce_id',
         'name',
         'created_date',
+        'salesforce_last_modified_at',
         'close_date',
         'amount',
         'opo_for_importe_total',
@@ -81,6 +82,7 @@ class SalesforceOpportunity extends Model
 
     protected $casts = [
         'created_date' => 'datetime',
+        'salesforce_last_modified_at' => 'datetime',
         'close_date' => 'date',
         'amount' => 'decimal:2',
         'opo_for_importe_total' => 'decimal:2',

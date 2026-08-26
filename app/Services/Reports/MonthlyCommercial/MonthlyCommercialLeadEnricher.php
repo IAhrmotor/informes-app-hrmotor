@@ -115,6 +115,18 @@ class MonthlyCommercialLeadEnricher
         ];
     }
 
+    /** Reutiliza la regla consolidada sin ejecutar el enriquecimiento completo. */
+    public function effectiveResponsible(mixed $lead): array
+    {
+        $status = $this->normalizeComparable((string) $this->clean($this->leadValue($lead, 'status', 'Status')));
+
+        return $this->resolveResponsible(
+            $lead,
+            $status === $this->normalizeComparable('Convertido'),
+            $status === $this->normalizeComparable('Descartado'),
+        );
+    }
+
     private function resolveResponsible(mixed $lead, bool $isConverted, bool $isDiscarded): array
     {
         if ($isConverted) {

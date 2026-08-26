@@ -1,6 +1,30 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-08-24.
+Actualizado: 2026-08-26.
+
+## Rendimiento comercial de Reservas / Ventas
+
+- `CommercialPerformanceDatasetService` agrega cuatro meses de actividad local
+  por fecha propia de Lead, Opportunity, reserva, firma y cancelación; la unidad
+  es Salesforce User ID + mes, nunca delegación, y no altera la cohorte legacy.
+- `salesforce_opportunity_stage_transitions` materializa cambios demostrables de
+  `OpportunityHistory` hacia Cerrada Perdida con estado de calidad; solo cuentan
+  si la reserva no es posterior. `salesforce_opportunity_history_sync_intervals`
+  acredita cobertura continua antes de devolver cero cancelaciones. El mes
+  actual termina en el último cutoff diario certificado; meses cerrados exigen
+  el mes completo. Una Opportunity local ausente invalida el intervalo para KPI
+  y queda auditada, sin transformar la dependencia en cero.
+- `commercial_delegation_snapshots` mantiene intervalos observados por Salesforce
+  User. La delegación actual no se aplica retrospectivamente; los períodos sin
+  intervalo completo y estable quedan no certificables y fuera de medias/ranking.
+  El roster certificado incluye comerciales sin actividad.
+- `commercial_performance_monthly_targets` materializa el objetivo efectivo al
+  primer uso y distingue default congelado de edición explícita.
+- El scheduler monitorizado ejecuta `salesforce:sync-opportunities --days=2
+  --modified` a las 07:10 Europe/Madrid. Solo el sync mensual captura intervalos
+  de delegación. El sync refresca por ID usuarios conocidos que salgan del
+  perfil comercial, mantiene su `IsActive` real y cierra su snapshot. Render,
+  auditoría y filtros consumen solo tablas locales.
 
 ## Comisiones financieras
 

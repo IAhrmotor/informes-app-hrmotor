@@ -2,8 +2,10 @@
 
 namespace Tests\Unit;
 
+use App\Models\CommercialDelegationSnapshot;
 use App\Models\SalesforceUser;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyUsersSyncService;
+use App\Services\Reports\ReservationsSales\CommercialDelegationSnapshotService;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -91,5 +93,76 @@ class SalesforceUsersDelegationSyncTest extends TestCase
         $this->assertSame(1, $third['updated']);
         $this->assertSame('ALCOBENDAS', SalesforceUser::where('salesforce_id', '005-stable')->value('user_delegation'));
         $this->assertNotEquals($originalUpdatedAt, SalesforceUser::where('salesforce_id', '005-stable')->value('updated_at'));
+    }
+
+    public function test_persiste_inactivos_para_historial_sin_ocultar_su_estado(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            public string $soql = '';
+
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $this->soql = $soql;
+
+                return [[
+                    'Id' => '005-inactive-history', 'Name' => 'Histórico', 'Email' => null,
+                    'Profile' => ['Name' => 'Compra/Venta'], 'USR_SEL_Delegacion__c' => 'HR MOTOR ALICANTE',
+                    'Comision_Tasador__c' => false, 'IsActive' => false,
+                ]];
+            }
+        };
+
+        (new SalesforceMonthlyUsersSyncService($client))->sync();
+
+        $this->assertDatabaseHas('salesforce_users', [
+            'salesforce_id' => '005-inactive-history',
+            'is_active' => false,
+        ]);
+        $this->assertStringNotContainsString('IsActive = true', $client->soql);
+    }
+
+    public function test_refresca_usuario_conocido_fuera_del_filtro_y_cierra_snapshot_sin_falsear_is_active(): void
+    {
+        SalesforceUser::query()->create([
+            'salesforce_id' => '005-profile-change', 'name' => 'Cambio perfil',
+            'profile_name' => 'Compra/Venta', 'user_delegation' => 'HR MOTOR ALICANTE',
+            'is_active' => true, 'commission_appraiser' => false,
+        ]);
+        CommercialDelegationSnapshot::query()->create([
+            'salesforce_user_id' => '005-profile-change', 'delegation' => 'Alicante',
+            'zone' => 'Zona Mediterraneo', 'observed_from' => '2026-08-01 00:00:00', 'source' => 'test',
+        ]);
+        $client = new class extends SalesforceClient
+        {
+            public array $queries = [];
+
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $this->queries[] = $soql;
+                if (! str_contains($soql, 'WHERE Id IN')) {
+                    return [];
+                }
+
+                return [[
+                    'Id' => '005-profile-change', 'Name' => 'Cambio perfil', 'Email' => null,
+                    'Profile' => ['Name' => 'Marketing'], 'USR_SEL_Delegacion__c' => 'HR MOTOR ALICANTE',
+                    'Comision_Tasador__c' => false, 'IsActive' => true,
+                ]];
+            }
+        };
+
+        $result = (new SalesforceMonthlyUsersSyncService($client))->sync();
+        app(CommercialDelegationSnapshotService::class)->captureCurrentUsers(CarbonImmutable::parse('2026-08-26 07:15:00', 'UTC'));
+
+        $this->assertSame(1, $result['tracked_refresh_queries']);
+        $this->assertSame('Marketing', SalesforceUser::query()->value('profile_name'));
+        $this->assertTrue(SalesforceUser::query()->firstOrFail()->is_active);
+        $this->assertSame(0, CommercialDelegationSnapshot::query()->whereNull('observed_until')->count());
+        $this->assertStringContainsString("Id IN ('005-profile-change')", implode("\n", $client->queries));
     }
 }

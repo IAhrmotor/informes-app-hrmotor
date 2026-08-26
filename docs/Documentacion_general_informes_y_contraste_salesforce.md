@@ -1,6 +1,6 @@
 # Documentación general de informes y contraste con Salesforce
 
-Versión: 2026-08-24
+Versión: 2026-08-25
 Proyecto: `informes-app-hrmotor`
 
 ## 1. Propósito y criterio de verdad
@@ -62,7 +62,7 @@ Principales tablas por dominio:
 | Dominio | Tablas locales principales |
 |---|---|
 | Leads | `salesforce_leads`, `salesforce_activities`, `salesforce_lead_activity_summaries`, `salesforce_users` |
-| Reservas / Ventas | `salesforce_opportunities`, `leads_raw` como fallback de portal |
+| Reservas / Ventas | `salesforce_opportunities`, `salesforce_opportunity_stage_transitions`, `commercial_delegation_snapshots`, `commercial_performance_monthly_targets`, `leads_raw` como fallback de portal |
 | Llamadas | `salesforce_calls`, `salesforce_call_classification_history`, `salesforce_users`, `call_agent_mappings` |
 | Campañas | `campaign_platform_daily_metrics`, `campaign_platform_identifiers`, `campaign_lead_attributions`, `campaign_unresolved_attributions`, `campaign_operational_classifications`, `campaign_salesforce_leads`, `salesforce_opportunities` |
 | Comisiones | `salesforce_opportunities`, `salesforce_users`, `salesforce_reviews`, `salesforce_tasaciones`, `commercial_commission_month_settings`, cierres, snapshots, ajustes y tablas de penalizaciones |
@@ -73,7 +73,7 @@ Principales tablas por dominio:
 | Informe / bloque | Fecha pivote |
 |---|---|
 | Leads | `Lead.CreatedDate` |
-| Reservas / Ventas | seleccionable: creación, reserva o firma |
+| Reservas / Ventas | legacy: criterio seleccionable de cohorte; Rendimiento comercial: fecha propia por hito y mes natural |
 | Llamadas | `Task.CreatedDate` |
 | Campañas | creación del lead para resultados; fecha publicitaria para inversión |
 | Comisiones comerciales | `Opportunity.Fecha_firma_contrato__c` y mes cerrado seleccionado |
@@ -86,7 +86,7 @@ Principales tablas por dominio:
 | Informe | Regla vigente que no debe volver a tratarse como pendiente |
 |---|---|
 | Leads | Venta = Venta + Venta con cambio; Lead/Ayvens fuera. Calidad comercial y no clasificados siguen dentro del total. Eliminados y fusionados no suman en activos. |
-| Reservas / Ventas | La fecha seleccionada define toda la cohorte. Un evento repetido por vehículo y fecha cuenta una vez y genera incidencia. |
+| Reservas / Ventas | Las pestañas legacy conservan cohorte única. Rendimiento comercial usa actividad mensual por hito, objetivo histórico y cancelación solo desde OpportunityHistory. |
 | Llamadas | Solo `CallObject`; `ABANDONED` es perdida y nunca desborde; histórico versionado y reproceso manual. |
 | Campañas | First touch único; Salesforce-only separado de pago; pruebas excluidas solo por clasificación explícita por ID. |
 | Comisiones | Mes único, actual provisional, cierre persistente con snapshot, reapertura y libro de ajustes. |
@@ -425,6 +425,55 @@ Código fuente:
 - `app/Services/Reports/ReservationsSales/Sync/SalesforceOpportunitySyncService.php`
 - `app/Services/Reports/ReservationsSales/ReservationsSalesDashboardDatasetService.php`
 - `app/Services/Reports/ReservasVentas/OpportunityPortalNormalizer.php`
+
+### 4.5 Rendimiento comercial mensual
+
+`Rendimiento comercial` no cambia las reglas anteriores: constituye un dataset
+local separado, autorizado únicamente a Administrador y Director. Usa Lead por
+`Fecha_Asignacion__c`, Opportunity por `CreatedDate`, reserva por fecha de
+reserva, venta por fecha de firma y cancelación por la transición persistida de
+`OpportunityHistory`. Los ratios son de actividad, admiten más del 100 % y
+devuelven N/A con denominador cero.
+
+La investigación Salesforce de solo lectura verificó que
+`Delegacion_del_propietario__c` es una fórmula de la delegación actual. Al no
+existir `UserFieldHistory` ni tracking útil del campo, la aplicación conserva
+intervalos observados desde la implantación y no reconstruye meses previos. La
+fila mensual se agrega siempre por Salesforce User ID; huecos o cambios internos
+invalidan solo delegación/media/ranking, nunca duplican persona u objetivo. Los
+comerciales con cobertura mensual estable se inicializan aunque tengan cero.
+
+`OpportunityFieldHistory` no contenía filas. `OpportunityHistory` sí ofreció
+secuencias de Stage y timestamps; se persisten pasos desde una etapa previa
+distinta hacia `Cerrada Perdida` con estado de calidad. Solo cuentan si
+`reservation_date <= transitioned_at`. Los intervalos de consulta completados
+se materializan; el mes actual llega solo al cutoff diario certificado y los
+meses cerrados exigen cobertura completa. Un hueco o una Opportunity candidata
+ausente localmente deja el intervalo no certificable y devuelve cancelaciones
+N/A, con la incidencia persistida para auditoría.
+No se usa `CloseDate` ni `LastModifiedDate` como fecha funcional. Este último
+solo descubre modificaciones antiguas en el proceso incremental diario.
+
+Endpoints:
+
+- `GET /informes/reservas-ventas/data/commercial-performance`
+- `GET /informes/reservas-ventas/data/commercial-performance/audit`
+- `PUT /informes/reservas-ventas/data/commercial-performance/target`
+
+Operación:
+
+```bash
+php artisan salesforce:sync-opportunities --days=2 --modified
+php artisan salesforce:sync-opportunities --from=2026-07-01 --to=2026-08-01
+```
+
+El segundo comando es solo un ejemplo de lote inicial acotado. Antes se revisa
+`migrate:status`, se aprueba el conjunto completo de migraciones pendientes y se
+miden filas, duración y llamadas; después se amplían rangos contiguos. La
+retención de Salesforce limita cuánto historial anterior puede certificarse.
+El rango debe comenzar antes del mes de cancelación para materializar reservas
+anteriores; se revisan dependencias `opportunity_not_local` y se repite cualquier
+intervalo afectado antes de certificarlo.
 
 ## 5. Llamadas
 
@@ -867,7 +916,7 @@ gestiona usuarios, fórmulas ni cierres. Los ámbitos se aplican en servidor por
 Salesforce User ID, delegación o zona según el rol.
 
 ```bash
-php artisan salesforce:sync-opportunities --all-history
+php artisan salesforce:sync-opportunities --from=2026-08-01 --to=2026-09-01
 php artisan salesforce:sync-commercial-reviews --all
 php artisan salesforce:sync-tasaciones --all
 ```

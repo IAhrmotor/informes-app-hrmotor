@@ -14,6 +14,27 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_incremental_descubre_por_last_modified_sin_usarlo_como_fecha_funcional(): void
+    {
+        $service = new SalesforceOpportunitySyncService(
+            new class extends SalesforceClient
+            {
+                public function __construct() {}
+            },
+            app(OpportunityPortalNormalizer::class),
+        );
+        $soql = $service->modifiedSoql(
+            CarbonImmutable::parse('2026-08-24', 'UTC'),
+            CarbonImmutable::parse('2026-08-26', 'UTC'),
+        );
+
+        $this->assertStringContainsString('LastModifiedDate >= 2026-08-24T00:00:00Z', $soql);
+        $this->assertStringContainsString('LastModifiedDate < 2026-08-26T00:00:00Z', $soql);
+        $this->assertStringContainsString('OPO_FEC_Fecha_de_reserva__c', $soql);
+        $this->assertStringContainsString('Fecha_firma_contrato__c', $soql);
+        $this->assertStringNotContainsString('CloseDate AS cancellation', $soql);
+    }
+
     public function test_guarda_oportunidades_y_resuelve_portal_desde_salesforce_o_lead(): void
     {
         $client = new class extends SalesforceClient

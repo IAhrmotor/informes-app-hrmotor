@@ -3,6 +3,11 @@
 namespace App\Http\Controllers\Reports\ReservationsSales;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Reports\ReservationsSales\CommercialPerformanceAuditRequest;
+use App\Http\Requests\Reports\ReservationsSales\CommercialPerformanceRequest;
+use App\Http\Requests\Reports\ReservationsSales\CommercialPerformanceTargetRequest;
+use App\Services\Reports\ReservationsSales\CommercialPerformanceAuditService;
+use App\Services\Reports\ReservationsSales\CommercialPerformanceDatasetService;
 use App\Services\Reports\ReservationsSales\ReservationsSalesDashboardDatasetService;
 use App\Support\CsvValueSerializer;
 use App\Support\ReportUserAccess;
@@ -14,6 +19,8 @@ class ReservationsSalesDashboardDataController extends Controller
 {
     public function __construct(
         private readonly ReservationsSalesDashboardDatasetService $dataset,
+        private readonly CommercialPerformanceDatasetService $commercialPerformance,
+        private readonly CommercialPerformanceAuditService $commercialPerformanceAudit,
     ) {}
 
     public function summary(Request $request): JsonResponse
@@ -29,6 +36,32 @@ class ReservationsSalesDashboardDataController extends Controller
     public function portals(Request $request): JsonResponse
     {
         return response()->json($this->dataset->portalRows($request));
+    }
+
+    public function commercialPerformance(CommercialPerformanceRequest $request): JsonResponse
+    {
+        return response()->json($this->commercialPerformance->payload($request->validated()));
+    }
+
+    public function updateCommercialPerformanceTarget(CommercialPerformanceTargetRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+        $target = $this->commercialPerformance->updateTarget(
+            $validated['month'],
+            (int) $validated['reservations_target'],
+            ReportUserAccess::reportUser($request)?->id,
+        );
+
+        return response()->json([
+            'ok' => true,
+            'month' => $target->month->format('Y-m'),
+            'reservations_target' => $target->reservations_target,
+        ]);
+    }
+
+    public function commercialPerformanceAudit(CommercialPerformanceAuditRequest $request): JsonResponse
+    {
+        return response()->json($this->commercialPerformanceAudit->payload($request->validated()));
     }
 
     public function kpiAudit(Request $request): JsonResponse

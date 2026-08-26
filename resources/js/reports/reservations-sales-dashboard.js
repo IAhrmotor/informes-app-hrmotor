@@ -2,6 +2,8 @@ const fmt = new Intl.NumberFormat('es-ES');
 const tableSortState = new Map();
 let reservationsReloadController = null;
 let latestReservationsReloadRequestId = 0;
+let performanceReloadController = null;
+let latestPerformanceReloadRequestId = 0;
 const reservationsCommercialColumnsStorageKey = 'reservationsCommercialColumns';
 const reservationsCommercialColumnDefinitions = [
     { key: 'comercial', label: 'Comercial', alwaysVisible: true },
@@ -30,13 +32,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindTableSorting();
     initReservationsCommercialColumns();
     bindReservationsCommercialSearch();
+    bindCommercialPerformance();
+    setFilterMode('panel-resumen');
     toggleCustomPeriods();
     await reloadAllData();
 });
 
 function bindTabs() {
     document.querySelectorAll('.main-tab').forEach((button) => {
-        button.addEventListener('click', () => {
+        button.addEventListener('click', async () => {
             const panelId = button.dataset.panel;
 
             document.querySelectorAll('.main-tab').forEach((item) => item.classList.remove('active'));
@@ -44,12 +48,273 @@ function bindTabs() {
 
             button.classList.add('active');
             document.getElementById(panelId)?.classList.add('active');
+            setFilterMode(panelId);
+
+            if (panelId === 'panel-rendimiento-comercial') {
+                reservationsReloadController?.abort();
+                await reloadCommercialPerformance();
+            } else {
+                performanceReloadController?.abort();
+                await reloadAllData();
+            }
         });
     });
 }
 
+function setFilterMode(panelId) {
+    const performanceMode = panelId === 'panel-rendimiento-comercial';
+    const filters = document.getElementById('reportFilters');
+    if (!filters) return;
+
+    filters.dataset.mode = performanceMode ? 'performance' : 'legacy';
+    filters.querySelectorAll('.legacy-filter-control').forEach((control) => {
+        control.classList.toggle('is-hidden', performanceMode);
+    });
+    filters.querySelectorAll('.performance-filter-control').forEach((control) => {
+        control.classList.toggle('is-hidden', !performanceMode);
+    });
+
+    const delegationLabel = document.getElementById('commercialDelegationLabel');
+    if (delegationLabel) delegationLabel.textContent = performanceMode ? 'Delegación' : 'Delegacion comercial';
+    toggleCustomPeriods();
+}
+
+function isCommercialPerformanceMode() {
+    return document.getElementById('reportFilters')?.dataset.mode === 'performance';
+}
+
+function bindCommercialPerformance() {
+    if (!window.reportUserCanViewCommercialPerformance) return;
+
+    document.getElementById('performanceMonth')?.addEventListener('change', reloadCommercialPerformance);
+
+    document.getElementById('savePerformanceTarget')?.addEventListener('click', saveCommercialPerformanceTarget);
+    document.getElementById('loadPerformanceAudit')?.addEventListener('click', reloadCommercialPerformanceAudit);
+}
+
+function commercialPerformanceQuery() {
+    const params = new URLSearchParams({ month: document.getElementById('performanceMonth').value });
+    setParam(params, 'zone', document.getElementById('zone').value);
+    setParam(params, 'delegation', document.getElementById('commercialDelegation').value);
+    setParam(params, 'commercial', document.getElementById('commercial').value);
+    return params.toString();
+}
+
+async function reloadCommercialPerformance() {
+    if (!window.reportUserCanViewCommercialPerformance) return;
+
+    performanceReloadController?.abort();
+    const controller = new AbortController();
+    performanceReloadController = controller;
+    const requestId = ++latestPerformanceReloadRequestId;
+    document.getElementById('performanceLoading')?.classList.remove('is-hidden');
+
+    try {
+        const data = await fetchJson(`/informes/reservas-ventas/data/commercial-performance?${commercialPerformanceQuery()}`, {
+            signal: controller.signal,
+        });
+        if (requestId !== latestPerformanceReloadRequestId) return;
+
+        if (renderPerformanceFilters(data.filters || {})) {
+            await reloadCommercialPerformance();
+            return;
+        }
+
+        renderCommercialPerformance(data);
+    } catch (error) {
+        if (error?.name !== 'AbortError') {
+            const warning = document.getElementById('performanceQualityWarning');
+            warning.textContent = error?.message || 'No se pudo cargar el rendimiento comercial.';
+            warning.classList.remove('is-hidden');
+        }
+    } finally {
+        if (requestId === latestPerformanceReloadRequestId) {
+            document.getElementById('performanceLoading')?.classList.add('is-hidden');
+        }
+    }
+}
+
+async function saveCommercialPerformanceTarget() {
+    const button = document.getElementById('savePerformanceTarget');
+    const target = document.getElementById('performanceTarget');
+    button.disabled = true;
+
+    try {
+        await fetchJson('/informes/reservas-ventas/data/commercial-performance/target', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': window.reportCsrfToken,
+            },
+            body: JSON.stringify({
+                month: document.getElementById('performanceMonth').value,
+                reservations_target: Number(target.value),
+            }),
+        });
+        await reloadCommercialPerformance();
+    } catch (error) {
+        window.alert('No se pudo guardar el objetivo. Debe ser un entero mayor que cero.');
+    } finally {
+        button.disabled = false;
+    }
+}
+
+function renderCommercialPerformance(data) {
+    document.getElementById('performanceTarget').value = data.objective?.reservations_target ?? 18;
+    renderPerformanceKpis(data.summary || {});
+    renderPerformanceRows(data.items || []);
+    renderPerformanceEvolution(data.evolution || []);
+
+    const quality = data.data_quality || {};
+    const coverageNotice = document.getElementById('performanceCancellationCoverage');
+    const certifiedCutoff = quality.cancellation_certified_until;
+    const sourceCutoff = quality.cancellation_source_cutoff_at;
+    if (quality.cancellations_available && certifiedCutoff) {
+        coverageNotice.textContent = `Cancelaciones disponibles hasta el corte certificado ${formatDateTime(certifiedCutoff)}. No se afirma cobertura posterior a ese instante.`;
+    } else if (sourceCutoff) {
+        coverageNotice.textContent = `Cancelaciones no evaluables (${quality.cancellation_coverage_status || 'no certificada'}). Último corte consultado: ${formatDateTime(sourceCutoff)}${certifiedCutoff ? `; continuidad certificada hasta ${formatDateTime(certifiedCutoff)}` : ''}.`;
+    } else {
+        coverageNotice.textContent = 'Cancelaciones no evaluables: no existe un corte OpportunityHistory certificado para el período.';
+    }
+    const warning = document.getElementById('performanceQualityWarning');
+    const uncertified = Number(quality.uncertified_historical_events || 0);
+    const conflicts = Number(quality.duplicate_conflict_groups || 0) + Number(quality.unresolved_attribution_events || 0);
+    const messages = [];
+    if (!quality.cancellations_available) messages.push(`Cancelaciones no evaluables: cobertura OpportunityHistory ${quality.cancellation_coverage_status || 'no certificada'}.`);
+    if (Number(quality.cancellation_unresolved_dependencies || 0) > 0) messages.push(`${formatNumber(quality.cancellation_unresolved_dependencies)} dependencias de Opportunity no resueltas impiden certificar el KPI.`);
+    if (Number(quality.invalid_cancellation_chronology || 0) > 0) messages.push(`${formatNumber(quality.invalid_cancellation_chronology)} transiciones tienen una reserva posterior y se excluyen como incidencia.`);
+    if (uncertified > 0) messages.push(`${formatNumber(uncertified)} eventos sin delegación histórica certificable; no se han retroatribuido ni incluido en medias/ranking.`);
+    if (conflicts > 0) messages.push(`${formatNumber(conflicts)} incidencias de atribución permanecen fuera del ranking individual.`);
+    warning.textContent = messages.join(' ');
+    warning.classList.toggle('is-hidden', messages.length === 0);
+}
+
+async function reloadCommercialPerformanceAudit() {
+    const button = document.getElementById('loadPerformanceAudit');
+    const status = document.getElementById('performanceAuditStatus');
+    button.disabled = true;
+    status.textContent = 'Cargando auditoría local...';
+    status.classList.remove('is-hidden');
+
+    try {
+        const params = new URLSearchParams({
+            month: document.getElementById('performanceMonth').value,
+            per_page: '200',
+        });
+        setParam(params, 'commercial', document.getElementById('commercial').value);
+        const data = await fetchJson(`/informes/reservas-ventas/data/commercial-performance/audit?${params}`);
+        renderCommercialPerformanceAudit(data);
+        status.textContent = `${formatNumber(data.pagination?.total || 0)} eventos auditables. Cobertura cancelaciones: ${data.coverage_status || '-'}.`;
+    } catch (error) {
+        status.textContent = error?.message || 'No se pudo cargar la auditoría.';
+    } finally {
+        button.disabled = false;
+    }
+}
+
+function renderCommercialPerformanceAudit(data) {
+    const root = document.getElementById('performanceAuditRows');
+    const rows = data.items || [];
+    if (!rows.length) {
+        root.innerHTML = '<tr><td colspan="8">No hay eventos auditables para el filtro.</td></tr>';
+        return;
+    }
+
+    root.innerHTML = rows.map((row) => `<tr>
+        <td>${escapeHtml(row.event_type || '-')}</td><td>${escapeHtml(formatDate(row.event_at))}</td>
+        <td>${escapeHtml(row.lead_id || '-')}</td><td>${escapeHtml(row.opportunity_id || '-')}</td>
+        <td><strong>${escapeHtml(row.commercial || '-')}</strong><br><small>${escapeHtml(row.commercial_id || '-')}</small></td>
+        <td>${escapeHtml(row.delegation || '-')}<br><small>${escapeHtml(row.coverage_status || (row.delegation_certified ? 'certificada' : 'no certificable'))}</small></td>
+        <td>${row.counted_in_metric ? 'Sí' : 'No'}</td><td>${escapeHtml(row.exclusion_reason || row.deduplication_status || '-')}<br><small>${escapeHtml(row.metric_attribution || '-')}</small></td>
+    </tr>`).join('');
+}
+
+function renderPerformanceFilters(filters) {
+    const changedSelections = [
+        fillPerformanceSelect('zone', filters.zones || [], (value) => ({ value, label: value }), 'Todas'),
+        fillPerformanceSelect('commercialDelegation', filters.delegations || [], (value) => ({ value, label: value }), 'Todas'),
+        fillPerformanceSelect('commercial', filters.commercials || [], (value) => ({ value: value.id, label: value.name }), 'Todos'),
+    ];
+
+    return changedSelections.some(Boolean);
+}
+
+function fillPerformanceSelect(id, values, mapper, allLabel) {
+    const select = document.getElementById(id);
+    const selected = select.value;
+    select.innerHTML = `<option value="">${allLabel}</option>`;
+    values.forEach((value) => {
+        const option = mapper(value);
+        select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`);
+    });
+    const selectionIsValid = [...select.options].some((option) => option.value === selected);
+    if (selectionIsValid) select.value = selected;
+
+    return selected !== '' && !selectionIsValid;
+}
+
+function renderPerformanceKpis(summary) {
+    const cards = [
+        ['Leads', formatNumber(summary.leads)],
+        ['Oportunidades', formatNumber(summary.opportunities)],
+        ['Reservas totales', formatNumber(summary.reservations_total)],
+        ['Ventas', formatNumber(summary.sales)],
+        ['Cumplimiento', formatPercent(summary.fulfillment_pct)],
+        ['Margen total', formatCurrency(summary.margin_total)],
+    ];
+    document.getElementById('performanceKpis').innerHTML = cards.map(([label, value]) => `
+        <div class="card kpi"><div class="kpi-copy"><div class="kpi-label">${escapeHtml(label)}</div><div class="kpi-value">${escapeHtml(value)}</div></div></div>
+    `).join('');
+}
+
+function renderPerformanceRows(rows) {
+    const root = document.getElementById('performanceRows');
+    if (!rows.length) {
+        root.innerHTML = '<tr><td colspan="26">No hay actividad comercial para los filtros seleccionados.</td></tr>';
+        return;
+    }
+
+    root.innerHTML = rows.map((row) => `<tr>
+        <td class="num">${escapeHtml(row.ranking ?? '-')}</td>
+        <td>${performanceLight(row.traffic_light)}</td>
+        <td><strong>${escapeHtml(row.commercial || '-')}</strong></td><td>${escapeHtml(row.delegation || '-')}</td><td>${escapeHtml(row.zone || '-')}</td>
+        <td class="num">${formatNumber(row.leads)}</td><td class="num">${formatNumber(row.opportunities)}</td><td class="num">${formatNumber(row.reservations_total)}</td><td class="num">${formatNumber(row.reservations_active)}</td>
+        <td class="num">${formatNumber(row.objective)}</td><td class="num">${formatPercent(row.fulfillment_pct)}</td><td class="num">${formatNumber(row.delegation_average_reservations)}</td><td class="num">${formatSignedNumber(row.delegation_reservations_deviation)}</td>
+        <td class="num">${formatPercent(row.lead_to_reservation_pct)}</td><td class="num">${formatPercent(row.delegation_lead_to_reservation_pct)}</td>
+        <td class="num">${formatPercent(row.opportunity_to_reservation_pct)}</td><td class="num">${formatPercent(row.delegation_opportunity_to_reservation_pct)}</td>
+        <td class="num">${formatNumber(row.sales)}</td><td class="num">${formatPercent(row.reservation_to_sale_pct)}</td><td class="num">${formatPercent(row.delegation_reservation_to_sale_pct)}</td>
+        <td class="num">${formatNumber(row.cancellations)}</td><td class="num">${formatPercent(row.cancellation_pct)}</td><td class="num">${formatPercent(row.delegation_cancellation_pct)}</td>
+        <td class="num">${formatCurrency(row.margin_total)}</td><td class="num">${formatCurrency(row.average_margin_per_sale)}</td><td class="num">${formatPercent(row.margin_coverage_pct)}</td>
+    </tr>`).join('');
+}
+
+function renderPerformanceEvolution(rows) {
+    const root = document.getElementById('performanceEvolutionRows');
+    root.innerHTML = rows.map((row) => `<tr>
+        <td><strong>${escapeHtml(row.month)}</strong></td><td class="num">${formatNumber(row.leads)}</td><td class="num">${formatNumber(row.opportunities)}</td>
+        <td class="num">${formatNumber(row.reservations_total)}</td><td class="num">${formatNumber(row.reservations_active)}</td><td class="num">${formatNumber(row.sales)}</td><td class="num">${formatNumber(row.cancellations)}</td>
+        <td class="num">${formatPercent(row.fulfillment_pct)}</td><td class="num">${formatPercent(row.lead_to_reservation_pct)}</td><td class="num">${formatPercent(row.opportunity_to_reservation_pct)}</td>
+        <td class="num">${formatPercent(row.reservation_to_sale_pct)}</td><td class="num">${formatPercent(row.cancellation_pct)}</td><td class="num">${formatCurrency(row.margin_total)}</td><td class="num">${formatCurrency(row.average_margin_per_sale)}</td>
+    </tr>`).join('');
+}
+
+function performanceLight(value) {
+    const labels = { green: 'Verde', yellow: 'Amarillo', orange: 'Naranja', red: 'Rojo' };
+    if (!Object.hasOwn(labels, value)) return '-';
+    return `<span class="performance-light performance-light--${value}">${labels[value]}</span>`;
+}
+
 function bindResetFilters() {
     document.getElementById('resetFilters')?.addEventListener('click', async () => {
+        if (isCommercialPerformanceMode()) {
+            document.getElementById('performanceMonth').value = document.getElementById('performanceMonth').dataset.defaultMonth;
+            document.getElementById('zone').value = '';
+            document.getElementById('commercialDelegation').value = '';
+            document.getElementById('commercial').value = '';
+            await reloadCommercialPerformance();
+            return;
+        }
+
         [
             'commercialDelegation',
             'zone',
@@ -75,13 +340,27 @@ function bindResetFilters() {
 }
 
 function bindFilters() {
+    ['zone', 'commercialDelegation', 'commercial'].forEach((id) => {
+        document.getElementById(id)?.addEventListener('change', async () => {
+            if (id === 'zone') {
+                document.getElementById('commercialDelegation').value = '';
+                document.getElementById('commercial').value = '';
+            } else if (id === 'commercialDelegation') {
+                document.getElementById('commercial').value = '';
+            }
+
+            if (isCommercialPerformanceMode()) {
+                await reloadCommercialPerformance();
+            } else {
+                await reloadAllData();
+            }
+        });
+    });
+
     [
         'period',
         'dateCriterion',
         'opportunityType',
-        'commercialDelegation',
-        'zone',
-        'commercial',
         'currentStart',
         'currentEnd',
         'comparisonStart',
@@ -108,8 +387,11 @@ async function reloadAllData() {
         const filters = currentFilters();
         const summary = await fetchJson(`/informes/reservas-ventas/data/summary?${filters}`, requestOptions);
         if (requestId !== latestReservationsReloadRequestId) return;
+        if (renderFilterOptions(summary.filters || {})) {
+            await reloadAllData();
+            return;
+        }
         renderSummary(summary);
-        renderFilterOptions(summary.filters || {});
 
         const [commercials, portals] = await Promise.all([
             fetchJson(`/informes/reservas-ventas/data/commercials?${filters}`, requestOptions),
@@ -517,9 +799,13 @@ function currentFilters() {
 }
 
 function renderFilterOptions(filters) {
-    fillSelect('commercial', filters.commercials || [], 'id', 'name');
-    fillSelect('commercialDelegation', (filters.commercial_delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name');
-    fillSelect('zone', (filters.zones || []).map((item) => ({ id: item, name: item })), 'id', 'name');
+    const changedSelections = [
+        fillSelect('commercial', filters.commercials || [], 'id', 'name'),
+        fillSelect('commercialDelegation', (filters.commercial_delegations || []).map((item) => ({ id: item, name: item })), 'id', 'name'),
+        fillSelect('zone', (filters.zones || []).map((item) => ({ id: item, name: item })), 'id', 'name'),
+    ];
+
+    return changedSelections.some(Boolean);
 }
 
 function fillSelect(id, items, valueKey, labelKey) {
@@ -541,7 +827,10 @@ function fillSelect(id, items, valueKey, labelKey) {
         select.appendChild(option);
     });
 
-    select.value = [...select.options].some((option) => option.value === current) ? current : '';
+    const selectionIsValid = [...select.options].some((option) => option.value === current);
+    select.value = selectionIsValid ? current : '';
+
+    return current !== '' && !selectionIsValid;
 }
 
 function buildKpiAuditUrl(metric) {
@@ -600,7 +889,7 @@ function setParam(params, key, value) {
 function toggleCustomPeriods() {
     document.getElementById('customPeriods')?.classList.toggle(
         'is-hidden',
-        document.getElementById('period')?.value !== 'custom'
+        isCommercialPerformanceMode() || document.getElementById('period')?.value !== 'custom'
     );
 }
 
@@ -669,6 +958,23 @@ function formatPercent(value) {
     }
 
     return `${Number(value).toFixed(1)}%`;
+}
+
+function formatCurrency(value) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return '-';
+    }
+
+    return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(Number(value));
+}
+
+function formatSignedNumber(value) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return '-';
+    }
+
+    const number = Number(value);
+    return `${number > 0 ? '+' : ''}${fmt.format(number)}`;
 }
 
 function formatCountPercent(count, percent) {

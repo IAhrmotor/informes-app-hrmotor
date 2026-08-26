@@ -1,5 +1,107 @@
 # Handoff para agentes
 
+## Rendimiento comercial en Reservas / Ventas (2026-08-25)
+
+- Correctivo MySQL/UI 26/08: la migración evita los nombres automáticos de 72 y
+  69 caracteres mediante `commercial_perf_target_updated_user_fk` y
+  `sf_opp_stage_history_uq`. En `informes_local` estaba Pending y solo existía
+  `commercial_performance_monthly_targets` parcial, sin índices/FK y con una fila
+  local; se eliminó exclusivamente esa tabla y `php artisan migrate` terminó en
+  batch 3. `SHOW CREATE TABLE` acredita FK `SET NULL`, UNIQUE e índices finales.
+- Filtros: se retiró el bloque interno de Rendimiento. `zone`,
+  `commercialDelegation` y `commercial` son controles físicos compartidos; el
+  modo activo muestra controles legacy o mes/objetivo y despacha una sola carga.
+  Cambios de universo limpian opciones inválidas y realizan una única recarga
+  correctiva. Limpiar Rendimiento no altera el objetivo mensual.
+
+- Revisión de integridad 26/08: el mes actual usa el último cutoff diario
+  capturado al comenzar el sync, no `now()`; consultas e intervalos se recortan
+  a ese instante y el dashboard nunca lo hace avanzar. El payload y la UI
+  muestran corte fuente y continuidad certificada. Meses cerrados siguen
+  exigiendo el mes completo y cualquier hueco anterior al cutoff deja N/A.
+- Dependencias históricas: `reservation_date` NULL se preserva. Una candidata
+  cuya Opportunity no está local queda persistida como `opportunity_not_local`;
+  su intervalo guarda `unresolved_dependencies`, queda
+  `is_kpi_certified=false` y nunca puede producir cancelaciones cero. El
+  backfill debe abarcar también la cohorte de reservas anterior y repetir los
+  intervalos pendientes tras resolver dependencias.
+- Una candidata Cerrada Perdida sin etapa previa se persiste como
+  `previous_stage_not_demonstrated` y bloquea el KPI. Si la etapa previa ya era
+  Cerrada Perdida se clasifica como permanencia, no como transición ni bloqueo.
+  La deuda actual sale de transiciones aún pendientes: intervalos antiguos no
+  mantienen deuda después de una reejecución certificada que resuelve la calidad.
+- Elegibilidad: el sync de usuarios refresca por ID solo usuarios locales
+  relevantes/snapshots abiertos que hayan salido del filtro comercial. Mantiene
+  `IsActive` real y cierra el snapshot por inactividad o pérdida de perfil, sin
+  cambiar reglas de Leads, Comisiones, Llamadas ni Area Manager.
+- El roster histórico carga la identidad desde `salesforce_users` cuando un
+  snapshot solapa el período, aunque el perfil actual sea Marketing u otro no
+  comercial. El usuario conserva actividad certificada pasada y no reaparece
+  como miembro cero después del cierre del snapshot.
+- Cumplimiento agregado: resumen y evolución suman los objetivos individuales
+  de las filas comerciales incluidas por filtros. `Incidencia de datos` conserva
+  eventos operativos cuando corresponde, pero objetivo, cumplimiento, semáforo
+  y ranking son NULL. Owners API/Administrador/Marketing/Area Manager sin
+  pertenencia demostrable usan esa incidencia y quedan auditados como
+  `non_commercial_responsible` en todos los tipos de hito.
+- Benchmark Stock comparado en condiciones equivalentes contra el worktree
+  detached `5359646`: caso exacto aislado 6,311 s en working tree y 6,348 s en
+  baseline, ambos por debajo de 20 s. Los fallos anteriores de 25–40 s se
+  atribuyen a variabilidad ambiental, sin cambios en Stock ni en su umbral.
+- Encoding real: no aparecen los tokens sospechosos indicados por revisión ni
+  mojibake añadido en el diff de
+  `app/`, `resources/`, `routes/`, `docs/` o `tests/`. Secuencias antiguas en
+  documentación/tests ajenos no se modificaron. Los próximos patches deben
+  exportarse preservando UTF-8.
+- Auditoría y UI: todas las ventanas usan `>= start` y `< end`; el límite exacto
+  del mes siguiente queda excluido. La UI explicita disponibilidad y cutoff de
+  cancelaciones, y el asset versionado/manifest corresponde al JS actual.
+
+- Tarea: pestaña funcional mensual solo para Administrador/Dirección, con
+  Leads, Opportunities, reservas totales/activas, ventas, cancelaciones,
+  objetivos, semáforo, medias de delegación, margen, ranking y cuatro meses de
+  evolución. Las pestañas legacy conservan su cohorte y UI.
+- Investigación Salesforce read-only: `OpportunityFieldHistory` devolvió cero;
+  `OpportunityHistory` devolvió 500 filas recientes y diez cancelaciones
+  reservadas en la muestra. Cinco secuencias completas acreditaron transiciones
+  reales, incluida una reapertura con dos cancelaciones. La delegación de
+  Opportunity es fórmula de `Owner.USR_SEL_Delegacion__c`; `UserFieldHistory` no
+  está disponible y no hubo tracking útil de delegación.
+- Integridad sénior: una fila por Salesforce User ID/mes. Huecos o cambios de
+  delegación no duplican objetivo; conservan actividad individual y deshabilitan
+  media/ranking. El roster certificado incluye ceros y participa en equipo.
+- Cancelación solo desde transición persistida, con
+  `reservation_date <= transitioned_at`; cronologías inválidas quedan auditadas.
+  Cobertura continua se acredita en intervalos de sync: uncovered/partial es N/A.
+- Persistencia: migración aditiva `2026_08_25_120000` crea objetivos congelados,
+  snapshots con único abierto, transiciones de Stage e intervalos de cobertura; añade
+  `salesforce_last_modified_at` indexado a Opportunities.
+- Seguridad: dataset, auditoría GET y objetivo PUT autorizan servidor a
+  Admin/Director; PUT valida CSRF, mes e integer >0. La auditoría paginada
+  excluye PII de cliente y no se consulta Salesforce en HTTP.
+- Rendimiento: ingesta incremental diaria por `LastModifiedDate`, agregación en
+  batch de cuatro meses, sin query por comercial/mes, medias calculadas una vez
+  por delegación y caché versionada por todas las fuentes/configuración.
+- Scheduler: 07:10 Europe/Madrid, fuera de Campañas/Stock/SEO, comando
+  `salesforce:sync-opportunities --days=2 --modified`.
+- Verificación final del correctivo MySQL/UI 26/08: específicas de Rendimiento y
+  filtros legacy 48/434 y transversales 59/428, correctas. La suite ejecutó 685
+  pruebas y 5.123 aserciones: 684 pasaron y falló solo el benchmark Stock por
+  latencia ambiental (63,02 s global; 29,51 s y 21,34 s aislado), sin modificar
+  Stock ni su umbral; el comparativo controlado previo sigue siendo 6,311 s
+  actual y 6,348 s base. Pint se limitó a la migración y al test PHP modificados.
+  `composer audit --locked --no-dev` quedó limpio y el build Vite temporal pasó;
+  solo se publicaron CSS/JS de Reservas/Ventas y sus entradas del manifest. Se
+  ejecutó únicamente la migración local autorizada; no hubo Salesforce ni
+  backfills.
+- Despliegue: revisar `migrate:status`, enumerar/aprobar todas las pendientes y
+  no ejecutar `migrate --force` antes. Backfill corto por `--from/--to`, con
+  inicio suficientemente anterior para incluir las reservas de cancelaciones
+  posteriores; medir filas/duración/llamadas, revisar dependencias no resueltas,
+  repetir intervalos afectados y ampliar por lotes. No ejecutar `--fresh`.
+- Riesgo: solo pueden certificarse delegaciones desde el primer snapshot y
+  cancelaciones dentro de la retención disponible de OpportunityHistory.
+
 ## Presentacion financiera de Irene y Nuria (2026-08-24)
 
 - Tarea: ajuste exclusivamente visual del cuadro `Irene y Nuria` en la pestaña

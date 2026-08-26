@@ -1,6 +1,6 @@
 # Informe de Reservas / Ventas
 
-Actualizado: 2026-08-06.
+Actualizado: 2026-08-25.
 
 ## Fuente y datos locales
 
@@ -139,3 +139,181 @@ Archivos principales:
 - `app/Services/Reports/ReservationsSales/Sync/SalesforceOpportunitySyncService.php`;
 - `app/Services/Reports/ReservationsSales/ReservationsSalesDashboardDatasetService.php`;
 - `app/Services/Reports/ReservasVentas/OpportunityPortalNormalizer.php`.
+
+## Pestaña Rendimiento comercial
+
+Esta pestaña es independiente de la cohorte de las tres pestañas legacy. Solo
+Administrador y Director/Dirección pueden ver la pestaña, consultar
+`GET /informes/reservas-ventas/data/commercial-performance`, consultar la
+auditoría `GET /informes/reservas-ventas/data/commercial-performance/audit` o actualizar
+`PUT /informes/reservas-ventas/data/commercial-performance/target`. Ambos
+controles se aplican en servidor; el `PUT` conserva CSRF y valida mes `Y-m` y
+objetivo entero mayor que cero.
+
+El informe mantiene un único bloque físico de filtros. Las tres pestañas legacy
+presentan período, criterio de fecha, tipo de oportunidad y los controles
+compartidos de delegación, zona y comercial. Al activar Rendimiento comercial,
+ese mismo bloque oculta los controles de cohorte y muestra mes natural y la
+edición del objetivo; zona, delegación y comercial conservan los mismos IDs DOM.
+Cada cambio despacha únicamente el dataset del modo activo. Si una opción no
+existe al cambiar de universo, se limpia y se repite una sola carga consistente.
+Limpiar Rendimiento restablece mes y filtros organizativos, pero nunca modifica
+el objetivo persistido.
+
+### Actividad mensual y fórmulas
+
+Cada hito pertenece a su propio mes natural `Europe/Madrid`:
+
+| KPI | Universo/fecha local | Fórmula |
+|---|---|---|
+| Leads | Venta, Venta con cambio, Lead y Ayvens; `fecha_asignacion` | recuento por comercial efectivo consolidado |
+| Oportunidades | `record_type_name IN (Venta, Cambio)`; `created_date` | recuento de Opportunity |
+| Reservas totales | reserva true; `reservation_date` | evento deduplicado por vehículo+fecha |
+| Reservas activas | reserva del mes, CV false y no Cerrada Perdida | evento deduplicado por vehículo+fecha |
+| Ventas | CV true, no Cerrada Perdida; `cv_signed_date` | evento deduplicado por vehículo+fecha |
+| Cancelaciones | reserva previa y transición demostrable a Cerrada Perdida | `salesforce_opportunity_stage_transitions.transitioned_at` |
+| Margen | ventas del mes; `informe_rentabilidad` | suma solo valores informados |
+
+- Lead → Reserva = reservas totales / leads asignados × 100.
+- Oportunidad → Reserva = reservas totales / oportunidades creadas × 100.
+- Reserva → Venta = ventas firmadas / reservas totales × 100.
+- Cancelación = transiciones verificadas / reservas totales × 100.
+- Cumplimiento = reservas totales / objetivo mensual × 100.
+- Margen medio = margen informado / ventas con margen informado.
+
+Un denominador cero devuelve `NULL`/N/A, nunca infinito ni 0 % ficticio. Como
+son ratios de actividad y no de cohorte, pueden superar el 100 %. El objetivo
+default inicial es 18; cada mes consultado se materializa inmediatamente en
+`commercial_performance_monthly_targets`, aunque no haya sido editado, para que
+un cambio futuro de la constante no reescriba el histórico. Cambiar un mes no
+reescribe los demás. Semáforo: verde ≥100,
+amarillo ≥80, naranja ≥60 y rojo por debajo de 60, exclusivamente sobre
+cumplimiento.
+
+La migración usa nombres MySQL explícitos para los dos identificadores que
+excederían el límite de 64 caracteres con la convención automática:
+`commercial_perf_target_updated_user_fk` y `sf_opp_stage_history_uq`. La FK
+conserva `ON DELETE SET NULL` y el ID de historial continúa siendo único.
+
+En resumen y evolución, el objetivo agregado es la suma de los objetivos de las
+personas comerciales incluidas tras aplicar los filtros. Una fila de incidencia
+puede conservar eventos operativos, pero no recibe objetivo, cumplimiento,
+semáforo ni ranking y no amplía el denominador agregado.
+
+Existe una sola fila y un solo objetivo por `commercial_id` y mes. La delegación
+solo habilita comparaciones: cualquier hueco o cambio de delegación dentro del
+mes mantiene la actividad individual agregada, pero la marca como `Histórico no
+certificable`, sin escoger equipo arbitrariamente. El roster inicial incluye a
+todo comercial cuyo único intervalo certificado cubre el mes completo —o el
+corte transcurrido del mes actual—, aunque tenga cero actividad.
+
+La media de reservas es la media aritmética de los comerciales de la delegación,
+incluidos los ceros certificados.
+Las medias de ratios son ratios agregados de esa delegación. El filtro de
+comercial se aplica después de construir medias y ranking; los empates exactos
+comparten posición. El ranking no usa margen, cancelación ni scoring compuesto.
+
+### Cancelaciones verificadas
+
+La investigación de solo lectura del 25/08/2026 confirmó:
+
+- `OpportunityFieldHistory` es consultable pero devolvió cero filas;
+- `OpportunityHistory` devolvió historial y, en cinco operaciones reales
+  reservadas, secuencias explícitas hacia `Cerrada perdida`;
+- una operación mostró `Reserva → Cerrada perdida → Presupuesto → Reserva →
+  Cerrada perdida`, por lo que se preservan transiciones distintas;
+- toda transición demostrable conserva estado de calidad; solo cuenta como
+  cancelación si existe reserva y `reservation_date <= transitioned_at`.
+
+Cada consulta correcta a `OpportunityHistory` materializa su intervalo en
+`salesforce_opportunity_history_sync_intervals`. El mes actual se evalúa desde
+su inicio hasta el último cutoff realmente consultado y certificado, que se
+muestra en la interfaz. El sync captura un `observationCutoff` al comenzar,
+recorta el rango solicitado a ese instante y no persiste intervalos futuros; el
+cutoff nunca avanza por el reloj del dashboard. Los meses cerrados sí exigen el mes natural completo.
+Solo la unión continua de intervalos aptos para KPI permite mostrar cancelaciones. Sin
+cobertura o con cobertura parcial, recuento, porcentaje y comparación devuelven
+N/A; cero significa cobertura certificada sin transiciones aplicables.
+
+Una transición cuya Opportunity no existe en la réplica se conserva como
+`opportunity_not_local`. El intervalo guarda el número de dependencias y queda
+`is_kpi_certified=false`: nunca puede producir cero cancelaciones hasta cargar
+la Opportunity y repetir el mismo rango. `reservation_date` permanece NULL
+cuando no se conoce; no se fabrica una fecha. Una candidata Cerrada Perdida sin
+etapa inmediatamente anterior demostrable se conserva como
+`previous_stage_not_demonstrated` y también bloquea la certificación. Una fila
+posterior cuya etapa previa ya era Cerrada Perdida no representa una transición
+nueva y no bloquea por sí sola.
+
+`CloseDate` y `LastModifiedDate` no se guardan ni consultan como fecha de
+cancelación. `LastModifiedDate` se usa exclusivamente en la sincronización
+incremental para descubrir Opportunities antiguas modificadas.
+
+### Delegación histórica
+
+La metadata Salesforce acreditó que `Delegacion_del_propietario__c` es una
+fórmula calculada desde `Owner.USR_SEL_Delegacion__c`; no es histórica.
+`UserFieldHistory` no está disponible y el tracking consultado de delegación no
+devolvió cambios. Por ello:
+
+- `commercial_delegation_snapshots` crea intervalos observados desde la
+  implantación y los cierra al cambiar delegación, desactivarse el usuario o
+  abandonar los perfiles comerciales. Para detectar este último caso, el sync
+  refresca por ID solo usuarios ya conocidos aunque hayan salido del filtro
+  comercial; conserva el `IsActive` real para no alterar consumidores compartidos;
+- la identidad de un usuario cuyo perfil actual ya no es comercial se sigue
+  cargando cuando sus snapshots solapan el período consultado. El snapshot, no
+  el perfil presente, acredita su pertenencia histórica; después del cierre no
+  se incorpora como miembro cero de meses futuros;
+- la pertenencia mensual exige cobertura continua y una sola delegación;
+- los eventos de meses con huecos o cambios se muestran como `Histórico no certificable`, sin
+  media de delegación ni ranking y sin aplicar la delegación actual hacia atrás;
+- los usuarios inactivos permanecen en el dataset si tienen actividad e
+  intervalos históricos.
+
+Todos los hitos usan el mismo universo de responsables. Un owner de API,
+Administración, Marketing, Area Manager u otro perfil no comercial sin snapshot
+histórico aplicable se atribuye a `Incidencia de datos`: permanece auditable como
+`non_commercial_responsible`, pero no participa en objetivos, medias ni ranking.
+Un usuario actualmente no comercial sí conserva los meses acreditados por sus
+snapshots históricos.
+
+### Sincronización y despliegue
+
+El scheduler ejecuta diariamente a las 07:10 (`Europe/Madrid`):
+
+```bash
+php artisan salesforce:sync-opportunities --days=2 --modified
+```
+
+La franja queda fuera de atribución de Campañas (02:15), refresco (03:15), Stock
+(03:30, también escribe Opportunities) y el bloque SEO (05:15–06:30). La
+captura de delegaciones pertenece exclusivamente al sync mensual cada 15
+minutos. La ventana incremental consulta `LastModifiedDate`, actualiza la
+fotografía local y sincroniza `OpportunityHistory` del mismo intervalo.
+
+Procedimiento de despliegue, sin ejecución automática:
+
+```bash
+php artisan migrate:status
+php artisan salesforce:sync-opportunities --from=2026-07-01 --to=2026-08-01
+```
+
+Primero se enumeran y aprueban todas las migraciones pendientes; no se ejecuta
+`migrate --force` hasta aprobar el lote. El backfill empieza con un rango corto,
+registrando filas, duración, llamadas Salesforce e intervalos certificados, y
+solo después se amplía por lotes contiguos. El inicio debe incluir la cohorte de
+reservas anterior al mes cuyas cancelaciones se quieren certificar. Tras cada
+lote se revisan `opportunity_not_local` e intervalos no certificados; se amplía
+el rango de Opportunities y se repite el intervalo afectado hasta resolverlos.
+
+La disponibilidad retrospectiva de `OpportunityHistory` depende de la retención
+real de Salesforce. Las candidatas sin etapa previa demostrable quedan fuera de
+cancelaciones, se persisten como incidencia y mantienen el intervalo no
+certificado. Las dependencias se calculan desde el estado actual de las
+transiciones: cuando una reejecución resuelve la calidad y una cobertura
+certificada solapada completa el rango, la deuda antigua deja de mostrarse. El
+render, los filtros, medias, ranking y evolución leen únicamente BD
+local y no incluyen PII de clientes. La auditoría específica muestra IDs de
+Lead/Opportunity/historial, hitos, responsable, delegación/cobertura, clave de
+deduplicación e incidencias/exclusiones, con paginación limitada a 200 filas.

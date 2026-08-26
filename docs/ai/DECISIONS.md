@@ -1,5 +1,86 @@
 # Decisiones técnicas
 
+## 2026-08-25 - Actividad mensual y hechos históricos verificables
+
+La pestaña Rendimiento comercial se separa del dataset de cohorte existente. Un
+hito pertenece al mes de su propia fecha y los ratios pueden superar el 100 %;
+no se intenta vincular reservas/ventas al Lead del mismo mes ni crear scoring.
+
+La separación de datasets no implica duplicar filtros: el bloque superior es la
+única fuente DOM para zona, delegación y comercial. El modo de la pestaña decide
+qué controles adicionales son visibles y si un cambio ejecuta el dataset legacy
+o el mensual. Una selección ajena al nuevo universo se elimina antes de renderizar
+y provoca una sola recarga correctiva.
+
+La fecha de cancelación procede únicamente de una transición demostrable en
+`OpportunityHistory`. `OpportunityFieldHistory` no aportó filas. Se conserva el
+ID del historial, etapa previa, etapa nueva y timestamp; candidatos sin etapa
+previa quedan no evaluables. `CloseDate` y `LastModifiedDate` se rechazan como
+aproximaciones funcionales, aunque el segundo se usa para descubrir registros
+antiguos modificados en la ingesta incremental.
+
+`Delegacion_del_propietario__c` es una fórmula de la delegación actual del owner
+y no acredita historia. Como tampoco existe `UserFieldHistory`, se adoptan
+intervalos append-only observados desde la implantación. No se retrodata el
+primer intervalo: actividad anterior queda `Histórico no certificable`, sin
+media de equipo ni ranking. Esta pérdida de presentación es preferible a
+reescribir historia laboral con datos actuales.
+
+La unidad mensual se fija en Salesforce User ID. La delegación no forma parte de
+la clave: cobertura incompleta o más de una delegación en el mes deshabilita
+media/ranking, pero conserva una única fila y objetivo. Un intervalo abierto
+certifica el corte transcurrido del mes actual; meses cerrados exigen cobertura
+continua completa. El roster cero solo nace de esa cobertura demostrable.
+
+El objetivo efectivo se materializa al primer acceso con `is_explicit=false`.
+Esto congela el default vigente sin impedir una edición posterior auditada.
+El cumplimiento agregado divide las reservas operativas incluidas por la suma
+de objetivos de las filas comerciales incluidas. Las incidencias no son personas
+comerciales y por ello tienen objetivo, cumplimiento, semáforo y ranking nulos.
+
+Los identificadores de esquema largos no se dejan a la convención de Laravel:
+la FK del actualizador se denomina `commercial_perf_target_updated_user_fk` y el
+UNIQUE del historial `sf_opp_stage_history_uq`. Así se conserva la semántica y se
+cumple el máximo de 64 caracteres de MySQL sin renombrar tablas o columnas.
+
+Una consulta de `OpportunityHistory` solo acredita cobertura después de que
+consultas y persistencia local terminan correctamente. Intervalos solapados se
+unen al leer; cualquier hueco produce N/A, no cero. Las transiciones con reserva
+posterior se conservan como `reservation_after_transition` para auditoría y no
+cuentan. La captura de delegaciones pertenece únicamente al sync mensual y una
+clave única `(salesforce_user_id, open_marker)` impide dos intervalos abiertos.
+Para el mes actual el horizonte funcional termina en el último cutoff del sync,
+no en `now()`. El sync captura el cutoff al iniciar, limita consultas e intervalos
+a ese instante y la UI publica el corte persistido; el reloj no lo amplía.
+Un intervalo con `opportunity_not_local` persiste la incidencia y se marca no
+apto para KPI hasta que un backfill solucione la dependencia y el rango se repita.
+Una candidata Cerrada Perdida sin etapa previa demostrable se persiste como
+`previous_stage_not_demonstrated` y bloquea igualmente; permanecer en Cerrada
+Perdida desde una fila anterior no es una transición y no bloquea.
+
+Las dependencias visibles se derivan del estado actual de las transiciones, no
+de sumar intervalos históricos solapados. Una reejecución que actualiza la
+calidad y aporta cobertura certificada elimina la deuda ya resuelta sin ocultar
+incidencias que continúen pendientes.
+
+El filtro principal de usuarios sigue limitado al universo existente. Para
+detectar una salida de perfil sin falsear `IsActive`, se refrescan por Salesforce
+ID únicamente usuarios locales relevantes o con snapshot abierto. El servicio
+de snapshots cierra el intervalo si el usuario está inactivo o ya no pertenece a
+los perfiles comerciales; las reglas de Leads, Comisiones, Llamadas y Area
+Manager no cambian.
+Para reconstruir meses históricos, la identidad también se carga si existe un
+snapshot solapado aunque el perfil actual sea no comercial. El snapshot acredita
+el pasado; el perfil actual limita únicamente pertenencia presente y futura.
+Leads, Opportunities, reservas, ventas y cancelaciones comparten esa misma
+elegibilidad: un responsable no presente en el universo verificable se agrega a
+incidencia y queda auditado como `non_commercial_responsible`, sin contaminar
+objetivos ni comparaciones de equipo.
+
+El sync diario de Opportunities se sitúa a las 07:10: queda después de Campañas,
+refresco, Stock —que también escribe Opportunities— y el bloque SEO, evitando
+una fotografía concurrente conocida sin alterar reglas de otros módulos.
+
 ## 2026-08-24 - Responsable financiero por dimension de zona
 
 El responsable financiero no se deriva de `Opportunity.OwnerId`, porque ese ID

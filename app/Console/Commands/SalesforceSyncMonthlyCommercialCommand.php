@@ -11,6 +11,7 @@ use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyActivitiesSyncS
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyLeadsSyncService;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyUsersSyncService;
 use App\Services\Reports\ReportSyncRunService;
+use App\Services\Reports\ReservationsSales\CommercialDelegationSnapshotService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -29,6 +30,7 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
 
     public function handle(
         SalesforceMonthlyUsersSyncService $usersSync,
+        CommercialDelegationSnapshotService $delegationSnapshots,
         SalesforceMonthlyLeadsSyncService $leadsSync,
         SalesforceMonthlyActivitiesSyncService $activitiesSync,
         SalesforceLeadActivitySummaryService $summaryService,
@@ -71,6 +73,8 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
             $this->line('Usuarios consultados: '.$users['queried']);
             $this->line('Usuarios sincronizados: '.$users['saved']);
             $this->line('  Insertados/actualizados/sin cambios: '.($users['inserted'] ?? 0).'/'.($users['updated'] ?? 0).'/'.($users['unchanged'] ?? 0));
+            $snapshots = $delegationSnapshots->captureCurrentUsers();
+            $this->line('Snapshots delegación creados/cerrados: '.$snapshots['created'].'/'.$snapshots['closed']);
 
             $leads = $leadsSync->sync($periodStart, $periodEnd);
             $this->line('Leads consultados: '.$leads['queried']);

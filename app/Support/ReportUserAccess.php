@@ -189,6 +189,11 @@ class ReportUserAccess
         return self::canViewReport($request, 'reservations-sales');
     }
 
+    public static function canViewCommercialPerformance(Request $request): bool
+    {
+        return self::isAdmin($request) || self::isDirector($request);
+    }
+
     public static function canViewCalls(Request $request): bool
     {
         return self::canViewReport($request, 'calls');

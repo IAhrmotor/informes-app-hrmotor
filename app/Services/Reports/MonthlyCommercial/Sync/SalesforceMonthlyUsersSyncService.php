@@ -2,11 +2,18 @@
 
 namespace App\Services\Reports\MonthlyCommercial\Sync;
 
+use App\Models\CommercialDelegationSnapshot;
 use App\Models\SalesforceUser;
 use App\Services\Salesforce\SalesforceClient;
+use Illuminate\Support\Collection;
 
 class SalesforceMonthlyUsersSyncService
 {
+    private const COMMERCIAL_PROFILES = [
+        'Compra/Venta',
+        'Comerciales Partner Community',
+    ];
+
     public function __construct(
         private readonly SalesforceClient $client,
         private readonly ChangedRowUpsert $changedRowUpsert = new ChangedRowUpsert,
@@ -15,7 +22,19 @@ class SalesforceMonthlyUsersSyncService
     public function sync(): array
     {
         $soql = $this->soql();
-        $records = $this->client->query($soql);
+        $records = collect($this->client->query($soql))->keyBy(fn (array $record): string => (string) data_get($record, 'Id'));
+        $trackedIds = $this->trackedUserIds()->diff($records->keys())->values();
+        $trackedRefreshQueries = 0;
+
+        foreach ($trackedIds->chunk(100) as $ids) {
+            $trackedRefreshQueries++;
+            foreach ($this->client->query($this->trackedUsersSoql($ids)) as $record) {
+                if (filled(data_get($record, 'Id'))) {
+                    $records->put((string) data_get($record, 'Id'), $record);
+                }
+            }
+        }
+
         $values = [];
 
         foreach ($records as $record) {
@@ -47,8 +66,44 @@ class SalesforceMonthlyUsersSyncService
             'soql' => $soql,
             'queried' => count($records),
             'saved' => count($values),
+            'tracked_refresh_queries' => $trackedRefreshQueries,
             ...$stats,
         ];
+    }
+
+    private function trackedUserIds(): Collection
+    {
+        return SalesforceUser::query()
+            ->where(function ($query): void {
+                $query->whereIn('profile_name', self::COMMERCIAL_PROFILES)
+                    ->orWhere('commission_appraiser', true)
+                    ->orWhereIn('salesforce_id', CommercialDelegationSnapshot::query()
+                        ->whereNull('observed_until')
+                        ->select('salesforce_user_id'));
+            })
+            ->pluck('salesforce_id');
+    }
+
+    private function trackedUsersSoql(Collection $ids): string
+    {
+        $quotedIds = $ids
+            ->map(fn (string $id): string => "'".str_replace("'", "\\'", $id)."'")
+            ->implode(', ');
+
+        $soql = <<<'SOQL'
+SELECT
+    Id,
+    Name,
+    Email,
+    Profile.Name,
+    USR_SEL_Delegacion__c,
+    Comision_Tasador__c,
+    IsActive
+FROM User
+WHERE Id IN (__USER_IDS__)
+SOQL;
+
+        return str_replace('__USER_IDS__', $quotedIds, $soql);
     }
 
     public function soql(): string
@@ -64,8 +119,7 @@ SELECT
     IsActive
 FROM User
 WHERE
-    IsActive = true
-    AND (
+    (
         Profile.Name = 'Comerciales Partner Community'
         OR Profile.Name = 'Compra/Venta'
         OR Comision_Tasador__c = true

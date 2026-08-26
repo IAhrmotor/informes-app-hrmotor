@@ -13,6 +13,7 @@ export default defineConfig({
                 'resources/css/reports/app-shell.css',
                 'resources/js/reports/app-shell.js',
                 'resources/css/reports/leads-dashboard.css',
+                'resources/css/reports/reservations-sales-dashboard.css',
                 'resources/css/reports/stock-dashboard.css',
                 'resources/js/reports/stock-dashboard.js',
                 'resources/js/reports/leads-dashboard.js',

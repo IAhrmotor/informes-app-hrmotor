@@ -91,6 +91,9 @@ Route::middleware('reports.auth')->group(function () {
             Route::get('/data/summary', [ReservationsSalesDashboardDataController::class, 'summary'])->name('data.summary');
             Route::get('/data/commercials', [ReservationsSalesDashboardDataController::class, 'commercials'])->name('data.commercials');
             Route::get('/data/portals', [ReservationsSalesDashboardDataController::class, 'portals'])->name('data.portals');
+            Route::get('/data/commercial-performance', [ReservationsSalesDashboardDataController::class, 'commercialPerformance'])->name('data.commercial-performance');
+            Route::get('/data/commercial-performance/audit', [ReservationsSalesDashboardDataController::class, 'commercialPerformanceAudit'])->name('data.commercial-performance.audit');
+            Route::put('/data/commercial-performance/target', [ReservationsSalesDashboardDataController::class, 'updateCommercialPerformanceTarget'])->name('data.commercial-performance.target');
             Route::get('/data/kpi-audit', [ReservationsSalesDashboardDataController::class, 'kpiAudit'])->name('data.kpi-audit');
             Route::get('/export/kpi-audit.csv', [ReservationsSalesDashboardDataController::class, 'exportKpiAuditCsv'])->name('export.kpi-audit');
         });

@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyUsersSyncService;
+use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunityHistorySyncService;
 use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
@@ -18,6 +19,7 @@ class SalesforceSyncOpportunitiesCommand extends Command
         {--from= : Fecha inicial explicita en formato Y-m-d}
         {--to= : Fecha final exclusiva explicita en formato Y-m-d}
         {--all-history : Sincroniza el historico completo de opportunities desde 2020-01-01}
+        {--modified : Descubre por LastModifiedDate cambios recientes en Opportunities antiguas}
         {--fresh : Borra solo la tabla de oportunidades Salesforce antes de sincronizar}
         {--debug-soql : Imprime la query SOQL ejecutada}';
 
@@ -26,6 +28,7 @@ class SalesforceSyncOpportunitiesCommand extends Command
     public function handle(
         SalesforceMonthlyUsersSyncService $usersSync,
         SalesforceOpportunitySyncService $opportunitiesSync,
+        SalesforceOpportunityHistorySyncService $historySync,
     ): int {
         $periodEnd = $this->periodEnd();
         $periodStart = $this->periodStart($periodEnd);
@@ -49,15 +52,16 @@ class SalesforceSyncOpportunitiesCommand extends Command
             $users = $usersSync->sync();
             $this->line('Usuarios consultados: '.$users['queried']);
             $this->line('Usuarios sincronizados: '.$users['saved']);
-
             if ($this->option('debug-soql')) {
                 $this->newLine();
                 $this->line('SOQL Opportunities:');
-                $this->line($opportunitiesSync->soql($periodStart, $periodEnd));
+                $this->line($this->option('modified')
+                    ? $opportunitiesSync->modifiedSoql($periodStart, $periodEnd)
+                    : $opportunitiesSync->soql($periodStart, $periodEnd));
                 $this->newLine();
             }
 
-            $result = $opportunitiesSync->sync($periodStart, $periodEnd);
+            $result = $opportunitiesSync->sync($periodStart, $periodEnd, (bool) $this->option('modified'));
             $stats = $result['stats'];
 
             $this->line('Opportunities consultadas: '.$result['queried']);
@@ -71,6 +75,14 @@ class SalesforceSyncOpportunitiesCommand extends Command
             $this->line('Reservas vivas: '.$stats['reservas_vivas']);
             $this->line('Caidas: '.$stats['caidas']);
             $this->line('CV firmados: '.$stats['cv_firmados']);
+
+            $history = $historySync->sync($periodStart, $periodEnd);
+            $this->line('OpportunityHistory consultados: '.$history['queried']);
+            $this->line('Transiciones demostrables guardadas: '.$history['saved']);
+            $this->line('Cancelaciones de reserva verificadas: '.$history['verified_cancellations']);
+            $this->line('Intervalos OpportunityHistory consultados persistidos: '.$history['covered_intervals']);
+            $this->line('Candidatas sin transición previa demostrable: '.$history['unverifiable']);
+            $this->line('Dependencias que impiden certificar KPI: '.$history['unresolved_dependencies']);
 
             if ($result['queried'] === 0) {
                 $this->warn('Salesforce devolvio 0 opportunities para el periodo indicado.');

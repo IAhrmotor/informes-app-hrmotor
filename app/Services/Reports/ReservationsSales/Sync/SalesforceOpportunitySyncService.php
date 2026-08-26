@@ -22,7 +22,7 @@ class SalesforceOpportunitySyncService
         private readonly OpportunityPortalNormalizer $portalNormalizer,
     ) {}
 
-    public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
+    public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $modifiedOnly = false): array
     {
         $saved = 0;
         $soqls = [];
@@ -45,8 +45,8 @@ class SalesforceOpportunitySyncService
 
         while ($chunkStart->lessThan($finalEnd)) {
             $chunkEnd = $chunkStart->addDays(self::SYNC_CHUNK_DAYS)->min($finalEnd);
-            $soql = $this->buildSoql($chunkStart, $chunkEnd, $includeCompanyEmail);
-            $records = $this->queryOpportunities($soql, $chunkStart, $chunkEnd, $includeCompanyEmail);
+            $soql = $this->buildSoql($chunkStart, $chunkEnd, $includeCompanyEmail, $modifiedOnly);
+            $records = $this->queryOpportunities($soql, $chunkStart, $chunkEnd, $includeCompanyEmail, $modifiedOnly);
             $soqls[] = $soql;
 
             $records = collect($records)
@@ -88,6 +88,11 @@ class SalesforceOpportunitySyncService
         return $this->buildSoql($periodStart, $periodEnd, true);
     }
 
+    public function modifiedSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string
+    {
+        return $this->buildSoql($periodStart, $periodEnd, true, true);
+    }
+
     public function testSoql(): string
     {
         return <<<'SOQL'
@@ -105,19 +110,33 @@ SOQL;
         return $this->relatedLeadMatches($opportunities);
     }
 
-    private function buildSoql(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $includeCompanyEmail): string
-    {
+    private function buildSoql(
+        CarbonInterface $periodStart,
+        CarbonInterface $periodEnd,
+        bool $includeCompanyEmail,
+        bool $modifiedOnly = false,
+    ): string {
         $startDateTime = $this->soqlDateTime($periodStart);
         $endDateTime = $this->soqlDateTime($periodEnd);
         $startDate = CarbonImmutable::parse($periodStart)->utc()->toDateString();
         $endDate = CarbonImmutable::parse($periodEnd)->utc()->toDateString();
         $companyEmailSelect = $includeCompanyEmail ? "    Account.AC_C_EMA_email__c,\n" : '';
+        $where = $modifiedOnly
+            ? "LastModifiedDate >= {$startDateTime} AND LastModifiedDate < {$endDateTime}"
+            : <<<SOQL
+(
+        (CreatedDate >= {$startDateTime} AND CreatedDate < {$endDateTime})
+        OR (OPO_FEC_Fecha_de_reserva__c >= {$startDate} AND OPO_FEC_Fecha_de_reserva__c < {$endDate})
+        OR (Fecha_firma_contrato__c >= {$startDate} AND Fecha_firma_contrato__c < {$endDate})
+    )
+SOQL;
 
         return <<<SOQL
 SELECT
     Id,
     Name,
     CreatedDate,
+    LastModifiedDate,
     CloseDate,
     Amount,
     OPO_FOR_Importe_total__c,
@@ -195,11 +214,7 @@ SELECT
 FROM Opportunity
 WHERE
     IsDeleted = false
-    AND (
-        (CreatedDate >= {$startDateTime} AND CreatedDate < {$endDateTime})
-        OR (OPO_FEC_Fecha_de_reserva__c >= {$startDate} AND OPO_FEC_Fecha_de_reserva__c < {$endDate})
-        OR (Fecha_firma_contrato__c >= {$startDate} AND Fecha_firma_contrato__c < {$endDate})
-    )
+    AND {$where}
 SOQL;
     }
 
@@ -208,6 +223,7 @@ SOQL;
         CarbonInterface $periodStart,
         CarbonInterface $periodEnd,
         bool &$includeCompanyEmail,
+        bool $modifiedOnly,
     ): array {
         try {
             return $this->client->query($soql);
@@ -219,7 +235,7 @@ SOQL;
             // Salesforce may hide inaccessible field names from sanitized errors.
             // Retry a rejected query once without the optional company email.
             $includeCompanyEmail = false;
-            $soql = $this->buildSoql($periodStart, $periodEnd, false);
+            $soql = $this->buildSoql($periodStart, $periodEnd, false, $modifiedOnly);
 
             return $this->client->query($soql);
         }
@@ -239,6 +255,7 @@ SOQL;
             [
                 'name' => data_get($record, 'Name'),
                 'created_date' => $this->parseDateTime(data_get($record, 'CreatedDate')),
+                'salesforce_last_modified_at' => $this->parseDateTime(data_get($record, 'LastModifiedDate')),
                 'close_date' => data_get($record, 'CloseDate'),
                 'amount' => $this->salesforceValue($record, 'Amount'),
                 'opo_for_importe_total' => $this->salesforceValue($record, 'OPO_FOR_Importe_total__c'),

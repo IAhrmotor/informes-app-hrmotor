@@ -108,6 +108,20 @@ $monitor(
     'refresco del informe de campañas',
 );
 
+// Se programa a las 07:10, fuera del bloque de atribución de campañas (02:15),
+// del refresco (03:15), de Stock que también escribe Opportunities (03:30) y
+// del bloque SEO (05:15-06:30). El sync mensual de Leads no escribe Opportunities.
+// LastModifiedDate solo descubre registros antiguos modificados; las fechas
+// funcionales proceden de los hitos y de OpportunityHistory.
+$monitor(
+    Schedule::command('salesforce:sync-opportunities --days=2 --modified')
+        ->dailyAt('07:10')
+        ->timezone('Europe/Madrid')
+        ->withoutOverlapping(180),
+    'salesforce-sync-opportunities',
+    'sincronización incremental de Opportunities e historial de Stage',
+);
+
 $monitor(
     Schedule::command('seo:sync-search-console --days=120')
         ->dailyAt('05:15')

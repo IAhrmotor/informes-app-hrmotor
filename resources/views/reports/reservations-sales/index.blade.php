@@ -2,15 +2,18 @@
     <x-slot:head>
         @vite([
             'resources/css/reports/leads-dashboard.css',
+            'resources/css/reports/reservations-sales-dashboard.css',
             'resources/js/reports/reservations-sales-dashboard.js'
         ])
     </x-slot:head>
 <div class="wrap">
     <script>
         window.reportUserCanExport = @json($reportUserCanExport ?? false);
+        window.reportUserCanViewCommercialPerformance = @json($reportUserCanViewCommercialPerformance ?? false);
+        window.reportCsrfToken = @json(csrf_token());
     </script>
-    <section class="filters card">
-        <div class="filter-group">
+    <section class="filters card report-filters" id="reportFilters" data-mode="legacy">
+        <div class="filter-group legacy-filter-control">
             <label for="period">Periodo</label>
             <select id="period">
                 <option value="last_30_days">Ultimos 30 dias</option>
@@ -20,7 +23,7 @@
             </select>
         </div>
 
-        <div class="filter-group">
+        <div class="filter-group legacy-filter-control">
             <label for="dateCriterion">Criterio de fecha</label>
             <select id="dateCriterion">
                 <option value="created_date">Fecha de creacion</option>
@@ -29,7 +32,7 @@
             </select>
         </div>
 
-        <div class="filter-group">
+        <div class="filter-group legacy-filter-control">
             <label for="opportunityType">Tipo de oportunidad</label>
             <select id="opportunityType">
                 <option value="all">Todos</option>
@@ -38,27 +41,44 @@
             </select>
         </div>
 
-        <div class="filter-group">
-            <label for="commercialDelegation">Delegacion comercial</label>
+        @if ($reportUserCanViewCommercialPerformance ?? false)
+        <div class="filter-group performance-filter-control performance-month-control is-hidden">
+            <label for="performanceMonth">Mes natural</label>
+            <input id="performanceMonth" type="month" value="{{ now('Europe/Madrid')->format('Y-m') }}" data-default-month="{{ now('Europe/Madrid')->format('Y-m') }}">
+        </div>
+        @endif
+
+        <div class="filter-group shared-delegation-control">
+            <label for="commercialDelegation" id="commercialDelegationLabel">Delegacion comercial</label>
             <select id="commercialDelegation">
                 <option value="">Todas</option>
             </select>
         </div>
 
-        <div class="filter-group">
+        <div class="filter-group shared-zone-control">
             <label for="zone">Zona</label>
             <select id="zone">
                 <option value="">Todas</option>
             </select>
         </div>
 
-        <div class="filter-group">
+        <div class="filter-group shared-commercial-control">
             <label for="commercial">Comercial</label>
             <select id="commercial">
                 <option value="">Todos</option>
             </select>
         </div>
-        <div class="filter-actions">
+        @if ($reportUserCanViewCommercialPerformance ?? false)
+        <div class="filter-group performance-filter-control performance-target-field is-hidden">
+            <label for="performanceTarget">Objetivo reservas</label>
+            <div class="performance-target-control">
+                <input id="performanceTarget" type="number" min="1" step="1" inputmode="numeric">
+                <button type="button" class="filter-reset" id="savePerformanceTarget">Guardar</button>
+            </div>
+        </div>
+        @endif
+
+        <div class="filter-actions shared-reset-control">
             <button type="button" class="filter-reset" id="resetFilters">Limpiar filtros</button>
         </div>
     </section>
@@ -86,6 +106,9 @@
         <button class="main-tab active" data-panel="panel-resumen">Resumen direccion</button>
         <button class="main-tab" data-panel="panel-comerciales">Comerciales / delegaciones / zonas</button>
         <button class="main-tab" data-panel="panel-portales">Portales / procedencia</button>
+        @if ($reportUserCanViewCommercialPerformance ?? false)
+            <button class="main-tab" data-panel="panel-rendimiento-comercial">Rendimiento comercial</button>
+        @endif
     </nav>
 
     <main>
@@ -143,6 +166,7 @@
                     </table>
                 </div>
             </section>
+
         </section>
 
         <section id="panel-comerciales" class="tab-panel">
@@ -259,6 +283,78 @@
                 </div>
             </section>
         </section>
+
+        @if ($reportUserCanViewCommercialPerformance ?? false)
+        <section id="panel-rendimiento-comercial" class="tab-panel">
+            <div class="notice is-hidden" id="performanceLoading">Cargando rendimiento comercial local...</div>
+            <div class="notice performance-warning" id="performanceSemantics">
+                Ratios de actividad mensual, no de cohorte: cada hito se asigna al mes en que ocurre y el resultado puede superar el 100%.
+            </div>
+            <div class="notice performance-warning" id="performanceCancellationCoverage">Cobertura de cancelaciones pendiente de cargar.</div>
+            <div class="notice performance-warning is-hidden" id="performanceQualityWarning"></div>
+            <section class="kpis dashboard-kpis" id="performanceKpis"></section>
+
+            <section class="card panel">
+                <div class="panel-title">
+                    <div>
+                        <h2>Rendimiento por comercial</h2>
+                        <div class="small">Ranking exclusivo por cumplimiento. La media siempre corresponde a la delegación histórica certificada del comercial.</div>
+                    </div>
+                </div>
+                <div class="table-wrap performance-table-wrap">
+                    <table class="performance-table">
+                        <thead><tr>
+                            <th>Ranking</th><th>Semáforo</th><th>Comercial</th><th>Delegación</th><th>Zona</th>
+                            <th class="num">Leads</th><th class="num">Oportunidades</th><th class="num">Reservas</th><th class="num">Activas</th>
+                            <th class="num">Objetivo</th><th class="num">Cumplimiento</th><th class="num">Media reservas deleg.</th><th class="num">Desviación</th>
+                            <th class="num">Lead → Reserva</th><th class="num">Media deleg.</th><th class="num">Oport. → Reserva</th><th class="num">Media deleg.</th>
+                            <th class="num">Ventas</th><th class="num">Reserva → Venta</th><th class="num">Media deleg.</th>
+                            <th class="num">Cancelaciones</th><th class="num">% cancelación</th><th class="num">Media deleg.</th>
+                            <th class="num">Margen total</th><th class="num">Margen medio</th><th class="num">Cobertura margen</th>
+                        </tr></thead>
+                        <tbody id="performanceRows"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card panel">
+                <div class="panel-title">
+                    <div><h2>Evolución mensual</h2><div class="small">Mes seleccionado y tres meses anteriores</div></div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr>
+                            <th>Mes</th><th class="num">Leads</th><th class="num">Oportunidades</th><th class="num">Reservas</th>
+                            <th class="num">Activas</th><th class="num">Ventas</th><th class="num">Cancelaciones</th><th class="num">Cumplimiento</th>
+                            <th class="num">Lead → Reserva</th><th class="num">Oport. → Reserva</th><th class="num">Reserva → Venta</th>
+                            <th class="num">% cancelación</th><th class="num">Margen total</th><th class="num">Margen medio</th>
+                        </tr></thead>
+                        <tbody id="performanceEvolutionRows"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card panel" aria-labelledby="performanceAuditTitle">
+                <div class="panel-title">
+                    <div>
+                        <h2 id="performanceAuditTitle">Auditoría de Rendimiento comercial</h2>
+                        <div class="small">Trazabilidad local sin PII: IDs, hitos, atribución, cobertura e incidencias.</div>
+                    </div>
+                    <button type="button" class="filter-reset" id="loadPerformanceAudit">Cargar auditoría</button>
+                </div>
+                <div class="notice is-hidden" id="performanceAuditStatus"></div>
+                <div class="table-wrap performance-audit-wrap">
+                    <table class="performance-audit-table">
+                        <thead><tr>
+                            <th>Evento</th><th>Fecha</th><th>ID Lead</th><th>ID oportunidad</th>
+                            <th>Responsable</th><th>Delegación / cobertura</th><th>Contado</th><th>Incidencia / exclusión</th>
+                        </tr></thead>
+                        <tbody id="performanceAuditRows"><tr><td colspan="8">Carga bajo demanda.</td></tr></tbody>
+                    </table>
+                </div>
+            </section>
+        </section>
+        @endif
     </main>
 </div>
 </x-reports.app-shell>
