@@ -33,10 +33,31 @@ antiguos modificados en la ingesta incremental.
 
 `Delegacion_del_propietario__c` es una fórmula de la delegación actual del owner
 y no acredita historia. Como tampoco existe `UserFieldHistory`, se adoptan
-intervalos append-only observados desde la implantación. No se retrodata el
-primer intervalo: actividad anterior queda `Histórico no certificable`, sin
-media de equipo ni ranking. Esta pérdida de presentación es preferible a
-reescribir historia laboral con datos actuales.
+intervalos append-only observados desde la implantación. Como excepción de
+negocio aprobada el 27/08/2026, la primera asignación fiable, normalizada y sin
+evidencias contradictorias puede materializar un intervalo cerrado desde
+`2026-04-01 00:00 Europe/Madrid` hasta la primera observación real. Su source es
+`business_bootstrap_2026_04`: es evaluable para filtros, objetivo y ranking,
+pero nunca se denomina observación o certificación Salesforce. El dato observado
+no se mueve ni sobrescribe; sin dimensiones o con contradicción, el período
+permanece no certificable. Una contradicción abre además una alerta operacional
+durable `commercial_bootstrap_conflict` basada únicamente en IDs técnicos.
+
+El bootstrap es una operación inicial controlada, no una consecuencia de la
+captura periódica. `captureCurrentUsers()` solo persiste observaciones reales.
+`salesforce:sync-monthly-commercial` lo ejecuta exclusivamente con la opción
+manual `--bootstrap-performance-history`; el scheduler de quince minutos no
+incluye esa opción. Una reejecución manual sigue siendo idempotente para los
+usuarios ya materializados, mientras que un alta posterior nunca recibe meses
+anteriores por una captura normal.
+
+La cohorte bootstrap queda fijada por el mínimo `observed_from` de todos los
+snapshots `salesforce_user_observation`. Solo son bootstrapables los usuarios
+cuyo primer snapshot observado coincide exactamente con ese instante de la
+fotografía inicial. Una primera observación posterior se clasifica para siempre
+como `not_initial_cohort`, incluso ante una reejecución manual. Si el primer
+snapshot del lote inicial carece de dimensiones, una observación posterior no
+se usa para rellenarlo retrospectivamente.
 
 La unidad mensual se fija en Salesforce User ID. La delegación no forma parte de
 la clave: cobertura incompleta o más de una delegación en el mes deshabilita
@@ -74,6 +95,17 @@ Las dependencias visibles se derivan del estado actual de las transiciones, no
 de sumar intervalos históricos solapados. Una reejecución que actualiza la
 calidad y aporta cobertura certificada elimina la deuda ya resuelta sin ocultar
 incidencias que continúen pendientes.
+
+Cuando `OpportunityHistory` referencia una Opportunity local ausente, el mismo
+sync solicita únicamente esos IDs, en lotes de 100, mediante el SELECT y el
+`updateOrCreate` canónicos de `SalesforceOpportunitySyncService`. La transición
+se reclasifica en la misma ejecución. Un ID no devuelto conserva
+`opportunity_not_local` y bloquea la certificación.
+
+Un cambio observado de delegación o zona cierra/abre intervalos y crea una
+alerta operacional `low` deduplicada por usuario, instante y dimensiones. Si el
+cambio divide un mes, la actividad individual se conserva, pero el mes completo
+no recibe una delegación arbitraria ni participa en ranking de equipo.
 
 El filtro principal de usuarios sigue limitado al universo existente. Para
 detectar una salida de perfil sin falsear `IsActive`, se refrescan por Salesforce

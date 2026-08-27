@@ -4,13 +4,23 @@ namespace App\Services\Reports\ReservationsSales;
 
 use App\Models\CommercialDelegationSnapshot;
 use App\Models\SalesforceUser;
+use App\Services\Operations\OperationalAlertService;
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class CommercialDelegationSnapshotService
 {
+    public const SOURCE_OBSERVED = 'salesforce_user_observation';
+
+    public const SOURCE_BUSINESS_BOOTSTRAP = 'business_bootstrap_2026_04';
+
+    private const BOOTSTRAP_START = '2026-04-01 00:00:00';
+
+    private const DATASET_TIMEZONE = 'Europe/Madrid';
+
     private const COMMERCIAL_PROFILES = [
         'Compra/Venta',
         'Comerciales Partner Community',
@@ -18,6 +28,7 @@ class CommercialDelegationSnapshotService
 
     public function __construct(
         private readonly LeadDelegationNormalizer $delegationNormalizer,
+        private readonly OperationalAlertService $alerts,
     ) {}
 
     public function captureCurrentUsers(?CarbonInterface $observedAt = null): array
@@ -76,6 +87,15 @@ class CommercialDelegationSnapshotService
 
                         if ($open !== null) {
                             if ($open->observed_from->equalTo($observedAt)) {
+                                $this->openOrganisationChangeAlert(
+                                    $user->salesforce_id,
+                                    $user->name,
+                                    $open->delegation,
+                                    $open->zone,
+                                    $delegation,
+                                    $zone,
+                                    $observedAt,
+                                );
                                 $open->update(['delegation' => $delegation, 'zone' => $zone]);
                                 $unchanged++;
 
@@ -84,6 +104,16 @@ class CommercialDelegationSnapshotService
 
                             $open->update(['observed_until' => $observedAt, 'open_marker' => null]);
                             $closed++;
+
+                            $this->openOrganisationChangeAlert(
+                                $user->salesforce_id,
+                                $user->name,
+                                $open->delegation,
+                                $open->zone,
+                                $delegation,
+                                $zone,
+                                $observedAt,
+                            );
                         }
 
                         CommercialDelegationSnapshot::query()->create([
@@ -92,13 +122,151 @@ class CommercialDelegationSnapshotService
                             'zone' => $zone,
                             'observed_from' => $observedAt,
                             'open_marker' => 1,
-                            'source' => 'salesforce_user_observation',
+                            'source' => self::SOURCE_OBSERVED,
                         ]);
                         $created++;
                     });
                 }
             });
 
-        return compact('created', 'closed', 'unchanged') + ['observed_at' => $observedAt->toIso8601String()];
+        return compact('created', 'closed', 'unchanged') + [
+            'observed_at' => $observedAt->toIso8601String(),
+        ];
+    }
+
+    public function bootstrapHistoricalAssignments(): array
+    {
+        $bootstrapStart = CarbonImmutable::parse(self::BOOTSTRAP_START, self::DATASET_TIMEZONE)->utc();
+        $stats = [
+            'created' => 0,
+            'already_present' => 0,
+            'missing_dimensions' => [],
+            'conflicting_history' => [],
+            'not_initial_cohort' => [],
+            'not_applicable' => [],
+        ];
+
+        $initialObservedFrom = CommercialDelegationSnapshot::query()
+            ->where('source', self::SOURCE_OBSERVED)
+            ->min('observed_from');
+        if ($initialObservedFrom === null) {
+            return $stats;
+        }
+
+        $initialObservedAt = CarbonImmutable::parse($initialObservedFrom, 'UTC')->utc();
+        $initialObservedKey = $initialObservedAt->toDateTimeString();
+
+        CommercialDelegationSnapshot::query()
+            ->where('source', self::SOURCE_OBSERVED)
+            ->orderBy('id')
+            ->get()
+            ->groupBy('salesforce_user_id')
+            ->each(function (Collection $observed, string $userId) use ($bootstrapStart, $initialObservedKey, &$stats): void {
+                $firstObserved = $observed->sortBy('observed_from')->first();
+                $firstObservedAt = CarbonImmutable::parse($firstObserved->getRawOriginal('observed_from'), 'UTC')->utc();
+
+                if ($firstObservedAt->toDateTimeString() !== $initialObservedKey) {
+                    $stats['not_initial_cohort'][] = $userId;
+
+                    return;
+                }
+
+                if ($firstObservedAt->lessThanOrEqualTo($bootstrapStart)) {
+                    $stats['not_applicable'][] = $userId;
+
+                    return;
+                }
+
+                if (blank($firstObserved->delegation) || blank($firstObserved->zone)) {
+                    $stats['missing_dimensions'][] = $userId;
+
+                    return;
+                }
+
+                $existingBootstrap = CommercialDelegationSnapshot::query()
+                    ->where('salesforce_user_id', $userId)
+                    ->where('source', self::SOURCE_BUSINESS_BOOTSTRAP)
+                    ->where('observed_from', $bootstrapStart)
+                    ->where('observed_until', $firstObservedAt)
+                    ->exists();
+                if ($existingBootstrap) {
+                    $stats['already_present']++;
+
+                    return;
+                }
+
+                $hasConflictingHistory = CommercialDelegationSnapshot::query()
+                    ->where('salesforce_user_id', $userId)
+                    ->where('source', '!=', self::SOURCE_BUSINESS_BOOTSTRAP)
+                    ->where('id', '!=', $firstObserved->id)
+                    ->where('observed_from', '<', $firstObservedAt)
+                    ->exists();
+                if ($hasConflictingHistory) {
+                    $stats['conflicting_history'][] = $userId;
+                    $this->alerts->open(
+                        'commercial_bootstrap_conflict',
+                        'low',
+                        'salesforce:sync-monthly-commercial',
+                        $userId.':business_bootstrap_2026_04',
+                        'Bootstrap histórico comercial omitido por evidencia previa contradictoria.',
+                        [
+                            'salesforce_user_id' => $userId,
+                            'bootstrap_start' => $bootstrapStart->toIso8601String(),
+                            'first_observed_at' => $firstObservedAt->toIso8601String(),
+                        ],
+                    );
+
+                    return;
+                }
+
+                $inserted = CommercialDelegationSnapshot::query()->insertOrIgnore([
+                    'salesforce_user_id' => $userId,
+                    'delegation' => $firstObserved->delegation,
+                    'zone' => $firstObserved->zone,
+                    'observed_from' => $bootstrapStart->toDateTimeString(),
+                    'observed_until' => $firstObservedAt->toDateTimeString(),
+                    'open_marker' => null,
+                    'source' => self::SOURCE_BUSINESS_BOOTSTRAP,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+                $stats[$inserted === 1 ? 'created' : 'already_present']++;
+            });
+
+        return $stats;
+    }
+
+    private function openOrganisationChangeAlert(
+        string $userId,
+        ?string $userName,
+        ?string $previousDelegation,
+        ?string $previousZone,
+        ?string $newDelegation,
+        ?string $newZone,
+        CarbonImmutable $observedAt,
+    ): void {
+        $technicalIdentifier = implode(':', [
+            $userId,
+            $observedAt->format('YmdHis'),
+            substr(hash('sha256', implode('|', [$previousDelegation, $previousZone, $newDelegation, $newZone])), 0, 12),
+        ]);
+
+        $this->alerts->open(
+            'commercial_organisation_change',
+            'low',
+            'salesforce:sync-monthly-commercial',
+            $technicalIdentifier,
+            'Cambio de delegación o zona comercial observado.',
+            [
+                'salesforce_user_id' => $userId,
+                'commercial_name' => $userName,
+                'previous_delegation' => $previousDelegation,
+                'previous_zone' => $previousZone,
+                'new_delegation' => $newDelegation,
+                'new_zone' => $newZone,
+                'observed_at' => $observedAt->toIso8601String(),
+            ],
+        );
     }
 }

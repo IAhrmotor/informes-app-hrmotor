@@ -17,6 +17,8 @@ class SalesforceOpportunitySyncService
 {
     private const SYNC_CHUNK_DAYS = 7;
 
+    private const IDS_CHUNK_SIZE = 100;
+
     public function __construct(
         private readonly SalesforceClient $client,
         private readonly OpportunityPortalNormalizer $portalNormalizer,
@@ -28,17 +30,7 @@ class SalesforceOpportunitySyncService
         $soqls = [];
         $seen = [];
         $includeCompanyEmail = true;
-        $stats = [
-            'opportunity' => 0,
-            'lead' => 0,
-            'opportunity_source' => 0,
-            'fallback_exposicion' => 0,
-            'fallback_web' => 0,
-            'unclassified' => 0,
-            'reservas_vivas' => 0,
-            'caidas' => 0,
-            'cv_firmados' => 0,
-        ];
+        $stats = $this->emptyStats();
 
         $chunkStart = CarbonImmutable::parse($periodStart);
         $finalEnd = CarbonImmutable::parse($periodEnd);
@@ -83,6 +75,69 @@ class SalesforceOpportunitySyncService
         ];
     }
 
+    public function syncBySalesforceIds(Collection|array $salesforceIds): array
+    {
+        $ids = collect($salesforceIds)
+            ->map(fn (mixed $id): string => trim((string) $id))
+            ->filter()
+            ->unique()
+            ->values();
+        $stats = $this->emptyStats();
+        $saved = 0;
+        $seen = [];
+        $soqls = [];
+        $includeCompanyEmail = true;
+
+        foreach ($ids->chunk(self::IDS_CHUNK_SIZE) as $chunk) {
+            $where = 'Id IN ('.$chunk
+                ->map(fn (string $id): string => "'".$this->escape($id)."'")
+                ->implode(', ').')';
+            $soql = $this->buildOpportunitySoql($where, $includeCompanyEmail);
+
+            try {
+                $records = $this->client->query($soql);
+            } catch (RuntimeException $exception) {
+                if (! $includeCompanyEmail || ! str_contains($exception->getMessage(), 'HTTP 400')) {
+                    throw $exception;
+                }
+
+                $includeCompanyEmail = false;
+                $soql = $this->buildOpportunitySoql($where, false);
+                $records = $this->client->query($soql);
+            }
+            $soqls[] = $soql;
+            $records = collect($records)
+                ->filter(fn (array $record): bool => filled(data_get($record, 'Id')))
+                ->reject(function (array $record) use (&$seen): bool {
+                    $id = (string) data_get($record, 'Id');
+                    if (isset($seen[$id])) {
+                        return true;
+                    }
+
+                    $seen[$id] = true;
+
+                    return false;
+                })
+                ->values()
+                ->all();
+            $leadMatches = $this->relatedLeadMatches($records);
+
+            foreach ($records as $record) {
+                $this->saveRecord($record, $leadMatches, $stats);
+                $saved++;
+            }
+        }
+
+        return [
+            'requested' => $ids->count(),
+            'queried' => count($seen),
+            'saved' => $saved,
+            'missing' => $ids->diff(array_keys($seen))->values()->all(),
+            'soql' => implode("\n\n-- chunk --\n\n", $soqls),
+            'stats' => $stats,
+        ];
+    }
+
     public function soql(CarbonInterface $periodStart, CarbonInterface $periodEnd): string
     {
         return $this->buildSoql($periodStart, $periodEnd, true);
@@ -120,7 +175,6 @@ SOQL;
         $endDateTime = $this->soqlDateTime($periodEnd);
         $startDate = CarbonImmutable::parse($periodStart)->utc()->toDateString();
         $endDate = CarbonImmutable::parse($periodEnd)->utc()->toDateString();
-        $companyEmailSelect = $includeCompanyEmail ? "    Account.AC_C_EMA_email__c,\n" : '';
         $where = $modifiedOnly
             ? "LastModifiedDate >= {$startDateTime} AND LastModifiedDate < {$endDateTime}"
             : <<<SOQL
@@ -130,6 +184,13 @@ SOQL;
         OR (Fecha_firma_contrato__c >= {$startDate} AND Fecha_firma_contrato__c < {$endDate})
     )
 SOQL;
+
+        return $this->buildOpportunitySoql($where, $includeCompanyEmail);
+    }
+
+    private function buildOpportunitySoql(string $where, bool $includeCompanyEmail): string
+    {
+        $companyEmailSelect = $includeCompanyEmail ? "    Account.AC_C_EMA_email__c,\n" : '';
 
         return <<<SOQL
 SELECT
@@ -216,6 +277,21 @@ WHERE
     IsDeleted = false
     AND {$where}
 SOQL;
+    }
+
+    private function emptyStats(): array
+    {
+        return [
+            'opportunity' => 0,
+            'lead' => 0,
+            'opportunity_source' => 0,
+            'fallback_exposicion' => 0,
+            'fallback_web' => 0,
+            'unclassified' => 0,
+            'reservas_vivas' => 0,
+            'caidas' => 0,
+            'cv_firmados' => 0,
+        ];
     }
 
     private function queryOpportunities(

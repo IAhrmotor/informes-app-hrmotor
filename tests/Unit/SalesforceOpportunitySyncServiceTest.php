@@ -318,4 +318,77 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
 
         $this->assertSame(1, $client->queries);
     }
+
+    public function test_sincroniza_por_ids_con_query_acotada_y_mapeo_canonico_idempotente(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            public array $queries = [];
+
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $this->queries[] = $soql;
+
+                return [[
+                    'Id' => '006-by-id',
+                    'Name' => 'Recuperada por ID',
+                    'CreatedDate' => '2026-03-01T10:00:00.000+0000',
+                    'LastModifiedDate' => '2026-08-20T10:00:00.000+0000',
+                    'StageName' => 'Cerrada Perdida',
+                    'RecordType' => ['Name' => 'Venta'],
+                    'OwnerId' => '005-owner',
+                    'Owner' => ['Name' => 'Comercial', 'IsActive' => true, 'USR_SEL_Delegacion__c' => 'Alicante'],
+                    'OPO_CAS_Reserva__c' => true,
+                    'OPO_FEC_Fecha_de_reserva__c' => '2026-03-10',
+                    'OPO_CAS_Contrato_CV_firmado__c' => false,
+                ]];
+            }
+        };
+        $service = new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class));
+
+        $first = $service->syncBySalesforceIds(['006-by-id', '006-by-id']);
+        $second = $service->syncBySalesforceIds(collect(['006-by-id']));
+
+        $this->assertSame(1, $first['requested']);
+        $this->assertSame(1, $first['saved']);
+        $this->assertSame(1, $second['saved']);
+        $this->assertDatabaseCount('salesforce_opportunities', 1);
+        $this->assertDatabaseHas('salesforce_opportunities', [
+            'salesforce_id' => '006-by-id',
+            'reservation' => true,
+            'reservation_date' => '2026-03-10 00:00:00',
+            'owner_id' => '005-owner',
+        ]);
+        $this->assertStringContainsString("Id IN ('006-by-id')", $first['soql']);
+        $this->assertStringNotContainsString('CreatedDate >=', $first['soql']);
+    }
+
+    public function test_sincronizacion_por_ids_chunking_y_escapado(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            public array $queries = [];
+
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $this->queries[] = $soql;
+
+                return [];
+            }
+        };
+        $ids = collect(range(1, 204))->map(fn (int $number): string => sprintf('006-%03d', $number));
+        $ids->push("006-quote'escaped");
+
+        $result = (new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class)))
+            ->syncBySalesforceIds($ids);
+
+        $this->assertSame(205, $result['requested']);
+        $this->assertCount(3, $client->queries);
+        $this->assertStringContainsString("006-quote\\'escaped", end($client->queries));
+        $this->assertSame(205, count($result['missing']));
+    }
 }

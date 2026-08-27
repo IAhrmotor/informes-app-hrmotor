@@ -24,6 +24,7 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
         {--from= : Fecha inicial explicita en formato Y-m-d}
         {--to= : Fecha final exclusiva explicita en formato Y-m-d}
         {--fresh : Borra solo las tablas Salesforce mensuales nuevas antes de sincronizar}
+        {--bootstrap-performance-history : Materializa una vez el bootstrap histórico aprobado de Rendimiento comercial}
         {--debug-soql : Imprime las queries SOQL ejecutadas}';
 
     protected $description = 'Sincroniza usuarios, leads, Task, Event y summaries para el informe mensual comercial.';
@@ -75,6 +76,17 @@ class SalesforceSyncMonthlyCommercialCommand extends Command
             $this->line('  Insertados/actualizados/sin cambios: '.($users['inserted'] ?? 0).'/'.($users['updated'] ?? 0).'/'.($users['unchanged'] ?? 0));
             $snapshots = $delegationSnapshots->captureCurrentUsers();
             $this->line('Snapshots delegación creados/cerrados: '.$snapshots['created'].'/'.$snapshots['closed']);
+
+            if ($this->option('bootstrap-performance-history')) {
+                $bootstrap = $delegationSnapshots->bootstrapHistoricalAssignments();
+                $this->line('Bootstrap histórico creado/existente: '.$bootstrap['created'].'/'.$bootstrap['already_present']);
+                foreach (['missing_dimensions', 'conflicting_history', 'not_initial_cohort'] as $reason) {
+                    $ids = $bootstrap[$reason] ?? [];
+                    if ($ids !== []) {
+                        $this->warn('Bootstrap omitido ('.$reason.'): '.implode(', ', $ids));
+                    }
+                }
+            }
 
             $leads = $leadsSync->sync($periodStart, $periodEnd);
             $this->line('Leads consultados: '.$leads['queried']);

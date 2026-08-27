@@ -18,8 +18,31 @@
     min-width: 7rem;
 }
 
-.performance-warning {
+.performance-note {
     margin-bottom: 1rem;
+    border: 1px solid transparent;
+    border-radius: .65rem;
+    padding: .7rem .9rem;
+    font-size: .9rem;
+    line-height: 1.45;
+}
+
+.performance-note--info {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1e3a5f;
+}
+
+.performance-note--quality {
+    border-color: #fde68a;
+    background: #fffbeb;
+    color: #78350f;
+}
+
+.performance-note--error {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #991b1b;
 }
 
 .performance-table-wrap {
@@ -27,7 +50,11 @@
 }
 
 .performance-table {
-    min-width: 2600px;
+    min-width: 1900px;
+}
+
+.performance-evolution-table {
+    min-width: 1350px;
 }
 
 .performance-audit-wrap {
@@ -42,6 +69,17 @@
     position: sticky;
     top: 0;
     z-index: 2;
+}
+
+.table-scroll-top {
+    overflow-x: auto;
+    overflow-y: hidden;
+    height: 16px;
+    margin-bottom: .35rem;
+}
+
+.table-scroll-top > div {
+    height: 1px;
 }
 
 .performance-light {

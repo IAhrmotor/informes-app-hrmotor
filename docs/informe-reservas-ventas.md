@@ -207,11 +207,12 @@ certificable`, sin escoger equipo arbitrariamente. El roster inicial incluye a
 todo comercial cuyo único intervalo certificado cubre el mes completo —o el
 corte transcurrido del mes actual—, aunque tenga cero actividad.
 
-La media de reservas es la media aritmética de los comerciales de la delegación,
-incluidos los ceros certificados.
-Las medias de ratios son ratios agregados de esa delegación. El filtro de
-comercial se aplica después de construir medias y ranking; los empates exactos
-comparten posición. El ranking no usa margen, cancelación ni scoring compuesto.
+El filtro Comercial incluye identidades comerciales válidas aunque su delegación
+mensual no sea certificable. Zona y Delegación solo ofrecen asignaciones
+observadas o con bootstrap aprobado. El ranking se construye antes de aplicar el
+filtro Comercial; los empates exactos comparten posición y no usa margen,
+cancelación ni scoring compuesto. Las medias internas de equipo se conservan en
+el contrato por compatibilidad, pero ya no se muestran en la interfaz.
 
 ### Cancelaciones verificadas
 
@@ -235,10 +236,12 @@ Solo la unión continua de intervalos aptos para KPI permite mostrar cancelacion
 cobertura o con cobertura parcial, recuento, porcentaje y comparación devuelven
 N/A; cero significa cobertura certificada sin transiciones aplicables.
 
-Una transición cuya Opportunity no existe en la réplica se conserva como
+Una transición cuya Opportunity no existe en la réplica activa una recuperación
+directa por Salesforce ID, en lotes de 100, reutilizando el SELECT y la
+persistencia canónica de `SalesforceOpportunitySyncService`; después se
+reclasifica en la misma ejecución. Si Salesforce no devuelve el ID, se conserva
 `opportunity_not_local`. El intervalo guarda el número de dependencias y queda
-`is_kpi_certified=false`: nunca puede producir cero cancelaciones hasta cargar
-la Opportunity y repetir el mismo rango. `reservation_date` permanece NULL
+`is_kpi_certified=false`: nunca puede producir cero cancelaciones. `reservation_date` permanece NULL
 cuando no se conoce; no se fabrica una fecha. Una candidata Cerrada Perdida sin
 etapa inmediatamente anterior demostrable se conserva como
 `previous_stage_not_demonstrated` y también bloquea la certificación. Una fila
@@ -261,6 +264,20 @@ devolvió cambios. Por ello:
   abandonar los perfiles comerciales. Para detectar este último caso, el sync
   refresca por ID solo usuarios ya conocidos aunque hayan salido del filtro
   comercial; conserva el `IsActive` real para no alterar consumidores compartidos;
+- por decisión de negocio, la primera asignación observada fiable y sin
+  contradicciones puede extenderse en un intervalo cerrado desde
+  `2026-04-01 00:00 Europe/Madrid`. El source
+  `business_bootstrap_2026_04` evita presentarlo como observación Salesforce;
+  no se modifica ninguna fecha real y una segunda ejecución explícita no duplica filas.
+  Esta materialización solo se solicita manualmente con
+  `--bootstrap-performance-history`; la captura normal nunca la ejecuta ni
+  retroatribuye a un comercial observado después. Además, una reejecución
+  explícita solo acepta usuarios cuyo primer snapshot observado coincide con el
+  mínimo `observed_from` de la fotografía inicial. Los posteriores se informan
+  como `not_initial_cohort` y quedan excluidos permanentemente del bootstrap;
+- un cambio posterior de delegación/zona genera una alerta operacional `low`
+  durable y deduplicada, además de cerrar/abrir los intervalos. Si ocurre dentro
+  del mes, se muestra una nota ámbar y no se escoge una delegación mensual;
 - la identidad de un usuario cuyo perfil actual ya no es comercial se sigue
   cargando cuando sus snapshots solapan el período consultado. El snapshot, no
   el perfil presente, acredita su pertenencia histórica; después del cierre no
@@ -289,23 +306,32 @@ php artisan salesforce:sync-opportunities --days=2 --modified
 La franja queda fuera de atribución de Campañas (02:15), refresco (03:15), Stock
 (03:30, también escribe Opportunities) y el bloque SEO (05:15–06:30). La
 captura de delegaciones pertenece exclusivamente al sync mensual cada 15
-minutos. La ventana incremental consulta `LastModifiedDate`, actualiza la
+minutos y el scheduler usa `--days=2` sin la opción de bootstrap. La ventana incremental consulta `LastModifiedDate`, actualiza la
 fotografía local y sincroniza `OpportunityHistory` del mismo intervalo.
 
 Procedimiento de despliegue, sin ejecución automática:
 
 ```bash
 php artisan migrate:status
+php artisan salesforce:sync-monthly-commercial --days=2 --bootstrap-performance-history
+php artisan salesforce:sync-opportunities --from=2026-04-01 --to=2026-05-01
+php artisan salesforce:sync-opportunities --from=2026-05-01 --to=2026-06-01
+php artisan salesforce:sync-opportunities --from=2026-06-01 --to=2026-07-01
 php artisan salesforce:sync-opportunities --from=2026-07-01 --to=2026-08-01
+php artisan salesforce:sync-opportunities --from=2026-08-01 --to=<día-posterior-al-cutoff>
 ```
 
 Primero se enumeran y aprueban todas las migraciones pendientes; no se ejecuta
-`migrate --force` hasta aprobar el lote. El backfill empieza con un rango corto,
-registrando filas, duración, llamadas Salesforce e intervalos certificados, y
-solo después se amplía por lotes contiguos. El inicio debe incluir la cohorte de
-reservas anterior al mes cuyas cancelaciones se quieren certificar. Tras cada
-lote se revisan `opportunity_not_local` e intervalos no certificados; se amplía
-el rango de Opportunities y se repite el intervalo afectado hasta resolverlos.
+`migrate --force` hasta aprobar el lote. Tras migrar, el comando mensual con
+`--bootstrap-performance-history` se ejecuta una sola vez: se concilian
+snapshots observados, bootstrap creados/existentes, omitidos y conflictos. A
+partir de ahí actúa el scheduler normal sin la opción. Cada backfill mensual se ejecuta y valida por separado,
+registrando filas, duración, llamadas Salesforce, transiciones válidas,
+`opportunity_not_local`, `previous_stage_not_demonstrated`, cobertura e
+`is_kpi_certified`. No es necesario ampliar el inicio para buscar reservas
+anteriores: las Opportunities candidatas ausentes se resuelven por ID. Si quedan
+dependencias, se documenta la causa y se repite únicamente el intervalo afectado
+después de resolverla. `--to` continúa siendo un límite exclusivo.
 
 La disponibilidad retrospectiva de `OpportunityHistory` depende de la retención
 real de Salesforce. Las candidatas sin etapa previa demostrable quedan fuera de
@@ -317,3 +343,11 @@ render, los filtros, medias, ranking y evolución leen únicamente BD
 local y no incluyen PII de clientes. La auditoría específica muestra IDs de
 Lead/Opportunity/historial, hitos, responsable, delegación/cobertura, clave de
 deduplicación e incidencias/exclusiones, con paginación limitada a 200 filas.
+La procedencia de cada atribución se expone como `delegation_status`:
+`observed` (Observada), `bootstrap_approved` (Bootstrap aprobado) o
+`not_certifiable` (No certificable), con `delegation_issue` cuando corresponde.
+Se conserva `delegation_certified` por compatibilidad, pero la interfaz no llama
+certificación Salesforce al bootstrap. Calidad publica
+`delegation_history_evaluable_from`, `delegation_history_observed_from` y
+`delegation_history_bootstrap_from`; el campo histórico
+`delegation_history_certified_from` permanece solo por compatibilidad.

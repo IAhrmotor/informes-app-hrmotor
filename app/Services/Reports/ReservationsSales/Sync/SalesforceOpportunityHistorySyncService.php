@@ -17,6 +17,7 @@ class SalesforceOpportunityHistorySyncService
 
     public function __construct(
         private readonly SalesforceClient $client,
+        private readonly SalesforceOpportunitySyncService $opportunitySync,
     ) {}
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
@@ -53,6 +54,22 @@ class SalesforceOpportunityHistorySyncService
             ->whereIn('salesforce_id', $opportunityIds)
             ->get(['salesforce_id', 'reservation', 'reservation_date', 'owner_id', 'owner_name'])
             ->keyBy('salesforce_id');
+        $initiallyMissingOpportunityIds = $opportunityIds->diff($opportunities->keys())->values();
+        $opportunityResolution = [
+            'requested' => 0,
+            'queried' => 0,
+            'saved' => 0,
+            'missing' => [],
+        ];
+
+        if ($initiallyMissingOpportunityIds->isNotEmpty()) {
+            $opportunityResolution = $this->opportunitySync->syncBySalesforceIds($initiallyMissingOpportunityIds);
+            $opportunities = SalesforceOpportunity::query()
+                ->whereIn('salesforce_id', $opportunityIds)
+                ->get(['salesforce_id', 'reservation', 'reservation_date', 'owner_id', 'owner_name'])
+                ->keyBy('salesforce_id');
+        }
+        $remainingMissingOpportunityIds = $opportunityIds->diff($opportunities->keys())->values();
         $candidateIds = $candidateRows->pluck('Id')->flip();
         $transitions = collect();
         $processedCandidateIds = collect();
@@ -159,6 +176,10 @@ class SalesforceOpportunityHistorySyncService
             'non_transitions' => $nonTransitions,
             'covered_intervals' => $coveredIntervals->count(),
             'unresolved_dependencies' => $transitions->whereIn('quality_status', $this->blockingQualityStatuses())->count(),
+            'missing_opportunities_requested' => $initiallyMissingOpportunityIds->count(),
+            'missing_opportunities_resolved' => $initiallyMissingOpportunityIds->diff($remainingMissingOpportunityIds)->count(),
+            'missing_opportunities_remaining' => $remainingMissingOpportunityIds->count(),
+            'opportunity_resolution' => $opportunityResolution,
             'observation_cutoff_at' => $observationCutoff->toIso8601String(),
             'effective_end_at' => $end->toIso8601String(),
             'source' => 'OpportunityHistory',

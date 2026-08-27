@@ -72,6 +72,15 @@ class CommercialPerformanceDatasetService
             'uncertified_historical_events' => 0,
             'margin_conflict_groups' => 0,
             'invalid_cancellation_chronology' => 0,
+            'organisation_changes_within_month' => collect($rosterContext['assessments'][$filters['month']] ?? [])
+                ->where('reason', 'organisation_change_within_month')
+                ->count(),
+            'bootstrap_approved_assignments' => collect($rosterContext['assignments'][$filters['month']] ?? [])
+                ->where('delegation_status', 'bootstrap_approved')
+                ->count(),
+            'observed_assignments' => collect($rosterContext['assignments'][$filters['month']] ?? [])
+                ->where('delegation_status', 'observed')
+                ->count(),
         ];
 
         $this->seedCertifiedRoster($buckets, $monthKeys, $rosterContext);
@@ -136,7 +145,18 @@ class CommercialPerformanceDatasetService
                 'cancellation_coverage_by_month' => $historyCoverage,
                 'cancellation_source' => 'OpportunityHistory',
                 'delegation_history_certified_from' => DB::table('commercial_delegation_snapshots')->min('observed_from'),
-                'delegation_history_limitation' => 'Los eventos anteriores al primer intervalo observado no se atribuyen retrospectivamente a la delegación actual.',
+                'delegation_history_evaluable_from' => DB::table('commercial_delegation_snapshots')
+                    ->whereIn('source', [
+                        CommercialDelegationSnapshotService::SOURCE_OBSERVED,
+                        CommercialDelegationSnapshotService::SOURCE_BUSINESS_BOOTSTRAP,
+                    ])->min('observed_from'),
+                'delegation_history_observed_from' => DB::table('commercial_delegation_snapshots')
+                    ->where('source', CommercialDelegationSnapshotService::SOURCE_OBSERVED)
+                    ->min('observed_from'),
+                'delegation_history_bootstrap_from' => DB::table('commercial_delegation_snapshots')
+                    ->where('source', CommercialDelegationSnapshotService::SOURCE_BUSINESS_BOOTSTRAP)
+                    ->min('observed_from'),
+                'delegation_history_limitation' => 'Desde 2026-04-01 se admite el bootstrap aprobado por negocio cuando la primera asignación fiable no tiene evidencias contradictorias; se distingue de la observación Salesforce.',
             ],
             'semantics' => [
                 'activity_monthly' => true,
@@ -554,14 +574,22 @@ class CommercialPerformanceDatasetService
 
     private function filterOptions(Collection $rows, array $filters): array
     {
-        $certified = $rows->where('delegation_certified', true);
-        $delegationRows = filled($filters['zone']) ? $certified->where('zone', $filters['zone']) : $certified;
-        $commercialRows = filled($filters['delegation'])
-            ? $delegationRows->where('delegation', $filters['delegation'])
-            : $delegationRows;
+        $evaluable = $rows->where('delegation_certified', true);
+        $delegationRows = filled($filters['zone']) ? $evaluable->where('zone', $filters['zone']) : $evaluable;
+        $commercialRows = $rows->filter(fn (array $row): bool => filled($row['commercial_id']));
+        if (filled($filters['zone'])) {
+            $commercialRows = $commercialRows
+                ->where('delegation_certified', true)
+                ->where('zone', $filters['zone']);
+        }
+        if (filled($filters['delegation'])) {
+            $commercialRows = $commercialRows
+                ->where('delegation_certified', true)
+                ->where('delegation', $filters['delegation']);
+        }
 
         return [
-            'zones' => $certified->pluck('zone')->filter()->unique()->sort()->values()->all(),
+            'zones' => $evaluable->pluck('zone')->filter()->unique()->sort()->values()->all(),
             'delegations' => $delegationRows->pluck('delegation')->filter()->unique()->sort()->values()->all(),
             'commercials' => $commercialRows
                 ->filter(fn (array $row): bool => filled($row['commercial_id']))

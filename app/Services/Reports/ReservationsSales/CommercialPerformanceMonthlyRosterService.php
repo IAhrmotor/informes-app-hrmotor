@@ -25,7 +25,7 @@ class CommercialPerformanceMonthlyRosterService
                 $query->whereNull('observed_until')->orWhere('observed_until', '>', $start);
             })
             ->orderBy('observed_from')
-            ->get(['salesforce_user_id', 'delegation', 'zone', 'observed_from', 'observed_until'])
+            ->get(['salesforce_user_id', 'delegation', 'zone', 'observed_from', 'observed_until', 'source'])
             ->groupBy('salesforce_user_id');
         $users = SalesforceUser::query()
             ->where(function ($query) use ($snapshots): void {
@@ -35,27 +35,30 @@ class CommercialPerformanceMonthlyRosterService
             ->get(['salesforce_id', 'name'])
             ->keyBy('salesforce_id');
         $assignments = [];
+        $assessments = [];
 
         foreach ($months as $month) {
             $monthKey = $month->format('Y-m');
             foreach ($users as $userId => $user) {
-                $assignment = $this->certifiedAssignment($month, collect($snapshots->get($userId, [])));
-                if ($assignment === null) {
+                $assessment = $this->assignmentAssessment($month, collect($snapshots->get($userId, [])));
+                $assessments[$monthKey][$userId] = $assessment;
+                if (! $assessment['evaluable']) {
                     continue;
                 }
 
                 $assignments[$monthKey][$userId] = [
                     'commercial_id' => (string) $userId,
                     'commercial' => (string) ($user->name ?: $userId),
-                    'delegation' => $assignment['delegation'],
-                    'zone' => $assignment['zone'],
+                    'delegation' => $assessment['delegation'],
+                    'zone' => $assessment['zone'],
                     'delegation_certified' => true,
+                    'delegation_status' => $assessment['status'],
                     'ranking_eligible' => true,
                 ];
             }
         }
 
-        return compact('users', 'assignments');
+        return compact('users', 'assignments', 'assessments');
     }
 
     public function rosterForMonth(array $context, string $month): array
@@ -85,6 +88,8 @@ class CommercialPerformanceMonthlyRosterService
             'delegation' => self::HISTORICAL_UNCERTIFIED,
             'zone' => self::HISTORICAL_UNCERTIFIED,
             'delegation_certified' => false,
+            'delegation_status' => 'not_certifiable',
+            'delegation_issue' => $context['assessments'][$month][$userId]['reason'] ?? 'incomplete_history',
             'ranking_eligible' => false,
         ];
     }
@@ -97,20 +102,23 @@ class CommercialPerformanceMonthlyRosterService
             'delegation' => 'Incidencia de datos',
             'zone' => 'Incidencia de datos',
             'delegation_certified' => false,
+            'delegation_status' => 'not_certifiable',
+            'delegation_issue' => 'missing_commercial_identity',
             'ranking_eligible' => false,
         ];
     }
 
-    private function certifiedAssignment(CarbonImmutable $month, Collection $snapshots): ?array
+    private function assignmentAssessment(CarbonImmutable $month, Collection $snapshots): array
     {
         $start = $month->startOfMonth()->utc();
         $monthEnd = $month->addMonth()->startOfMonth()->utc();
         $end = $monthEnd->min(CarbonImmutable::now('UTC'));
         if ($end->lessThanOrEqualTo($start)) {
-            return null;
+            return $this->notCertifiable('future_period');
         }
         $cursor = $start;
         $dimensions = collect();
+        $sources = collect();
 
         foreach ($snapshots as $snapshot) {
             $intervalStart = CarbonImmutable::parse($snapshot->observed_from)->utc();
@@ -123,10 +131,11 @@ class CommercialPerformanceMonthlyRosterService
             }
 
             if ($intervalStart->greaterThan($cursor) || blank($snapshot->delegation) || blank($snapshot->zone)) {
-                return null;
+                return $this->notCertifiable('incomplete_history');
             }
 
             $dimensions->push($snapshot->delegation.'|'.$snapshot->zone);
+            $sources->push($snapshot->source);
             if ($intervalEnd->greaterThan($cursor)) {
                 $cursor = $intervalEnd;
             }
@@ -136,12 +145,35 @@ class CommercialPerformanceMonthlyRosterService
             }
         }
 
-        if ($cursor->lessThan($end) || $dimensions->unique()->count() !== 1) {
-            return null;
+        if ($cursor->lessThan($end)) {
+            return $this->notCertifiable('incomplete_history');
+        }
+
+        if ($dimensions->unique()->count() !== 1) {
+            return $this->notCertifiable('organisation_change_within_month');
         }
 
         [$delegation, $zone] = explode('|', $dimensions->first(), 2);
 
-        return compact('delegation', 'zone');
+        return [
+            'evaluable' => true,
+            'status' => $sources->contains(CommercialDelegationSnapshotService::SOURCE_BUSINESS_BOOTSTRAP)
+                ? 'bootstrap_approved'
+                : 'observed',
+            'reason' => null,
+            'delegation' => $delegation,
+            'zone' => $zone,
+        ];
+    }
+
+    private function notCertifiable(string $reason): array
+    {
+        return [
+            'evaluable' => false,
+            'status' => 'not_certifiable',
+            'reason' => $reason,
+            'delegation' => null,
+            'zone' => null,
+        ];
     }
 }

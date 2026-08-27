@@ -5,8 +5,10 @@ namespace Tests\Unit;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceOpportunityHistorySyncInterval;
 use App\Models\SalesforceOpportunityStageTransition;
+use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
 use App\Services\Reports\ReservationsSales\CommercialPerformanceDatasetService;
 use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunityHistorySyncService;
+use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -66,7 +68,7 @@ class SalesforceOpportunityHistorySyncServiceTest extends TestCase
             }
         };
 
-        $result = (new SalesforceOpportunityHistorySyncService($client))->sync(
+        $result = $this->historyService($client)->sync(
             CarbonImmutable::parse('2026-08-19', 'UTC'),
             CarbonImmutable::parse('2026-08-23', 'UTC'),
         );
@@ -133,7 +135,7 @@ class SalesforceOpportunityHistorySyncServiceTest extends TestCase
             }
         };
 
-        $result = (new SalesforceOpportunityHistorySyncService($client))->sync(
+        $result = $this->historyService($client)->sync(
             CarbonImmutable::parse('2026-08-20', 'UTC'),
             CarbonImmutable::parse('2026-08-21', 'UTC'),
         );
@@ -161,6 +163,10 @@ class SalesforceOpportunityHistorySyncServiceTest extends TestCase
 
             public function query(string $soql): array
             {
+                if (str_contains($soql, 'FROM Opportunity') && ! str_contains($soql, 'FROM OpportunityHistory')) {
+                    return [];
+                }
+
                 if (str_contains($soql, 'OpportunityId IN')) {
                     return [
                         ['Id' => '0Jh-missing-before', 'OpportunityId' => '006-reserved-in-july', 'StageName' => 'Reserva', 'CreatedDate' => '2026-07-15T10:00:00.000+0000'],
@@ -177,7 +183,7 @@ class SalesforceOpportunityHistorySyncServiceTest extends TestCase
             }
         };
 
-        $result = (new SalesforceOpportunityHistorySyncService($client))->sync(
+        $result = $this->historyService($client)->sync(
             CarbonImmutable::parse('2026-08-19', 'UTC'),
             CarbonImmutable::parse('2026-08-22', 'UTC'),
         );
@@ -212,7 +218,7 @@ class SalesforceOpportunityHistorySyncServiceTest extends TestCase
                 return [];
             }
         };
-        $service = new SalesforceOpportunityHistorySyncService($client);
+        $service = $this->historyService($client);
 
         $result = $service->sync(
             CarbonImmutable::parse('2026-08-01', 'Europe/Madrid'),
@@ -237,5 +243,68 @@ class SalesforceOpportunityHistorySyncServiceTest extends TestCase
         );
         $this->assertSame(0, $future['covered_intervals']);
         $this->assertSame($queriesBeforeFutureRange, count($client->queries));
+    }
+
+    public function test_recupera_opportunity_faltante_por_id_y_reclasifica_en_la_misma_ejecucion(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                if (str_contains($soql, 'FROM OpportunityHistory') && str_contains($soql, 'OpportunityId IN')) {
+                    return [
+                        ['Id' => '0Jh-before-resolved', 'OpportunityId' => '006-resolved', 'StageName' => 'Reserva', 'CreatedDate' => '2026-07-10T10:00:00.000+0000'],
+                        ['Id' => '0Jh-resolved', 'OpportunityId' => '006-resolved', 'StageName' => 'Cerrada Perdida', 'CreatedDate' => '2026-08-20T10:00:00.000+0000'],
+                    ];
+                }
+
+                if (str_contains($soql, 'FROM OpportunityHistory')) {
+                    return [[
+                        'Id' => '0Jh-resolved', 'OpportunityId' => '006-resolved',
+                        'StageName' => 'Cerrada Perdida', 'CreatedDate' => '2026-08-20T10:00:00.000+0000',
+                    ]];
+                }
+
+                return [[
+                    'Id' => '006-resolved', 'Name' => 'Histórica',
+                    'CreatedDate' => '2026-03-01T10:00:00.000+0000',
+                    'LastModifiedDate' => '2026-08-20T10:00:00.000+0000',
+                    'StageName' => 'Cerrada Perdida', 'RecordType' => ['Name' => 'Venta'],
+                    'OwnerId' => '005-owner', 'Owner' => ['Name' => 'Comercial', 'IsActive' => true],
+                    'OPO_CAS_Reserva__c' => true, 'OPO_FEC_Fecha_de_reserva__c' => '2026-07-01',
+                    'OPO_CAS_Contrato_CV_firmado__c' => false,
+                ]];
+            }
+        };
+
+        $result = $this->historyService($client)->sync(
+            CarbonImmutable::parse('2026-08-20', 'UTC'),
+            CarbonImmutable::parse('2026-08-21', 'UTC'),
+        );
+
+        $this->assertSame(1, $result['missing_opportunities_requested']);
+        $this->assertSame(1, $result['missing_opportunities_resolved']);
+        $this->assertSame(0, $result['missing_opportunities_remaining']);
+        $this->assertSame(1, $result['verified_cancellations']);
+        $this->assertSame(0, $result['unresolved_dependencies']);
+        $this->assertDatabaseHas('salesforce_opportunity_stage_transitions', [
+            'salesforce_history_id' => '0Jh-resolved',
+            'quality_status' => 'valid',
+            'is_reservation_cancellation' => true,
+        ]);
+        $this->assertDatabaseHas('salesforce_opportunity_history_sync_intervals', [
+            'is_kpi_certified' => true,
+            'unresolved_dependencies' => 0,
+        ]);
+    }
+
+    private function historyService(SalesforceClient $client): SalesforceOpportunityHistorySyncService
+    {
+        return new SalesforceOpportunityHistorySyncService(
+            $client,
+            new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class)),
+        );
     }
 }

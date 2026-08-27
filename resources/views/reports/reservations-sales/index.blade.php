@@ -287,30 +287,38 @@
         @if ($reportUserCanViewCommercialPerformance ?? false)
         <section id="panel-rendimiento-comercial" class="tab-panel">
             <div class="notice is-hidden" id="performanceLoading">Cargando rendimiento comercial local...</div>
-            <div class="notice performance-warning" id="performanceSemantics">
-                Ratios de actividad mensual, no de cohorte: cada hito se asigna al mes en que ocurre y el resultado puede superar el 100%.
+            <div class="performance-note performance-note--info" id="performanceSemantics">
+                Actividad mensual, no cohorte. Cada hito se asigna al mes en que ocurre; por ello, algunos ratios pueden superar el 100 %.
             </div>
-            <div class="notice performance-warning" id="performanceCancellationCoverage">Cobertura de cancelaciones pendiente de cargar.</div>
-            <div class="notice performance-warning is-hidden" id="performanceQualityWarning"></div>
+            <div class="performance-note performance-note--info" id="performanceCancellationCoverage">Cobertura de cancelaciones pendiente de cargar.</div>
+            <div class="performance-note performance-note--quality is-hidden" id="performanceQualityWarning"></div>
+            <div class="performance-note performance-note--error is-hidden" id="performanceLoadError"></div>
             <section class="kpis dashboard-kpis" id="performanceKpis"></section>
 
             <section class="card panel">
                 <div class="panel-title">
                     <div>
                         <h2>Rendimiento por comercial</h2>
-                        <div class="small">Ranking exclusivo por cumplimiento. La media siempre corresponde a la delegación histórica certificada del comercial.</div>
+                        <div class="small">Ranking exclusivo por cumplimiento para asignaciones observadas o con bootstrap aprobado.</div>
+                    </div>
+                    <div class="columns-menu">
+                        <button type="button" class="filter-reset" id="performanceColumnsButton" aria-expanded="false" aria-controls="performanceColumnsPopover">Añadir o quitar columnas</button>
+                        <div class="columns-popover card is-hidden" id="performanceColumnsPopover"></div>
                     </div>
                 </div>
-                <div class="table-wrap performance-table-wrap">
-                    <table class="performance-table">
+                <div class="table-scroll-top is-hidden" data-scroll-target="performanceTableWrap" aria-hidden="true"><div></div></div>
+                <div class="table-wrap performance-table-wrap" id="performanceTableWrap">
+                    <table class="performance-table" id="performanceTable">
                         <thead><tr>
-                            <th>Ranking</th><th>Semáforo</th><th>Comercial</th><th>Delegación</th><th>Zona</th>
-                            <th class="num">Leads</th><th class="num">Oportunidades</th><th class="num">Reservas</th><th class="num">Activas</th>
-                            <th class="num">Objetivo</th><th class="num">Cumplimiento</th><th class="num">Media reservas deleg.</th><th class="num">Desviación</th>
-                            <th class="num">Lead → Reserva</th><th class="num">Media deleg.</th><th class="num">Oport. → Reserva</th><th class="num">Media deleg.</th>
-                            <th class="num">Ventas</th><th class="num">Reserva → Venta</th><th class="num">Media deleg.</th>
-                            <th class="num">Cancelaciones</th><th class="num">% cancelación</th><th class="num">Media deleg.</th>
-                            <th class="num">Margen total</th><th class="num">Margen medio</th><th class="num">Cobertura margen</th>
+                            <th data-column="ranking">Ranking</th><th data-column="traffic_light">Semáforo</th><th data-column="commercial">Comercial</th><th data-column="delegation">Delegación</th><th data-column="zone">Zona</th>
+                            <th class="num" data-column="leads">Leads</th><th class="num" data-column="opportunities">Oportunidades</th><th class="num" data-column="reservations_total">Reservas</th><th class="num" data-column="reservations_active">Activas</th>
+                            <th class="num" data-column="objective">Objetivo</th><th class="num" data-column="fulfillment_pct">Cumplimiento</th>
+                            <th class="num" data-column="lead_to_reservation_pct">Lead → Reserva</th><th class="num" data-column="opportunity_to_reservation_pct">Oportunidad → Reserva</th>
+                            <th class="num" data-column="sales">Ventas</th><th class="num" data-column="reservation_to_sale_pct">Reserva → Venta</th>
+                            <th class="num" data-column="cancellations">Cancelaciones</th><th class="num" data-column="cancellation_pct">% cancelación</th>
+                            <th class="num" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">Margen total</th>
+                            <th class="num" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">Margen medio</th>
+                            <th class="num" data-column="margin_coverage_pct">Cobertura margen</th>
                         </tr></thead>
                         <tbody id="performanceRows"></tbody>
                     </table>
@@ -321,8 +329,9 @@
                 <div class="panel-title">
                     <div><h2>Evolución mensual</h2><div class="small">Mes seleccionado y tres meses anteriores</div></div>
                 </div>
-                <div class="table-wrap">
-                    <table>
+                <div class="table-scroll-top is-hidden" data-scroll-target="performanceEvolutionWrap" aria-hidden="true"><div></div></div>
+                <div class="table-wrap" id="performanceEvolutionWrap">
+                    <table class="performance-evolution-table">
                         <thead><tr>
                             <th>Mes</th><th class="num">Leads</th><th class="num">Oportunidades</th><th class="num">Reservas</th>
                             <th class="num">Activas</th><th class="num">Ventas</th><th class="num">Cancelaciones</th><th class="num">Cumplimiento</th>
@@ -342,16 +351,8 @@
                     </div>
                     <button type="button" class="filter-reset" id="loadPerformanceAudit">Cargar auditoría</button>
                 </div>
-                <div class="notice is-hidden" id="performanceAuditStatus"></div>
-                <div class="table-wrap performance-audit-wrap">
-                    <table class="performance-audit-table">
-                        <thead><tr>
-                            <th>Evento</th><th>Fecha</th><th>ID Lead</th><th>ID oportunidad</th>
-                            <th>Responsable</th><th>Delegación / cobertura</th><th>Contado</th><th>Incidencia / exclusión</th>
-                        </tr></thead>
-                        <tbody id="performanceAuditRows"><tr><td colspan="8">Carga bajo demanda.</td></tr></tbody>
-                    </table>
-                </div>
+                <div class="performance-note performance-note--info is-hidden" id="performanceAuditStatus"></div>
+                <div id="performanceAuditResult" class="is-hidden"></div>
             </section>
         </section>
         @endif

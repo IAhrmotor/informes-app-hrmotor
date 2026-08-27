@@ -4,6 +4,30 @@ let reservationsReloadController = null;
 let latestReservationsReloadRequestId = 0;
 let performanceReloadController = null;
 let latestPerformanceReloadRequestId = 0;
+const performanceColumnsStorageKey = 'reservationsSalesCommercialPerformanceColumnsV1';
+const performanceColumnDefinitions = [
+    { key: 'ranking', label: 'Ranking' },
+    { key: 'traffic_light', label: 'Semáforo', alwaysVisible: true },
+    { key: 'commercial', label: 'Comercial', alwaysVisible: true },
+    { key: 'delegation', label: 'Delegación', defaultVisible: true },
+    { key: 'zone', label: 'Zona' },
+    { key: 'leads', label: 'Leads', defaultVisible: true },
+    { key: 'opportunities', label: 'Oportunidades', defaultVisible: true },
+    { key: 'reservations_total', label: 'Reservas', defaultVisible: true },
+    { key: 'reservations_active', label: 'Activas', defaultVisible: true },
+    { key: 'objective', label: 'Objetivo' },
+    { key: 'fulfillment_pct', label: 'Cumplimiento', defaultVisible: true },
+    { key: 'lead_to_reservation_pct', label: 'Lead → Reserva' },
+    { key: 'opportunity_to_reservation_pct', label: 'Oportunidad → Reserva' },
+    { key: 'sales', label: 'Ventas', defaultVisible: true },
+    { key: 'reservation_to_sale_pct', label: 'Reserva → Venta' },
+    { key: 'cancellations', label: 'Cancelaciones' },
+    { key: 'cancellation_pct', label: '% cancelación' },
+    { key: 'margin_total', label: 'Margen total', defaultVisible: true },
+    { key: 'average_margin_per_sale', label: 'Margen medio', defaultVisible: true },
+    { key: 'margin_coverage_pct', label: 'Cobertura margen' },
+];
+let performanceVisibleColumns = loadVisibleColumns(performanceColumnsStorageKey, performanceColumnDefinitions);
 const reservationsCommercialColumnsStorageKey = 'reservationsCommercialColumns';
 const reservationsCommercialColumnDefinitions = [
     { key: 'comercial', label: 'Comercial', alwaysVisible: true },
@@ -77,6 +101,7 @@ function setFilterMode(panelId) {
     const delegationLabel = document.getElementById('commercialDelegationLabel');
     if (delegationLabel) delegationLabel.textContent = performanceMode ? 'Delegación' : 'Delegacion comercial';
     toggleCustomPeriods();
+    if (performanceMode) refreshPerformanceScrolls();
 }
 
 function isCommercialPerformanceMode() {
@@ -86,6 +111,9 @@ function isCommercialPerformanceMode() {
 function bindCommercialPerformance() {
     if (!window.reportUserCanViewCommercialPerformance) return;
 
+    initPerformanceColumns();
+    initPerformanceScrolls();
+    window.addEventListener('resize', refreshPerformanceScrolls);
     document.getElementById('performanceMonth')?.addEventListener('change', reloadCommercialPerformance);
 
     document.getElementById('savePerformanceTarget')?.addEventListener('click', saveCommercialPerformanceTarget);
@@ -107,7 +135,9 @@ async function reloadCommercialPerformance() {
     const controller = new AbortController();
     performanceReloadController = controller;
     const requestId = ++latestPerformanceReloadRequestId;
+    invalidatePerformanceAudit();
     document.getElementById('performanceLoading')?.classList.remove('is-hidden');
+    document.getElementById('performanceLoadError')?.classList.add('is-hidden');
 
     try {
         const data = await fetchJson(`/informes/reservas-ventas/data/commercial-performance?${commercialPerformanceQuery()}`, {
@@ -123,9 +153,9 @@ async function reloadCommercialPerformance() {
         renderCommercialPerformance(data);
     } catch (error) {
         if (error?.name !== 'AbortError') {
-            const warning = document.getElementById('performanceQualityWarning');
-            warning.textContent = error?.message || 'No se pudo cargar el rendimiento comercial.';
-            warning.classList.remove('is-hidden');
+            const loadError = document.getElementById('performanceLoadError');
+            loadError.textContent = error?.message || 'No se pudo cargar el rendimiento comercial.';
+            loadError.classList.remove('is-hidden');
         }
     } finally {
         if (requestId === latestPerformanceReloadRequestId) {
@@ -164,6 +194,8 @@ function renderCommercialPerformance(data) {
     renderPerformanceKpis(data.summary || {});
     renderPerformanceRows(data.items || []);
     renderPerformanceEvolution(data.evolution || []);
+    applyPerformanceColumnVisibility();
+    refreshPerformanceScrolls();
 
     const quality = data.data_quality || {};
     const coverageNotice = document.getElementById('performanceCancellationCoverage');
@@ -183,7 +215,8 @@ function renderCommercialPerformance(data) {
     if (!quality.cancellations_available) messages.push(`Cancelaciones no evaluables: cobertura OpportunityHistory ${quality.cancellation_coverage_status || 'no certificada'}.`);
     if (Number(quality.cancellation_unresolved_dependencies || 0) > 0) messages.push(`${formatNumber(quality.cancellation_unresolved_dependencies)} dependencias de Opportunity no resueltas impiden certificar el KPI.`);
     if (Number(quality.invalid_cancellation_chronology || 0) > 0) messages.push(`${formatNumber(quality.invalid_cancellation_chronology)} transiciones tienen una reserva posterior y se excluyen como incidencia.`);
-    if (uncertified > 0) messages.push(`${formatNumber(uncertified)} eventos sin delegación histórica certificable; no se han retroatribuido ni incluido en medias/ranking.`);
+    if (uncertified > 0) messages.push(`${formatNumber(uncertified)} eventos sin asignación histórica evaluable; conservan su actividad individual y quedan fuera del ranking de equipo.`);
+    if (Number(quality.organisation_changes_within_month || 0) > 0) messages.push(`${formatNumber(quality.organisation_changes_within_month)} comerciales cambiaron de delegación o zona durante el mes; no se ha elegido una asignación mensual arbitraria.`);
     if (conflicts > 0) messages.push(`${formatNumber(conflicts)} incidencias de atribución permanecen fuera del ranking individual.`);
     warning.textContent = messages.join(' ');
     warning.classList.toggle('is-hidden', messages.length === 0);
@@ -194,6 +227,8 @@ async function reloadCommercialPerformanceAudit() {
     const status = document.getElementById('performanceAuditStatus');
     button.disabled = true;
     status.textContent = 'Cargando auditoría local...';
+    status.classList.remove('performance-note--error');
+    status.classList.add('performance-note--info');
     status.classList.remove('is-hidden');
 
     try {
@@ -207,16 +242,33 @@ async function reloadCommercialPerformanceAudit() {
         status.textContent = `${formatNumber(data.pagination?.total || 0)} eventos auditables. Cobertura cancelaciones: ${data.coverage_status || '-'}.`;
     } catch (error) {
         status.textContent = error?.message || 'No se pudo cargar la auditoría.';
+        status.classList.remove('performance-note--info');
+        status.classList.add('performance-note--error');
     } finally {
         button.disabled = false;
     }
 }
 
 function renderCommercialPerformanceAudit(data) {
+    const result = document.getElementById('performanceAuditResult');
+    result.innerHTML = `
+        <div class="table-scroll-top is-hidden" data-scroll-target="performanceAuditWrap" aria-hidden="true"><div></div></div>
+        <div class="table-wrap performance-audit-wrap" id="performanceAuditWrap">
+            <table class="performance-audit-table">
+                <thead><tr>
+                    <th>Evento</th><th>Fecha</th><th>ID Lead</th><th>ID oportunidad</th>
+                    <th>Responsable</th><th>Delegación / cobertura</th><th>Contado</th><th>Incidencia / exclusión</th>
+                </tr></thead>
+                <tbody id="performanceAuditRows"></tbody>
+            </table>
+        </div>`;
+    result.classList.remove('is-hidden');
     const root = document.getElementById('performanceAuditRows');
     const rows = data.items || [];
     if (!rows.length) {
         root.innerHTML = '<tr><td colspan="8">No hay eventos auditables para el filtro.</td></tr>';
+        initPerformanceScrolls();
+        refreshPerformanceScrolls();
         return;
     }
 
@@ -224,9 +276,38 @@ function renderCommercialPerformanceAudit(data) {
         <td>${escapeHtml(row.event_type || '-')}</td><td>${escapeHtml(formatDate(row.event_at))}</td>
         <td>${escapeHtml(row.lead_id || '-')}</td><td>${escapeHtml(row.opportunity_id || '-')}</td>
         <td><strong>${escapeHtml(row.commercial || '-')}</strong><br><small>${escapeHtml(row.commercial_id || '-')}</small></td>
-        <td>${escapeHtml(row.delegation || '-')}<br><small>${escapeHtml(row.coverage_status || (row.delegation_certified ? 'certificada' : 'no certificable'))}</small></td>
+        <td>${escapeHtml(row.delegation || '-')}<br><small>${escapeHtml(formatDelegationStatus(row.delegation_status, row.delegation_issue))}</small></td>
         <td>${row.counted_in_metric ? 'Sí' : 'No'}</td><td>${escapeHtml(row.exclusion_reason || row.deduplication_status || '-')}<br><small>${escapeHtml(row.metric_attribution || '-')}</small></td>
     </tr>`).join('');
+    initPerformanceScrolls();
+    refreshPerformanceScrolls();
+}
+
+function formatDelegationStatus(status, issue) {
+    const labels = {
+        observed: 'Observada',
+        bootstrap_approved: 'Bootstrap aprobado',
+        not_certifiable: 'No certificable',
+    };
+    const issues = {
+        incomplete_history: 'Cobertura incompleta',
+        organisation_change_within_month: 'Cambio intramensual',
+        missing_commercial_identity: 'Identidad no disponible',
+        future_period: 'Periodo futuro',
+    };
+    const label = labels[status] || 'No certificable';
+    const detail = issues[issue];
+
+    return detail ? `${label} · ${detail}` : label;
+}
+
+function invalidatePerformanceAudit() {
+    const result = document.getElementById('performanceAuditResult');
+    if (result) {
+        result.innerHTML = '';
+        result.classList.add('is-hidden');
+    }
+    document.getElementById('performanceAuditStatus')?.classList.add('is-hidden');
 }
 
 function renderPerformanceFilters(filters) {
@@ -270,31 +351,32 @@ function renderPerformanceKpis(summary) {
 function renderPerformanceRows(rows) {
     const root = document.getElementById('performanceRows');
     if (!rows.length) {
-        root.innerHTML = '<tr><td colspan="26">No hay actividad comercial para los filtros seleccionados.</td></tr>';
+        root.innerHTML = `<tr><td colspan="${performanceVisibleColumns.length}">No hay actividad comercial para los filtros seleccionados.</td></tr>`;
         return;
     }
 
     root.innerHTML = rows.map((row) => `<tr>
-        <td class="num">${escapeHtml(row.ranking ?? '-')}</td>
-        <td>${performanceLight(row.traffic_light)}</td>
-        <td><strong>${escapeHtml(row.commercial || '-')}</strong></td><td>${escapeHtml(row.delegation || '-')}</td><td>${escapeHtml(row.zone || '-')}</td>
-        <td class="num">${formatNumber(row.leads)}</td><td class="num">${formatNumber(row.opportunities)}</td><td class="num">${formatNumber(row.reservations_total)}</td><td class="num">${formatNumber(row.reservations_active)}</td>
-        <td class="num">${formatNumber(row.objective)}</td><td class="num">${formatPercent(row.fulfillment_pct)}</td><td class="num">${formatNumber(row.delegation_average_reservations)}</td><td class="num">${formatSignedNumber(row.delegation_reservations_deviation)}</td>
-        <td class="num">${formatPercent(row.lead_to_reservation_pct)}</td><td class="num">${formatPercent(row.delegation_lead_to_reservation_pct)}</td>
-        <td class="num">${formatPercent(row.opportunity_to_reservation_pct)}</td><td class="num">${formatPercent(row.delegation_opportunity_to_reservation_pct)}</td>
-        <td class="num">${formatNumber(row.sales)}</td><td class="num">${formatPercent(row.reservation_to_sale_pct)}</td><td class="num">${formatPercent(row.delegation_reservation_to_sale_pct)}</td>
-        <td class="num">${formatNumber(row.cancellations)}</td><td class="num">${formatPercent(row.cancellation_pct)}</td><td class="num">${formatPercent(row.delegation_cancellation_pct)}</td>
-        <td class="num">${formatCurrency(row.margin_total)}</td><td class="num">${formatCurrency(row.average_margin_per_sale)}</td><td class="num">${formatPercent(row.margin_coverage_pct)}</td>
+        <td class="num" data-column="ranking">${escapeHtml(row.ranking ?? '-')}</td>
+        <td data-column="traffic_light">${performanceLight(row.traffic_light)}</td>
+        <td data-column="commercial"><strong>${escapeHtml(row.commercial || '-')}</strong></td><td data-column="delegation">${escapeHtml(row.delegation || '-')}</td><td data-column="zone">${escapeHtml(row.zone || '-')}</td>
+        <td class="num" data-column="leads">${formatNumber(row.leads)}</td><td class="num" data-column="opportunities">${formatNumber(row.opportunities)}</td><td class="num" data-column="reservations_total">${formatNumber(row.reservations_total)}</td><td class="num" data-column="reservations_active">${formatNumber(row.reservations_active)}</td>
+        <td class="num" data-column="objective">${formatNumber(row.objective)}</td><td class="num" data-column="fulfillment_pct">${formatPercent(row.fulfillment_pct)}</td>
+        <td class="num" data-column="lead_to_reservation_pct">${formatPercent(row.lead_to_reservation_pct)}</td><td class="num" data-column="opportunity_to_reservation_pct">${formatPercent(row.opportunity_to_reservation_pct)}</td>
+        <td class="num" data-column="sales">${formatNumber(row.sales)}</td><td class="num" data-column="reservation_to_sale_pct">${formatPercent(row.reservation_to_sale_pct)}</td>
+        <td class="num" data-column="cancellations">${formatAvailableNumber(row.cancellations)}</td><td class="num" data-column="cancellation_pct">${formatAvailablePercent(row.cancellation_pct)}</td>
+        <td class="num" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">${formatCurrency(row.margin_total)}</td>
+        <td class="num" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">${formatCurrency(row.average_margin_per_sale)}</td>
+        <td class="num" data-column="margin_coverage_pct">${formatPercent(row.margin_coverage_pct)}</td>
     </tr>`).join('');
 }
 
 function renderPerformanceEvolution(rows) {
     const root = document.getElementById('performanceEvolutionRows');
     root.innerHTML = rows.map((row) => `<tr>
-        <td><strong>${escapeHtml(row.month)}</strong></td><td class="num">${formatNumber(row.leads)}</td><td class="num">${formatNumber(row.opportunities)}</td>
-        <td class="num">${formatNumber(row.reservations_total)}</td><td class="num">${formatNumber(row.reservations_active)}</td><td class="num">${formatNumber(row.sales)}</td><td class="num">${formatNumber(row.cancellations)}</td>
+        <td title="${escapeHtml(formatPerformanceMonth(row.month, true))}"><strong>${escapeHtml(formatPerformanceMonth(row.month))}</strong></td><td class="num">${formatNumber(row.leads)}</td><td class="num">${formatNumber(row.opportunities)}</td>
+        <td class="num">${formatNumber(row.reservations_total)}</td><td class="num">${formatNumber(row.reservations_active)}</td><td class="num">${formatNumber(row.sales)}</td><td class="num">${formatAvailableNumber(row.cancellations)}</td>
         <td class="num">${formatPercent(row.fulfillment_pct)}</td><td class="num">${formatPercent(row.lead_to_reservation_pct)}</td><td class="num">${formatPercent(row.opportunity_to_reservation_pct)}</td>
-        <td class="num">${formatPercent(row.reservation_to_sale_pct)}</td><td class="num">${formatPercent(row.cancellation_pct)}</td><td class="num">${formatCurrency(row.margin_total)}</td><td class="num">${formatCurrency(row.average_margin_per_sale)}</td>
+        <td class="num">${formatPercent(row.reservation_to_sale_pct)}</td><td class="num">${formatAvailablePercent(row.cancellation_pct)}</td><td class="num">${formatCurrency(row.margin_total)}</td><td class="num">${formatCurrency(row.average_margin_per_sale)}</td>
     </tr>`).join('');
 }
 
@@ -302,6 +384,99 @@ function performanceLight(value) {
     const labels = { green: 'Verde', yellow: 'Amarillo', orange: 'Naranja', red: 'Rojo' };
     if (!Object.hasOwn(labels, value)) return '-';
     return `<span class="performance-light performance-light--${value}">${labels[value]}</span>`;
+}
+
+function initPerformanceColumns() {
+    const button = document.getElementById('performanceColumnsButton');
+    const popover = document.getElementById('performanceColumnsPopover');
+    if (!button || !popover) return;
+
+    popover.innerHTML = performanceColumnDefinitions
+        .filter((column) => !column.alwaysVisible)
+        .map((column) => `
+            <label class="column-option switch-option">
+                <input type="checkbox" data-performance-column-toggle="${escapeHtml(column.key)}" ${performanceVisibleColumns.includes(column.key) ? 'checked' : ''}>
+                <span>${escapeHtml(column.label)}</span>
+            </label>`)
+        .join('');
+    applyPerformanceColumnVisibility();
+
+    button.addEventListener('click', () => {
+        const hidden = popover.classList.toggle('is-hidden');
+        button.setAttribute('aria-expanded', String(!hidden));
+    });
+    popover.addEventListener('change', (event) => {
+        const input = event.target.closest('[data-performance-column-toggle]');
+        if (!input) return;
+
+        const visible = new Set(performanceVisibleColumns);
+        input.checked ? visible.add(input.dataset.performanceColumnToggle) : visible.delete(input.dataset.performanceColumnToggle);
+        performanceVisibleColumns = performanceColumnDefinitions
+            .filter((column) => column.alwaysVisible || visible.has(column.key))
+            .map((column) => column.key);
+        localStorage.setItem(performanceColumnsStorageKey, JSON.stringify(performanceVisibleColumns));
+        applyPerformanceColumnVisibility();
+    });
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.columns-menu')) {
+            popover.classList.add('is-hidden');
+            button.setAttribute('aria-expanded', 'false');
+        }
+    });
+}
+
+function applyPerformanceColumnVisibility() {
+    document.querySelectorAll('#performanceTable [data-column]').forEach((cell) => {
+        cell.classList.toggle('is-hidden', !performanceVisibleColumns.includes(cell.dataset.column));
+    });
+    refreshPerformanceScrolls();
+}
+
+function initPerformanceScrolls() {
+    document.querySelectorAll('.table-scroll-top[data-scroll-target]').forEach((top) => {
+        if (top.dataset.scrollBound === 'true') return;
+        const bottom = document.getElementById(top.dataset.scrollTarget);
+        if (!bottom) return;
+
+        let syncing = false;
+        top.addEventListener('scroll', () => {
+            if (syncing) return;
+            syncing = true;
+            bottom.scrollLeft = top.scrollLeft;
+            syncing = false;
+        });
+        bottom.addEventListener('scroll', () => {
+            if (syncing) return;
+            syncing = true;
+            top.scrollLeft = bottom.scrollLeft;
+            syncing = false;
+        });
+        top.dataset.scrollBound = 'true';
+    });
+}
+
+function refreshPerformanceScrolls() {
+    window.requestAnimationFrame(() => {
+        document.querySelectorAll('.table-scroll-top[data-scroll-target]').forEach((top) => {
+            const bottom = document.getElementById(top.dataset.scrollTarget);
+            const spacer = top.firstElementChild;
+            if (!bottom || !spacer) return;
+
+            spacer.style.width = `${bottom.scrollWidth}px`;
+            top.classList.toggle('is-hidden', bottom.scrollWidth <= bottom.clientWidth + 1);
+            top.scrollLeft = bottom.scrollLeft;
+        });
+    });
+}
+
+function formatPerformanceMonth(value, includeYear = false) {
+    const [year, month] = String(value || '').split('-').map(Number);
+    if (!year || !month) return String(value || '-');
+
+    const date = new Date(Date.UTC(year, month - 1, 1));
+    return new Intl.DateTimeFormat('es-ES', includeYear
+        ? { month: 'long', year: 'numeric', timeZone: 'UTC' }
+        : { month: 'long', timeZone: 'UTC' }).format(date);
 }
 
 function bindResetFilters() {
@@ -960,6 +1135,14 @@ function formatPercent(value) {
     return `${Number(value).toFixed(1)}%`;
 }
 
+function formatAvailableNumber(value) {
+    return value === null || value === undefined ? 'N/D' : formatNumber(value);
+}
+
+function formatAvailablePercent(value) {
+    return value === null || value === undefined ? 'N/D' : formatPercent(value);
+}
+
 function formatCurrency(value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
         return '-';
@@ -1045,7 +1228,9 @@ function escapeHtml(value) {
 }
 
 function loadVisibleColumns(storageKey, definitions) {
-    const defaultColumns = definitions.filter((column) => column.alwaysVisible).map((column) => column.key);
+    const defaultColumns = definitions
+        .filter((column) => column.alwaysVisible || column.defaultVisible)
+        .map((column) => column.key);
 
     try {
         const stored = JSON.parse(localStorage.getItem(storageKey) || '[]');

@@ -1,5 +1,84 @@
 # Handoff para agentes
 
+## Segunda iteración de Rendimiento comercial (2026-08-27)
+
+- Bootstrap: `CommercialDelegationSnapshotService` materializa, de forma
+  idempotente, un intervalo cerrado desde `2026-04-01 00:00 Europe/Madrid` hasta
+  la primera observación fiable. Usa `business_bootstrap_2026_04`, no modifica
+  observaciones reales y excluye IDs sin dimensiones o con historia previa
+  contradictoria; este último caso abre `commercial_bootstrap_conflict` para
+  conservar la incidencia. La réplica local inspeccionada tenía 0 snapshots, por lo que
+  no existían usuarios locales bootstrapables ni IDs que clasificar sin ejecutar
+  el sync Salesforce (prohibido en esta tarea). `captureCurrentUsers()` ya no
+  invoca esta operación: el comando solo la ejecuta tras la captura observada
+  cuando recibe `--bootstrap-performance-history`. El scheduler cada 15 minutos
+  conserva `--days=2` sin la opción, por lo que altas posteriores no se
+  retroatribuyen a abril. La reejecución explícita también está protegida: la
+  cohorte inicial exige que el primer snapshot observado del usuario coincida
+  exactamente con el mínimo `observed_from` global. Los usuarios posteriores
+  se devuelven en `not_initial_cohort`; una observación inicial incompleta no se
+  rellena usando otra posterior.
+- Organización: bootstrap y observación son asignaciones evaluables y quedan
+  diferenciados en `delegation_status`; los huecos/cambios son
+  `not_certifiable`. Un cambio observado cierra/abre intervalos y genera una
+  alerta `commercial_organisation_change` de severidad `low`, deduplicada por
+  ID técnico, instante y dimensiones. Un cambio dentro del mes conserva la fila
+  individual, excluye ranking y muestra una nota ámbar.
+- Auditoría/calidad: cada evento conserva `delegation_certified` por
+  compatibilidad y añade `delegation_status` (`observed`,
+  `bootstrap_approved`, `not_certifiable`) y `delegation_issue`. La UI muestra
+  Observada, Bootstrap aprobado o No certificable. El payload separa las fechas
+  `delegation_history_evaluable_from`, `delegation_history_observed_from` y
+  `delegation_history_bootstrap_from`; el nombre legacy se conserva sin usarlo
+  para presentar el bootstrap como certificación Salesforce.
+- Filtros: Comercial parte de todas las identidades comerciales válidas del mes,
+  incluso sin delegación evaluable. Zona/Delegación solo parten de observación o
+  bootstrap. No cambian los controles compartidos ni los datasets legacy.
+- Cancelaciones: la inspección local contó 382 transiciones (291 `valid`, 80
+  `opportunity_not_local`, 7 `reservation_not_demonstrated`, 3
+  `reservation_after_transition` y 1 `previous_stage_not_demonstrated`). Había
+  cuatro intervalos no certificados con 81 dependencias y uno certificado. La
+  UI muestra `N/D` para null y reserva 0 a períodos cubiertos.
+- Resolución por ID: History solicita solo Opportunities ausentes en chunks de
+  100 mediante `SalesforceOpportunitySyncService::syncBySalesforceIds()`, que
+  comparte SELECT, retry del email opcional, resolución de Lead y persistencia
+  canónica. Recarga y reclasifica en el mismo run; los IDs no devueltos siguen
+  como dependencia auditable.
+- UI: se retiraron todas las medias de delegación; 11 columnas son visibles por
+  defecto y Semáforo/Comercial son obligatorias. Las preferencias opcionales
+  usan `reservationsSalesCommercialPerformanceColumnsV1`. Margen incluye ayuda,
+  Evolución localiza el mes al español, los avisos separan información/calidad/
+  error, la auditoría crea su tabla solo tras carga manual y se invalida al
+  cambiar filtros. Las tres tablas anchas sincronizan scroll superior e inferior.
+- Base de datos/configuración: sin migraciones, backfills, Salesforce ni cambios
+  de entorno. No se alteró ningún snapshot local.
+- Seguridad/rendimiento: no hay PII de cliente en alertas, IDs SOQL escapados,
+  lotes acotados, ninguna red desde HTTP y ninguna petición nueva al cambiar
+  columnas. Se mantienen autorización, CSRF y contratos existentes.
+- Validación final de cohorte: snapshots/roster/comando 10/10 (74 aserciones);
+  Rendimiento/CampaignCommands/Opportunity/History 61/61 (470); consumidores
+  transversales de Leads, Comisiones, Area Manager y Llamadas 66/66 (474);
+  suite completa 700/700 (5.267). Pint correcto y limitado a los cuatro PHP
+  modificados en este correctivo. `composer audit --locked --no-dev` sin
+  advisories. No se repitió Vite porque no cambió frontend: el último build
+  aprobado permanece vigente y el manifest referencia únicamente los bundles
+  `reservations-sales-dashboard-DX5Bsl6G.css` y
+  `reservations-sales-dashboard-BXx1OBp9.js`. Los dos anteriores del módulo se
+  eliminaron y los bundles de módulos ajenos generados por Vite se restauraron.
+  La validación local en navegador confirmó la carga lazy de 8.011 eventos, el
+  texto visible `No certificable · Cobertura incompleta` y cero errores de consola;
+  las etiquetas Observada y Bootstrap aprobado están cubiertas por pruebas con
+  snapshots controlados, sin modificar la BD local.
+- Despliegue: revisar/aprobar todas las migraciones pendientes; ejecutar una vez
+  `salesforce:sync-monthly-commercial --days=2 --bootstrap-performance-history`,
+  conciliar observados/creados/omitidos/conflictos y dejar después el scheduler
+  sin opción. Ejecutar rangos mensuales contiguos desde abril con `--to` exclusivo, medir filas,
+  duración y llamadas, y validar por mes transiciones/calidad/cobertura antes de
+  continuar. La recuperación por ID evita ampliar fechas a ciegas.
+- Riesgos: la retención de OpportunityHistory y primeras filas sin etapa previa
+  pueden impedir certificar meses; un usuario solo puede bootstrapearse después
+  de existir una primera observación normalizada y no contradictoria.
+
 ## Aislamiento CI de salesforce:sync-opportunities (2026-08-27)
 
 - Causa: `CampaignCommandsTest` mockeaba usuarios y Opportunities, pero no el

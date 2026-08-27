@@ -200,6 +200,27 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertJsonPath('items.0.fulfillment_pct', 50);
     }
 
+    public function test_margen_medio_usa_solo_ventas_con_margen_informado(): void
+    {
+        $this->commercial('005-margin', 'Comercial margen');
+        $this->snapshot('005-margin', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        foreach ([2000, 1500, null] as $index => $margin) {
+            $this->opportunity('006-margin-'.$index, [
+                'owner_id' => '005-margin', 'owner_name' => 'Comercial margen',
+                'cv_signed' => true, 'cv_signed_date' => '2026-08-10',
+                'informe_rentabilidad' => $margin,
+            ]);
+        }
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('items.0.sales', 3)
+            ->assertJsonPath('items.0.margin_total', 3500)
+            ->assertJsonPath('items.0.average_margin_per_sale', 1750)
+            ->assertJsonPath('items.0.sales_with_margin', 2)
+            ->assertJsonPath('items.0.sales_without_margin', 1);
+    }
+
     public function test_objetivo_es_mensual_tiene_default_y_validacion_protegida(): void
     {
         $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
@@ -332,6 +353,13 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringNotContainsString('performanceZone', $html);
         $this->assertStringNotContainsString('performanceDelegation', $html);
         $this->assertStringNotContainsString('performanceCommercial', $html);
+        $this->assertStringContainsString('id="performanceColumnsButton"', $html);
+        $this->assertStringContainsString('Añadir o quitar columnas', $html);
+        $this->assertStringNotContainsString('Media reservas deleg.', $html);
+        $this->assertStringNotContainsString('Media deleg.', $html);
+        $this->assertStringNotContainsString('Carga bajo demanda.', $html);
+        $this->assertStringNotContainsString('id="performanceAuditRows"', $html);
+        $this->assertSame(2, substr_count($html, 'class="table-scroll-top is-hidden"'));
 
         $viewer = $this->reportUser(ReportUser::ROLE_VIEWER, 'viewer-ui-performance@example.test');
         $viewerHtml = $this->withSession($this->sessionFor($viewer))
@@ -355,6 +383,17 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString("setParam(params, 'commercial', document.getElementById('commercial').value)", $javascript);
         $this->assertStringContainsString('if (isCommercialPerformanceMode())', $javascript);
         $this->assertStringContainsString("isCommercialPerformanceMode() || document.getElementById('period')?.value !== 'custom'", $javascript);
+        $this->assertStringContainsString('reservationsSalesCommercialPerformanceColumnsV1', $javascript);
+        $this->assertStringContainsString("{ key: 'traffic_light', label: 'Semáforo', alwaysVisible: true }", $javascript);
+        $this->assertStringContainsString('function formatPerformanceMonth', $javascript);
+        $this->assertStringContainsString("return value === null || value === undefined ? 'N/D'", $javascript);
+        $this->assertStringContainsString('function invalidatePerformanceAudit', $javascript);
+        $this->assertStringContainsString('function initPerformanceScrolls', $javascript);
+        $this->assertStringContainsString("bootstrap_approved: 'Bootstrap aprobado'", $javascript);
+        $this->assertStringContainsString("observed: 'Observada'", $javascript);
+        $this->assertStringContainsString("not_certifiable: 'No certificable'", $javascript);
+        $this->assertStringNotContainsString('delegation_average_reservations', $javascript);
+        $this->assertStringNotContainsString('delegation_lead_to_reservation_pct', $javascript);
 
         $resetBlock = substr($javascript, strpos($javascript, 'function bindResetFilters()'), strpos($javascript, 'function bindFilters()') - strpos($javascript, 'function bindResetFilters()'));
         $this->assertStringNotContainsString("document.getElementById('performanceTarget').value", $resetBlock);
@@ -374,8 +413,36 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertOk()
             ->assertJsonPath('items.0.delegation', 'Histórico no certificable')
             ->assertJsonPath('items.0.delegation_certified', false)
+            ->assertJsonPath('items.0.delegation_status', 'not_certifiable')
             ->assertJsonPath('items.0.ranking', null)
-            ->assertJsonPath('items.0.delegation_average_reservations', null);
+            ->assertJsonPath('items.0.delegation_average_reservations', null)
+            ->assertJsonPath('filters.commercials.0.id', '005-historic');
+    }
+
+    public function test_bootstrap_aprobado_habilita_zona_delegacion_y_ranking_sin_llamarlo_observado(): void
+    {
+        $this->commercial('005-bootstrap-filter', 'Comercial bootstrap');
+        CommercialDelegationSnapshot::query()->create([
+            'salesforce_user_id' => '005-bootstrap-filter', 'delegation' => 'Alicante', 'zone' => 'Zona Mediterraneo',
+            'observed_from' => '2026-03-31 22:00:00', 'observed_until' => '2026-08-01 00:00:00',
+            'source' => CommercialDelegationSnapshotService::SOURCE_BUSINESS_BOOTSTRAP,
+        ]);
+        CommercialDelegationSnapshot::query()->create([
+            'salesforce_user_id' => '005-bootstrap-filter', 'delegation' => 'Alicante', 'zone' => 'Zona Mediterraneo',
+            'observed_from' => '2026-08-01 00:00:00',
+            'source' => CommercialDelegationSnapshotService::SOURCE_OBSERVED,
+        ]);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-07')
+            ->assertOk()
+            ->assertJsonPath('items.0.delegation_status', 'bootstrap_approved')
+            ->assertJsonPath('items.0.ranking', 1)
+            ->assertJsonPath('filters.zones.0', 'Zona Mediterraneo')
+            ->assertJsonPath('filters.delegations.0', 'Alicante')
+            ->assertJsonPath('filters.commercials.0.id', '005-bootstrap-filter')
+            ->assertJsonPath('data_quality.delegation_history_evaluable_from', '2026-03-31 22:00:00')
+            ->assertJsonPath('data_quality.delegation_history_bootstrap_from', '2026-03-31 22:00:00')
+            ->assertJsonPath('data_quality.delegation_history_observed_from', '2026-08-01 00:00:00');
     }
 
     public function test_universo_incluye_venta_cambio_lead_ayvens_y_excluye_tasacion(): void
@@ -866,8 +933,52 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertJsonPath('pii_excluded', true)
             ->assertJsonPath('items.0.lead_id', '00Q-audit')
             ->assertJsonPath('items.0.commercial_id', '005-audit')
-            ->assertJsonPath('items.0.delegation', 'Alicante');
+            ->assertJsonPath('items.0.delegation', 'Alicante')
+            ->assertJsonPath('items.0.delegation_status', 'observed')
+            ->assertJsonPath('items.0.delegation_issue', null);
         $this->assertStringNotContainsString('PII que no debe salir', $response->getContent());
+    }
+
+    public function test_auditoria_distingue_observacion_bootstrap_y_no_certificable(): void
+    {
+        foreach ([
+            ['005-audit-observed', 'Audit observed'],
+            ['005-audit-bootstrap', 'Audit bootstrap'],
+            ['005-audit-uncertified', 'Audit uncertified'],
+        ] as [$id, $name]) {
+            $this->commercial($id, $name);
+            SalesforceLead::query()->create([
+                'salesforce_id' => '00Q-'.$id, 'name' => 'Dato excluido de respuesta',
+                'created_date' => '2026-08-01', 'fecha_asignacion' => '2026-08-05',
+                'status' => 'Potencial', 'record_type_name' => 'Venta', 'record_type_normalized' => 'venta',
+                'owner_id' => $id, 'owner_name' => $name, 'is_deleted' => false,
+            ]);
+        }
+        CommercialDelegationSnapshot::query()->create([
+            'salesforce_user_id' => '005-audit-observed', 'delegation' => 'Alicante', 'zone' => 'Zona Mediterraneo',
+            'observed_from' => '2026-07-31 22:00:00', 'source' => CommercialDelegationSnapshotService::SOURCE_OBSERVED,
+        ]);
+        CommercialDelegationSnapshot::query()->create([
+            'salesforce_user_id' => '005-audit-bootstrap', 'delegation' => 'Alicante', 'zone' => 'Zona Mediterraneo',
+            'observed_from' => '2026-03-31 22:00:00', 'observed_until' => '2026-08-15 00:00:00',
+            'source' => CommercialDelegationSnapshotService::SOURCE_BUSINESS_BOOTSTRAP,
+        ]);
+        CommercialDelegationSnapshot::query()->create([
+            'salesforce_user_id' => '005-audit-bootstrap', 'delegation' => 'Alicante', 'zone' => 'Zona Mediterraneo',
+            'observed_from' => '2026-08-15 00:00:00', 'source' => CommercialDelegationSnapshotService::SOURCE_OBSERVED,
+        ]);
+
+        $items = collect($this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')
+            ->assertOk()
+            ->json('items'))
+            ->keyBy('commercial_id');
+
+        $this->assertSame('observed', $items['005-audit-observed']['delegation_status']);
+        $this->assertTrue($items['005-audit-observed']['delegation_certified']);
+        $this->assertSame('bootstrap_approved', $items['005-audit-bootstrap']['delegation_status']);
+        $this->assertTrue($items['005-audit-bootstrap']['delegation_certified']);
+        $this->assertSame('not_certifiable', $items['005-audit-uncertified']['delegation_status']);
+        $this->assertSame('incomplete_history', $items['005-audit-uncertified']['delegation_issue']);
     }
 
     public function test_auditoria_de_agosto_excluye_exactamente_el_limite_superior(): void
@@ -896,6 +1007,7 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringNotContainsString('captureCurrentUsers', $opportunitiesCommand);
         $this->assertStringContainsString('CommercialDelegationSnapshotService', $monthlyCommand);
         $this->assertStringContainsString('captureCurrentUsers', $monthlyCommand);
+        $this->assertStringNotContainsString('--bootstrap-performance-history', $scheduler);
     }
 
     private function commercial(string $id, string $name): void

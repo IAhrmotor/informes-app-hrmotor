@@ -235,6 +235,8 @@ class CommercialPerformanceAuditService
             'delegation' => $attribution['delegation'],
             'zone' => $attribution['zone'],
             'delegation_certified' => $attribution['delegation_certified'],
+            'delegation_status' => $attribution['delegation_status'],
+            'delegation_issue' => $attribution['delegation_issue'] ?? null,
             'coverage_status' => $coverageStatus,
             'counted_in_metric' => $counted,
             'exclusion_reason' => $exclusion,

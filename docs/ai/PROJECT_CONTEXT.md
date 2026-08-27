@@ -13,16 +13,28 @@ Actualizado: 2026-08-26.
   acredita cobertura continua antes de devolver cero cancelaciones. El mes
   actual termina en el último cutoff diario certificado; meses cerrados exigen
   el mes completo. Una Opportunity local ausente invalida el intervalo para KPI
-  y queda auditada, sin transformar la dependencia en cero.
+  y queda auditada, sin transformar la dependencia en cero. Durante el comando,
+  los IDs locales ausentes se recuperan en lotes mediante el mapeo canónico de
+  Opportunities y se reclasifican en la misma ejecución.
 - `commercial_delegation_snapshots` mantiene intervalos observados por Salesforce
-  User. La delegación actual no se aplica retrospectivamente; los períodos sin
-  intervalo completo y estable quedan no certificables y fuera de medias/ranking.
-  El roster certificado incluye comerciales sin actividad.
+  User y un bootstrap de negocio distinguible (`business_bootstrap_2026_04`)
+  desde 2026-04-01 cuando la primera asignación fiable carece de contradicciones.
+  Bootstrap y observación son evaluables; los períodos sin intervalo completo y
+  estable quedan no certificables. Los cambios abren una alerta operacional y
+  nunca fuerzan una delegación mensual. El roster evaluable incluye comerciales
+  sin actividad. La captura periódica solo crea observaciones; el bootstrap se
+  solicita una vez y de forma explícita con
+  `--bootstrap-performance-history`. Auditoría y calidad distinguen
+  `observed`, `bootstrap_approved` y `not_certifiable`, además de publicar por
+  separado el inicio evaluable, observado y bootstrap.
+  Una reejecución solo considera usuarios cuyo primer snapshot observado tenga
+  el `observed_from` mínimo global de la fotografía inicial; altas posteriores
+  se informan como `not_initial_cohort` y nunca se retroatribuyen.
 - `commercial_performance_monthly_targets` materializa el objetivo efectivo al
   primer uso y distingue default congelado de edición explícita.
 - El scheduler monitorizado ejecuta `salesforce:sync-opportunities --days=2
   --modified` a las 07:10 Europe/Madrid. Solo el sync mensual captura intervalos
-  de delegación. El sync refresca por ID usuarios conocidos que salgan del
+  de delegación y su scheduler no ejecuta bootstrap. El sync refresca por ID usuarios conocidos que salgan del
   perfil comercial, mantiene su `IsActive` real y cierra su snapshot. Render,
   auditoría y filtros consumen solo tablas locales.
 
