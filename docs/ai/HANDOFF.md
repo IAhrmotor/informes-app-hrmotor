@@ -18,6 +18,10 @@
   zona, consultas adicionales, llamadas externas ni segundo build.
 - Pruebas: cálculo 1.000 + 2.000 + 3.000 + 4.000 = 10.000 EUR y comisión de 4.000
   EUR; identidad, front global, restricción por zona, XLSX, snapshot y reapertura.
+  Focalizadas: `area_manager` 19/19 (111 aserciones),
+  `CommercialCommissionDashboardTest` 50/50 (398 aserciones) y
+  `CommissionMonthClosureTest` 9/9 (72 aserciones). Suite completa: 687/687
+  (5.152 aserciones). Pint y compilación Blade correctos.
 - Acciones manuales: ninguna. No requiere migración, backfill ni sincronización.
 
 ## Rendimiento comercial en Reservas / Ventas (2026-08-25)
