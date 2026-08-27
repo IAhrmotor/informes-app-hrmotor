@@ -1,5 +1,19 @@
 # Handoff para agentes
 
+## Aislamiento CI de salesforce:sync-opportunities (2026-08-27)
+
+- Causa: `CampaignCommandsTest` mockeaba usuarios y Opportunities, pero no el
+  nuevo `SalesforceOpportunityHistorySyncService`; el container resolvía el
+  servicio real y el comando terminaba en FAILURE al intentar Salesforce.
+- Corrección exclusivamente de test: History espera una llamada con
+  `2026-01-01` / `2026-02-01`, devuelve el contrato neutro completo y se valida
+  su salida. Opportunity espera además el tercer argumento `modified=false`.
+- Seguridad/producción: sin credenciales, conexiones externas, migraciones,
+  backfills ni cambios en comandos, servicios, workflows o lógica funcional.
+- Validación: caso focal 1/1 (9 aserciones), `CampaignCommandsTest` 18/18 (81),
+  Rendimiento 29/29 (246), HistorySync 4/4 (32), OpportunitySync 4/4 (48) y
+  suite CI completa 687/687 (5.154). Pint se limitó al test modificado.
+
 ## Comisión de Dirección Comercial en Area Manager (2026-08-26)
 
 - Tarea: se restaura la comisión de Oscar Ortega como el 40 % de la suma de los

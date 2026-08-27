@@ -11,6 +11,7 @@ use App\Services\Campaigns\CampaignLeadSyncService;
 use App\Services\Campaigns\GoogleCampaignSyncService;
 use App\Services\Campaigns\MetaCampaignSyncService;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyUsersSyncService;
+use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunityHistorySyncService;
 use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
@@ -390,9 +391,10 @@ class CampaignCommandsTest extends TestCase
         $this->mock(SalesforceOpportunitySyncService::class, function (MockInterface $mock): void {
             $mock->shouldReceive('sync')
                 ->once()
-                ->withArgs(function ($start, $end): bool {
+                ->withArgs(function ($start, $end, $modified): bool {
                     return $start->equalTo(CarbonImmutable::parse('2026-01-01')->startOfDay())
-                        && $end->equalTo(CarbonImmutable::parse('2026-02-01')->startOfDay());
+                        && $end->equalTo(CarbonImmutable::parse('2026-02-01')->startOfDay())
+                        && $modified === false;
                 })
                 ->andReturn([
                     'queried' => 0,
@@ -411,6 +413,23 @@ class CampaignCommandsTest extends TestCase
                 ]);
         });
 
+        $this->mock(SalesforceOpportunityHistorySyncService::class, function (MockInterface $mock): void {
+            $mock->shouldReceive('sync')
+                ->once()
+                ->withArgs(function ($start, $end): bool {
+                    return $start->equalTo(CarbonImmutable::parse('2026-01-01')->startOfDay())
+                        && $end->equalTo(CarbonImmutable::parse('2026-02-01')->startOfDay());
+                })
+                ->andReturn([
+                    'queried' => 0,
+                    'saved' => 0,
+                    'verified_cancellations' => 0,
+                    'covered_intervals' => 0,
+                    'unverifiable' => 0,
+                    'unresolved_dependencies' => 0,
+                ]);
+        });
+
         $this->artisan('salesforce:sync-campaign-leads', [
             '--from' => '2026-01-01',
             '--to' => '2026-02-01',
@@ -423,6 +442,7 @@ class CampaignCommandsTest extends TestCase
             '--to' => '2026-02-01',
         ])
             ->expectsOutputToContain('Periodo fin exclusivo: 2026-02-01T00:00:00Z')
+            ->expectsOutputToContain('OpportunityHistory consultados: 0')
             ->assertExitCode(0);
     }
 
