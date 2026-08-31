@@ -103,6 +103,7 @@ class CommercialCommissionDashboardService
         private readonly CommercialCommissionDelegationReviewsService $delegationReviews,
         private readonly CommercialFinancingPenaltyService $financingPenalties,
         private readonly CommissionMonthResolver $monthResolver,
+        private readonly DelegationManagerHistoryResolver $delegationManagers,
     ) {}
 
     public function build(
@@ -134,6 +135,11 @@ class CommercialCommissionDashboardService
         $delegationRows = $blockingIssues === [] && $includeDelegationRows
             ? $this->buildDelegationRows($periodStart, $periodEnd, $formulaSettings)
             : [];
+        foreach ($delegationRows as $delegationRow) {
+            if (filled($delegationRow['store_manager_alert'] ?? null)) {
+                $warnings[] = $delegationRow['store_manager_alert'];
+            }
+        }
 
         return [
             'ready' => $blockingIssues === [],
@@ -260,7 +266,7 @@ class CommercialCommissionDashboardService
     {
         $selectedMonth = $month instanceof CarbonImmutable
             ? $month->startOfMonth()
-            : CarbonImmutable::createFromFormat('Y-m', (string) $month)->startOfMonth();
+            : CarbonImmutable::createFromFormat('!Y-m', (string) $month)->startOfMonth();
         $periodStart = $selectedMonth->startOfMonth();
         $periodEnd = $periodStart->addMonth();
         $blockingIssues = $this->blockingIssues($selectedMonth);
@@ -1245,7 +1251,9 @@ class CommercialCommissionDashboardService
             ->values();
         $reviewsByDelegation = $this->delegationReviews->forMonthAndDelegations($periodStart, $delegationLabels);
 
-        return $delegationLabels->map(function (string $delegationLabel) use ($deliveriesByDelegation, $rentabilityOperationsByDelegation, $financialOperationsByDelegation, $configuredGoals, $formulaSettings, $reviewsByDelegation): array {
+        $managersByDelegation = $this->delegationManagers->resolve($periodStart, $delegationLabels->all());
+
+        return $delegationLabels->map(function (string $delegationLabel) use ($periodStart, $deliveriesByDelegation, $rentabilityOperationsByDelegation, $financialOperationsByDelegation, $configuredGoals, $formulaSettings, $reviewsByDelegation, $managersByDelegation): array {
             /** @var Collection<int, SalesforceOpportunity> $delegationOperations */
             $delegationOperations = $deliveriesByDelegation->get($delegationLabel, collect())->values();
             /** @var Collection<int, SalesforceOpportunity> $delegationRentabilityOperations */
@@ -1331,6 +1339,8 @@ class CommercialCommissionDashboardService
                 'reviews_average_rating' => $reviewsAverageRating,
                 'reviews_coverage_percentage' => $reviewsCoveragePercentage,
                 'reviews_commission_amount' => $reviewsCommissionAmount,
+                'reviews_technical_status' => $reviewsPayload['technical_status'] ?? 'not_available',
+                'reviews_fetched_at' => $reviewsPayload['fetched_at'] ?? null,
                 'financing_profitability_percentage' => $profitabilityRatio,
                 'profitability_bonus_percent' => round($profitabilityBonusPercent * 100, 2),
                 'profitability_bonus_amount' => $profitabilityBonusAmount,
@@ -1338,7 +1348,14 @@ class CommercialCommissionDashboardService
                 'financed_amount_bonus_percent' => round($financedAmountBonusPercent * 100, 2),
                 'financed_amount_bonus_amount' => $financedAmountBonusAmount,
                 'total_commission' => $totalCommission,
-            ];
+            ] + ($managersByDelegation[$this->formulaConfig->delegationKey($delegationLabel)] ?? [
+                'store_manager_salesforce_user_id' => null,
+                'store_manager_name' => null,
+                'store_manager_history_status' => 'unverified',
+                'store_manager_distinct_count' => null,
+                'store_manager_alert' => null,
+                'store_manager_evidence_count' => 0,
+            ]);
         })->sortByDesc('total_commission')->values()->all();
     }
 

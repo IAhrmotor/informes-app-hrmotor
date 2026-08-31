@@ -16,11 +16,28 @@ class CommercialCommissionClosure extends Model
 
     public const SCOPE_AREA_MANAGER = 'area_manager';
 
+    public const SCOPE_FINANCIALS = 'financials';
+
+    public const SCOPE_CALL_CENTER = 'call_center';
+
+    public const SCOPE_CONTACT_CENTER = 'contact_center';
+
     public const CLOSABLE_SCOPES = [
         self::SCOPE_COMMERCIALS,
         self::SCOPE_DELEGATIONS,
         self::SCOPE_AREA_MANAGER,
+        self::SCOPE_FINANCIALS,
+        self::SCOPE_CALL_CENTER,
+        self::SCOPE_CONTACT_CENTER,
     ];
+
+    public const LEGACY_SCOPES = [
+        self::SCOPE_COMMERCIALS,
+        self::SCOPE_DELEGATIONS,
+        self::SCOPE_AREA_MANAGER,
+    ];
+
+    public const EXTENDED_SCOPES_START = '2026-07-01';
 
     public const STATUS_PROVISIONAL = 'provisional';
 

@@ -49,6 +49,15 @@ $monitor(
     'sincronización diaria de Stock',
 );
 
+$monitor(
+    Schedule::command('salesforce:sync-delegation-managers --from=2026-07-01')
+        ->dailyAt('04:15')
+        ->timezone('Europe/Madrid')
+        ->withoutOverlapping(60),
+    'salesforce-sync-delegation-managers',
+    'sincronización de responsables de delegación',
+);
+
 // The query also includes old Leads modified in this window, so a short
 // incremental window refreshes status/owner/type/portal changes and deletions.
 $monitor(

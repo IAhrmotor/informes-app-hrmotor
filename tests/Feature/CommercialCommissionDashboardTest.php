@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\CommercialCommissionClosure;
 use App\Models\ReportUser;
+use App\Models\ReportSyncRun;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceReview;
 use App\Models\SalesforceUser;
@@ -101,12 +102,23 @@ class CommercialCommissionDashboardTest extends TestCase
             'cv_signed_date' => '2026-06-10',
         ]);
 
-        $this->withSession($this->authenticatedSession(ReportUser::ROLE_DIRECTOR))
+        $response = $this->withSession($this->authenticatedSession(ReportUser::ROLE_DIRECTOR))
             ->get('/informes/comisiones-comerciales?month=2026-06')
             ->assertOk()
             ->assertSee('Datos actualizados:')
             ->assertSee('Operaciones del mes')
-            ->assertSee('Venta mensual');
+            ->assertSee('Venta mensual')
+            ->assertSee('data-commercial-detail-tab-trigger="operations"', false)
+            ->assertSee('data-commercial-detail-tab-panel="operations"', false)
+            ->assertDontSee('class="table-shell is-hidden" data-commercial-detail-tab-panel="operations"', false);
+
+        $this->assertMatchesRegularExpression(
+            '/class="main-tab active" data-commercial-detail-tab-trigger="operations".*data-commercial-detail-tab-panel="operations"/s',
+            $response->getContent(),
+        );
+        $javascript = file_get_contents(resource_path('js/reports/commercial-commissions-dashboard.js'));
+        $this->assertStringContainsString("activate(triggers[0].dataset.commercialDetailTabTrigger);", $javascript);
+        $this->assertStringContainsString("detailPanel.dataset.commercialDetailTabPanel !== targetTab", $javascript);
     }
 
     public function test_area_manager_puede_entrar_y_viewer_no_ve_comisiones(): void
@@ -2273,10 +2285,16 @@ class CommercialCommissionDashboardTest extends TestCase
     public function test_area_manager_definitivo_congela_direccion_comercial_en_front_y_xlsx_y_reapertura_vuelve_al_vivo(): void
     {
         $this->seedAreaManagerDirectorScenario('2026-03');
+        ReportSyncRun::query()->create([
+            'dataset' => 'salesforce_opportunities', 'source' => 'salesforce', 'status' => 'completed',
+            'period_start_at' => '2026-03-01', 'period_end_at' => '2026-04-01',
+            'started_at' => now()->subMinute(), 'completed_at' => now(),
+            'timezone' => config('app.timezone'), 'stats' => ['queried' => 4, 'stored' => 4],
+        ]);
         $session = $this->authenticatedSession(ReportUser::ROLE_DIRECTOR);
         $director = ReportUser::query()->findOrFail($session['report_user_id']);
         $closureService = app(CommercialCommissionClosureService::class);
-        $components = array_fill_keys(CommercialCommissionClosureService::REQUIRED_COMPONENTS, true);
+        $components = array_fill_keys(array_keys($closureService->requiredComponents(CommercialCommissionClosure::SCOPE_AREA_MANAGER)), true);
 
         $closureService->prepare('2026-03', CommercialCommissionClosure::SCOPE_AREA_MANAGER, $components, $director);
         $closureService->approve('2026-03', CommercialCommissionClosure::SCOPE_AREA_MANAGER, $director);

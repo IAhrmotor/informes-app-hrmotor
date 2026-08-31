@@ -310,7 +310,7 @@ class CallCenterCommissionDashboardTest extends TestCase
         $this->assertStringNotContainsString('sin Captador__c', collect($payload['warnings'])->implode(' | '));
     }
 
-    public function test_director_puede_exportar_csv_de_oportunidades_sin_captador_para_auditoria(): void
+    public function test_director_no_puede_exportar_csv_detallado_de_oportunidades_sin_captador(): void
     {
         config()->set('services.informes_auth.enabled', true);
 
@@ -327,20 +327,12 @@ class CallCenterCommissionDashboardTest extends TestCase
 
         $session = $this->authenticatedSession(ReportUser::ROLE_DIRECTOR);
 
-        $response = $this->withSession($session)
+        $this->withSession($session)
             ->get('/informes/comisiones-comerciales/export/call-center-missing-captador.csv?month=2026-05')
-            ->assertOk()
-            ->assertHeader('content-type', 'text/csv; charset=UTF-8')
-            ->assertDownload('call-center-sin-captador-2026-05.csv');
-
-        $content = $response->streamedContent();
-
-        $this->assertStringContainsString('Opportunity Id', $content);
-        $this->assertStringContainsString('CC-CSV-1', $content);
-        $this->assertStringContainsString('Venta CSV', $content);
+            ->assertForbidden();
     }
 
-    public function test_director_ve_call_center_sin_cuadro_de_diagnostico_y_resync(): void
+    public function test_director_no_puede_forzar_la_pestana_detallada_de_call_center(): void
     {
         config()->set('services.informes_auth.enabled', true);
 
@@ -363,9 +355,10 @@ class CallCenterCommissionDashboardTest extends TestCase
         $this->withSession($session)
             ->get('/informes/comisiones-comerciales?tab=call-center&month=2026-05')
             ->assertOk()
+            ->assertViewHas('activeCommissionTab', 'summary')
             ->assertDontSee('Diagnostico y resync')
             ->assertDontSee('salesforce:sync-tasaciones')
-            ->assertSee('Negociaciones German');
+            ->assertSee('aria-disabled="true"', false);
     }
 
     private function authenticatedSession(string $role): array

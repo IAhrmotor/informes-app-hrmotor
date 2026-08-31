@@ -3346,6 +3346,14 @@ th.num {
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 
+.commercial-commissions-report .commission-approval-scope {
+    padding: 18px 0;
+}
+
+.commercial-commissions-report .commission-approval-scope + .commission-approval-scope {
+    border-top: 1px solid rgba(31, 41, 68, .10);
+}
+
 .commercial-commissions-report .commission-penalty-text {
     color: #c81426 !important;
 }
@@ -4044,4 +4052,73 @@ th.num {
     .commercial-commissions-report .call-center-agent-hero {
         grid-template-columns: 1fr;
     }
+}
+.commission-closure-table-shell {
+    overflow-x: auto;
+}
+
+.commission-closure-table {
+    min-width: 880px;
+}
+
+.commission-closure-table td {
+    vertical-align: top;
+}
+
+.commission-source-state + .commission-source-state {
+    margin-top: .35rem;
+}
+
+.commission-source-error {
+    color: var(--danger, #b42318);
+    margin-top: .35rem;
+}
+
+.commission-source-warning {
+    color: #9a5b13;
+    margin-top: .35rem;
+}
+
+.commission-exception-actions {
+    margin-top: .55rem;
+}
+
+.commission-exception-actions summary {
+    color: var(--muted, #667085);
+    cursor: pointer;
+    font-size: .78rem;
+}
+
+.commission-exception-form {
+    display: grid;
+    gap: .5rem;
+    margin-top: .55rem;
+    min-width: 230px;
+}
+
+.commission-exception-form label {
+    display: grid;
+    gap: .3rem;
+}
+
+.commission-audit-month-filter {
+    align-items: end;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(180px, 280px) auto;
+    margin-bottom: 16px;
+    padding: 16px;
+}
+
+.commission-audit-month-filter label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    grid-column: 1 / -1;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.commission-audit-month-filter select {
+    min-height: 44px;
 }

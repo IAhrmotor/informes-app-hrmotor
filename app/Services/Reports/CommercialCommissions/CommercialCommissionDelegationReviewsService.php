@@ -118,7 +118,10 @@ class CommercialCommissionDelegationReviewsService
                     continue;
                 }
 
-                $payload = $this->normalizePayload((array) $response->json());
+                $payload = $this->normalizePayload([
+                    ...(array) $response->json(),
+                    'fetched_at' => now()->toIso8601String(),
+                ]);
                 $results[$delegationLabel] = $payload;
                 Cache::put($cacheKey, $payload, $ttl);
             }
@@ -147,6 +150,7 @@ class CommercialCommissionDelegationReviewsService
                 ? round((float) data_get($payload, 'average_rating'), 2)
                 : null,
             'technical_status' => 'available',
+            'fetched_at' => filled($payload['fetched_at'] ?? null) ? (string) $payload['fetched_at'] : null,
         ];
     }
 
@@ -156,6 +160,7 @@ class CommercialCommissionDelegationReviewsService
             'reviews_count' => 0,
             'average_rating' => null,
             'technical_status' => $technicalStatus,
+            'fetched_at' => null,
         ];
     }
 }

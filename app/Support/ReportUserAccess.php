@@ -117,6 +117,11 @@ class ReportUserAccess
         return self::canonicalRole(self::role($request)) === ReportUser::ROLE_AREA_MANAGER;
     }
 
+    public static function isCommissionAuditor(Request $request): bool
+    {
+        return self::canonicalRole(self::role($request)) === ReportUser::ROLE_COMMISSION_AUDITOR;
+    }
+
     public static function reportUser(Request $request): ?ReportUser
     {
         if ($request->attributes->has('resolved_report_user')) {
@@ -255,15 +260,34 @@ class ReportUserAccess
         return self::isAdmin($request);
     }
 
-    public static function canManageEconomicClosures(Request $request): bool
+    public static function canPrepareEconomicClosures(Request $request): bool
+    {
+        return self::isAdmin($request);
+    }
+
+    public static function canApproveEconomicClosures(Request $request): bool
     {
         return self::isAdmin($request) || self::isDirector($request);
     }
 
+    public static function canReopenEconomicClosures(Request $request): bool
+    {
+        return self::isAdmin($request) || self::isDirector($request);
+    }
+
+    public static function canManageEconomicClosures(Request $request): bool
+    {
+        return self::canApproveEconomicClosures($request);
+    }
+
+    public static function canViewCallContactCommissionDetails(Request $request): bool
+    {
+        return self::isAdmin($request);
+    }
+
     public static function canManageFinancingPenalties(Request $request): bool
     {
-        return self::isAdmin($request)
-            || self::canonicalRole(self::role($request)) === ReportUser::ROLE_COMMISSION_AUDITOR;
+        return self::isAdmin($request);
     }
 
     public static function canBrowseAreaManagers(Request $request): bool

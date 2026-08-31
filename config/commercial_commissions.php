@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'closure_source_max_age_hours' => (int) env('COMMISSIONS_CLOSURE_SOURCE_MAX_AGE_HOURS', 48),
     'purchase_rentability_field' => env('SALESFORCE_COMMISSIONS_PURCHASE_RENTABILITY_FIELD', 'informe_rentabilidad'),
     'sale_management_field' => env('SALESFORCE_COMMISSIONS_SALE_MANAGEMENT_FIELD', 'gestion_de_venta'),
     // Special financial rules use stable responsible keys and explicit zones.

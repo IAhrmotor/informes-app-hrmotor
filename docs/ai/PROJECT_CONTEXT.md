@@ -197,6 +197,7 @@ Actualizado: 2026-08-26.
   chunks, dry-run e índices dedicados. Solo anula los ocho payloads sin lecturas
   funcionales. Los cinco payloads aún consumidos quedan bloqueados y documentados.
 - `/up` es liveness, no readiness de dependencias.
+- En producción, Laravel está detrás de terminación TLS y solo confía en `X-Forwarded-*` de las IP/CIDR declaradas en `TRUSTED_PROXIES`. El proxy debe enviar `X-Forwarded-Proto: https`; no se usa confianza global ni `forceScheme`.
 
 ## Convenciones de exportación auditada
 
@@ -207,3 +208,6 @@ Actualizado: 2026-08-26.
 - KPI, JSON de auditoría y CSV deben consumir la misma resolución de cohorte.
 - Los CSV estándar de auditoría no deben seleccionar datos personales que no
   sean imprescindibles para explicar la métrica.
+# Comisiones: cierres y responsables temporales
+
+Los cierres económicos de Comisiones son independientes para `commercials`, `delegations`, `area_manager`, `financials`, `call_center` y `contact_center`. Los responsables de delegación se sincronizan en `salesforce_delegation_manager_history`; el dashboard nunca consulta Salesforce bajo demanda.

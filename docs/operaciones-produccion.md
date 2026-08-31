@@ -451,6 +451,32 @@ SMTP retornó correctamente pero no pudo verificarse la transición local a
 reconciliación. Se prefiere rollback de código compatible o forward
 fix; revertir la migración elimina trazabilidad.
 
+## HTTPS detrás del reverse proxy
+
+Producción debe declarar el origen público y únicamente las IP/CIDR reales desde
+las que el contenedor recibe tráfico del reverse proxy:
+
+```dotenv
+APP_URL=https://informes.app.hrmotor.com
+TRUSTED_PROXIES=<ip-o-cidr-real-del-proxy>
+```
+
+`TRUSTED_PROXIES` admite varios valores separados por coma. No usar `*`. El
+reverse proxy debe enviar como mínimo `X-Forwarded-Proto: https` y conservar el
+host público mediante `X-Forwarded-Host`; Laravel ignora estas cabeceras cuando
+el origen no pertenece a la lista confiable. Tras cambiar configuración:
+
+```bash
+php artisan optimize:clear
+php artisan config:cache
+```
+
+Verificar las seis pestañas de Comisiones, cambio de mes, exportaciones y los
+formularios de preparación/aprobación/reapertura. Ninguna URL renderizada debe
+comenzar por `http://informes.app.hrmotor.com`. Si Laravel sigue detectando
+HTTP, comprobar en el proxy la presencia de `X-Forwarded-Proto: https`; no
+compensarlo con `forceScheme` ni reemplazos de texto.
+
 ## Rollback y pendientes
 
 - Preferir rollback de código si el esquema aditivo es compatible.

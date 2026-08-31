@@ -199,7 +199,6 @@
                     </div>
                 </div>
             </section>
-
             <section class="card panel">
                 <div class="panel-title">
                     <div>
@@ -248,6 +247,7 @@
                 </div>
             </section>
 
+            @unless ($usesSharedDelegationDeliveryGoals ?? false)
             <section class="card panel">
                 <div class="panel-title">
                     <div>
@@ -285,6 +285,11 @@
                     @endforelse
                 </div>
             </section>
+            @else
+                <div class="notice">
+                    Desde julio de 2026 la meta de entregas de Delegaciones se edita una sola vez en los objetivos de Area Manager.
+                </div>
+            @endunless
 
             <section class="card panel">
                 <div class="panel-title">

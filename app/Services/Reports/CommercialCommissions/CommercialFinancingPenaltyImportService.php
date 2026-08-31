@@ -325,7 +325,7 @@ class CommercialFinancingPenaltyImportService
 
         $raw = trim((string) $value);
 
-        foreach (['Y-m-d', 'Y-m', 'm/Y', 'm-Y', 'd/m/Y'] as $format) {
+        foreach (['!Y-m-d', '!Y-m', '!m/Y', '!m-Y', '!d/m/Y'] as $format) {
             try {
                 return CarbonImmutable::createFromFormat($format, $raw)->startOfMonth();
             } catch (\Throwable) {

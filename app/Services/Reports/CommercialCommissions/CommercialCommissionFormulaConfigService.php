@@ -217,6 +217,8 @@ class CommercialCommissionFormulaConfigService
 
     private const TEMPORARY_UNLOCKED_MONTHS_SESSION_KEY = 'commercial_commission_temporarily_unlocked_months';
 
+    private const SHARED_DELEGATION_DELIVERY_GOAL_START = '2026-07-01';
+
     public function defaults(): array
     {
         return [
@@ -337,7 +339,7 @@ class CommercialCommissionFormulaConfigService
     public function resolveSelectedMonth(?string $month): CarbonImmutable
     {
         if (is_string($month) && preg_match('/^\d{4}-\d{2}$/', $month) === 1) {
-            return CarbonImmutable::createFromFormat('Y-m', $month)->startOfMonth();
+            return CarbonImmutable::createFromFormat('!Y-m', $month)->startOfMonth();
         }
 
         return $this->openMonth();
@@ -369,7 +371,7 @@ class CommercialCommissionFormulaConfigService
     {
         $selectedMonth = $month instanceof CarbonImmutable
             ? $month->startOfMonth()
-            : CarbonImmutable::createFromFormat('Y-m', (string) $month)->startOfMonth();
+            : CarbonImmutable::createFromFormat('!Y-m', (string) $month)->startOfMonth();
         $monthKey = $selectedMonth->format('Y-m');
         $defaults = $this->defaults();
         $defaults['delegations']['goals'] = $this->inheritedDelegationGoals($selectedMonth);
@@ -377,7 +379,7 @@ class CommercialCommissionFormulaConfigService
         $defaults = $this->withSpecialFinancialResponsibleRules($defaults, $selectedMonth);
 
         if (! Schema::hasTable('commercial_commission_month_settings')) {
-            return $this->normalizeSettings($defaults);
+            return $this->withSharedDelegationDeliveryGoals($this->normalizeSettings($defaults), $selectedMonth);
         }
 
         $stored = CommercialCommissionMonthSetting::query()
@@ -385,21 +387,34 @@ class CommercialCommissionFormulaConfigService
             ->first();
 
         if (! is_array($stored?->settings)) {
-            return $this->normalizeSettings($defaults);
+            return $this->withSharedDelegationDeliveryGoals($this->normalizeSettings($defaults), $selectedMonth);
         }
 
-        return $this->withSpecialFinancialResponsibleRules(
+        return $this->withSharedDelegationDeliveryGoals($this->withSpecialFinancialResponsibleRules(
             $this->normalizeSettings(array_replace_recursive($defaults, $stored->settings)),
             $selectedMonth
-        );
+        ), $selectedMonth);
     }
 
     public function saveForMonth(string $month, array $settings): void
     {
+        if ($this->usesSharedDelegationDeliveryGoals($month)) {
+            unset($settings['delegations']['goals']);
+        }
+
         CommercialCommissionMonthSetting::query()->updateOrCreate(
             ['month' => $month],
             ['settings' => $this->normalizeSettings($settings)]
         );
+    }
+
+    public function usesSharedDelegationDeliveryGoals(CarbonImmutable|string $month): bool
+    {
+        $selectedMonth = $month instanceof CarbonImmutable
+            ? $month->startOfMonth()
+            : CarbonImmutable::createFromFormat('!Y-m', (string) $month)->startOfMonth();
+
+        return $selectedMonth->greaterThanOrEqualTo(CarbonImmutable::parse(self::SHARED_DELEGATION_DELIVERY_GOAL_START));
     }
 
     public function availableDelegations(array $settings = []): array
@@ -695,6 +710,32 @@ class CommercialCommissionFormulaConfigService
         return $settings;
     }
 
+    private function withSharedDelegationDeliveryGoals(array $settings, CarbonImmutable $month): array
+    {
+        if (! $this->usesSharedDelegationDeliveryGoals($month)) {
+            return $settings;
+        }
+
+        $settings['delegations']['goals'] = collect($settings['area_manager']['assignments'] ?? [])
+            ->mapWithKeys(function (array $assignment, string $key): array {
+                $label = $this->normalizeDelegationLabel($assignment['label'] ?? $key);
+                $delegationKey = $this->delegationKey($label);
+
+                if ($delegationKey === '' || ! $this->shouldIncludeDelegationLabel($label)) {
+                    return [];
+                }
+
+                return [$delegationKey => [
+                    'label' => $label,
+                    'target_deliveries' => max(0, (int) round((float) data_get($assignment, 'objectives.deliveries', 0))),
+                ]];
+            })
+            ->sortBy('label')
+            ->all();
+
+        return $settings;
+    }
+
     private function withSpecialFinancialResponsibleRules(array $settings, CarbonImmutable $month): array
     {
         $rules = collect(config('commercial_commissions.financial_special_responsible_net_commission_percentages', []))
@@ -735,7 +776,7 @@ class CommercialCommissionFormulaConfigService
     {
         $selectedMonth = $month instanceof CarbonImmutable
             ? $month->startOfMonth()
-            : CarbonImmutable::createFromFormat('Y-m', (string) $month)->startOfMonth();
+            : CarbonImmutable::createFromFormat('!Y-m', (string) $month)->startOfMonth();
 
         return $selectedMonth->lessThan($this->openMonth()->startOfMonth());
     }

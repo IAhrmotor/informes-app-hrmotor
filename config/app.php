@@ -54,6 +54,11 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    'trusted_proxies' => array_values(array_filter(array_map(
+        static fn (string $proxy): string => trim($proxy),
+        explode(',', (string) env('TRUSTED_PROXIES', ''))
+    ))),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

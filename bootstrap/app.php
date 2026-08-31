@@ -5,6 +5,7 @@ use App\Http\Middleware\EnsureCommissionsApiBasicAuth;
 use App\Http\Middleware\EnsureInformesAuthenticated;
 use App\Http\Middleware\EnsureReportAccess;
 use App\Http\Middleware\ThrottleInternalApi;
+use App\Http\Middleware\TrustConfiguredProxies;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -17,6 +18,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->replace(\Illuminate\Http\Middleware\TrustProxies::class, TrustConfiguredProxies::class);
+
         $middleware->alias([
             'internal.api.audit' => AuditInternalApiRequest::class,
             'internal.api.throttle' => ThrottleInternalApi::class,

@@ -182,8 +182,8 @@ cierre de Comerciales, Delegaciones o Área Manager.
   obligatoria al asignar el rol.
 - Financiero: pestaña Financieros y datos permitidos.
 - Comercial: únicamente su Salesforce User ID.
-- Auditor de comisiones: informe de Comisiones, búsqueda autorizada de managers
-  y carga de Penalizaciones financieras.
+- Auditor de comisiones: proyección de solo lectura con entidad, comisión final,
+  estado, aprobador, fecha y alertas permitidas de jefe de tienda.
 
 El Auditor de comisiones no recibe administración de usuarios, configuración de
 fórmulas ni cierres. Márgenes, penalizaciones y comisiones globales se filtran en
@@ -225,3 +225,22 @@ Archivos principales:
 - `app/Services/Reports/CommercialCommissions/CommercialCommissionClosureService.php`;
 - `app/Services/Reports/CommercialCommissions/AreaRestrictedCommissionScope.php`;
 - servicios de Call Center, Contact Center, Área Manager y Financieros.
+# Cambios efectivos desde julio de 2026
+
+- La meta de entregas de Delegaciones es la misma configurada para la delegación en Area Manager. Solo se comparte el objetivo; las entregas reales mantienen sus reglas independientes.
+- Los seis bloques tienen cierres y snapshots independientes.
+- Call Center y Contact Center detallados son exclusivos de Administrador. Dirección puede aprobar o reabrir ambos mediante un resumen sin detalle.
+- El jefe de tienda procede de `Delegacion__c.DEL_BUS_Jefe_Tienda__c` (lookup a `User`). La comisión mensual completa se atribuye al último responsable verificable del mes, sin prorrateo. Las rotaciones generan alertas no bloqueantes.
+- Si Salesforce no aporta evidencia histórica suficiente, el informe muestra el histórico como no verificable y no inventa una asignación pasada.
+- Un mes es verificable únicamente cuando existe cobertura continua. Para julio, una confirmación real puede registrarse con `php artisan commissions:record-delegation-manager-evidence <delegation-id> "<delegación>" <manager-id> "<jefe>" 2026-07 --source=<fuente> --reference=<ticket-o-documento> --recorded-by=<responsable>`.
+- Financieros, Call Center y Contact Center disponen de cierre únicamente desde julio de 2026. Los filtros contractuales de Call Center son visuales y nunca alteran el snapshot mensual canónico.
+- La tabla `salesforce_delegation_manager_history` se evoluciona mediante la migración incremental `2026_08_28_100000_add_coverage_metadata_to_salesforce_delegation_manager_history_table`. Hasta ejecutarla, el informe degrada el responsable a histórico no verificable sin impedir la carga.
+- Dirección aprueba desde una superficie consolidada de scopes. Los importes definitivos proceden del snapshot; para scopes navegables pendientes se abre primero su pestaña canónica y Call/Contact se proyectan sin detalle.
+
+## Preparación y evidencia de responsables
+
+- Administración prepara cada bloque después de validaciones automáticas en servidor. No existen confirmaciones manuales de fuentes en el formulario. Dirección aprueba exactamente el snapshot candidato preparado; la aprobación no recalcula el mes.
+- `Resena__c` es la fuente de reseñas comerciales. Las reseñas de Delegaciones proceden del endpoint interno de Google Reviews y su caché; disponibilidad y freshness se comprueban de forma independiente.
+- El jefe al cierre puede estar confirmado aunque el historial de rotaciones del mes no sea verificable. En ese caso se muestra el jefe, se le atribuye inicialmente el 100 % y se conserva una alerta. Solo evidencia continua del mes permite informar el número de responsables.
+- Backfill unitario en validación: `php artisan commissions:record-delegation-manager-evidence <delegation-id> "<delegación>" <manager-id> "<jefe>" 2026-07 --source=it_confirmation --reference=<referencia> --recorded-by=<usuario> --evidence-type=month_end --dry-run`.
+- Backfill por lote: `php artisan commissions:import-delegation-manager-evidence <csv> --dry-run`. El CSV requiere `delegation_id,delegation_name,manager_id,manager_name,month,source,reference,recorded_by,evidence_type`. No usar `full_month` salvo evidencia real de cobertura completa.
