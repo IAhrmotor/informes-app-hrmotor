@@ -42,7 +42,8 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
             'utm_medium__c',
             'utm_content__c',
         ] as $field) {
-            $this->assertStringNotContainsString($field, $soql);
+            $this->assertStringContainsString($field, $soql);
+            $this->assertStringNotContainsString("{$field} != null", $soql);
         }
     }
 
@@ -73,6 +74,13 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
             $this->record('00Q-medium', ['LEA_SEL_Medio_Origen__c' => 'Formulario']),
             $this->record('00Q-empty', []),
             $this->record('00Q-whitespace', ['Campa_a_Adquirida__c' => '   ']),
+            $this->record('00Q-utm-only', [
+                'utm_campaign__c' => 'Campaña UTM nueva',
+                'utm_id__c' => 'utm-id',
+                'utm_source__c' => 'google',
+                'utm_medium__c' => 'cpc',
+                'utm_content__c' => 'creative',
+            ]),
         ];
         $client = $this->createMock(SalesforceClient::class);
         $client->expects($this->once())->method('query')->willReturn($records);
@@ -84,14 +92,14 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
             dryRun: true,
         );
 
-        $this->assertSame(7, $result['queried']);
+        $this->assertSame(8, $result['queried']);
         $this->assertSame(0, $result['saved']);
         $this->assertSame(1, $result['with_campaign_acquired']);
         $this->assertSame(1, $result['with_acquired_id']);
         $this->assertSame(1, $result['with_content_acquired']);
         $this->assertSame(1, $result['with_fuente_origen']);
         $this->assertSame(1, $result['with_medio_origen']);
-        $this->assertSame(2, $result['without_acquisition']);
+        $this->assertSame(3, $result['without_acquisition']);
         $this->assertTrue($result['dry_run']);
         $this->assertSame(0, $result['deleted']);
         $this->assertDatabaseCount('campaign_salesforce_leads', 0);
@@ -130,7 +138,7 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
         $this->assertSame(1, $result['without_acquisition']);
     }
 
-    public function test_upsert_actual_escribe_dos_tablas_y_puede_sobrescribir_campos_generales_con_null(): void
+    public function test_upsert_de_campanas_preserva_campos_generales_y_actualiza_solo_adquisicion_valida(): void
     {
         SalesforceLead::query()->create([
             'salesforce_id' => '00Q-shared',
@@ -141,8 +149,12 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
             'record_type_normalized' => 'venta',
             'fuente_origen' => 'Fuente mensual',
             'medio_origen' => 'Medio mensual',
+            'campaign_acquired' => 'Campaña anterior',
+            'acquired_id' => 'id-anterior',
+            'utm_source_new' => 'source-anterior',
             'resolved_portal' => 'Portal mensual',
             'portal_resolution_source' => 'Portal_Text__c',
+            'raw_payload' => ['scope' => 'monthly', 'complete' => true],
         ]);
 
         $client = $this->createMock(SalesforceClient::class);
@@ -150,6 +162,9 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
             $this->record('00Q-shared', [
                 'Name' => 'Nombre campaña',
                 'Campa_a_Adquirida__c' => 'Campaña adquirida',
+                'Id_Adquirido__c' => '   ',
+                'utm_source__c' => '',
+                'utm_medium__c' => 'paid-social',
             ]),
         ]);
 
@@ -166,12 +181,59 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
         ]);
         $this->assertDatabaseHas('salesforce_leads', [
             'salesforce_id' => '00Q-shared',
-            'name' => 'Nombre campaña',
-            'fuente_origen' => null,
-            'medio_origen' => null,
+            'name' => 'Nombre mensual',
+            'fuente_origen' => 'Fuente mensual',
+            'medio_origen' => 'Medio mensual',
             'campaign_acquired' => 'Campaña adquirida',
+            'acquired_id' => 'id-anterior',
+            'utm_source_new' => 'source-anterior',
+            'utm_medium_new' => 'paid-social',
             'record_type_name' => 'Venta',
             'resolved_portal' => 'Portal mensual',
+        ]);
+        $this->assertSame(
+            ['scope' => 'monthly', 'complete' => true],
+            SalesforceLead::query()->where('salesforce_id', '00Q-shared')->firstOrFail()->raw_payload,
+        );
+    }
+
+    public function test_sync_repetido_es_idempotente_y_conserva_nuevos_raw_en_ambas_tablas(): void
+    {
+        $record = $this->record('00Q-idempotent', [
+            'Campa_a_Adquirida__c' => 'Legacy campaign',
+            'Fuente_Adquirida__c' => 'Legacy acquired source',
+            'Medio_Adquirido__c' => 'Legacy acquired medium',
+            'utm_campaign__c' => 'New campaign',
+            'utm_id__c' => 'new-id',
+            'utm_source__c' => 'new-source',
+            'utm_medium__c' => 'new-medium',
+            'utm_content__c' => 'new-content',
+        ]);
+        $client = $this->createMock(SalesforceClient::class);
+        $client->expects($this->exactly(2))->method('query')->willReturn([$record]);
+        $service = new CampaignLeadSyncService($client);
+        $start = CarbonImmutable::parse('2026-05-01');
+        $end = CarbonImmutable::parse('2026-06-01');
+
+        $service->sync($start, $end);
+        $service->sync($start, $end);
+
+        $this->assertDatabaseCount('campaign_salesforce_leads', 1);
+        $this->assertDatabaseCount('salesforce_leads', 1);
+        $this->assertDatabaseHas('campaign_salesforce_leads', [
+            'salesforce_id' => '00Q-idempotent',
+            'campaign_acquired' => 'Legacy campaign',
+            'acquired_source_legacy' => 'Legacy acquired source',
+            'acquired_medium_legacy' => 'Legacy acquired medium',
+            'utm_campaign_new' => 'New campaign',
+            'utm_id_new' => 'new-id',
+            'utm_source_new' => 'new-source',
+            'utm_medium_new' => 'new-medium',
+            'utm_content_new' => 'new-content',
+        ]);
+        $this->assertDatabaseHas('salesforce_leads', [
+            'salesforce_id' => '00Q-idempotent',
+            'utm_campaign_new' => 'New campaign',
         ]);
     }
 
@@ -189,6 +251,13 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
             'Contenido_Adquirido__c' => null,
             'LEA_SEL_Fuente_Origen__c' => null,
             'LEA_SEL_Medio_Origen__c' => null,
+            'Fuente_Adquirida__c' => null,
+            'Medio_Adquirido__c' => null,
+            'utm_campaign__c' => null,
+            'utm_id__c' => null,
+            'utm_source__c' => null,
+            'utm_medium__c' => null,
+            'utm_content__c' => null,
         ], $overrides);
     }
 }

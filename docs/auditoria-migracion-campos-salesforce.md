@@ -304,24 +304,17 @@ no constituye precedente para sobrescribir `salesforce_leads.medio_origen`.
   la traza técnica sí conserva el dato.
 - Los API Names candidatos ausentes del código siguen sin verificar.
 
-## Decisiones de negocio pendientes que bloquean la fase siguiente
+## Decisiones cerradas y validaciones técnicas pendientes
 
-1. Prioridad exacta de `Fuente_origen__c`.
-2. Autoridad de `Canal__c` frente a `Medio_Nuevo__c`.
-3. Definición de valor válido: null, vacío, whitespace, placeholders,
-   desconocidos y valores fuera de catálogo.
-4. Prioridad de `Delegacion_procedencia__c` frente a Bueno, Encargada, texto,
-   remitente, owner y comercial.
-5. Tratamiento específico de Leads de Exposición.
-6. Política ante conflicto entre campo nuevo y legacy.
-7. Equivalencia oficial entre UTM nuevos y adquiridos legacy.
-8. Significado exacto de `utm_id__c`.
-9. Prioridad entre ID y nombre de campaña, incluidos conflictos.
-10. Política de histórico, fecha efectiva, backfill y versionado/reconstrucción
-    de atribuciones.
+Dirección cerró la prioridad absoluta del campo nuevo informado, la validez
+basada solo en null/vacío/whitespace, la resolución independiente, la prioridad
+de delegación incluida Exposición, la política de conflictos y las cinco parejas
+UTM. `utm_campaign__c` decide el nombre y `utm_id__c` permanece independiente.
 
-Hasta resolverlas, la siguiente fase no debe añadir campos al SOQL ni reutilizar
-columnas legacy.
+Ya no son bloqueos de negocio. Siguen pendientes para fases posteriores la
+semántica real de `utm_id__c` por plataforma, el análisis de casos Google/Meta,
+la medición de Leads UTM-only fuera del universo legacy y el diseño/ejecución
+controlada del backfill histórico.
 
 ## Pruebas de caracterización
 
@@ -346,3 +339,93 @@ columnas legacy.
 - ¿Se modificó algún SOQL de producción para añadir campos nuevos? NO.
 - ¿Se realizó algún backfill? NO.
 - ¿Se modificó producción? NO.
+
+## Implementación técnica de la fase 2 (2026-09-01)
+
+### Metadata Lead validada en Salesforce (solo lectura)
+
+Se utilizó `SalesforceClient::describe('Lead')` y una consulta `SELECT ... LIMIT
+1` que solo informó del número de campos/filas, sin imprimir datos de Lead,
+credenciales ni endpoints. Los 14 API Names existen y son consultables por la
+integración actual.
+
+| API Name | Label | Tipo | Longitud | Picklist | Nillable |
+|---|---|---|---:|---|---|
+| `Fuente_origen__c` | Fuente de Origen | string | 255 | Sí | Sí |
+| `Medio_origen__c` | Medio de origen | string | 255 | Sí | Sí |
+| `Canal__c` | Canal | string | 255 | Sí | Sí |
+| `Delegacion_procedencia__c` | Delegación de Procedencia | string | 255 | Sí | Sí |
+| `utm_campaign__c` | UTM Campaña | string | 70 | No | Sí |
+| `utm_id__c` | UTM Id | string | 70 | No | Sí |
+| `utm_source__c` | UTM Fuente | string | 70 | No | Sí |
+| `utm_medium__c` | UTM Medio | string | 70 | No | Sí |
+| `utm_content__c` | UTM Contenido | string | 70 | No | Sí |
+| `Campa_a_Adquirida__c` | Campaña Adquirida | string | 255 | No | Sí |
+| `Id_Adquirido__c` | Id Adquirido | string | 255 | No | Sí |
+| `Fuente_Adquirida__c` | Fuente Adquirida | string | 255 | No | Sí |
+| `Medio_Adquirido__c` | Medio Adquirido | string | 255 | No | Sí |
+| `Contenido_Adquirido__c` | Contenido Adquirido | string | 255 | No | Sí |
+
+Valores activos observados: Canal incluye `No identificado`, `Chat`, `Chatbot`,
+`Email`, `Formulario`, `Llamada`, `Manual`, `Otro` y `Whatsapp`; Medio incluye
+`No identificado`, `CPC`, `Orgánico` y `Referral`. Fuente y Delegación exponen
+catálogos activos amplios. La aplicación conserva cualquier valor no vacío y no
+replica esos catálogos como validación local.
+
+### Mapeo local aditivo
+
+Las columnas se añaden tanto a `salesforce_leads` como a
+`campaign_salesforce_leads`, sin índices nuevos:
+
+| Salesforce | Columna local | Semántica | Escritura autoritativa |
+|---|---|---|---|
+| `LEA_SEL_Fuente_Origen__c` | `fuente_origen` | Legacy, sin cambio | Sync general; tabla especializada de Campañas |
+| `LEA_SEL_Medio_Origen__c` | `medio_origen` | Legacy, sin cambio | Sync general; tabla especializada de Campañas |
+| `Fuente_origen__c` | `source_origin_new` | Nuevo raw | Sync general; tabla especializada |
+| `Medio_origen__c` | `medium_origin_new` | Nuevo raw | Sync general; tabla especializada |
+| `Canal__c` | `channel_new` | Nuevo raw | Sync general; tabla especializada |
+| `Delegacion_procedencia__c` | `delegation_origin_new` | Nuevo raw | Sync general; tabla especializada |
+| `Campa_a_Adquirida__c` | `campaign_acquired` | Legacy | Sync general y Campañas |
+| `Id_Adquirido__c` | `acquired_id` | Legacy | Sync general y Campañas |
+| `Fuente_Adquirida__c` | `acquired_source_legacy` | Legacy nuevo en almacenamiento | Sync general y Campañas |
+| `Medio_Adquirido__c` | `acquired_medium_legacy` | Legacy nuevo en almacenamiento | Sync general y Campañas |
+| `Contenido_Adquirido__c` | `content_acquired` | Legacy | Sync general y Campañas |
+| `utm_campaign__c` | `utm_campaign_new` | Nuevo raw | Sync general y Campañas |
+| `utm_id__c` | `utm_id_new` | Nuevo raw independiente | Sync general y Campañas |
+| `utm_source__c` | `utm_source_new` | Nuevo raw | Sync general y Campañas |
+| `utm_medium__c` | `utm_medium_new` | Nuevo raw | Sync general y Campañas |
+| `utm_content__c` | `utm_content_new` | Nuevo raw | Sync general y Campañas |
+| resolución estructurada | `field_resolution` | efectivo, campo, fallback, conflicto y raw por dimensión | Sync general; tabla especializada |
+
+### Resolución y alcance funcional
+
+`SalesforceLeadFieldResolver` aplica una única regla pura: trim vacío hace
+fallback; cualquier otro valor nuevo gana. Compara los valores recortados para
+marcar conflicto y conserva ambos raw. Fuente recibe como fallback el resultado
+de `LeadPortalResolver`; canal recibe su canal legacy; delegación puede recibir
+el resultado legacy contextual; medio y cada UTM usan su pareja aprobada.
+
+En esta fase la resolución se materializa para auditoría, pero no sustituye los
+campos resueltos consumidos por dashboards. No se migran Llamadas,
+Reservas/Ventas, `CampaignAttributionBuilderService`, first-touch ni matching
+Google/Meta. Por ello no cambian universos, clasificación visible ni conteos.
+
+### Propiedad de datos y doble escritura
+
+- `SalesforceMonthlyLeadsSyncService` es autoritativo sobre la fila general y
+  puede reflejar valores informados, modificados o vaciados por Salesforce. Si
+  falla el SELECT opcional, la query reducida omite todas las columnas nuevas y
+  `field_resolution`, conservando lo ya almacenado.
+- `CampaignLeadSyncService` es autoritativo sobre toda la fila de
+  `campaign_salesforce_leads`. En una fila general existente solo puede aportar
+  adquisición legacy y UTM no vacíos; no modifica identidad, contacto,
+  conversión, procedencia, delegación, resolución general ni `raw_payload`.
+- La lectura de filas generales existentes se hace una vez por chunk y los
+  upserts continúan siendo masivos. Las dos escrituras del chunk comparten una
+  transacción corta, abierta después de la consulta remota, y conservan los
+  reintentos de deadlock. El insert de un Lead general ausente permanece
+  soportado y es seguro frente a una carrera mediante upsert.
+
+El WHERE de Campañas conserva exactamente sus cinco condiciones legacy. Los
+nuevos campos solo crecen el SELECT; un Lead con UTM nuevos pero sin ninguno de
+los cinco criterios legacy continúa fuera del universo.

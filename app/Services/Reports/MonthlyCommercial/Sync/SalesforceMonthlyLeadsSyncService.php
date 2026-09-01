@@ -6,6 +6,7 @@ use App\Models\SalesforceLead;
 use App\Services\Reports\Leads\LeadPortalResolver;
 use App\Services\Reports\Leads\LeadRecordTypeNormalizer;
 use App\Services\Salesforce\SalesforceClient;
+use App\Services\Salesforce\SalesforceLeadFieldResolver;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use RuntimeException;
@@ -17,6 +18,7 @@ class SalesforceMonthlyLeadsSyncService
         private readonly LeadRecordTypeNormalizer $recordTypeNormalizer,
         private readonly LeadPortalResolver $portalResolver,
         private readonly ChangedRowUpsert $changedRowUpsert = new ChangedRowUpsert,
+        private readonly SalesforceLeadFieldResolver $fieldResolver = new SalesforceLeadFieldResolver,
     ) {}
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
@@ -156,9 +158,24 @@ class SalesforceMonthlyLeadsSyncService
                     'candidate_status_formula' => data_get($record, 'Estado_del_candidato_formula__c'),
                     'fuente_origen' => data_get($record, 'LEA_SEL_Fuente_Origen__c'),
                     'medio_origen' => data_get($record, 'LEA_SEL_Medio_Origen__c'),
+                    'source_origin_new' => data_get($record, 'Fuente_origen__c'),
+                    'medium_origin_new' => data_get($record, 'Medio_origen__c'),
+                    'channel_new' => data_get($record, 'Canal__c'),
+                    'delegation_origin_new' => data_get($record, 'Delegacion_procedencia__c'),
                     'campaign_acquired' => data_get($record, 'Campa_a_Adquirida__c'),
                     'acquired_id' => data_get($record, 'Id_Adquirido__c'),
                     'content_acquired' => data_get($record, 'Contenido_Adquirido__c'),
+                    'acquired_source_legacy' => data_get($record, 'Fuente_Adquirida__c'),
+                    'acquired_medium_legacy' => data_get($record, 'Medio_Adquirido__c'),
+                    'utm_campaign_new' => data_get($record, 'utm_campaign__c'),
+                    'utm_id_new' => data_get($record, 'utm_id__c'),
+                    'utm_source_new' => data_get($record, 'utm_source__c'),
+                    'utm_medium_new' => data_get($record, 'utm_medium__c'),
+                    'utm_content_new' => data_get($record, 'utm_content__c'),
+                    'field_resolution' => json_encode(
+                        $this->resolveFields($record, $portalResolution),
+                        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
+                    ),
                     'vehicle_interest' => data_get($record, 'LEA_BUS_Vehiculo_de_interes__c'),
                     'phone' => data_get($record, 'Phone'),
                     'mobile_phone' => data_get($record, 'MobilePhone'),
@@ -233,12 +250,23 @@ class SalesforceMonthlyLeadsSyncService
             ? <<<'SOQL'
     Medio_Nuevo__c,
     Fuente_Nuevo__c,
+    Fuente_origen__c,
+    Medio_origen__c,
+    Canal__c,
+    Delegacion_procedencia__c,
     Remitente_Lead__c,
     Delegacion_Encargada_Bueno__c,
     Delegacion_Encargada__c,
     Campa_a_Adquirida__c,
     Id_Adquirido__c,
     Contenido_Adquirido__c,
+    Fuente_Adquirida__c,
+    Medio_Adquirido__c,
+    utm_campaign__c,
+    utm_id__c,
+    utm_source__c,
+    utm_medium__c,
+    utm_content__c,
     LEA_BUS_Vehiculo_de_interes__c,
     Phone,
     MobilePhone,
@@ -475,6 +503,18 @@ SOQL;
             'campaign_acquired',
             'acquired_id',
             'content_acquired',
+            'acquired_source_legacy',
+            'acquired_medium_legacy',
+            'source_origin_new',
+            'medium_origin_new',
+            'channel_new',
+            'delegation_origin_new',
+            'utm_campaign_new',
+            'utm_id_new',
+            'utm_source_new',
+            'utm_medium_new',
+            'utm_content_new',
+            'field_resolution',
             'vehicle_interest',
             'phone',
             'mobile_phone',
@@ -491,6 +531,40 @@ SOQL;
             'resolved_portal',
             'portal_resolution_source',
         ];
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private function resolveFields(array $record, array $portalResolution): array
+    {
+        $legacyDelegation = $this->firstInformedField($record, [
+            'Delegacion_Encargada_Bueno__c',
+            'Delegacion_Encargada__c',
+            'Delegacion_Encargada_Text__c',
+        ]);
+
+        return $this->fieldResolver->resolveLead(
+            $record,
+            ['value' => $portalResolution['portal'], 'field' => $portalResolution['source']],
+            ['value' => $portalResolution['channel'], 'field' => 'Medio_Nuevo__c'],
+            $legacyDelegation,
+        );
+    }
+
+    /**
+     * @param  list<string>  $fields
+     * @return array{value:mixed,field:string}
+     */
+    private function firstInformedField(array $record, array $fields): array
+    {
+        foreach ($fields as $field) {
+            $value = data_get($record, $field);
+
+            if (trim((string) $value) !== '') {
+                return ['value' => $value, 'field' => $field];
+            }
+        }
+
+        return ['value' => null, 'field' => 'legacy_delegation_fallback'];
     }
 
     private function soqlDateTime(CarbonInterface $date): string

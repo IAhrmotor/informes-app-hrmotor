@@ -1469,3 +1469,89 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - SOQL productivo: NO modificado.
 - Backfill: NO realizado.
 - Producción: NO modificada.
+
+# Integración segura de campos Salesforce (Tarea 2, 2026-09-01)
+
+## Resumen
+
+- Metadata real de Lead validada con `SalesforceClient::describe('Lead')` y un
+  SELECT de solo lectura: 14/14 campos existen y son consultables. No se
+  imprimieron datos de Lead, URLs, tokens ni credenciales.
+- Migración aditiva para conservar raw nuevo y legacy simultáneamente en
+  `salesforce_leads` y `campaign_salesforce_leads`: clasificación 255,
+  UTM 70, adquiridos legacy 255 y traza JSON. Sin índices nuevos.
+- Resolver puro central para valor efectivo, campo ganador, fallback, conflicto
+  y raw por fuente, canal, medio, delegación y cinco UTM.
+- El sync mensual obtiene/persiste los nuevos campos como opcionales. Su query
+  reducida omite esas columnas para no borrar valores previos.
+- Campañas mantiene exactamente el WHERE legacy. Enriquece únicamente los Leads
+  que ya pertenecían al universo y un Lead UTM-only sigue excluido.
+- Se corrigió la doble escritura: Campañas conserva columnas generales y
+  `raw_payload`; solo completa/actualiza adquisición y UTM no vacíos. Carga
+  existentes por chunk, escribe en batch y usa una transacción corta por chunk.
+- No se migraron los consumidores funcionales de Leads, Llamadas,
+  Reservas/Ventas ni el attribution builder; los conteos visibles no cambian.
+
+## Archivos
+
+- Nuevos: migración `2026_09_01_090000_add_salesforce_lead_origin_and_utm_fields`,
+  `SalesforceLeadFieldResolver` y tests del resolver/migración.
+- Modificados: modelos `SalesforceLead` y `CampaignSalesforceLead`, sync mensual,
+  sync de Campañas, tests de ambos sync, auditoría transversal, decisiones de
+  negocio y este handoff.
+- Eliminados: ninguno. No se actualizan `PROJECT_CONTEXT.md` ni `DECISIONS.md`:
+  no cambia el límite de módulos ni se adopta una arquitectura difícil de
+  revertir; se implementan reglas funcionales ya aprobadas.
+
+## Base de datos y configuración
+
+- Requiere ejecutar la nueva migración antes de activar el código.
+- No hay variables de entorno, dependencias, índices ni configuración nueva.
+- No se ejecutó migración sobre la base local, backfill ni resincronización.
+
+## Seguridad y rendimiento
+
+- Salesforce se usó solo mediante describe/SELECT. No hubo DML, secretos en
+  fixtures o datos productivos en documentación.
+- No hay request por Lead, describe en runtime ni N+1. Se conservan chunks y
+  retries; la consulta SQL adicional de Campañas es una por chunk de 100.
+- Las transacciones empiezan después de la llamada Salesforce y solo abarcan
+  las dos escrituras locales. El `raw_payload` general completo nunca se
+  reemplaza por el payload parcial de Campañas.
+
+## Pruebas y verificaciones
+
+- Baseline `php artisan test`: 795/795, 5.733 aserciones. Una primera pasada en
+  competencia con metadata excedió el benchmark Stock; aislado pasó 2/2 (13) y
+  la repetición completa secuencial quedó verde.
+- Resolver final: 17/17, 80 aserciones.
+- Focal sync + migración: 24/24, 221 aserciones.
+- Regresión Leads/Campañas/Llamadas/Opportunities/Reservas/Comisiones: 143/143,
+  1.069 aserciones.
+- Suite completa final `php artisan test`: 816/816, 5.880 aserciones, correcta.
+- Pint focal sobre los 10 PHP de esta tarea: correcto. El Pint global detecta
+  deuda de formato preexistente en numerosos archivos ajenos; no se reformateó
+  código fuera del alcance.
+- `composer validate --no-check-publish --strict`: correcto.
+- `composer audit --locked --no-dev`: sin vulnerabilidades conocidas.
+- `npm run build`: correcto; avisos no bloqueantes ya conocidos de
+  `login-bg.jpg` en runtime y deprecación Node. Se restauraron exclusivamente
+  los artefactos generados porque no existe cambio frontend.
+- `git diff --check`: correcto. Fallos introducidos: cero.
+
+## Acciones manuales y pendientes
+
+- En despliegue: aprobar/ejecutar migración y después sincronizar ventanas
+  ordinarias según el runbook; esta tarea no ejecuta backfill histórico.
+- Pendiente técnico: semántica de `utm_id__c` por plataforma, casos reales
+  Google/Meta, medición UTM-only fuera del universo legacy y diseño del backfill.
+- Pendiente de implementación: migrar conscientemente Calls,
+  Reservations/Sales y `CampaignAttributionBuilderService` en tareas separadas.
+
+## Confirmación
+
+- Universos de Leads, Campañas, Opportunities y Tasks: NO modificados.
+- Conteos y clasificación visible: NO modificados.
+- `CampaignAttributionBuilderService`: NO modificado.
+- Backfill, escritura Salesforce, producción y frontend: NO modificados.
+- Campos legacy eliminados o reutilizados: NO.

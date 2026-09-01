@@ -10,20 +10,22 @@ implantadas se resumen al final y no deben volver a tratarse como pendientes.
 
 ### Leads
 
-La futura migración de procedencia Salesforce queda bloqueada por estas
-decisiones, sin resolver en código:
+Dirección ha cerrado la prioridad nuevo → legacy, la validez basada únicamente
+en null/vacío/whitespace, la resolución independiente, la prioridad de
+delegación incluida Exposición, la política de conflictos y las cinco parejas
+UTM. Estas reglas ya están implementadas en la capa técnica de resolución y no
+deben volver a tratarse como decisiones pendientes.
 
-- prioridad exacta de `Fuente_origen__c`;
-- autoridad de `Canal__c` frente a `Medio_Nuevo__c`;
-- definición de valor válido y tratamiento de placeholders/desconocidos;
-- prioridad de `Delegacion_procedencia__c` frente a campos legacy, mappings,
-  remitente, owner y comercial;
-- tratamiento específico de Exposición;
-- política ante conflictos campo nuevo vs legacy;
-- equivalencias oficiales de `utm_campaign__c`, `utm_id__c`, `utm_source__c`,
-  `utm_medium__c` y `utm_content__c` con adquiridos legacy;
-- significado exacto de `utm_id__c` y prioridad ID vs nombre;
-- fecha efectiva, histórico, backfill y reconstrucción/versionado de atribución.
+Permanecen como validaciones técnicas u operativas para fases posteriores:
+
+- verificar con casos reales de Google y Meta la semántica de `utm_id__c` por
+  plataforma; se conserva como identificador secundario y no decide el nombre;
+- medir Leads que solo tienen UTM nuevos y quedan fuera del universo legacy de
+  Campañas antes de proponer cualquier ampliación del filtro;
+- diseñar, aprobar y ejecutar por separado el backfill/reprocesado histórico,
+  con lotes, reanudación, métricas y conciliación;
+- migrar conscientemente los consumidores de Llamadas, Reservas/Ventas y el
+  attribution builder; esta fase no cambia sus resoluciones actuales.
 
 Las siguientes reglas del alcance ya implantado permanecen cerradas y no se
 reabren por esta auditoría:
@@ -79,6 +81,7 @@ reabren por esta auditoría:
 
 | Informe | Decisión implantada |
 |---|---|
+| Leads / Campañas (capa técnica) | Cada campo nuevo informado gana; solo null/vacío/whitespace hace fallback legacy; los placeholders no vacíos son válidos; conflictos quedan trazados; UTM se resuelve campo a campo y `utm_id__c` no sustituye el nombre. |
 | Leads | Normalización única de tipos, Venta sin Lead/Ayvens, calidad comercial visible, eliminados/fusionados fuera de KPIs activos y auditoría por Lead ID. |
 | Reservas / Ventas | El selector de fecha define toda la cohorte; reserva/firma repetida para el mismo vehículo y fecha cuenta una vez y genera incidencia auditable. |
 | Llamadas | Solo Tasks de llamada con `CallObject`; `ABANDONED` nunca es atendida ni desbordada; clasificación versionada y reproceso únicamente manual y trazable. |

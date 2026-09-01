@@ -15,6 +15,145 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_soql_y_sync_persisten_campos_nuevos_sin_reutilizar_columnas_legacy(): void
+    {
+        $record = [
+            'Id' => '00Q-new-fields',
+            'Name' => 'Lead synthetic',
+            'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+            'LastModifiedDate' => '2026-05-10T11:00:00.000+0000',
+            'Status' => 'Potencial',
+            'RecordType' => ['Name' => 'Venta'],
+            'Medio_Nuevo__c' => 'Llamada',
+            'Portal_Text__c' => 'Legacy portal',
+            'LEA_SEL_Fuente_Origen__c' => 'Legacy source',
+            'LEA_SEL_Medio_Origen__c' => 'Legacy medium',
+            'Fuente_origen__c' => 'New source',
+            'Medio_origen__c' => 'New medium',
+            'Canal__c' => 'WhatsApp',
+            'Delegacion_procedencia__c' => 'Alcobendas',
+            'Campa_a_Adquirida__c' => 'Legacy campaign',
+            'Id_Adquirido__c' => 'legacy-id',
+            'Fuente_Adquirida__c' => 'legacy-acquired-source',
+            'Medio_Adquirido__c' => 'legacy-acquired-medium',
+            'Contenido_Adquirido__c' => 'legacy-content',
+            'utm_campaign__c' => 'new-campaign',
+            'utm_id__c' => 'new-id',
+            'utm_source__c' => 'new-acquired-source',
+            'utm_medium__c' => 'new-acquired-medium',
+            'utm_content__c' => 'new-content',
+        ];
+        $client = new class($record) extends SalesforceClient
+        {
+            public function __construct(private readonly array $record) {}
+
+            public function queryPages(string $soql, bool $includeDeleted = false): \Generator
+            {
+                yield [$this->record];
+            }
+        };
+        $service = new SalesforceMonthlyLeadsSyncService(
+            $client,
+            new LeadRecordTypeNormalizer,
+            new LeadPortalResolver,
+        );
+        $start = CarbonImmutable::parse('2026-05-01');
+        $end = CarbonImmutable::parse('2026-06-01');
+        $soql = $service->soql($start, $end);
+
+        foreach ([
+            'Fuente_origen__c', 'Medio_origen__c', 'Canal__c', 'Delegacion_procedencia__c',
+            'utm_campaign__c', 'utm_id__c', 'utm_source__c', 'utm_medium__c', 'utm_content__c',
+            'Fuente_Adquirida__c', 'Medio_Adquirido__c',
+        ] as $field) {
+            $this->assertStringContainsString($field, $soql);
+        }
+
+        $first = $service->syncCampaignLeads($start, $end);
+        $second = $service->syncCampaignLeads($start, $end);
+
+        $this->assertSame(1, $first['inserted']);
+        $this->assertSame(1, $second['unchanged']);
+        $this->assertDatabaseCount('salesforce_leads', 1);
+        $this->assertDatabaseHas('salesforce_leads', [
+            'salesforce_id' => '00Q-new-fields',
+            'fuente_origen' => 'Legacy source',
+            'medio_origen' => 'Legacy medium',
+            'source_origin_new' => 'New source',
+            'medium_origin_new' => 'New medium',
+            'channel_new' => 'WhatsApp',
+            'delegation_origin_new' => 'Alcobendas',
+            'acquired_source_legacy' => 'legacy-acquired-source',
+            'acquired_medium_legacy' => 'legacy-acquired-medium',
+            'utm_campaign_new' => 'new-campaign',
+            'utm_id_new' => 'new-id',
+            'utm_source_new' => 'new-acquired-source',
+            'utm_medium_new' => 'new-acquired-medium',
+            'utm_content_new' => 'new-content',
+        ]);
+        $trace = SalesforceLead::query()->firstOrFail()->field_resolution;
+        $this->assertSame('New source', data_get($trace, 'source.effective_value'));
+        $this->assertTrue(data_get($trace, 'source.conflict'));
+        $this->assertSame('new-campaign', data_get($trace, 'utm_campaign.effective_value'));
+        $this->assertSame('utm_campaign__c', data_get($trace, 'utm_campaign.source_field'));
+    }
+
+    public function test_query_reducida_no_borra_campos_nuevos_previamente_persistidos(): void
+    {
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-optional-fallback',
+            'created_date' => '2026-05-10 10:00:00',
+            'source_origin_new' => 'Preserved source',
+            'utm_campaign_new' => 'Preserved campaign',
+            'field_resolution' => ['source' => ['effective_value' => 'Preserved source']],
+        ]);
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function queryPages(string $soql, bool $includeDeleted = false): \Generator
+            {
+                if (str_contains($soql, "\n    Fuente_origen__c,")) {
+                    throw new \RuntimeException('INVALID_FIELD synthetic optional field');
+                }
+
+                yield [[
+                    'Id' => '00Q-optional-fallback',
+                    'Name' => 'Updated through reduced query',
+                    'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+                    'LastModifiedDate' => '2026-05-11T10:00:00.000+0000',
+                    'Status' => 'Potencial',
+                    'RecordType' => ['Name' => 'Venta'],
+                    'LEA_SEL_Fuente_Origen__c' => 'Legacy source',
+                    'LEA_SEL_Medio_Origen__c' => 'Legacy medium',
+                    'Portal_Text__c' => 'Legacy portal',
+                ]];
+            }
+        };
+        $service = new SalesforceMonthlyLeadsSyncService(
+            $client,
+            new LeadRecordTypeNormalizer,
+            new LeadPortalResolver,
+        );
+
+        $result = $service->syncCampaignLeads(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01'),
+        );
+
+        $this->assertCount(1, $result['warnings']);
+        $this->assertDatabaseHas('salesforce_leads', [
+            'salesforce_id' => '00Q-optional-fallback',
+            'name' => 'Updated through reduced query',
+            'source_origin_new' => 'Preserved source',
+            'utm_campaign_new' => 'Preserved campaign',
+        ]);
+        $this->assertSame(
+            'Preserved source',
+            data_get(SalesforceLead::query()->firstOrFail()->field_resolution, 'source.effective_value'),
+        );
+    }
+
     public function test_guarda_leads_de_salesforce_con_relaciones_anidadas(): void
     {
         $client = new class extends SalesforceClient

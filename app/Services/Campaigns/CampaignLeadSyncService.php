@@ -3,7 +3,9 @@
 namespace App\Services\Campaigns;
 
 use App\Models\CampaignSalesforceLead;
+use App\Services\Reports\Leads\LeadPortalResolver;
 use App\Services\Salesforce\SalesforceClient;
+use App\Services\Salesforce\SalesforceLeadFieldResolver;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\QueryException;
@@ -26,6 +28,8 @@ class CampaignLeadSyncService
 
     public function __construct(
         private readonly SalesforceClient $client,
+        private readonly SalesforceLeadFieldResolver $fieldResolver = new SalesforceLeadFieldResolver,
+        private readonly LeadPortalResolver $portalResolver = new LeadPortalResolver,
     ) {}
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $fresh = false, bool $dryRun = false): array
@@ -140,9 +144,23 @@ SELECT
     ConvertedOpportunityId,
     LEA_SEL_Fuente_Origen__c,
     LEA_SEL_Medio_Origen__c,
+    Fuente_origen__c,
+    Medio_origen__c,
+    Canal__c,
+    Delegacion_procedencia__c,
+    Medio_Nuevo__c,
+    Fuente_Nuevo__c,
+    Portal_Text__c,
     Campa_a_Adquirida__c,
     Id_Adquirido__c,
     Contenido_Adquirido__c,
+    Fuente_Adquirida__c,
+    Medio_Adquirido__c,
+    utm_campaign__c,
+    utm_id__c,
+    utm_source__c,
+    utm_medium__c,
+    utm_content__c,
     LEA_BUS_Vehiculo_de_interes__c,
     Delegacion_Encargada_Text__c,
     Delegacion_Encargada__c,
@@ -159,6 +177,18 @@ SOQL;
     public function mapRecord(array $record, mixed $now = null): array
     {
         $now ??= now();
+        $portalResolution = $this->portalResolver->resolve([
+            'medio_nuevo' => $this->value($record, 'Medio_Nuevo__c'),
+            'fuente_nuevo' => $this->value($record, 'Fuente_Nuevo__c'),
+            'portal_text' => $this->value($record, 'Portal_Text__c'),
+            'fuente_origen' => $this->value($record, 'LEA_SEL_Fuente_Origen__c'),
+        ]);
+        $fieldResolution = $this->fieldResolver->resolveLead(
+            $record,
+            ['value' => $portalResolution['portal'], 'field' => $portalResolution['source']],
+            ['value' => $portalResolution['channel'], 'field' => 'Medio_Nuevo__c'],
+            $this->legacyDelegation($record),
+        );
 
         return [
             'salesforce_id' => $this->value($record, 'Id'),
@@ -177,9 +207,21 @@ SOQL;
             'converted_opportunity_id' => $this->value($record, 'ConvertedOpportunityId'),
             'fuente_origen' => $this->value($record, 'LEA_SEL_Fuente_Origen__c'),
             'medio_origen' => $this->value($record, 'LEA_SEL_Medio_Origen__c'),
+            'source_origin_new' => $this->value($record, 'Fuente_origen__c'),
+            'medium_origin_new' => $this->value($record, 'Medio_origen__c'),
+            'channel_new' => $this->value($record, 'Canal__c'),
+            'delegation_origin_new' => $this->value($record, 'Delegacion_procedencia__c'),
             'campaign_acquired' => $this->value($record, 'Campa_a_Adquirida__c'),
             'acquired_id' => $this->value($record, 'Id_Adquirido__c'),
             'content_acquired' => $this->value($record, 'Contenido_Adquirido__c'),
+            'acquired_source_legacy' => $this->value($record, 'Fuente_Adquirida__c'),
+            'acquired_medium_legacy' => $this->value($record, 'Medio_Adquirido__c'),
+            'utm_campaign_new' => $this->value($record, 'utm_campaign__c'),
+            'utm_id_new' => $this->value($record, 'utm_id__c'),
+            'utm_source_new' => $this->value($record, 'utm_source__c'),
+            'utm_medium_new' => $this->value($record, 'utm_medium__c'),
+            'utm_content_new' => $this->value($record, 'utm_content__c'),
+            'field_resolution' => json_encode($fieldResolution, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'vehicle_interest' => $this->value($record, 'LEA_BUS_Vehiculo_de_interes__c'),
             'delegacion_encargada_text' => $this->value($record, 'Delegacion_Encargada_Text__c'),
             'delegacion_encargada_id' => $this->value($record, 'Delegacion_Encargada__c'),
@@ -225,108 +267,193 @@ SOQL;
 
         usort($rows, fn (array $a, array $b): int => strcmp((string) ($a['salesforce_id'] ?? ''), (string) ($b['salesforce_id'] ?? '')));
 
+        $hasGeneralTable = Schema::hasTable('salesforce_leads');
+
         foreach (array_chunk($rows, self::UPSERT_WRITE_CHUNK_SIZE) as $chunk) {
-            $this->retryDeadlock(function () use ($chunk): void {
-                DB::table('campaign_salesforce_leads')->upsert(
-                    $chunk,
-                    ['salesforce_id'],
-                    [
-                        'name',
-                        'created_date',
-                        'status',
-                        'owner_id',
-                        'owner_name',
-                        'phone',
-                        'mobile_phone',
-                        'email',
-                        'is_converted',
-                        'converted_date',
-                        'converted_account_id',
-                        'converted_contact_id',
-                        'converted_opportunity_id',
-                        'fuente_origen',
-                        'medio_origen',
-                        'campaign_acquired',
-                        'acquired_id',
-                        'content_acquired',
-                        'vehicle_interest',
-                        'delegacion_encargada_text',
-                        'delegacion_encargada_id',
-                        'delegacion_encargada_bueno',
-                        'raw_payload',
-                        'updated_at',
-                    ]
-                );
-            }, 'campaign_salesforce_leads');
-        }
-
-        if (Schema::hasTable('salesforce_leads')) {
-            $generalRows = array_map(fn (array $row): array => [
-                'salesforce_id' => $row['salesforce_id'],
-                'name' => $row['name'],
-                'created_date' => $row['created_date'],
-                'status' => $row['status'],
-                'owner_id' => $row['owner_id'],
-                'owner_name' => $row['owner_name'],
-                'phone' => $row['phone'],
-                'mobile_phone' => $row['mobile_phone'],
-                'email' => $row['email'],
-                'is_converted' => $row['is_converted'],
-                'converted_date' => $row['converted_date'],
-                'converted_account_id' => $row['converted_account_id'],
-                'converted_contact_id' => $row['converted_contact_id'],
-                'converted_opportunity_id' => $row['converted_opportunity_id'],
-                'fuente_origen' => $row['fuente_origen'],
-                'medio_origen' => $row['medio_origen'],
-                'campaign_acquired' => $row['campaign_acquired'],
-                'acquired_id' => $row['acquired_id'],
-                'content_acquired' => $row['content_acquired'],
-                'vehicle_interest' => $row['vehicle_interest'],
-                'delegacion_encargada_text' => $row['delegacion_encargada_text'],
-                'delegacion_encargada' => $row['delegacion_encargada_id'],
-                'delegacion_encargada_bueno' => $row['delegacion_encargada_bueno'],
-                'raw_payload' => $row['raw_payload'],
-                'created_at' => $row['created_at'],
-                'updated_at' => $row['updated_at'],
-            ], $rows);
-
-            foreach (array_chunk($generalRows, self::UPSERT_WRITE_CHUNK_SIZE) as $chunk) {
-                $this->retryDeadlock(function () use ($chunk): void {
-                    DB::table('salesforce_leads')->upsert(
+            $this->retryDeadlock(function () use ($chunk, $hasGeneralTable): void {
+                DB::transaction(function () use ($chunk, $hasGeneralTable): void {
+                    DB::table('campaign_salesforce_leads')->upsert(
                         $chunk,
                         ['salesforce_id'],
-                        [
-                            'name',
-                            'created_date',
-                            'status',
-                            'owner_id',
-                            'owner_name',
-                            'phone',
-                            'mobile_phone',
-                            'email',
-                            'is_converted',
-                            'converted_date',
-                            'converted_account_id',
-                            'converted_contact_id',
-                            'converted_opportunity_id',
-                            'fuente_origen',
-                            'medio_origen',
-                            'campaign_acquired',
-                            'acquired_id',
-                            'content_acquired',
-                            'vehicle_interest',
-                            'delegacion_encargada_text',
-                            'delegacion_encargada',
-                            'delegacion_encargada_bueno',
-                            'raw_payload',
-                            'updated_at',
-                        ]
+                        $this->campaignUpdateColumns(),
                     );
-                }, 'salesforce_leads');
-            }
+
+                    if ($hasGeneralTable) {
+                        $this->persistGeneralRows($chunk);
+                    }
+                });
+            }, 'campaign_salesforce_leads + salesforce_leads');
         }
 
         return count($rows);
+    }
+
+    /** @param list<array<string, mixed>> $rows */
+    private function persistGeneralRows(array $rows): void
+    {
+        $campaignOwned = [
+            'campaign_acquired',
+            'acquired_id',
+            'content_acquired',
+            'acquired_source_legacy',
+            'acquired_medium_legacy',
+            'utm_campaign_new',
+            'utm_id_new',
+            'utm_source_new',
+            'utm_medium_new',
+            'utm_content_new',
+        ];
+        $existing = DB::table('salesforce_leads')
+            ->whereIn('salesforce_id', array_column($rows, 'salesforce_id'))
+            ->get(['salesforce_id', 'created_date', ...$campaignOwned])
+            ->keyBy('salesforce_id');
+        $updates = [];
+        $inserts = [];
+
+        foreach ($rows as $row) {
+            $current = $existing->get($row['salesforce_id']);
+
+            if ($current === null) {
+                $inserts[] = $this->generalInsertRow($row);
+
+                continue;
+            }
+
+            $update = [
+                'salesforce_id' => $row['salesforce_id'],
+                // SQLite validates required insert columns before applying ON CONFLICT.
+                'created_date' => data_get($current, 'created_date'),
+            ];
+            foreach ($campaignOwned as $column) {
+                $incoming = $row[$column] ?? null;
+                $update[$column] = trim((string) $incoming) !== ''
+                    ? $incoming
+                    : data_get($current, $column);
+            }
+            $update['updated_at'] = $row['updated_at'];
+            $updates[] = $update;
+        }
+
+        if ($updates !== []) {
+            DB::table('salesforce_leads')->upsert(
+                $updates,
+                ['salesforce_id'],
+                [...$campaignOwned, 'updated_at'],
+            );
+        }
+
+        if ($inserts !== []) {
+            DB::table('salesforce_leads')->upsert(
+                $inserts,
+                ['salesforce_id'],
+                [...$campaignOwned, 'updated_at'],
+            );
+        }
+    }
+
+    private function generalInsertRow(array $row): array
+    {
+        return [
+            'salesforce_id' => $row['salesforce_id'],
+            'name' => $row['name'],
+            'created_date' => $row['created_date'],
+            'status' => $row['status'],
+            'owner_id' => $row['owner_id'],
+            'owner_name' => $row['owner_name'],
+            'phone' => $row['phone'],
+            'mobile_phone' => $row['mobile_phone'],
+            'email' => $row['email'],
+            'is_converted' => $row['is_converted'],
+            'converted_date' => $row['converted_date'],
+            'converted_account_id' => $row['converted_account_id'],
+            'converted_contact_id' => $row['converted_contact_id'],
+            'converted_opportunity_id' => $row['converted_opportunity_id'],
+            'fuente_origen' => $row['fuente_origen'],
+            'medio_origen' => $row['medio_origen'],
+            'source_origin_new' => $row['source_origin_new'],
+            'medium_origin_new' => $row['medium_origin_new'],
+            'channel_new' => $row['channel_new'],
+            'delegation_origin_new' => $row['delegation_origin_new'],
+            'campaign_acquired' => $row['campaign_acquired'],
+            'acquired_id' => $row['acquired_id'],
+            'content_acquired' => $row['content_acquired'],
+            'acquired_source_legacy' => $row['acquired_source_legacy'],
+            'acquired_medium_legacy' => $row['acquired_medium_legacy'],
+            'utm_campaign_new' => $row['utm_campaign_new'],
+            'utm_id_new' => $row['utm_id_new'],
+            'utm_source_new' => $row['utm_source_new'],
+            'utm_medium_new' => $row['utm_medium_new'],
+            'utm_content_new' => $row['utm_content_new'],
+            'field_resolution' => $row['field_resolution'],
+            'vehicle_interest' => $row['vehicle_interest'],
+            'delegacion_encargada_text' => $row['delegacion_encargada_text'],
+            'delegacion_encargada' => $row['delegacion_encargada_id'],
+            'delegacion_encargada_bueno' => $row['delegacion_encargada_bueno'],
+            'raw_payload' => $row['raw_payload'],
+            'created_at' => $row['created_at'],
+            'updated_at' => $row['updated_at'],
+        ];
+    }
+
+    /** @return list<string> */
+    private function campaignUpdateColumns(): array
+    {
+        return [
+            'name',
+            'created_date',
+            'status',
+            'owner_id',
+            'owner_name',
+            'phone',
+            'mobile_phone',
+            'email',
+            'is_converted',
+            'converted_date',
+            'converted_account_id',
+            'converted_contact_id',
+            'converted_opportunity_id',
+            'fuente_origen',
+            'medio_origen',
+            'source_origin_new',
+            'medium_origin_new',
+            'channel_new',
+            'delegation_origin_new',
+            'campaign_acquired',
+            'acquired_id',
+            'content_acquired',
+            'acquired_source_legacy',
+            'acquired_medium_legacy',
+            'utm_campaign_new',
+            'utm_id_new',
+            'utm_source_new',
+            'utm_medium_new',
+            'utm_content_new',
+            'field_resolution',
+            'vehicle_interest',
+            'delegacion_encargada_text',
+            'delegacion_encargada_id',
+            'delegacion_encargada_bueno',
+            'raw_payload',
+            'updated_at',
+        ];
+    }
+
+    /** @return array{value:mixed,field:string} */
+    private function legacyDelegation(array $record): array
+    {
+        foreach ([
+            'Delegacion_Encargada_Bueno__c',
+            'Delegacion_Encargada__c',
+            'Delegacion_Encargada_Text__c',
+        ] as $field) {
+            $value = $this->value($record, $field);
+
+            if (trim((string) $value) !== '') {
+                return ['value' => $value, 'field' => $field];
+            }
+        }
+
+        return ['value' => null, 'field' => 'legacy_delegation_fallback'];
     }
 
     private function retryDeadlock(callable $callback, string $table): void
