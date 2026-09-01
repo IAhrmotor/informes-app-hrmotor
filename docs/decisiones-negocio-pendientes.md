@@ -1,6 +1,6 @@
 # Decisiones de negocio pendientes
 
-Actualizado: 2026-08-06.
+Actualizado: 2026-09-01.
 
 Este documento contiene exclusivamente decisiones que el código no puede tomar
 sin una definición funcional o una validación externa. Las decisiones ya
@@ -10,7 +10,23 @@ implantadas se resumen al final y no deben volver a tratarse como pendientes.
 
 ### Leads
 
-No hay decisiones funcionales pendientes en el alcance actual:
+La futura migración de procedencia Salesforce queda bloqueada por estas
+decisiones, sin resolver en código:
+
+- prioridad exacta de `Fuente_origen__c`;
+- autoridad de `Canal__c` frente a `Medio_Nuevo__c`;
+- definición de valor válido y tratamiento de placeholders/desconocidos;
+- prioridad de `Delegacion_procedencia__c` frente a campos legacy, mappings,
+  remitente, owner y comercial;
+- tratamiento específico de Exposición;
+- política ante conflictos campo nuevo vs legacy;
+- equivalencias oficiales de `utm_campaign__c`, `utm_id__c`, `utm_source__c`,
+  `utm_medium__c` y `utm_content__c` con adquiridos legacy;
+- significado exacto de `utm_id__c` y prioridad ID vs nombre;
+- fecha efectiva, histórico, backfill y reconstrucción/versionado de atribución.
+
+Las siguientes reglas del alcance ya implantado permanecen cerradas y no se
+reabren por esta auditoría:
 
 - `Venta` incluye únicamente `Venta` y `Venta con cambio`;
 - `Lead` y `Ayvens` quedan fuera;

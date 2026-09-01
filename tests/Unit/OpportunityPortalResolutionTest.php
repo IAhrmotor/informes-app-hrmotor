@@ -74,13 +74,29 @@ class OpportunityPortalResolutionTest extends TestCase
         $this->assertSame('fallback_exposicion', $result['source']);
     }
 
+    public function test_lead_relacionado_prioriza_portal_text_sobre_fuentes_legacy_actuales(): void
+    {
+        $result = $this->service()->resolvePortalForRecord(
+            $this->opportunity(['Portal__c' => '3CX']),
+            $this->leads([[
+                'Id' => 'lead-conflict',
+                'Portal_Text__c' => 'Google Maps',
+                'LEA_SEL_Fuente_Origen__c' => 'Coches.net',
+                'Fuente_Nuevo__c' => 'Wallapop',
+                'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+            ]]),
+        );
+
+        $this->assertSame('Google Maps', $result['portal']);
+        $this->assertSame('lead', $result['source']);
+        $this->assertSame('lead-conflict', $result['lead_id']);
+    }
+
     private function service(): SalesforceOpportunitySyncService
     {
         $client = new class extends SalesforceClient
         {
-            public function __construct()
-            {
-            }
+            public function __construct() {}
         };
 
         return new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class));

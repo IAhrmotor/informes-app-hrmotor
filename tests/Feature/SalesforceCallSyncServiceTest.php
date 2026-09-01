@@ -91,4 +91,67 @@ class SalesforceCallSyncServiceTest extends TestCase
         $this->assertSame('Alcobendas', $call->delegation);
         $this->assertSame('Zona Sur y Centro', $call->zone);
     }
+
+    public function test_portal_no_clasificado_de_task_usa_prioridad_legacy_del_lead_relacionado(): void
+    {
+        $client = Mockery::mock(SalesforceClient::class);
+        $client->shouldReceive('query')->andReturnUsing(function (string $soql): array {
+            if (str_contains($soql, 'FROM User')) {
+                return [[
+                    'Id' => '005-owner',
+                    'Name' => 'Comercial Owner',
+                    'IsActive' => true,
+                    'Profile' => ['Name' => 'Compra/Venta'],
+                    'USR_SEL_Delegacion__c' => 'HR MOTOR ALCOBENDAS',
+                ]];
+            }
+
+            if (str_contains($soql, 'FROM Lead')) {
+                $this->assertStringContainsString('Portal_Text__c', $soql);
+                $this->assertStringContainsString('LEA_SEL_Fuente_Origen__c', $soql);
+                $this->assertStringContainsString('Fuente_Nuevo__c', $soql);
+                $this->assertStringNotContainsString('Fuente_origen__c', $soql);
+
+                return [[
+                    'Id' => '00Q-lead-conflict',
+                    'Portal_Text__c' => 'Google Maps',
+                    'LEA_SEL_Fuente_Origen__c' => 'Coches.net',
+                    'Fuente_Nuevo__c' => 'Wallapop',
+                ]];
+            }
+
+            return [[
+                'Id' => '00T-call-conflict',
+                'Subject' => 'Llamada entrante',
+                'Description' => "Resultado: ANSWERED\nTipo: Entrante a fijo\nComercial destino: AG1 - Vanesa Germán\nDuracion de la llamada: 80 segundos",
+                'Type' => 'Call',
+                'Status' => 'Completed',
+                'Priority' => 'Normal',
+                'ActivityDate' => '2026-05-10',
+                'CreatedDate' => '2026-05-10T10:00:00.000Z',
+                'LastModifiedDate' => '2026-05-10T10:05:00.000Z',
+                'OwnerId' => '005-owner',
+                'Owner' => ['Name' => 'Comercial Owner', 'Profile' => ['Name' => 'Compra/Venta']],
+                'WhoId' => '00Q-lead-conflict',
+                'CallObject' => 'call-object-conflict',
+                'CallDurationInSeconds' => 80,
+                'CallType' => 'Inbound',
+                'Portales__c' => '3CX',
+            ]];
+        });
+
+        $service = new SalesforceCallSyncService(
+            $client,
+            app(CallDescriptionParser::class),
+            app(CallPortalNormalizer::class),
+            app(CallAgentResolver::class),
+            app(CallClassificationRules::class),
+        );
+
+        $service->sync(CarbonImmutable::parse('2026-05-10'), CarbonImmutable::parse('2026-05-11'));
+
+        $call = SalesforceCall::query()->where('salesforce_id', '00T-call-conflict')->firstOrFail();
+        $this->assertSame('Google Maps', $call->portal_resolved);
+        $this->assertSame('lead', $call->portal_resolution_source);
+    }
 }

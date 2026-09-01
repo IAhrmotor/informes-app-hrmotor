@@ -1343,3 +1343,129 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Cualquier campo requerido ausente/no numérico, cualquier materialidad o cualquier estado distinto de `available`/`not_applicable` conserva el bloqueo. `not_configured`, `transport_error`, `remote_error`, `unavailable` y estados desconocidos siguen siendo errores. Las filas `available` continúan sujetas al TTL de `reviews_fetched_at`.
 - Si todas las filas son `not_applicable` e inertes, reseñas queda `ready` sin falsear `fetched_at`; en una mezcla, freshness se calcula solo sobre filas realmente aplicables. No se añadieron consultas SQL/HTTP, migraciones, variables de entorno, frontend ni assets.
 - Validación: readiness `22/67`, dashboard de Comisiones `50/404`, suite completa `777/5.654`, Pint focalizado correcto y `git diff --check` correcto. No se consultó Salesforce ni el endpoint real y no hubo commit, push, merge ni deploy.
+
+# Auditoría preparatoria de campos Salesforce (2026-09-01)
+
+## Resumen
+
+- Se auditó el recorrido actual de procedencia, canal, medio, portal,
+  delegación y adquisición desde SOQL hasta tablas, resolvers, datasets,
+  informes y exports.
+- Se creó `docs/auditoria-migracion-campos-salesforce.md` porque la documentación
+  existente está separada por informe y no había una matriz transversal capaz
+  de registrar las colisiones entre Leads, Campañas, Calls, Opportunities y
+  SEO sin duplicar o mezclar sus reglas.
+- Se añadieron pruebas de caracterización para `LeadPortalResolver`, el universo
+  legacy exacto de `CampaignLeadSyncService`, `dryRun`, fallback SOQL, doble
+  upsert y prioridades auxiliares de Calls y Opportunities.
+- No se modificó PHP productivo, SOQL productivo, frontend, rutas, configuración,
+  esquema, datos ni reglas de negocio.
+
+## Línea base Git
+
+- Rama: `main`.
+- Commit: `4a4037a1036f0ce32800e003abdb571289cd10a1`.
+- Estado inicial: limpio; `origin/main` coincidía con HEAD.
+- El commit de referencia solicitado
+  `a6b7ef768d0c261e18508e902b846abfffc12707` no existe en los objetos Git
+  locales. No fue posible calcular ahead/behind o merge-base y no se hizo fetch,
+  reset ni checkout para alterar la línea base.
+
+## Archivos modificados
+
+- Nuevo `docs/auditoria-migracion-campos-salesforce.md`: matriz, flujos,
+  comportamiento real, colisiones, doble escritura, riesgos y bloqueos.
+- Modificado `docs/decisiones-negocio-pendientes.md`: decisiones que bloquean la
+  migración futura, sin resolverlas.
+- Nuevo `tests/Unit/LeadPortalResolverCharacterizationTest.php`: canal,
+  prioridades, normalización, vacíos, fallback y source actuales.
+- Nuevo `tests/Feature/CampaignLeadSyncCharacterizationTest.php`: filtro y SELECT
+  legacy, cinco candidatos, exclusión, dry-run, fallback y doble upsert.
+- Modificado `tests/Unit/OpportunityPortalResolutionTest.php`: prioridad del
+  portal en el Lead relacionado.
+- Modificado `tests/Feature/SalesforceCallSyncServiceTest.php`: consulta auxiliar
+  y prioridad del Lead cuando `Task.Portales__c` no clasifica.
+- Modificado este handoff. No se actualizó `PROJECT_CONTEXT.md` ni
+  `DECISIONS.md`: no cambió arquitectura ni se adoptó una decisión difícil de
+  revertir.
+
+## Decisiones adoptadas
+
+- Mantener exactamente las prioridades y universos existentes.
+- Tratar `salesforce_leads.fuente_origen` y `.medio_origen` como columnas legacy
+  alimentadas por `LEA_SEL_*`; no reutilizarlas para API Names nuevos.
+- Documentar `Medio_origen__c` de SEO como integración existente aislada, no
+  como precedente para Leads/Campañas.
+- Congelar mediante test la doble escritura peligrosa de Campañas sin corregirla
+  en esta fase.
+
+## Base de datos y configuración
+
+- Sin migraciones, nuevas columnas, índices, backfill ni cambios de `.env`.
+- Sin configuración manual necesaria para esta fase.
+
+## Seguridad
+
+- No se usaron credenciales reales ni se llamó a Salesforce.
+- Los clientes Salesforce de tests son mocks/stubs y usan datos sintéticos.
+- No se escribieron tokens, secretos, datos personales ni payloads productivos
+  en tests o documentación.
+- Los endpoints y controles de autorización no cambiaron.
+
+## Rendimiento
+
+- No se añadieron queries de producción ni se cambiaron ventanas, chunks,
+  reintentos, upserts, índices o cachés.
+- La fase futura debe evaluar crecimiento del SELECT y del OR Salesforce,
+  volumen adicional, doble escritura, backfill y reatribución masiva.
+
+## Pruebas y verificaciones
+
+- Línea base relacionada antes de cambios: `php artisan test` sobre 8 archivos
+  relacionados: 115 pruebas, 795 aserciones, todo correcto.
+- Caracterización inmediata: 25 pruebas, 106 aserciones, todo correcto. De
+  ellas, 18 casos son nuevos (incluidos datasets del data provider).
+- Suite relacionada final de Leads, Campañas, Calls, Opportunities,
+  sincronizadores y SEO: 160 pruebas, 993 aserciones, todo correcto.
+- Suite completa `php artisan test`: 778 pruebas, 5.679 aserciones, todo
+  correcto.
+- `php vendor/bin/pint --test` sobre los cuatro PHP modificados: correcto.
+- `composer validate --no-check-publish --strict`: correcto.
+- `composer audit --locked --no-dev`: sin vulnerabilidades conocidas.
+- `npm run build`: correcto. Vite avisó de `/images/login-bg.jpg` resuelta en
+  runtime y de una deprecación Node; no son fallos de este cambio. Los hashes
+  generados por el build se restauraron porque no hubo cambios frontend.
+- `git diff --check`: correcto.
+- Fallos preexistentes observados: ninguno en las suites ejecutadas.
+- Fallos introducidos: cero.
+
+## Acciones manuales necesarias
+
+- Ninguna para desplegar esta fase documental/de pruebas.
+- Antes de implementar la migración, Dirección debe resolver las diez decisiones
+  registradas en la auditoría y debe verificarse la metadata/FLS real de los API
+  Names candidatos en un proceso separado y de solo lectura.
+
+## Riesgos y pendientes
+
+- Crítico: colisión semántica de columnas locales legacy y API Names nuevos.
+- Crítico: ampliar el filtro Campañas modificaría universo y volumen.
+- Crítico: el upsert parcial de Campañas puede sobrescribir columnas generales
+  con `null`; además no hay transacción entre las dos tablas.
+- Alto: prioridades diferentes entre dashboard, canalización legacy, Calls y
+  Opportunities.
+- Alto: Exposición tiene fallbacks exclusivos de owner/comercial.
+- Pendientes funcionales completos en
+  `docs/auditoria-migracion-campos-salesforce.md` y
+  `docs/decisiones-negocio-pendientes.md`.
+
+## Confirmación de no regresión
+
+- Universo: NO modificado.
+- Conteos: NO modificados.
+- Reglas de negocio: NO modificadas.
+- Prioridades: NO modificadas.
+- Campos Salesforce nuevos: NO integrados.
+- SOQL productivo: NO modificado.
+- Backfill: NO realizado.
+- Producción: NO modificada.
