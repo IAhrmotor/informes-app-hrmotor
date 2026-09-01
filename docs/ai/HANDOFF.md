@@ -1555,3 +1555,40 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - `CampaignAttributionBuilderService`: NO modificado.
 - Backfill, escritura Salesforce, producción y frontend: NO modificados.
 - Campos legacy eliminados o reutilizados: NO.
+
+# Desglose de compras Tasador (2026-09-01)
+
+## Resumen y decisiones
+
+- Desde junio de 2026, `buildAppraiserMonthlySummaryRow()` mantiene un único
+  tramo calculado sobre el total conjunto de oportunidades `Tasacion` y
+  `Cambio`, pero ahora publica también sus importes desglosados.
+- `appraisals_amount` y `changes_amount` se calculan con el mismo rate y
+  `purchases_amount` se deriva de su suma. La comisión final continúa usando
+  exclusivamente `purchases_amount`, por lo que el correctivo no duplica ni
+  modifica el importe pagado.
+- No se modificaron tramos, universos, filtros, detalle de compras, lógica
+  histórica anterior a junio, frontend ni contratos públicos.
+
+## Archivos y operación
+
+- Modificados: servicio del dashboard comercial, su prueba feature, cálculo
+  funcional documentado y este handoff.
+- Base de datos, migraciones, configuración, variables de entorno y assets: sin
+  cambios. No requiere acciones manuales distintas del despliegue ordinario.
+
+## Seguridad y rendimiento
+
+- El cálculo reutiliza las operaciones ya cargadas, sin SQL, HTTP ni Salesforce
+  adicionales. Las colecciones se separan una vez y mantienen complejidad O(n).
+- No se incorporan IDs, nombres reales, credenciales ni datos de producción.
+
+## Pruebas
+
+- Regresiones focalizadas iniciales del Tasador: 5 pruebas y 52 aserciones,
+  correctas. Cubren 8 Tasaciones + 2 Cambios, tipos aislados, tramo 0-7 y el
+  escenario vigente con ventas, financiación y rapidez.
+- Test exacto preexistente del Tasador: 1/1 y 15 aserciones. Dashboard completo:
+  54/54 y 446 aserciones. API de Comisiones: 22/22 y 138 aserciones.
+- Suite completa: 820/820 pruebas y 5.922 aserciones, correcta. Pint focal sobre
+  los dos PHP modificados, lint PHP y `git diff --check`: correctos.

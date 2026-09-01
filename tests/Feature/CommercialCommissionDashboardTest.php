@@ -19,6 +19,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -2869,11 +2870,106 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertSame(12, $row['appraiser_purchase_count']);
         $this->assertSame('11-15 compras', $row['appraiser_purchase_tier']);
         $this->assertEquals(60.0, $row['appraiser_purchase_rate']);
+        $this->assertSame(11, $row['appraisals_count']);
+        $this->assertEquals(660.0, $row['appraisals_amount']);
+        $this->assertSame(1, $row['changes_count']);
+        $this->assertEquals(60.0, $row['changes_amount']);
         $this->assertEquals(720.0, $row['purchases_amount']);
+        $this->assertEquals(780.0, $row['operations_commission_amount']);
         $this->assertEquals(60.0, $row['sales_amount']);
         $this->assertEquals(30.0, $row['appraiser_financing_commission']);
         $this->assertEquals(20.0, $row['appraiser_speed_under_30_amount']);
         $this->assertEquals(830.0, $row['final_commission']);
+    }
+
+    public function test_tasador_desglosa_ocho_tasaciones_y_dos_cambios_sin_duplicar_la_comision(): void
+    {
+        $row = $this->buildAppraiserPurchaseBreakdown(8, 2, 'APPRAISER-SPLIT');
+
+        $this->assertSame(8, $row['appraisals_count']);
+        $this->assertEquals(240.0, $row['appraisals_amount']);
+        $this->assertSame(2, $row['changes_count']);
+        $this->assertEquals(60.0, $row['changes_amount']);
+        $this->assertSame(10, $row['appraiser_purchase_count']);
+        $this->assertEquals(30.0, $row['appraiser_purchase_rate']);
+        $this->assertEquals(300.0, $row['purchases_amount']);
+        $this->assertEquals($row['appraisals_amount'] + $row['changes_amount'], $row['purchases_amount']);
+        $this->assertEquals(300.0, $row['operations_commission_amount']);
+        $this->assertEquals(300.0, $row['prima_total']);
+        $this->assertEquals(300.0, $row['prima_adjusted']);
+        $this->assertEquals(300.0, $row['final_commission']);
+    }
+
+    #[DataProvider('appraiserPurchaseBreakdownCases')]
+    public function test_tasador_mantiene_el_desglose_para_un_solo_tipo_y_el_tramo_sin_comision(
+        int $appraisals,
+        int $changes,
+        float $expectedRate,
+        float $expectedAppraisalsAmount,
+        float $expectedChangesAmount,
+    ): void {
+        $row = $this->buildAppraiserPurchaseBreakdown($appraisals, $changes, 'APPRAISER-EDGE-'.$appraisals.'-'.$changes);
+
+        $this->assertSame($appraisals, $row['appraisals_count']);
+        $this->assertSame($changes, $row['changes_count']);
+        $this->assertEquals($expectedRate, $row['appraiser_purchase_rate']);
+        $this->assertEquals($expectedAppraisalsAmount, $row['appraisals_amount']);
+        $this->assertEquals($expectedChangesAmount, $row['changes_amount']);
+        $this->assertEquals($expectedAppraisalsAmount + $expectedChangesAmount, $row['purchases_amount']);
+        $this->assertEquals($row['purchases_amount'], $row['final_commission']);
+    }
+
+    public static function appraiserPurchaseBreakdownCases(): array
+    {
+        return [
+            'solo tasaciones' => [8, 0, 30.0, 240.0, 0.0],
+            'solo cambios' => [0, 8, 30.0, 0.0, 240.0],
+            'tramo cero conjunto' => [4, 3, 0.0, 0.0, 0.0],
+        ];
+    }
+
+    private function buildAppraiserPurchaseBreakdown(int $appraisals, int $changes, string $userId): array
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+
+        SalesforceUser::create([
+            'salesforce_id' => $userId,
+            'name' => 'Tasador de prueba',
+            'profile_name' => 'Standard User',
+            'is_active' => true,
+            'commission_appraiser' => true,
+        ]);
+
+        foreach ([
+            'Tasacion' => $appraisals,
+            'Cambio' => $changes,
+        ] as $recordType => $count) {
+            if ($count === 0) {
+                continue;
+            }
+
+            foreach (range(1, $count) as $index) {
+                SalesforceOpportunity::create([
+                    'salesforce_id' => $userId.'-'.$recordType.'-'.$index,
+                    'name' => $recordType.' de prueba '.$index,
+                    'owner_id' => $userId,
+                    'owner_name' => 'Tasador de prueba',
+                    'owner_is_active' => true,
+                    'stage_name' => 'Contrato',
+                    'record_type_name' => $recordType,
+                    'cv_signed' => true,
+                    'cv_signed_date' => '2026-07-10',
+                    'gestion_de_venta' => false,
+                ]);
+            }
+        }
+
+        $row = collect(app(CommercialCommissionDashboardService::class)->build('2026-07')['summary_rows'])
+            ->firstWhere('commercial_id', $userId);
+
+        $this->assertNotNull($row);
+
+        return $row;
     }
 
     private function authenticatedSession(string $role): array

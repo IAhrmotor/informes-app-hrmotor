@@ -851,9 +851,13 @@ class CommercialCommissionDashboardService
         bool $includeDetails,
     ): array {
         $purchases = $ownerOperations->filter(fn (SalesforceOpportunity $row) => $this->isPurchaseOperation($row))->values();
+        $appraisals = $purchases->filter(fn (SalesforceOpportunity $row) => $this->isAppraisal($row))->values();
+        $changes = $purchases->filter(fn (SalesforceOpportunity $row) => $this->isChange($row))->values();
         $sales = $ownerOperations->filter(fn (SalesforceOpportunity $row) => $this->isSale($row))->values();
         $purchaseRate = $this->appraiserPurchaseRate($purchases->count());
-        $purchasesAmount = round($purchases->count() * $purchaseRate, 2);
+        $appraisalsAmount = round($appraisals->count() * $purchaseRate, 2);
+        $changesAmount = round($changes->count() * $purchaseRate, 2);
+        $purchasesAmount = round($appraisalsAmount + $changesAmount, 2);
         $salesAmount = round($sales->count() * 60, 2);
         $financingBenefitTotal = round((float) $ownerOperations->sum(fn (SalesforceOpportunity $row) => (float) ($row->beneficio_financiacion_comercial ?? 0)), 2);
         $financingCommissionAmount = round($financingBenefitTotal * 0.03, 2);
@@ -868,8 +872,10 @@ class CommercialCommissionDashboardService
             'operations_count' => $ownerOperations->count(),
             'sales_count' => $sales->count(),
             'sales_amount' => $salesAmount,
-            'appraisals_count' => $purchases->filter(fn (SalesforceOpportunity $row) => $this->isAppraisal($row))->count(),
-            'changes_count' => $purchases->filter(fn (SalesforceOpportunity $row) => $this->isChange($row))->count(),
+            'appraisals_count' => $appraisals->count(),
+            'appraisals_amount' => $appraisalsAmount,
+            'changes_count' => $changes->count(),
+            'changes_amount' => $changesAmount,
             'purchases_amount' => $purchasesAmount,
             'operations_commission_amount' => round($purchasesAmount + $salesAmount, 2),
             'appraiser_purchase_count' => $purchases->count(),
