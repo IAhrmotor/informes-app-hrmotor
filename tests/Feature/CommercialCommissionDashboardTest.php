@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\CommercialCommissionClosure;
-use App\Models\ReportUser;
 use App\Models\ReportSyncRun;
+use App\Models\ReportUser;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceReview;
 use App\Models\SalesforceUser;
@@ -117,8 +117,8 @@ class CommercialCommissionDashboardTest extends TestCase
             $response->getContent(),
         );
         $javascript = file_get_contents(resource_path('js/reports/commercial-commissions-dashboard.js'));
-        $this->assertStringContainsString("activate(triggers[0].dataset.commercialDetailTabTrigger);", $javascript);
-        $this->assertStringContainsString("detailPanel.dataset.commercialDetailTabPanel !== targetTab", $javascript);
+        $this->assertStringContainsString('activate(triggers[0].dataset.commercialDetailTabTrigger);', $javascript);
+        $this->assertStringContainsString('detailPanel.dataset.commercialDetailTabPanel !== targetTab', $javascript);
     }
 
     public function test_area_manager_puede_entrar_y_viewer_no_ve_comisiones(): void

@@ -4,6 +4,7 @@ namespace App\Services\Reports\CommercialCommissions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -13,8 +14,7 @@ class CommercialCommissionDelegationReviewsService
 {
     public function __construct(
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
-    ) {
-    }
+    ) {}
 
     public function forMonthAndDelegations(CarbonImmutable $month, Collection $delegationLabels): array
     {
@@ -51,6 +51,7 @@ class CommercialCommissionDelegationReviewsService
 
             if (is_array($cached)) {
                 $results[$delegationLabel] = $this->normalizePayload($cached);
+
                 continue;
             }
 
@@ -102,8 +103,9 @@ class CommercialCommissionDelegationReviewsService
                 $cacheKey = $this->cacheKey($monthParam, $delegationLabel);
                 $response = $responses[$delegationLabel] ?? null;
 
-                if (! $response instanceof \Illuminate\Http\Client\Response) {
+                if (! $response instanceof Response) {
                     $results[$delegationLabel] = $this->emptyPayload('not_applicable');
+
                     continue;
                 }
 
@@ -115,6 +117,7 @@ class CommercialCommissionDelegationReviewsService
                         'month' => $month->format('Y-m'),
                     ]);
                     $results[$delegationLabel] = $this->emptyPayload('remote_error');
+
                     continue;
                 }
 

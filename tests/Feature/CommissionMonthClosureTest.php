@@ -19,6 +19,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Mockery;
 use Tests\TestCase;
 
@@ -279,7 +280,7 @@ class CommissionMonthClosureTest extends TestCase
             try {
                 $service->prepare('2026-06', $scope, array_fill_keys(array_keys($service->requiredComponents($scope)), true), $admin);
                 $this->fail('El scope extendido no debe aceptar junio de 2026.');
-            } catch (\Illuminate\Validation\ValidationException $exception) {
+            } catch (ValidationException $exception) {
                 $this->assertArrayHasKey('closure_scope', $exception->errors());
             }
 
@@ -296,7 +297,7 @@ class CommissionMonthClosureTest extends TestCase
                         ? $service->approve('2026-06', $scope, $admin)
                         : $service->reopen('2026-06', $scope, 'Reapertura histórica no permitida', $admin);
                     $this->fail(sprintf('%s no debe aceptar un scope extendido anterior a julio de 2026.', $operation));
-                } catch (\Illuminate\Validation\ValidationException $exception) {
+                } catch (ValidationException $exception) {
                     $this->assertArrayHasKey('closure_scope', $exception->errors());
                 }
             }

@@ -4,8 +4,8 @@ namespace App\Logging;
 
 use App\Support\IntegrationErrorSanitizer;
 use Illuminate\Log\Logger as IlluminateLogger;
-use Monolog\LogRecord;
 use Monolog\Logger as MonologLogger;
+use Monolog\LogRecord;
 
 class SanitizeLogRecords
 {

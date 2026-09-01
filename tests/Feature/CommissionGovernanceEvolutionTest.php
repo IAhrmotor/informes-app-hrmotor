@@ -4,11 +4,11 @@ namespace Tests\Feature;
 
 use App\Models\SalesforceDelegationManagerHistory;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
-use App\Services\Reports\CommercialCommissions\DelegationManagerHistoryResolver;
 use App\Services\Reports\CommercialCommissions\DelegationManagerEvidenceService;
+use App\Services\Reports\CommercialCommissions\DelegationManagerHistoryResolver;
 use Carbon\CarbonImmutable;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;

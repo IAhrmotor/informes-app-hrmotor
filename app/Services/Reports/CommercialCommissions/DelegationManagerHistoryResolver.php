@@ -106,7 +106,7 @@ class DelegationManagerHistoryResolver
             fn (string $label): array => [$this->formulaConfig->delegationKey($label) => $label]
         );
 
-        return $keys->mapWithKeys(function (string $key) use ($labelsByKey, $month): array {
+        return $keys->mapWithKeys(function (string $key) use ($labelsByKey): array {
             $label = $labelsByKey->get($key, $key);
 
             return [$key => [

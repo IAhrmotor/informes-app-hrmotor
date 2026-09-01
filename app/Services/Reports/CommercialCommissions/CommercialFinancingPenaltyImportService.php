@@ -28,8 +28,7 @@ class CommercialFinancingPenaltyImportService
 
     public function __construct(
         private readonly XlsxWorkbookReader $reader,
-    ) {
-    }
+    ) {}
 
     /** @return array{import: CommercialFinancingPenaltyImport, months: array<int, string>} */
     public function import(UploadedFile $file, ?int $uploadedByReportUserId): array

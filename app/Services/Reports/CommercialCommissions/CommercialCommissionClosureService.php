@@ -164,6 +164,7 @@ class CommercialCommissionClosureService
         $this->assertScopeAvailableForMonth($scope, $selected);
         $this->assertNaturalMonthFinished($selected);
         $monthKey = $selected->format('Y-m');
+
         return DB::transaction(function () use ($monthKey, $scope, $user): CommercialCommissionClosure {
             $closure = CommercialCommissionClosure::query()->where(['month' => $monthKey, 'closure_scope' => $scope])->lockForUpdate()->first();
             if (! $closure || $closure->status !== CommercialCommissionClosure::STATUS_PENDING_APPROVAL) {
@@ -282,7 +283,7 @@ class CommercialCommissionClosureService
     {
         $monthKey = $this->monthResolver->resolve($month)->format('Y-m');
 
-        return collect($this->availableScopes($monthKey))->map(function (string $scope) use ($monthKey, $knownScope, $knownDashboard): array {
+        return collect($this->availableScopes($monthKey))->map(function (string $scope) use ($monthKey): array {
             $status = $this->status($monthKey, $scope);
             $dashboard = null;
 

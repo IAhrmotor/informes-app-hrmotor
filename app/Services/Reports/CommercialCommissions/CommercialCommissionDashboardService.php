@@ -1253,7 +1253,7 @@ class CommercialCommissionDashboardService
 
         $managersByDelegation = $this->delegationManagers->resolve($periodStart, $delegationLabels->all());
 
-        return $delegationLabels->map(function (string $delegationLabel) use ($periodStart, $deliveriesByDelegation, $rentabilityOperationsByDelegation, $financialOperationsByDelegation, $configuredGoals, $formulaSettings, $reviewsByDelegation, $managersByDelegation): array {
+        return $delegationLabels->map(function (string $delegationLabel) use ($deliveriesByDelegation, $rentabilityOperationsByDelegation, $financialOperationsByDelegation, $configuredGoals, $formulaSettings, $reviewsByDelegation, $managersByDelegation): array {
             /** @var Collection<int, SalesforceOpportunity> $delegationOperations */
             $delegationOperations = $deliveriesByDelegation->get($delegationLabel, collect())->values();
             /** @var Collection<int, SalesforceOpportunity> $delegationRentabilityOperations */
