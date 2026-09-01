@@ -344,3 +344,25 @@ proyección actual; mientras no coincida muestra un estado pendiente neutral. El
 histórico presenta los valores capturados por la evaluación, evitando mezclar
 hechos revisados con una clasificación anterior. D-364 y timestamps se excluyen
 del hash porque no alteran la regla v1.
+# 2026-08-28 - Responsables temporales y cierres por ámbito
+
+- Las metas de entregas se editan desde julio exclusivamente en las asignaciones de Area Manager; Delegaciones deriva su target al leer configuración, sin compartir el universo real.
+- El jefe de tienda se persiste como historial efectivo local basado exclusivamente en `Delegacion__c.DEL_BUS_Jefe_Tienda__c` y su historial Salesforce. Una observación actual sin evidencia histórica se marca como no verificable.
+- Los seis dominios económicos reutilizan `CommercialCommissionClosure` y snapshots por `closure_scope`; no se introduce un segundo sistema de aprobación.
+- El Auditor consume una proyección final-only dedicada. Ocultar columnas en Blade no se considera control de acceso suficiente.
+- La evidencia histórica de responsables se modela como intervalos de cobertura. Un periodo solo es verificable si la unión de intervalos confiables cubre el mes completo sin huecos.
+- Las confirmaciones históricas manuales requieren fuente y referencia trazables mediante un comando CLI específico; nunca se infieren desde el responsable actual.
+- Los tres scopes de cierre nuevos tienen fecha efectiva 2026-07 y no se habilitan retroactivamente.
+
+## 2026-08-28 - Candidato preparado y evidencia temporal separada
+
+- La preparación crea una versión candidata inmutable del snapshot. La aprobación no recalcula fuentes: convierte en definitiva exactamente la versión preparada. Tras reapertura, una nueva preparación crea una versión superior y conserva la anterior para auditoría.
+- El responsable al cierre y la cobertura de rotaciones son evidencias distintas sobre la misma tabla temporal. `month_end` cubre solo el instante final y nunca verifica el histórico mensual; `full_month` exige confirmación documental de todo el periodo. Esta separación evita ocultar un jefe conocido y evita afirmar ausencia de rotaciones sin evidencia.
+- Readiness es server-side y se basa en metadata de ejecuciones o estado técnico de la fuente real. El recuento cero no prueba fallo. Las reseñas de Delegaciones se validan contra el endpoint interno/caché, no contra `Resena__c`.
+- El Auditor usa navegación por scope: seis estados baratos y un único cálculo final-only por petición. Los fallos se aíslan por scope y nunca se proyectan como importes cero.
+
+## 2026-08-31 - HTTPS público detrás de proxy explícitamente confiable
+
+- Una extensión mínima del middleware oficial `TrustProxies` carga desde configuración cacheable la lista `TRUSTED_PROXIES`. Laravel interpreta `X-Forwarded-*` únicamente cuando `REMOTE_ADDR` pertenece a esa lista explícita. Producción debe configurar las IP/CIDR reales de la red del reverse proxy; no se admite `*` en una aplicación expuesta a Internet.
+- Se confían las cabeceras estándar de Symfony para origen, host, puerto, protocolo y prefijo. No se implementa parser propio, no se hardcodea el host público y no se aplica `URL::forceScheme`, por lo que local puede seguir funcionando por HTTP.
+- El proxy debe enviar `X-Forwarded-Proto: https` y producción debe mantener `APP_URL=https://informes.app.hrmotor.com`. `APP_URL` no sustituye la frontera de confianza del proxy para URLs derivadas de la request.

@@ -87,6 +87,11 @@
         'reopened' => 'Reabierto',
     ];
     $closureStatus = $commissionClosure['status'] ?? 'provisional';
+    $visibleDashboardWarnings = $activeCommissionTab === 'delegations'
+        ? $delegationRows
+            ->filter(fn (array $row): bool => (int) ($row['store_manager_distinct_count'] ?? 0) > 2)
+            ->pluck('store_manager_alert')->filter()->unique()->values()
+        : collect($dashboard['warnings'] ?? []);
 @endphp
 <div class="wrap">
     <main>
@@ -134,60 +139,115 @@
             </section>
             @endif
 
-            @if (($closureScope ?? null) !== null)
-            <section class="card panel commission-closure-panel">
-                <div class="panel-title">
-                    <div>
-                        <h2>Estado económico del bloque</h2>
-                        <div class="small">El cierre aplica solo al bloque activo del mes {{ $dashboard['month'] }}.</div>
+            @if (($adminPreparationOverview ?? []) !== [])
+                <section class="card panel commission-closure-panel" aria-labelledby="admin-preparation-title">
+                    <div class="panel-title">
+                        <div>
+                            <h2 id="admin-preparation-title">Preparación de comisiones · {{ \Carbon\CarbonImmutable::createFromFormat('!Y-m', $dashboard['month'])->locale('es')->translatedFormat('F \d\e Y') }}</h2>
+                            <div class="small">Las fuentes se validan en el servidor. No se aceptan confirmaciones manuales del navegador.</div>
+                        </div>
                     </div>
-                    <span class="type-pill {{ $closureStatus === 'definitive' ? 'group' : 'pending' }}">
-                        {{ $closureStatusLabels[$closureStatus] ?? $closureStatus }}
-                    </span>
-                </div>
-                <div class="campaign-diagnostics commission-diagnostics-grid">
-                    <div class="diagnostic-item"><span>Mes</span><strong>{{ $commissionClosure['month'] ?? $dashboard['month'] }}</strong></div>
-                    <div class="diagnostic-item"><span>Corte de datos</span><strong>{{ $commissionClosure['data_cutoff_at'] ?? 'Pendiente' }}</strong></div>
-                    <div class="diagnostic-item"><span>Versión de fórmulas</span><strong>{{ $commissionClosure['formula_version'] ?? '-' }}</strong></div>
-                    <div class="diagnostic-item"><span>Fotografía</span><strong>{{ (int) ($commissionClosure['snapshot_version'] ?? 0) }}</strong></div>
-                </div>
+                    @if (($hasCustomCallCenterFilters ?? false) && $closureScope === 'call_center')
+                        <div class="notice commission-warning" role="alert">
+                            La vista contiene filtros contractuales personalizados. El cierre siempre congelará el mes natural completo
+                            ({{ \Carbon\CarbonImmutable::createFromFormat('!Y-m', $dashboard['month'])->startOfMonth()->format('d/m/Y') }} -
+                            {{ \Carbon\CarbonImmutable::createFromFormat('!Y-m', $dashboard['month'])->endOfMonth()->format('d/m/Y') }})
+                            por {{ number_format(data_get($canonicalCallCenterClosureSummary, 'final_total', 0), 2, ',', '.') }} EUR. Restablece el rango mensual antes de preparar.
+                        </div>
+                    @endif
+                    <div class="table-shell commission-closure-table-shell">
+                        <table class="commission-closure-table">
+                            <thead><tr><th>Bloque</th><th>Fuentes</th><th>Estado</th><th>Acción</th></tr></thead>
+                            <tbody>
+                                @foreach ($adminPreparationOverview as $preparation)
+                                    @php
+                                        $status = data_get($preparation, 'status.status');
+                                        $displayStatus = data_get($preparation, 'status.is_prepared') ? ($closureStatusLabels[$status] ?? $status) : 'Sin preparar';
+                                        $readiness = $preparation['readiness'] ?? null;
+                                        $isActiveScope = $preparation['scope'] === $closureScope;
+                                        $customRangeBlocksPrepare = $isActiveScope && $preparation['scope'] === 'call_center' && ($hasCustomCallCenterFilters ?? false);
+                                    @endphp
+                                    <tr>
+                                        <td><strong>{{ $preparation['label'] }}</strong></td>
+                                        <td>
+                                            @if ($readiness === null)
+                                                <span class="small">Abre el bloque para verificar sus fuentes.</span>
+                                            @else
+                                                @foreach (($readiness['components'] ?? []) as $source)
+                                                    <div class="commission-source-state"><span class="type-pill {{ $source['blocking'] ? 'pending' : 'group' }}">{{ $source['blocking'] ? 'Revisar' : 'OK' }}</span> {{ $source['label'] }}@if($source['updated_at']) · {{ \Carbon\CarbonImmutable::parse($source['updated_at'])->format('d/m/Y H:i') }}@endif</div>
+                                                @endforeach
+                                                @foreach (($readiness['blocking'] ?? []) as $blocking)<div class="small commission-source-error">{{ $blocking }}</div>@endforeach
+                                                @foreach (($readiness['warnings'] ?? []) as $warning)<div class="small commission-source-warning">{{ $warning }}</div>@endforeach
+                                            @endif
+                                        </td>
+                                        <td><span class="type-pill {{ $status === 'definitive' ? 'group' : 'pending' }}">{{ $displayStatus }}</span></td>
+                                        <td>
+                                            @if ($status === 'pending_approval' && data_get($preparation, 'status.is_prepared'))
+                                                <span class="small">Pendiente de Dirección</span>
+                                            @elseif ($status === 'definitive')
+                                                <span class="small">Cierre definitivo</span>
+                                            @elseif (! $isActiveScope)
+                                                <span class="small">Selecciona su pestaña</span>
+                                            @elseif ($customRangeBlocksPrepare)
+                                                <span class="small">Restablece el rango mensual para preparar</span>
+                                            @elseif ($readiness !== null && $readiness['ready'])
+                                                <form method="POST" action="{{ route('reports.commercial-commissions.closure.prepare') }}">@csrf<input type="hidden" name="month" value="{{ $dashboard['month'] }}"><input type="hidden" name="closure_scope" value="{{ $preparation['scope'] }}"><button type="submit" class="main-tab active">Preparar {{ $preparation['label'] }}</button></form>
+                                            @else
+                                                <span class="small">Fuentes pendientes</span>
+                                            @endif
 
-                @if ($canManageEconomicClosures ?? false)
-                    @if ($closureStatus !== 'definitive')
-                        <form method="POST" action="{{ route('reports.commercial-commissions.closure.prepare') }}" class="commission-filter-form">
-                            @csrf
-                            <input type="hidden" name="month" value="{{ $dashboard['month'] }}">
-                            <input type="hidden" name="closure_scope" value="{{ $closureScope }}">
-                            <div class="filter-actions">
-                                @foreach (['sales' => 'Ventas', 'purchases' => 'Compras', 'cancellations' => 'Cancelaciones', 'reviews' => 'Reseñas', 'adjustments' => 'Ajustes'] as $component => $label)
-                                    <label><input type="checkbox" name="components[{{ $component }}]" value="1" @checked(data_get($commissionClosure, 'component_statuses.'.$component))> {{ $label }} incorporados</label>
+                                            @if (data_get($preparation, 'status.is_prepared') && in_array($status, ['pending_approval', 'definitive'], true))
+                                                <details class="commission-exception-actions">
+                                                    <summary>Acciones excepcionales</summary>
+                                                    @if ($status === 'pending_approval' && ($canApproveEconomicClosures ?? false))
+                                                        <form method="POST" action="{{ route('reports.commercial-commissions.closure.approve') }}">@csrf<input type="hidden" name="month" value="{{ $dashboard['month'] }}"><input type="hidden" name="closure_scope" value="{{ $preparation['scope'] }}"><button type="submit" class="filter-reset">Aprobar excepcionalmente</button></form>
+                                                    @elseif ($status === 'definitive' && ($canReopenEconomicClosures ?? false))
+                                                        <form method="POST" action="{{ route('reports.commercial-commissions.closure.reopen') }}" class="commission-exception-form">@csrf<input type="hidden" name="month" value="{{ $dashboard['month'] }}"><input type="hidden" name="closure_scope" value="{{ $preparation['scope'] }}"><label>Motivo de reapertura<input name="reason" minlength="10" required></label><button type="submit" class="filter-reset">Reabrir</button></form>
+                                                    @endif
+                                                </details>
+                                            @endif
+                                        </td>
+                                    </tr>
                                 @endforeach
-                                <button type="submit" class="main-tab">Preparar cierre</button>
-                            </div>
-                        </form>
-                    @endif
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            @endif
 
-                    @if ($closureStatus === 'pending_approval')
-                        <form method="POST" action="{{ route('reports.commercial-commissions.closure.approve') }}">
-                            @csrf
-                            <input type="hidden" name="month" value="{{ $dashboard['month'] }}">
-                            <input type="hidden" name="closure_scope" value="{{ $closureScope }}">
-                            <button type="submit" class="main-tab active">Aprobar como definitivo</button>
-                        </form>
-                    @elseif ($closureStatus === 'definitive')
-                        <form method="POST" action="{{ route('reports.commercial-commissions.closure.reopen') }}" class="commission-filter-form">
-                            @csrf
-                            <input type="hidden" name="month" value="{{ $dashboard['month'] }}">
-                            <input type="hidden" name="closure_scope" value="{{ $closureScope }}">
-                            <div class="filter-group">
-                                <label for="closure_reopen_reason">Motivo obligatorio de reapertura</label>
-                                <input id="closure_reopen_reason" name="reason" type="text" minlength="10" required>
-                            </div>
-                            <button type="submit" class="filter-reset">Reabrir mes</button>
-                        </form>
-                    @endif
-                @endif
-            </section>
+            @if (($directorApprovalOverview ?? []) !== [])
+                <section class="card panel commission-closure-panel" aria-labelledby="director-approval-title">
+                    <div class="panel-title"><div><h2 id="director-approval-title">Aprobación de comisiones · {{ \Carbon\CarbonImmutable::createFromFormat('!Y-m', $dashboard['month'])->locale('es')->translatedFormat('F \d\e Y') }}</h2><div class="small">Cada importe corresponde exactamente a la fotografía preparada por Administración.</div></div></div>
+                    <div class="table-shell commission-closure-table-shell">
+                        <table class="commission-closure-table">
+                            <thead><tr><th>Bloque</th><th>Estado</th><th class="num">Importe</th><th>Aprobado por</th><th>Fecha</th><th>Acción</th></tr></thead>
+                            <tbody>
+                                @foreach ($directorApprovalOverview as $approval)
+                                    @php
+                                        $status = data_get($approval, 'status.status');
+                                        $displayStatus = data_get($approval, 'status.is_prepared') ? ($closureStatusLabels[$status] ?? $status) : 'Sin preparar';
+                                    @endphp
+                                    <tr>
+                                        <td><strong>{{ $approval['label'] }}</strong>@foreach (($approval['alerts'] ?? []) as $alert)<div class="small commission-source-warning">{{ $alert }}</div>@endforeach</td>
+                                        <td><span class="type-pill {{ $status === 'definitive' ? 'group' : 'pending' }}">{{ $displayStatus }}</span></td>
+                                        <td class="num">{{ $approval['final_total'] === null ? '—' : number_format($approval['final_total'], 2, ',', '.').' EUR' }}</td>
+                                        <td>{{ data_get($approval, 'status.approved_by.name', '—') }}</td>
+                                        <td>{{ data_get($approval, 'status.approved_at') ? \Carbon\CarbonImmutable::parse(data_get($approval, 'status.approved_at'))->format('d/m/Y H:i') : '—' }}</td>
+                                        <td>
+                                            @if ($status === 'pending_approval' && data_get($approval, 'status.is_prepared'))
+                                                <form method="POST" action="{{ route('reports.commercial-commissions.closure.approve') }}">@csrf<input type="hidden" name="month" value="{{ $approval['month'] }}"><input type="hidden" name="closure_scope" value="{{ $approval['scope'] }}"><button class="main-tab active" type="submit">Aprobar</button></form>
+                                            @elseif ($status === 'definitive')
+                                                <details class="commission-exception-actions"><summary>Reabrir</summary><form method="POST" action="{{ route('reports.commercial-commissions.closure.reopen') }}" class="commission-exception-form">@csrf<input type="hidden" name="month" value="{{ $approval['month'] }}"><input type="hidden" name="closure_scope" value="{{ $approval['scope'] }}"><label>Motivo obligatorio<input name="reason" minlength="10" required></label><button class="filter-reset" type="submit">Confirmar reapertura</button></form></details>
+                                            @else
+                                                <span class="small">Pendiente de preparación</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
             @endif
 
             @if ($errors->has('export'))
@@ -206,7 +266,7 @@
                 <div class="notice">{{ $issue }}</div>
             @endforeach
 
-            @foreach ($dashboard['warnings'] ?? [] as $warning)
+            @foreach ($visibleDashboardWarnings as $warning)
                 <div class="notice commission-warning">{{ $warning }}</div>
             @endforeach
 
@@ -301,8 +361,13 @@
                         <a href="{{ $summaryTabUrl }}" class="main-tab{{ $activeCommissionTab === 'summary' ? ' active' : '' }}" data-commission-tab-trigger="summary" data-commission-tab-url="{{ $summaryTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'summary' ? 'true' : 'false' }}">Comerciales</a>
                         <a href="{{ $delegationsTabUrl }}" class="main-tab{{ $activeCommissionTab === 'delegations' ? ' active' : '' }}" data-commission-tab-trigger="delegations" data-commission-tab-url="{{ $delegationsTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'delegations' ? 'true' : 'false' }}">Delegaciones</a>
                         @unless ($isAreaRestricted ?? false)
-                            <a href="{{ $callCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'call-center' ? ' active' : '' }}" data-commission-tab-trigger="call-center" data-commission-tab-url="{{ $callCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'call-center' ? 'true' : 'false' }}">Call Center</a>
-                            <a href="{{ $contactCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'contact-center' ? ' active' : '' }}" data-commission-tab-trigger="contact-center" data-commission-tab-url="{{ $contactCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'contact-center' ? 'true' : 'false' }}">Contact Center</a>
+                            @if ($canViewCallContactDetails ?? false)
+                                <a href="{{ $callCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'call-center' ? ' active' : '' }}" data-commission-tab-trigger="call-center" data-commission-tab-url="{{ $callCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'call-center' ? 'true' : 'false' }}">Call Center</a>
+                                <a href="{{ $contactCenterTabUrl }}" class="main-tab{{ $activeCommissionTab === 'contact-center' ? ' active' : '' }}" data-commission-tab-trigger="contact-center" data-commission-tab-url="{{ $contactCenterTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'contact-center' ? 'true' : 'false' }}">Contact Center</a>
+                            @else
+                                <span class="main-tab is-disabled" aria-disabled="true">Call Center</span>
+                                <span class="main-tab is-disabled" aria-disabled="true">Contact Center</span>
+                            @endif
                         @endunless
                         <a href="{{ $areaManagerTabUrl }}" class="main-tab{{ $activeCommissionTab === 'area-manager' ? ' active' : '' }}" data-commission-tab-trigger="area-manager" data-commission-tab-url="{{ $areaManagerTabUrl }}" data-commission-tab-current="{{ $activeCommissionTab === 'area-manager' ? 'true' : 'false' }}">Area Manager</a>
                         @unless ($isAreaRestricted ?? false)
@@ -531,6 +596,7 @@
                                 <thead>
                                 <tr>
                                     <th data-sortable="true">Delegacion</th>
+                                    <th data-sortable="true">Jefe de tienda</th>
                                     <th class="num" data-sortable="true">Comision total</th>
                                     <th class="num" data-sortable="true">Meta entregas</th>
                                     <th class="num" data-sortable="true">Entregas</th>
@@ -552,6 +618,12 @@
                                 @foreach ($delegationRows as $row)
                                     <tr>
                                         <td>{{ $row['delegation_name'] }}</td>
+                                        <td>
+                                            {{ $row['store_manager_name'] ?? 'No verificable' }}
+                                            @if ((int) ($row['store_manager_distinct_count'] ?? 0) > 2 && filled($row['store_manager_alert'] ?? null))
+                                                <span class="type-pill pending" title="{{ $row['store_manager_alert'] }}">Revisar</span>
+                                            @endif
+                                        </td>
                                         <td @class([
                                             'num',
                                             'commission-goal-hit' => $row['objective_reached'],
@@ -709,7 +781,7 @@
                                                     <button type="button" class="main-tab" data-commercial-detail-tab-trigger="appraiser-financing">Financiacion 3%</button>
                                                     <button type="button" class="main-tab" data-commercial-detail-tab-trigger="appraiser-speed">Rapidez venta</button>
                                                 @else
-                                                    <button type="button" class="main-tab active" data-commercial-detail-tab-trigger="deliveries">{{ $isMonthlyOperationCommission ? 'Operaciones' : 'Entregas' }}</button>
+                                                    <button type="button" class="main-tab active" data-commercial-detail-tab-trigger="{{ $isMonthlyOperationCommission ? 'operations' : 'deliveries' }}">{{ $isMonthlyOperationCommission ? 'Operaciones' : 'Entregas' }}</button>
                                                     <button type="button" class="main-tab" data-commercial-detail-tab-trigger="purchases">{{ $isMonthlyOperationCommission ? 'Tasaciones y cambios' : 'Compras cobradas' }}</button>
                                                     <button type="button" class="main-tab" data-commercial-detail-tab-trigger="shared">Compartidas</button>
                                                     <button type="button" class="main-tab" data-commercial-detail-tab-trigger="stock">{{ $stockLabel }}</button>
@@ -991,6 +1063,7 @@
                         @endif
                     </div>
 
+                    @if ($canViewCallContactDetails ?? false)
                     <div @class(['is-hidden' => $activeCommissionTab !== 'call-center']) data-commission-tab-panel="call-center">
                         <section class="card panel">
                             <div class="panel-title compact">
@@ -1032,6 +1105,7 @@
                             @include('reports.commercial-commissions.partials.contact-center-tab')
                         </section>
                     </div>
+                    @endif
 
                     <div @class(['is-hidden' => $activeCommissionTab !== 'area-manager']) data-commission-tab-panel="area-manager">
                         <section class="card panel">

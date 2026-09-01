@@ -7,6 +7,7 @@ use App\Models\ReportUser;
 use App\Services\Reports\AreaManagerCommissions\AreaManagerCommissionDashboardService;
 use App\Services\Reports\CallCenterCommissions\CallCenterCommissionDashboardService;
 use App\Services\Reports\CommercialCommissions\AreaRestrictedCommissionScope;
+use App\Services\Reports\CommercialCommissions\CommercialCommissionAuditProjectionService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionClosureService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionFormulaConfigService;
@@ -31,6 +32,7 @@ class CommercialCommissionDashboardController extends Controller
         FinancialCommissionDashboardService $financialDashboard,
         AreaRestrictedCommissionScope $areaScope,
         CommercialCommissionClosureService $closureService,
+        CommercialCommissionAuditProjectionService $auditProjection,
     ) {
         $selectedMonth = $request->query('month');
         $callCenterContractFrom = $request->query('call_center_contract_from');
@@ -40,15 +42,28 @@ class CommercialCommissionDashboardController extends Controller
         $role = ReportUserAccess::role($request);
         $delegationScope = ReportUserAccess::delegationName($request);
         $commercialScope = ReportUserAccess::salesforceUserId($request);
+        $canViewCallContactDetails = ReportUserAccess::canViewCallContactCommissionDetails($request);
         $activeCommissionTab = match ($role) {
             ReportUser::ROLE_FINANCIAL => 'financials',
             ReportUser::ROLE_DELEGATION_MANAGER => 'delegations',
             ReportUser::ROLE_COMMERCIAL => 'summary',
-            default => $this->resolveActiveTab($request->query('tab'), $isAreaRestricted),
+            default => $this->resolveActiveTab($request->query('tab'), $isAreaRestricted, $canViewCallContactDetails),
         };
 
         if (! ReportUserAccess::canViewCommercialCommissions($request)) {
             return redirect()->route('reports.leads.index');
+        }
+
+        if (ReportUserAccess::isCommissionAuditor($request)) {
+            return view('reports.commercial-commissions.audit-summary', [
+                'auditProjection' => $auditProjection->build(
+                    is_string($selectedMonth) ? $selectedMonth : null,
+                    is_string($request->query('audit_scope', $request->query('scope')))
+                        ? $request->query('audit_scope', $request->query('scope'))
+                        : null,
+                ),
+                'auditProjectionService' => $auditProjection,
+            ]);
         }
 
         $payload = $dashboard->build(
@@ -61,9 +76,21 @@ class CommercialCommissionDashboardController extends Controller
             'summary' => 'commercials',
             'delegations' => 'delegations',
             'area-manager' => 'area_manager',
+            'financials' => 'financials',
+            'call-center' => 'call_center',
+            'contact-center' => 'contact_center',
             default => null,
         };
+        $availableClosureScopes = $closureService->availableScopes($payload['month']);
+        if ($closureScope !== null && ! in_array($closureScope, $availableClosureScopes, true)) {
+            $closureScope = null;
+        }
         $commissionClosure = $closureScope ? $closureService->status($payload['month'], $closureScope) : null;
+        $hasCustomCallCenterFilters = $closureScope === 'call_center'
+            && (filled($callCenterContractFrom) || filled($callCenterContractTo));
+        $canonicalCallCenterClosureSummary = $hasCustomCallCenterFilters
+            ? $closureService->approvalSummary($payload['month'], 'call_center')
+            : null;
         $frozenSnapshot = $closureScope ? $closureService->definitiveSnapshot($payload['month'], $closureScope) : null;
         if ($frozenSnapshot !== null && $closureScope === 'commercials') {
             $payload = $frozenSnapshot['commercials'];
@@ -76,6 +103,15 @@ class CommercialCommissionDashboardController extends Controller
             $payload['economic_status'] = 'definitive';
             $payload['dataset_cutoff_at'] = $commissionClosure['data_cutoff_at'];
             $payload['formula_version'] = $commissionClosure['formula_version'];
+        }
+        if ($frozenSnapshot !== null && $closureScope === 'financials') {
+            $financialSnapshot = $frozenSnapshot['financials'] ?? null;
+        }
+        if ($frozenSnapshot !== null && $closureScope === 'call_center') {
+            $callCenterSnapshot = $frozenSnapshot['call_center'] ?? null;
+        }
+        if ($frozenSnapshot !== null && $closureScope === 'contact_center') {
+            $contactCenterSnapshot = $frozenSnapshot['contact_center'] ?? null;
         }
 
         if ($isAreaRestricted) {
@@ -101,7 +137,7 @@ class CommercialCommissionDashboardController extends Controller
         }
 
         $callCenterPayload = $activeCommissionTab === 'call-center'
-            ? ($frozenSnapshot['call_center'] ?? $callCenterDashboard->build(
+            ? (($callCenterSnapshot ?? null) ?? $callCenterDashboard->build(
                 $payload['month'],
                 is_string($callCenterContractFrom) ? $callCenterContractFrom : null,
                 is_string($callCenterContractTo) ? $callCenterContractTo : null
@@ -113,7 +149,7 @@ class CommercialCommissionDashboardController extends Controller
                 is_string($callCenterContractTo) ? $callCenterContractTo : null
             );
         $contactCenterPayload = $activeCommissionTab === 'contact-center'
-            ? ($frozenSnapshot['contact_center'] ?? $contactCenterDashboard->build($payload['month']))
+            ? (($contactCenterSnapshot ?? null) ?? $contactCenterDashboard->build($payload['month']))
             : $this->emptyContactCenterDashboard($payload['month'], $payload['month_label']);
         $areaManagerPayload = $activeCommissionTab === 'area-manager'
             ? (($isAreaRestricted
@@ -122,7 +158,7 @@ class CommercialCommissionDashboardController extends Controller
                 ?? $areaManagerDashboard->build($payload['month'], $isAreaRestricted ? $areaZoneLabel : null))
             : $this->emptyAreaManagerDashboard($payload['month'], $payload['month_label']);
         $financialPayload = $activeCommissionTab === 'financials'
-            ? ($frozenSnapshot['financials'] ?? $financialDashboard->build($payload['month']))
+            ? (($financialSnapshot ?? null) ?? $financialDashboard->build($payload['month']))
             : $this->emptyFinancialDashboard($payload['month'], $payload['month_label']);
         $universeReconciliation = $this->universeReconciliation(
             $activeCommissionTab,
@@ -132,6 +168,20 @@ class CommercialCommissionDashboardController extends Controller
             $areaManagerPayload,
             $financialPayload,
         );
+        $activeClosureDashboard = match ($closureScope) {
+            'commercials', 'delegations' => $payload,
+            'area_manager' => $areaManagerPayload,
+            'financials' => $financialPayload,
+            'call_center' => $callCenterPayload,
+            'contact_center' => $contactCenterPayload,
+            default => null,
+        };
+        $directorApprovalOverview = ReportUserAccess::isDirector($request)
+            ? $closureService->approvalOverview($payload['month'], $closureScope, $activeClosureDashboard)
+            : [];
+        $adminPreparationOverview = ReportUserAccess::isAdmin($request)
+            ? $closureService->preparationOverview($payload['month'], $closureScope, $activeClosureDashboard)
+            : [];
 
         return view('reports.commercial-commissions.index', [
             'activeCommissionTab' => $activeCommissionTab,
@@ -150,6 +200,10 @@ class CommercialCommissionDashboardController extends Controller
             'commissionClosure' => $commissionClosure,
             'closureScope' => $closureScope,
             'canManageEconomicClosures' => ReportUserAccess::canManageEconomicClosures($request),
+            'canPrepareEconomicClosures' => ReportUserAccess::canPrepareEconomicClosures($request),
+            'canApproveEconomicClosures' => ReportUserAccess::canApproveEconomicClosures($request),
+            'canReopenEconomicClosures' => ReportUserAccess::canReopenEconomicClosures($request),
+            'canViewCallContactDetails' => $canViewCallContactDetails,
             'canManageFinancingPenalties' => ReportUserAccess::canManageFinancingPenalties($request),
             'canSeeUniverseReconciliation' => ReportUserAccess::isAdmin($request),
             'canAuditEconomicReviews' => ReportUserAccess::canAudit($request),
@@ -160,6 +214,11 @@ class CommercialCommissionDashboardController extends Controller
                 ReportUser::ROLE_DELEGATION_MANAGER,
             ], true),
             'universeReconciliation' => $universeReconciliation,
+            'canonicalCallCenterClosureSummary' => $canonicalCallCenterClosureSummary,
+            'hasCustomCallCenterFilters' => $hasCustomCallCenterFilters,
+            'directorApprovalOverview' => $directorApprovalOverview,
+            'isDirectorApprovalView' => ReportUserAccess::isDirector($request),
+            'adminPreparationOverview' => $adminPreparationOverview,
         ]);
     }
 
@@ -241,7 +300,7 @@ class CommercialCommissionDashboardController extends Controller
         Request $request,
         CallCenterCommissionDashboardService $callCenterDashboard,
     ) {
-        abort_unless(ReportUserAccess::isAdmin($request) || ReportUserAccess::isDirector($request), 403);
+        abort_unless(ReportUserAccess::isAdmin($request), 403);
 
         $audit = $callCenterDashboard->missingCaptadorAudit(
             $request->query('month'),
@@ -379,7 +438,7 @@ class CommercialCommissionDashboardController extends Controller
         CommercialCommissionDashboardService $dashboard,
         CommercialCommissionClosureService $closures,
     ) {
-        abort_unless(ReportUserAccess::canAudit($request), 403);
+        abort_unless(ReportUserAccess::canAudit($request) && ! ReportUserAccess::isCommissionAuditor($request), 403);
         $month = $request->query('month');
         $snapshot = $closures->definitiveSnapshot($month, 'commercials');
         $audit = $snapshot['review_audit'] ?? $dashboard->reviewAudit($month);
@@ -417,6 +476,7 @@ class CommercialCommissionDashboardController extends Controller
         CommercialCommissionClosureService $closureService,
     ) {
         abort_unless(ReportUserAccess::canViewCommercialCommissions($request), 403);
+        abort_if(ReportUserAccess::isCommissionAuditor($request), 403);
         $role = ReportUserAccess::role($request);
         $isAreaRestricted = ReportUserAccess::isAreaManager($request);
         $areaZoneLabel = ReportUserAccess::areaZoneLabel($request);
@@ -643,7 +703,7 @@ class CommercialCommissionDashboardController extends Controller
         return $rows->values()->all();
     }
 
-    private function resolveActiveTab(mixed $value, bool $isAreaRestricted = false): string
+    private function resolveActiveTab(mixed $value, bool $isAreaRestricted = false, bool $canViewCallContactDetails = false): string
     {
         if ($value === 'detail') {
             return 'summary';
@@ -652,6 +712,10 @@ class CommercialCommissionDashboardController extends Controller
         $allowedTabs = $isAreaRestricted
             ? ['summary', 'delegations', 'area-manager']
             : ['summary', 'delegations', 'call-center', 'contact-center', 'area-manager', 'financials'];
+
+        if (! $canViewCallContactDetails) {
+            $allowedTabs = array_values(array_diff($allowedTabs, ['call-center', 'contact-center']));
+        }
 
         return in_array($value, $allowedTabs, true) ? $value : 'summary';
     }
@@ -673,7 +737,7 @@ class CommercialCommissionDashboardController extends Controller
 
     private function emptyContactCenterDashboard(string $month, string $monthLabel): array
     {
-        $monthStart = CarbonImmutable::createFromFormat('Y-m', $month)->startOfMonth();
+        $monthStart = CarbonImmutable::createFromFormat('!Y-m', $month)->startOfMonth();
 
         return [
             'ready' => false,

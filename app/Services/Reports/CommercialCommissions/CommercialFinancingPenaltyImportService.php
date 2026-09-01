@@ -28,8 +28,7 @@ class CommercialFinancingPenaltyImportService
 
     public function __construct(
         private readonly XlsxWorkbookReader $reader,
-    ) {
-    }
+    ) {}
 
     /** @return array{import: CommercialFinancingPenaltyImport, months: array<int, string>} */
     public function import(UploadedFile $file, ?int $uploadedByReportUserId): array
@@ -325,7 +324,7 @@ class CommercialFinancingPenaltyImportService
 
         $raw = trim((string) $value);
 
-        foreach (['Y-m-d', 'Y-m', 'm/Y', 'm-Y', 'd/m/Y'] as $format) {
+        foreach (['!Y-m-d', '!Y-m', '!m/Y', '!m-Y', '!d/m/Y'] as $format) {
             try {
                 return CarbonImmutable::createFromFormat($format, $raw)->startOfMonth();
             } catch (\Throwable) {

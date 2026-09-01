@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Logging\SanitizeLogRecords;
+use Illuminate\Log\Logger as IlluminateLogger;
 use Monolog\Handler\TestHandler;
 use Monolog\Level;
 use Monolog\Logger;
@@ -56,5 +57,17 @@ class LoggingSanitizationTest extends TestCase
         $this->assertStringNotContainsString('"args"', $serialized);
         $this->assertStringContainsString(RuntimeException::class, $serialized);
         $this->assertStringContainsString('[redacted]', $serialized);
+    }
+
+    public function test_procesador_acepta_el_wrapper_de_logger_entregado_por_laravel(): void
+    {
+        $handler = new TestHandler(Level::Debug);
+        $monolog = new Logger('laravel-wrapper-test', [$handler]);
+        (new SanitizeLogRecords)(new IlluminateLogger($monolog));
+
+        $monolog->warning('Authorization: Bearer synthetic-wrapper-token');
+
+        $this->assertStringNotContainsString('synthetic-wrapper-token', $handler->getRecords()[0]->message);
+        $this->assertStringContainsString('[redacted]', $handler->getRecords()[0]->message);
     }
 }

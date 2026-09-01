@@ -4,6 +4,7 @@ namespace App\Services\Reports\CommercialCommissions;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -13,8 +14,7 @@ class CommercialCommissionDelegationReviewsService
 {
     public function __construct(
         private readonly CommercialCommissionFormulaConfigService $formulaConfig,
-    ) {
-    }
+    ) {}
 
     public function forMonthAndDelegations(CarbonImmutable $month, Collection $delegationLabels): array
     {
@@ -51,6 +51,7 @@ class CommercialCommissionDelegationReviewsService
 
             if (is_array($cached)) {
                 $results[$delegationLabel] = $this->normalizePayload($cached);
+
                 continue;
             }
 
@@ -102,8 +103,9 @@ class CommercialCommissionDelegationReviewsService
                 $cacheKey = $this->cacheKey($monthParam, $delegationLabel);
                 $response = $responses[$delegationLabel] ?? null;
 
-                if (! $response instanceof \Illuminate\Http\Client\Response) {
+                if (! $response instanceof Response) {
                     $results[$delegationLabel] = $this->emptyPayload('not_applicable');
+
                     continue;
                 }
 
@@ -115,10 +117,14 @@ class CommercialCommissionDelegationReviewsService
                         'month' => $month->format('Y-m'),
                     ]);
                     $results[$delegationLabel] = $this->emptyPayload('remote_error');
+
                     continue;
                 }
 
-                $payload = $this->normalizePayload((array) $response->json());
+                $payload = $this->normalizePayload([
+                    ...(array) $response->json(),
+                    'fetched_at' => now()->toIso8601String(),
+                ]);
                 $results[$delegationLabel] = $payload;
                 Cache::put($cacheKey, $payload, $ttl);
             }
@@ -147,6 +153,7 @@ class CommercialCommissionDelegationReviewsService
                 ? round((float) data_get($payload, 'average_rating'), 2)
                 : null,
             'technical_status' => 'available',
+            'fetched_at' => filled($payload['fetched_at'] ?? null) ? (string) $payload['fetched_at'] : null,
         ];
     }
 
@@ -156,6 +163,7 @@ class CommercialCommissionDelegationReviewsService
             'reviews_count' => 0,
             'average_rating' => null,
             'technical_status' => $technicalStatus,
+            'fetched_at' => null,
         ];
     }
 }

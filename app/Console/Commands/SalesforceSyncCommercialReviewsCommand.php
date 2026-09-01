@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\SalesforceReview;
 use App\Services\Reports\CommercialCommissions\Sync\SalesforceReviewSyncService;
+use App\Services\Reports\ReportSyncRunService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Throwable;
@@ -21,7 +22,7 @@ class SalesforceSyncCommercialReviewsCommand extends Command
 
     protected $description = 'Sincroniza resenas de Salesforce para el informe de Comisiones Comerciales.';
 
-    public function handle(SalesforceReviewSyncService $sync): int
+    public function handle(SalesforceReviewSyncService $sync, ReportSyncRunService $syncRuns): int
     {
         $periodEnd = $this->periodEnd();
         $periodStart = $this->periodStart($periodEnd);
@@ -32,12 +33,14 @@ class SalesforceSyncCommercialReviewsCommand extends Command
             return self::FAILURE;
         }
 
-        if ($this->option('fresh')) {
-            SalesforceReview::query()->delete();
-            $this->warn('Tabla salesforce_reviews vaciada.');
-        }
+        $coveredStart = $this->option('all') ? CarbonImmutable::parse('2020-01-01')->startOfDay() : $periodStart;
+        $syncRun = $syncRuns->start('commercial_reviews', 'salesforce', $coveredStart, $periodEnd);
 
         try {
+            if ($this->option('fresh')) {
+                SalesforceReview::query()->delete();
+                $this->warn('Tabla salesforce_reviews vaciada.');
+            }
             $this->info('Sincronizando resenas Salesforce.');
             $this->line('Periodo inicio: '.$periodStart->utc()->format('Y-m-d\TH:i:s\Z'));
             $this->line('Periodo fin exclusivo: '.$periodEnd->utc()->format('Y-m-d\TH:i:s\Z'));
@@ -63,10 +66,12 @@ class SalesforceSyncCommercialReviewsCommand extends Command
                 $this->warn('Salesforce devolvio 0 resenas para el periodo indicado.');
             }
 
+            $syncRuns->complete($syncRun, now(), ['queried' => $result['queried'], 'saved' => $result['saved']]);
             $this->info('Sincronizacion de resenas completada.');
 
             return self::SUCCESS;
         } catch (Throwable $exception) {
+            $syncRuns->fail($syncRun, $exception);
             $this->error('Error sincronizando resenas.');
             $this->line($exception->getMessage());
 

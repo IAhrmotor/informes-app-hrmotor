@@ -30,6 +30,7 @@ class CommercialCommissionFormulaSettingsController extends Controller
             'isEditableMonth' => $isEditableMonth,
             'canTemporarilyUnlockMonth' => $this->formulaConfig->canTemporarilyUnlockMonth($selectedMonth),
             'isTemporarilyUnlocked' => $this->formulaConfig->isTemporarilyUnlocked($request, $selectedMonth),
+            'usesSharedDelegationDeliveryGoals' => $this->formulaConfig->usesSharedDelegationDeliveryGoals($selectedMonth),
             'settings' => $this->formulaConfig->forMonth($selectedMonth),
             'availableDelegations' => $this->formulaConfig->availableDelegations(
                 $this->formulaConfig->forMonth($selectedMonth)

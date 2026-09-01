@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\MonthlyCommercial\Sync\SalesforceMonthlyUsersSyncService;
+use App\Services\Reports\ReportSyncRunService;
 use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunityHistorySyncService;
 use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService;
 use Carbon\CarbonImmutable;
@@ -29,6 +30,7 @@ class SalesforceSyncOpportunitiesCommand extends Command
         SalesforceMonthlyUsersSyncService $usersSync,
         SalesforceOpportunitySyncService $opportunitiesSync,
         SalesforceOpportunityHistorySyncService $historySync,
+        ReportSyncRunService $syncRuns,
     ): int {
         $periodEnd = $this->periodEnd();
         $periodStart = $this->periodStart($periodEnd);
@@ -39,12 +41,13 @@ class SalesforceSyncOpportunitiesCommand extends Command
             return self::FAILURE;
         }
 
-        if ($this->option('fresh')) {
-            SalesforceOpportunity::query()->delete();
-            $this->warn('Tabla salesforce_opportunities vaciada.');
-        }
+        $syncRun = $syncRuns->start('salesforce_opportunities', 'salesforce', $periodStart, $periodEnd);
 
         try {
+            if ($this->option('fresh')) {
+                SalesforceOpportunity::query()->delete();
+                $this->warn('Tabla salesforce_opportunities vaciada.');
+            }
             $this->info('Sincronizando Salesforce Reservas / Ventas.');
             $this->line('Periodo inicio: '.$periodStart->utc()->format('Y-m-d\TH:i:s\Z'));
             $this->line('Periodo fin exclusivo: '.$periodEnd->utc()->format('Y-m-d\TH:i:s\Z'));
@@ -89,10 +92,17 @@ class SalesforceSyncOpportunitiesCommand extends Command
             }
 
             $this->invalidateDashboardCache();
+            $syncRuns->complete($syncRun, now(), [
+                'queried' => $result['queried'],
+                'saved' => $result['saved'],
+                'history_saved' => $history['saved'],
+                'mode' => $this->option('modified') ? 'modified' : ($this->option('all-history') ? 'all_history' : 'period'),
+            ]);
             $this->info('Sincronizacion Reservas / Ventas completada.');
 
             return self::SUCCESS;
         } catch (Throwable $exception) {
+            $syncRuns->fail($syncRun, $exception);
             $this->error('Error sincronizando Opportunities.');
             $this->line($exception->getMessage());
 

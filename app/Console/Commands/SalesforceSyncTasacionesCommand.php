@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\SalesforceTasacion;
 use App\Services\Reports\CallCenterCommissions\Sync\SalesforceTasacionSyncService;
+use App\Services\Reports\ReportSyncRunService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Throwable;
@@ -21,7 +22,7 @@ class SalesforceSyncTasacionesCommand extends Command
 
     protected $description = 'Sincroniza Tasacion__c de Salesforce para Negociaciones German del informe de Call Center.';
 
-    public function handle(SalesforceTasacionSyncService $sync): int
+    public function handle(SalesforceTasacionSyncService $sync, ReportSyncRunService $syncRuns): int
     {
         $periodEnd = $this->periodEnd();
         $periodStart = $this->periodStart($periodEnd);
@@ -32,12 +33,14 @@ class SalesforceSyncTasacionesCommand extends Command
             return self::FAILURE;
         }
 
-        if ($this->option('fresh')) {
-            SalesforceTasacion::query()->delete();
-            $this->warn('Tabla salesforce_tasaciones vaciada.');
-        }
+        $coveredStart = $this->option('all') ? CarbonImmutable::parse('2020-01-01')->startOfDay() : $periodStart;
+        $syncRun = $syncRuns->start('salesforce_tasaciones', 'salesforce', $coveredStart, $periodEnd);
 
         try {
+            if ($this->option('fresh')) {
+                SalesforceTasacion::query()->delete();
+                $this->warn('Tabla salesforce_tasaciones vaciada.');
+            }
             $this->info('Sincronizando tasaciones Salesforce para Call Center.');
             $this->line('Periodo inicio: '.$periodStart->utc()->format('Y-m-d\TH:i:s\Z'));
             $this->line('Periodo fin exclusivo: '.$periodEnd->utc()->format('Y-m-d\TH:i:s\Z'));
@@ -64,10 +67,12 @@ class SalesforceSyncTasacionesCommand extends Command
                 $this->warn('Salesforce devolvio 0 tasaciones para el periodo indicado.');
             }
 
+            $syncRuns->complete($syncRun, now(), ['queried' => $result['queried'], 'saved' => $result['saved']]);
             $this->info('Sincronizacion de tasaciones completada.');
 
             return self::SUCCESS;
         } catch (Throwable $exception) {
+            $syncRuns->fail($syncRun, $exception);
             $this->error('Error sincronizando tasaciones.');
             $this->line($exception->getMessage());
 

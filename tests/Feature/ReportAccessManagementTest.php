@@ -135,8 +135,8 @@ class ReportAccessManagementTest extends TestCase
         $this->withSession($session)
             ->get('/informes/comisiones-comerciales')
             ->assertOk()
-            ->assertSee('Comisiones')
-            ->assertSee('Penalizaciones financieras');
+            ->assertSee('Comisiones finales')
+            ->assertDontSee('Penalizaciones financieras');
 
         $this->withSession($session)
             ->get('/informes/leads')
@@ -148,8 +148,7 @@ class ReportAccessManagementTest extends TestCase
 
         $this->withSession($session)
             ->get('/informes/penalizaciones-financiacion')
-            ->assertOk()
-            ->assertSee('Importar penalizaciones');
+            ->assertForbidden();
     }
 
     public function test_conciliaciones_internas_solo_se_exponen_a_administrador_it(): void

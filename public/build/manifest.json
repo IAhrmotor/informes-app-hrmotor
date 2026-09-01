@@ -52,7 +52,7 @@
     "src": "_instrument-sans-600-normal-DMks36a2.woff"
   },
   "resources/css/app.css": {
-    "file": "assets/app-BM82wcyk.css",
+    "file": "assets/app-DzLCIK8P.css",
     "name": "app",
     "names": [
       "app.css"
@@ -79,7 +79,7 @@
     "isEntry": true
   },
   "resources/css/reports/leads-dashboard.css": {
-    "file": "assets/leads-dashboard-BESbFi-U.css",
+    "file": "assets/leads-dashboard-CxXq16Y-.css",
     "name": "leads-dashboard",
     "names": [
       "leads-dashboard.css"
@@ -118,25 +118,25 @@
     "isEntry": true
   },
   "resources/js/reports/calls-dashboard.js": {
-    "file": "assets/calls-dashboard-ChWBTrt-.js",
+    "file": "assets/calls-dashboard-pf9BB5IL.js",
     "name": "calls-dashboard",
     "src": "resources/js/reports/calls-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/campaigns-dashboard.js": {
-    "file": "assets/campaigns-dashboard-C-OQybVX.js",
+    "file": "assets/campaigns-dashboard-C7gtah-v.js",
     "name": "campaigns-dashboard",
     "src": "resources/js/reports/campaigns-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/commercial-commissions-dashboard.js": {
-    "file": "assets/commercial-commissions-dashboard-d6jbYxSQ.js",
+    "file": "assets/commercial-commissions-dashboard-DjAaqBZU.js",
     "name": "commercial-commissions-dashboard",
     "src": "resources/js/reports/commercial-commissions-dashboard.js",
     "isEntry": true
   },
   "resources/js/reports/leads-dashboard.js": {
-    "file": "assets/leads-dashboard-7DhTNQST.js",
+    "file": "assets/leads-dashboard-BZyXAAHa.js",
     "name": "leads-dashboard",
     "src": "resources/js/reports/leads-dashboard.js",
     "isEntry": true
@@ -148,7 +148,7 @@
     "isEntry": true
   },
   "resources/js/reports/stock-dashboard.js": {
-    "file": "assets/stock-dashboard-BTOYj0Go.js",
+    "file": "assets/stock-dashboard-BrzfZPFN.js",
     "name": "stock-dashboard",
     "src": "resources/js/reports/stock-dashboard.js",
     "isEntry": true
