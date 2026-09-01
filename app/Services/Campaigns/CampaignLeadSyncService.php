@@ -305,7 +305,7 @@ SOQL;
         ];
         $existing = DB::table('salesforce_leads')
             ->whereIn('salesforce_id', array_column($rows, 'salesforce_id'))
-            ->get(['salesforce_id', 'created_date', ...$campaignOwned])
+            ->get(['salesforce_id', 'created_date', 'field_resolution', ...$campaignOwned])
             ->keyBy('salesforce_id');
         $updates = [];
         $inserts = [];
@@ -330,6 +330,10 @@ SOQL;
                     ? $incoming
                     : data_get($current, $column);
             }
+            $update['field_resolution'] = json_encode(
+                $this->mergeUtmResolution(data_get($current, 'field_resolution'), $update),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
+            );
             $update['updated_at'] = $row['updated_at'];
             $updates[] = $update;
         }
@@ -338,7 +342,7 @@ SOQL;
             DB::table('salesforce_leads')->upsert(
                 $updates,
                 ['salesforce_id'],
-                [...$campaignOwned, 'updated_at'],
+                [...$campaignOwned, 'field_resolution', 'updated_at'],
             );
         }
 
@@ -349,6 +353,48 @@ SOQL;
                 [...$campaignOwned, 'updated_at'],
             );
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $finalValues
+     * @return array<string, mixed>
+     */
+    private function mergeUtmResolution(mixed $existingResolution, array $finalValues): array
+    {
+        $resolution = $this->decodeResolution($existingResolution);
+
+        foreach ([
+            'utm_campaign' => ['utm_campaign_new', 'utm_campaign__c', 'campaign_acquired', 'Campa_a_Adquirida__c'],
+            'utm_id' => ['utm_id_new', 'utm_id__c', 'acquired_id', 'Id_Adquirido__c'],
+            'utm_source' => ['utm_source_new', 'utm_source__c', 'acquired_source_legacy', 'Fuente_Adquirida__c'],
+            'utm_medium' => ['utm_medium_new', 'utm_medium__c', 'acquired_medium_legacy', 'Medio_Adquirido__c'],
+            'utm_content' => ['utm_content_new', 'utm_content__c', 'content_acquired', 'Contenido_Adquirido__c'],
+        ] as $key => [$newColumn, $newField, $legacyColumn, $legacyField]) {
+            $resolution[$key] = $this->fieldResolver->resolve(
+                $finalValues[$newColumn] ?? null,
+                $newField,
+                $finalValues[$legacyColumn] ?? null,
+                $legacyField,
+            );
+        }
+
+        return $resolution;
+    }
+
+    /** @return array<string, mixed> */
+    private function decodeResolution(mixed $value): array
+    {
+        if (is_string($value)) {
+            $value = json_decode($value, true);
+        } elseif (is_object($value)) {
+            $value = (array) $value;
+        }
+
+        if (! is_array($value) || ($value !== [] && array_is_list($value))) {
+            return [];
+        }
+
+        return $value;
     }
 
     private function generalInsertRow(array $row): array
