@@ -127,8 +127,16 @@ class CommercialCommissionSourceReadinessService
             return $this->state('Reseñas de Delegaciones', 'ready', false, null, 'No hay delegaciones comisionables; cero consultas es válido.');
         }
 
-        $invalid = $rows->filter(fn (array $row): bool => ($row['reviews_technical_status'] ?? null) !== 'available');
-        $oldest = $rows->pluck('reviews_fetched_at')->filter()->map(fn ($value) => CarbonImmutable::parse($value))->sort()->first();
+        $rowsRequiringEndpoint = $rows->reject(
+            fn (array $row): bool => $this->isEconomicallyInertNotApplicableReviewRow($row)
+        );
+
+        if ($rowsRequiringEndpoint->isEmpty()) {
+            return $this->state('Reseñas de Delegaciones', 'ready', false, null, 'No hay delegaciones que requieran consulta de reseñas; cero consultas es válido.');
+        }
+
+        $invalid = $rowsRequiringEndpoint->filter(fn (array $row): bool => ($row['reviews_technical_status'] ?? null) !== 'available');
+        $oldest = $rowsRequiringEndpoint->pluck('reviews_fetched_at')->filter()->map(fn ($value) => CarbonImmutable::parse($value))->sort()->first();
         $maxAgeMinutes = max(1, (int) config('services.internal_reviews.cache_minutes', 15)) + 5;
 
         if ($invalid->isNotEmpty()) {
@@ -139,6 +147,42 @@ class CommercialCommissionSourceReadinessService
         }
 
         return $this->state('Reseñas de Delegaciones', 'ready', false, $oldest->toIso8601String(), 'Endpoint interno y caché verificados para '.$month->translatedFormat('F \d\e Y').'.');
+    }
+
+    private function isEconomicallyInertNotApplicableReviewRow(array $row): bool
+    {
+        if (($row['reviews_technical_status'] ?? null) !== 'not_applicable') {
+            return false;
+        }
+
+        $numericFields = [
+            'target_deliveries',
+            'deliveries_count',
+            'rentability_total',
+            'prima_final_before_reviews',
+            'reviews_commission_amount',
+            'total_commission',
+        ];
+
+        foreach ([...$numericFields, 'objective_reached'] as $field) {
+            if (! array_key_exists($field, $row)) {
+                return false;
+            }
+        }
+
+        foreach ($numericFields as $field) {
+            if (! is_numeric($row[$field])) {
+                return false;
+            }
+        }
+
+        return (float) $row['target_deliveries'] <= 0.0
+            && (float) $row['deliveries_count'] <= 0.0
+            && $row['objective_reached'] === false
+            && (float) $row['rentability_total'] === 0.0
+            && (float) $row['prima_final_before_reviews'] === 0.0
+            && (float) $row['reviews_commission_amount'] === 0.0
+            && (float) $row['total_commission'] === 0.0;
     }
 
     private function state(string $label, string $status, bool $blocking, ?string $updatedAt, string $message): array

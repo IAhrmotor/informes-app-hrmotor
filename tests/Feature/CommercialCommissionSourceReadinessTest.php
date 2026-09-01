@@ -6,6 +6,7 @@ use App\Models\ReportSyncRun;
 use App\Services\Reports\CommercialCommissions\CommercialCommissionSourceReadinessService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class CommercialCommissionSourceReadinessTest extends TestCase
@@ -69,6 +70,107 @@ class CommercialCommissionSourceReadinessTest extends TestCase
         $this->assertStringContainsString('endpoint interno', data_get($state, 'components.reviews.message'));
     }
 
+    public function test_recent_available_delegation_review_is_ready(): void
+    {
+        $state = $this->inspectDelegationRows([$this->availableReviewRow()]);
+
+        $this->assertTrue($state['ready']);
+        $this->assertSame('ready', data_get($state, 'components.reviews.status'));
+        $this->assertFalse(data_get($state, 'components.reviews.blocking'));
+    }
+
+    public function test_stale_available_delegation_review_still_blocks(): void
+    {
+        $state = $this->inspectDelegationRows([
+            $this->availableReviewRow(['reviews_fetched_at' => '2026-08-10T09:00:00Z']),
+        ]);
+
+        $this->assertFalse($state['ready']);
+        $this->assertSame('stale', data_get($state, 'components.reviews.status'));
+        $this->assertTrue(data_get($state, 'components.reviews.blocking'));
+    }
+
+    public function test_economically_inert_not_applicable_delegation_does_not_require_endpoint_freshness(): void
+    {
+        $state = $this->inspectDelegationRows([$this->inertNotApplicableReviewRow()]);
+
+        $this->assertTrue($state['ready']);
+        $this->assertSame('ready', data_get($state, 'components.reviews.status'));
+        $this->assertFalse(data_get($state, 'components.reviews.blocking'));
+        $this->assertNull(data_get($state, 'components.reviews.updated_at'));
+        $this->assertStringNotContainsString('caché', data_get($state, 'components.reviews.message'));
+    }
+
+    public function test_recent_available_and_inert_not_applicable_delegations_are_ready(): void
+    {
+        $state = $this->inspectDelegationRows([
+            $this->availableReviewRow(),
+            $this->inertNotApplicableReviewRow(),
+        ]);
+
+        $this->assertTrue($state['ready']);
+        $this->assertSame('ready', data_get($state, 'components.reviews.status'));
+        $this->assertFalse(data_get($state, 'components.reviews.blocking'));
+        $this->assertNotNull(data_get($state, 'components.reviews.updated_at'));
+    }
+
+    #[DataProvider('materialNotApplicableRows')]
+    public function test_material_not_applicable_delegation_still_blocks(string $field, mixed $value): void
+    {
+        $state = $this->inspectDelegationRows([
+            $this->inertNotApplicableReviewRow([$field => $value]),
+        ]);
+
+        $this->assertFalse($state['ready']);
+        $this->assertSame('error', data_get($state, 'components.reviews.status'));
+        $this->assertTrue(data_get($state, 'components.reviews.blocking'));
+    }
+
+    public static function materialNotApplicableRows(): array
+    {
+        return [
+            'configured target' => ['target_deliveries', 1],
+            'delivery activity' => ['deliveries_count', 1],
+            'profitability activity' => ['rentability_total', 0.01],
+            'objective reached' => ['objective_reached', true],
+            'commission before reviews' => ['prima_final_before_reviews', 0.01],
+            'review commission' => ['reviews_commission_amount', 0.01],
+            'total commission' => ['total_commission', 0.01],
+        ];
+    }
+
+    #[DataProvider('blockingReviewStatuses')]
+    public function test_real_or_unknown_review_error_blocks_even_for_inert_delegation(string $status): void
+    {
+        $state = $this->inspectDelegationRows([
+            $this->inertNotApplicableReviewRow(['reviews_technical_status' => $status]),
+        ]);
+
+        $this->assertFalse($state['ready']);
+        $this->assertSame('error', data_get($state, 'components.reviews.status'));
+        $this->assertTrue(data_get($state, 'components.reviews.blocking'));
+    }
+
+    public static function blockingReviewStatuses(): array
+    {
+        return [
+            'not configured' => ['not_configured'],
+            'transport error' => ['transport_error'],
+            'remote error' => ['remote_error'],
+            'unavailable' => ['unavailable'],
+            'unknown status' => ['unexpected_status'],
+        ];
+    }
+
+    public function test_no_delegations_keeps_zero_queries_as_ready(): void
+    {
+        $state = $this->inspectDelegationRows([]);
+
+        $this->assertTrue($state['ready']);
+        $this->assertSame('ready', data_get($state, 'components.reviews.status'));
+        $this->assertFalse(data_get($state, 'components.reviews.blocking'));
+    }
+
     public function test_legacy_manager_coverage_warning_is_hidden_without_losing_source_warnings(): void
     {
         CarbonImmutable::setTestNow('2026-08-10 10:00:00');
@@ -127,5 +229,41 @@ class CommercialCommissionSourceReadinessTest extends TestCase
             'timezone' => config('app.timezone'),
             'stats' => $stats,
         ]);
+    }
+
+    private function inspectDelegationRows(array $rows): array
+    {
+        CarbonImmutable::setTestNow('2026-08-10 10:00:00');
+        $this->completedRun('salesforce_opportunities');
+
+        return app(CommercialCommissionSourceReadinessService::class)->inspect('delegations', '2026-07', [
+            'issues' => [],
+            'delegation_rows' => $rows,
+        ]);
+    }
+
+    private function availableReviewRow(array $overrides = []): array
+    {
+        return array_replace($this->inertNotApplicableReviewRow(), [
+            'delegation_name' => 'Alicante',
+            'reviews_technical_status' => 'available',
+            'reviews_fetched_at' => '2026-08-10T10:00:00Z',
+        ], $overrides);
+    }
+
+    private function inertNotApplicableReviewRow(array $overrides = []): array
+    {
+        return array_replace([
+            'delegation_name' => 'Delegación residual',
+            'target_deliveries' => 0,
+            'deliveries_count' => 0,
+            'objective_reached' => false,
+            'rentability_total' => 0.0,
+            'prima_final_before_reviews' => 0.0,
+            'reviews_commission_amount' => 0.0,
+            'total_commission' => 0.0,
+            'reviews_technical_status' => 'not_applicable',
+            'reviews_fetched_at' => null,
+        ], $overrides);
     }
 }
