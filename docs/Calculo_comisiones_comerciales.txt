@@ -306,6 +306,15 @@ Bonus de volumen
 
 Cuando un usuario está marcado como tasador se aplica el sistema específico.
 Las compras computables son oportunidades de Tasacion y Cambio del mes.
+El tramo se calcula una sola vez sobre el total conjunto. El desglose monetario
+visible se obtiene aplicando ese mismo importe por compra a cada tipo:
+
+  importe_tasaciones = numero_tasaciones * importe_tramo
+  importe_cambios = numero_cambios * importe_tramo
+  importe_compras = importe_tasaciones + importe_cambios
+
+Los dos importes desglosados son informativos y no se vuelven a sumar a la
+comisión final; `importe_compras` continúa siendo la única base agregada.
 
 Tramos por número de compras:
 
