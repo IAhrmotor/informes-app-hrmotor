@@ -266,7 +266,10 @@ class SalesforceDashboardRowsTest extends TestCase
 
     public function test_export_de_conciliacion_incluye_activos_eliminados_y_fusiones(): void
     {
-        $this->lead('00Q-active-audit', 'Potencial', ['is_deleted' => false]);
+        $this->lead('00Q-active-audit', 'Potencial', [
+            'is_deleted' => false,
+            'source_origin_new' => 'Málaga',
+        ]);
         $this->lead('00Q-merged-audit', 'Potencial', [
             'is_deleted' => true,
             'salesforce_master_record_id' => '00Q-master-audit',
@@ -282,6 +285,11 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertStringContainsString('00Q-merged-audit', $csv);
         $this->assertStringContainsString('00Q-master-audit', $csv);
         $this->assertStringContainsString('merged', $csv);
+        $this->assertStringContainsString('source_resolution', $csv);
+        $this->assertStringContainsString('effective_value', $csv);
+        $this->assertStringContainsString('Fuente_origen__c', $csv);
+        $this->assertStringContainsString('Málaga', $csv);
+        $this->assertStringContainsString('No', $csv);
     }
 
     public function test_backfill_historico_dry_run_no_escribe_y_ejecucion_marca_origen_local(): void

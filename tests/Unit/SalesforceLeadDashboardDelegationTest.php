@@ -55,7 +55,7 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
             'owner_delegation' => 'HR MOTOR VALENCIA',
         ]);
 
-        $this->assertSame('Madrid', $lead['lead_delegation']);
+        $this->assertSame('Madrid General', $lead['lead_delegation']);
         $this->assertSame('Delegacion_procedencia__c', $lead['delegation_resolution']['source_field']);
     }
 
@@ -72,17 +72,17 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
             'delegacion_encargada_bueno' => 'HR MOTOR MADRID',
         ]);
 
-        $this->assertSame('Madrid', $legacyValencia['lead_delegation']);
+        $this->assertSame('Madrid General', $legacyValencia['lead_delegation']);
         $this->assertSame('Valencia', $legacyValencia['lead_access_delegation']);
         $this->assertTrue($this->passesDelegationScope($legacyValencia, 'Valencia'));
-        $this->assertFalse($this->passesDelegationScope($legacyValencia, 'Madrid'));
+        $this->assertFalse($this->passesDelegationScope($legacyValencia, 'Madrid General'));
         $commercialMatch = $legacyValencia;
-        $commercialMatch['commercial_delegation'] = 'Madrid';
-        $this->assertTrue($this->passesDelegationScope($commercialMatch, 'Madrid'));
+        $commercialMatch['commercial_delegation'] = 'Madrid General';
+        $this->assertTrue($this->passesDelegationScope($commercialMatch, 'Madrid General'));
 
         $this->assertSame('Valencia', $legacyMadrid['lead_delegation']);
-        $this->assertSame('Madrid', $legacyMadrid['lead_access_delegation']);
-        $this->assertTrue($this->passesDelegationScope($legacyMadrid, 'Madrid'));
+        $this->assertSame('Madrid General', $legacyMadrid['lead_access_delegation']);
+        $this->assertTrue($this->passesDelegationScope($legacyMadrid, 'Madrid General'));
         $this->assertFalse($this->passesDelegationScope($legacyMadrid, 'Valencia'));
     }
 

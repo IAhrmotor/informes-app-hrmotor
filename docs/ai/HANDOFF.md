@@ -1581,6 +1581,16 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   sync y backfill local. No se ejecutaron en esta sesión por la ausencia del
   runtime PHP/Composer; deben validarse en CI antes de integrar.
 
+## Corrección CI PR #24: normalización y CSV
+
+- El CI detectó expectativas no canónicas: `Madrid` y `HR MOTOR MADRID`
+  normalizan a `Madrid General`; se corrigieron exclusivamente las assertions
+  de Fase 3, sin cambiar el normalizador ni la autorización.
+- El CSV de conciliación serializa las trazas de resolución estructuradas como
+  JSON UTF-8 al emitir cada celda. Las respuestas JSON conservan los arrays y
+  los booleanos CSV siguen siendo `Si`/`No`. No se afirma CI verde hasta que
+  GitHub complete la nueva ejecución.
+
 ## Acciones manuales y pendientes
 
 - En despliegue: aprobar/ejecutar migración y después sincronizar ventanas
