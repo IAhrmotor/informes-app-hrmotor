@@ -6,7 +6,7 @@ use Illuminate\Support\Str;
 
 class CallClassificationRules
 {
-    public const VERSION = '2026-08-07.1';
+    public const VERSION = '2026-09-02.1';
 
     public const CUSTOMER_SERVICE_LABEL = 'Atención al Cliente';
 
