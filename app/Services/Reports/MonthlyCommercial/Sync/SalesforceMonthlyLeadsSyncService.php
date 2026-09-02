@@ -3,8 +3,8 @@
 namespace App\Services\Reports\MonthlyCommercial\Sync;
 
 use App\Models\SalesforceLead;
-use App\Services\Reports\Leads\LeadPortalResolver;
 use App\Services\Reports\Leads\LeadClassificationResolver;
+use App\Services\Reports\Leads\LeadPortalResolver;
 use App\Services\Reports\Leads\LeadRecordTypeNormalizer;
 use App\Services\Salesforce\SalesforceClient;
 use App\Services\Salesforce\SalesforceLeadFieldResolver;
@@ -48,7 +48,7 @@ class SalesforceMonthlyLeadsSyncService
         try {
             $result = $this->persistPages($this->client->queryPages($soql), $syncedAt, true);
         } catch (RuntimeException $exception) {
-            if (! $this->looksLikeMissingOptionalField($exception->getMessage())) {
+            if (!$this->looksLikeMissingOptionalField($exception->getMessage())) {
                 throw $exception;
             }
 
@@ -208,7 +208,7 @@ class SalesforceMonthlyLeadsSyncService
                     'raw_payload' => json_encode($record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                 ];
 
-                if (! $includeOptionalFields) {
+                if (!$includeOptionalFields) {
                     foreach ($this->optionalPersistedFields() as $optionalField) {
                         unset($values[array_key_last($values)][$optionalField]);
                     }
