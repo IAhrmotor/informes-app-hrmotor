@@ -1539,6 +1539,58 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   los artefactos generados porque no existe cambio frontend.
 - `git diff --check`: correcto. Fallos introducidos: cero.
 
+# Fase 3 — Clasificación nuevo → legacy de Leads (2026-09-02)
+
+## Resumen
+
+- Se resolvió el residuo de merge de este documento conservando completas las
+  secciones de Tasador y coherencia UTM.
+- `LeadClassificationResolver` compone el resolver central de campos nuevos
+  con `LeadPortalResolver` como fallback legacy inalterado. Fuente, canal,
+  medio y delegación priorizan sus nuevos raw persistidos únicamente cuando no
+  son null, vacíos o whitespace.
+- Sync, dashboard y el backfill local emplean la misma composición. El
+  dashboard recalcula desde raw locales y no confía en `resolved_*` heredados.
+  Los audit outputs incorporan raws, resolución, conflicto y fallback por
+  dimensión. No se ejecutó el backfill.
+
+## Alcance y seguridad
+
+- Sin cambios de WHERE, universo de Leads, KPIs no clasificatorios,
+  delegación comercial, Calls, Reservas/Ventas ni funcionalidad de Campañas.
+- No se hicieron DML Salesforce, backfills históricos, migraciones, cambios de
+  configuración ni consultas remotas durante la lectura del dashboard.
+
+## Validación pendiente de entorno
+
+- La sesión no expone un ejecutable PHP (ni `PATH` ni las rutas Herd locales
+  habituales), por lo que las pruebas, Pint y verificaciones Composer quedan
+  pendientes de ejecutarse en un entorno con PHP disponible antes de integrar.
+
+## Corrección de revisión: autorización y trazabilidad
+
+- La clasificación visible de delegación sigue usando nuevo → legacy, pero el
+  scope de autorización usa una delegación interna calculada exclusivamente
+  con la cadena legacy previa y el fallback contextual de Exposición. Así, un
+  valor de `Delegacion_procedencia__c` no amplía ni retira permisos.
+- La auditoría ahora muestra la delegación normalizada final y su origen
+  efectivo. Cuando Exposición resuelve fuera de `field_resolution`, la traza
+  identifica `persona_que_trabajo_delegation`, `owner_delegation` o
+  `salesforce_users.user_delegation`, sin falsear un API Name Salesforce.
+- Se añadieron regresiones de scope, fallback contextual, materialización del
+  sync y backfill local. No se ejecutaron en esta sesión por la ausencia del
+  runtime PHP/Composer; deben validarse en CI antes de integrar.
+
+## Corrección CI PR #24: normalización y CSV
+
+- El CI detectó expectativas no canónicas: `Madrid` y `HR MOTOR MADRID`
+  normalizan a `Madrid General`; se corrigieron exclusivamente las assertions
+  de Fase 3, sin cambiar el normalizador ni la autorización.
+- El CSV de conciliación serializa las trazas de resolución estructuradas como
+  JSON UTF-8 al emitir cada celda. Las respuestas JSON conservan los arrays y
+  los booleanos CSV siguen siendo `Si`/`No`. No se afirma CI verde hasta que
+  GitHub complete la nueva ejecución.
+
 ## Acciones manuales y pendientes
 
 - En despliegue: aprobar/ejecutar migración y después sincronizar ventanas
@@ -1556,7 +1608,6 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Backfill, escritura Salesforce, producción y frontend: NO modificados.
 - Campos legacy eliminados o reutilizados: NO.
 
-<<<<<<< HEAD
 # Desglose de compras Tasador (2026-09-01)
 
 ## Resumen y decisiones
@@ -1593,7 +1644,7 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   54/54 y 446 aserciones. API de Comisiones: 22/22 y 138 aserciones.
 - Suite completa: 820/820 pruebas y 5.922 aserciones, correcta. Pint focal sobre
   los dos PHP modificados, lint PHP y `git diff --check`: correctos.
-=======
+
 # Corrección de coherencia UTM en doble escritura (2026-09-01)
 
 ## Resumen
@@ -1633,4 +1684,3 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Build Vite: correcto, con avisos preexistentes de imagen runtime y deprecación
   Node; artefactos regenerados restaurados al no existir cambio frontend.
 - `git diff --check`: correcto. Fallos introducidos: cero.
->>>>>>> 1bb7794 (fix(campaigns): keep lead UTM resolution consistent)

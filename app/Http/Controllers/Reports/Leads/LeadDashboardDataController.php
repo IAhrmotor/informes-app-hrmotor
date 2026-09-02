@@ -211,11 +211,27 @@ class LeadDashboardDataController extends Controller
             fwrite($output, "\xEF\xBB\xBF");
             fputcsv($output, $headers);
             foreach ($rows as $row) {
-                fputcsv($output, array_map(fn ($value) => is_bool($value) ? ($value ? 'Si' : 'No') : $value, $row));
+                fputcsv($output, array_map($this->csvValue(...), $row));
             }
             fclose($output);
         }, 'leads-conciliacion-activos-eliminados.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
+    }
+
+    private function csvValue(mixed $value): mixed
+    {
+        if (is_bool($value)) {
+            return $value ? 'Si' : 'No';
+        }
+
+        if (is_array($value)) {
+            return json_encode(
+                $value,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR,
+            );
+        }
+
+        return $value;
     }
 }

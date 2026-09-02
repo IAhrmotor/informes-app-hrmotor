@@ -1,6 +1,28 @@
 # Auditoría preparatoria de procedencia y atribución Salesforce
 
-Actualizado: 2026-09-01.
+Actualizado: 2026-09-02.
+
+## Fase 3: clasificación efectiva de Leads
+
+- La clasificación del informe de Leads compone `Fuente_origen__c`,
+  `Canal__c`, `Medio_origen__c` y `Delegacion_procedencia__c` mediante
+  `SalesforceLeadFieldResolver`: únicamente null, vacío o whitespace permite
+  aplicar el fallback legacy. Placeholders no vacíos permanecen válidos y los
+  conflictos siguen en `field_resolution`.
+- `LeadPortalResolver` no cambia: continúa siendo la autoridad exclusiva de la
+  prioridad legacy de fuente y del canal binario legacy. La composición vive en
+  `LeadClassificationResolver`, usada por sync, dashboard y backfill local.
+- El dashboard recalcula desde los raw locales; una materialización
+  `resolved_*` antigua no puede ocultar los campos nuevos persistidos. Las
+  auditorías de Lead añaden raws, efectivos y trazas por fuente, canal, medio y
+  delegación sin eliminar contratos existentes.
+- No cambian SOQL WHERE, IDs del universo, reglas de actividad/gestión,
+  comercial efectivo, Calls, Reservas/Ventas ni el universo o atribución de
+  Campañas. No se ejecuta backfill ni se escribe en Salesforce.
+- La delegación visible puede provenir de `Delegacion_procedencia__c`, pero la
+  autorización por delegación conserva la cadena legacy y el fallback de
+  Exposición previo a esta fase. La dimensión de acceso se calcula solo en
+  memoria y no se expone como un nuevo contrato público.
 
 ## Alcance y línea base
 
