@@ -35,7 +35,7 @@ class CallLeadPortalResolver
             if ($existingVisible !== null) {
                 $debug['lead_unavailable_locally'] = true;
 
-                return ['operational' => $existingVisible, 'visible' => $existingVisible, 'debug' => $debug];
+                return ['operational' => $taskPortal, 'visible' => $existingVisible, 'debug' => $debug];
             }
 
             return ['operational' => $taskPortal, 'visible' => $taskPortal, 'debug' => $debug];

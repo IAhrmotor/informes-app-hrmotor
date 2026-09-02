@@ -1605,6 +1605,11 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   y overflow. Se incrementó `CallClassificationRules::VERSION` por el cambio
   de política visible. No cambiaron Task WHERE, equipos, delegaciones, zonas,
   estados, universos ni otros informes.
+- Correctivo de revisión: si el reproceso necesita un Lead pero este no existe
+  localmente, conserva `portal_resolved`, fuente de resolución y los cuatro
+  valores operativos persistidos (`call_origin`, duración ajustada, overflow y
+  motivo), dejando `lead_unavailable_locally` en la traza. Nunca usa el portal
+  visible nuevo como sustituto del portal operativo legacy.
 
 ## Acciones manuales y pendientes
 

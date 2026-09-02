@@ -51,4 +51,28 @@ class CallLeadPortalResolverTest extends TestCase
         $this->assertSame(CallPortalNormalizer::UNCLASSIFIED, $placeholder['visible']['portal']);
         $this->assertSame('Fuente_origen__c', $placeholder['debug']['effective_source_field']);
     }
+
+    public function test_recognized_task_portal_remains_authoritative_without_reinterpreting_the_lead(): void
+    {
+        $result = $this->resolver->resolve('Web Alcobendas', [
+            'Fuente_origen__c' => 'Coches.net',
+        ]);
+
+        $this->assertSame('Web', $result['operational']['portal']);
+        $this->assertSame('Web', $result['visible']['portal']);
+        $this->assertNull($result['debug']['effective_source_field']);
+    }
+
+    public function test_missing_local_lead_preserves_only_the_existing_visible_classification(): void
+    {
+        $result = $this->resolver->resolve('3CX', null, [
+            'portal' => 'Coches.net',
+            'origin' => 'portal',
+            'source' => 'lead',
+        ]);
+
+        $this->assertSame('Coches.net', $result['visible']['portal']);
+        $this->assertSame(CallPortalNormalizer::UNCLASSIFIED, $result['operational']['portal']);
+        $this->assertTrue($result['debug']['lead_unavailable_locally']);
+    }
 }

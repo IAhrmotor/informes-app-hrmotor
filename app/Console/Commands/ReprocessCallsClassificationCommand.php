@@ -63,25 +63,29 @@ class ReprocessCallsClassificationCommand extends Command
             ->where('created_date', '>=', $from->startOfDay())
             ->where('created_date', '<', $to->addDay()->startOfDay())
             ->orderBy('id')
-            ->chunkById(1000, function ($calls) use ($portalNormalizer, $leadPortalResolver, $parser, $rules, $delegationNormalizer, $users, &$updated, &$dryRunStats, $dryRun, $reason): void {
+            ->chunkById(1000, function ($calls) use ($leadPortalResolver, $parser, $rules, $delegationNormalizer, $users, &$updated, &$dryRunStats, $dryRun, $reason): void {
                 $updates = [];
                 $history = [];
                 $leadMatches = $this->relatedLeadMatches($calls);
 
                 foreach ($calls as $call) {
                     $parsed = $parser->parse($call->description);
-                    $portalResolution = $leadPortalResolver->resolve(
-                        $call->portales_raw,
-                        $leadMatches->get($call->who_id),
-                        [
+                    $existingVisible = is_string($call->who_id) && str_starts_with($call->who_id, '00Q')
+                        ? [
                             'portal' => $call->portal_resolved,
                             'origin' => $call->call_origin,
                             'source' => $call->portal_resolution_source,
-                        ],
+                        ]
+                        : null;
+                    $portalResolution = $leadPortalResolver->resolve(
+                        $call->portales_raw,
+                        $leadMatches->get($call->who_id),
+                        $existingVisible,
                     );
                     $operationalPortal = $portalResolution['operational'];
                     $portal = $portalResolution['visible'];
-                    $origin = $operationalPortal['origin'];
+                    $preserveOperational = (bool) data_get($portalResolution, 'debug.lead_unavailable_locally', false);
+                    $origin = $preserveOperational ? $call->call_origin : $operationalPortal['origin'];
                     $classificationResult = $parsed['result_raw'] ?? $call->result_raw;
                     $callStatus = $this->classifyStatus($classificationResult, $call->call_status);
                     $duration = is_numeric($call->call_duration_seconds)
@@ -105,7 +109,9 @@ class ReprocessCallsClassificationCommand extends Command
                         $call->owner_name,
                     );
                     $pollValue = $parsed['poll_value'];
-                    $isOverflow = $rules->isOverflow($origin, $callStatus, $operationalPortal['portal'], $team, $pollValue, $call->result_raw);
+                    $isOverflow = $preserveOperational
+                        ? (bool) $call->is_overflow
+                        : $rules->isOverflow($origin, $callStatus, $operationalPortal['portal'], $team, $pollValue, $call->result_raw);
 
                     $operationalProfile = data_get($users->get($call->operational_user_id) ?: $users->get($call->owner_id), 'profile_name')
                         ?: $call->owner_profile_name;
@@ -116,7 +122,9 @@ class ReprocessCallsClassificationCommand extends Command
                     $dryRunStats['included_after'] += (int) $includedInDashboard;
                     $dryRunStats['missing_call_object'] += $exclusionReason === 'missing_call_object' ? 1 : 0;
                     $dryRunStats['excluded_test_profile'] += $exclusionReason === CallClassificationRules::EXCLUDED_TEST_PROFILE_REASON ? 1 : 0;
-                    $newAdjustedDuration = $rules->adjustedDuration($duration, $origin);
+                    $newAdjustedDuration = $preserveOperational
+                        ? (int) $call->adjusted_duration_seconds
+                        : $rules->adjustedDuration($duration, $origin);
                     $dryRunStats['duration_changes'] += (int) ((int) $call->adjusted_duration_seconds !== $newAdjustedDuration);
                     $dryRunStats['classification_changes'] += (int) (
                         (bool) $call->included_in_dashboard !== $includedInDashboard
@@ -145,7 +153,9 @@ class ReprocessCallsClassificationCommand extends Command
                         'delegation' => $delegationZone['delegation'],
                         'zone' => $delegationZone['zone'],
                         'is_overflow' => $isOverflow,
-                        'overflow_reason' => $rules->overflowReason($origin, $callStatus, $operationalPortal['portal'], $team, $pollValue, $call->result_raw),
+                        'overflow_reason' => $preserveOperational
+                            ? $call->overflow_reason
+                            : $rules->overflowReason($origin, $callStatus, $operationalPortal['portal'], $team, $pollValue, $call->result_raw),
                         'parse_debug' => json_encode(array_merge($call->parse_debug ?? [], [
                             'reprocessed_poll_value' => $pollValue,
                             'portal_debug' => $portalResolution['debug'],
