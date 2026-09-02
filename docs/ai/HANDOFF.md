@@ -1556,7 +1556,6 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Backfill, escritura Salesforce, producción y frontend: NO modificados.
 - Campos legacy eliminados o reutilizados: NO.
 
-<<<<<<< HEAD
 # Desglose de compras Tasador (2026-09-01)
 
 ## Resumen y decisiones
@@ -1593,7 +1592,7 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   54/54 y 446 aserciones. API de Comisiones: 22/22 y 138 aserciones.
 - Suite completa: 820/820 pruebas y 5.922 aserciones, correcta. Pint focal sobre
   los dos PHP modificados, lint PHP y `git diff --check`: correctos.
-=======
+
 # Corrección de coherencia UTM en doble escritura (2026-09-01)
 
 ## Resumen
@@ -1633,4 +1632,3 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Build Vite: correcto, con avisos preexistentes de imagen runtime y deprecación
   Node; artefactos regenerados restaurados al no existir cambio frontend.
 - `git diff --check`: correcto. Fallos introducidos: cero.
->>>>>>> 1bb7794 (fix(campaigns): keep lead UTM resolution consistent)
