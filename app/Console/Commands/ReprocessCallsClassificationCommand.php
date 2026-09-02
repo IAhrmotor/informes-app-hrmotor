@@ -6,9 +6,9 @@ use App\Models\SalesforceCall;
 use App\Models\SalesforceCallClassificationHistory;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceUser;
-use App\Services\Reports\Calls\CallLeadPortalResolver;
 use App\Services\Reports\Calls\CallClassificationRules;
 use App\Services\Reports\Calls\CallDescriptionParser;
+use App\Services\Reports\Calls\CallLeadPortalResolver;
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
@@ -123,9 +123,11 @@ class ReprocessCallsClassificationCommand extends Command
                     $dryRunStats['missing_call_object'] += $exclusionReason === 'missing_call_object' ? 1 : 0;
                     $dryRunStats['excluded_test_profile'] += $exclusionReason === CallClassificationRules::EXCLUDED_TEST_PROFILE_REASON ? 1 : 0;
                     $newAdjustedDuration = $preserveOperational
-                        ? (int) $call->adjusted_duration_seconds
+                        ? $call->adjusted_duration_seconds
                         : $rules->adjustedDuration($duration, $origin);
-                    $dryRunStats['duration_changes'] += (int) ((int) $call->adjusted_duration_seconds !== $newAdjustedDuration);
+                    $dryRunStats['duration_changes'] += $preserveOperational
+                        ? 0
+                        : (int) ((int) $call->adjusted_duration_seconds !== $newAdjustedDuration);
                     $dryRunStats['classification_changes'] += (int) (
                         (bool) $call->included_in_dashboard !== $includedInDashboard
                         || $call->dashboard_exclusion_reason !== $exclusionReason

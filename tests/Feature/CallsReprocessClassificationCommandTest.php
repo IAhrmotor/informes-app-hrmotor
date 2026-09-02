@@ -173,6 +173,44 @@ class CallsReprocessClassificationCommandTest extends TestCase
         $this->assertTrue(data_get($call->parse_debug, 'portal_debug.lead_unavailable_locally'));
     }
 
+    public function test_reproceso_con_lead_local_ausente_preserva_duracion_operativa_nullable(): void
+    {
+        SalesforceCall::create([
+            'salesforce_id' => 'call-missing-local-null-duration',
+            'created_date' => '2026-05-20 10:00:00',
+            'who_id' => '00Q-missing-local-null-duration',
+            'portales_raw' => '3CX',
+            'call_origin' => 'portal',
+            'portal_resolved' => 'Coches.net',
+            'portal_resolution_source' => 'lead',
+            'call_duration_seconds' => 80,
+            'adjusted_duration_seconds' => null,
+            'call_status' => 'answered',
+            'is_answered' => true,
+            'is_lost' => false,
+            'is_overflow' => false,
+            'overflow_reason' => null,
+        ]);
+
+        $this->artisan('reports:reprocess-calls-classification', [
+            '--from' => '2026-05-20',
+            '--to' => '2026-05-20',
+            '--reason' => 'nullable operational duration regression',
+        ])->assertSuccessful();
+
+        $call = SalesforceCall::query()
+            ->where('salesforce_id', 'call-missing-local-null-duration')
+            ->firstOrFail();
+
+        $this->assertSame('Coches.net', $call->portal_resolved);
+        $this->assertSame('lead', $call->portal_resolution_source);
+        $this->assertSame('portal', $call->call_origin);
+        $this->assertNull($call->adjusted_duration_seconds);
+        $this->assertFalse($call->is_overflow);
+        $this->assertNull($call->overflow_reason);
+        $this->assertTrue(data_get($call->parse_debug, 'portal_debug.lead_unavailable_locally'));
+    }
+
     public function test_reprocesado_considera_respondido_por_como_atendida_sin_pisar_abandoned(): void
     {
         foreach ([
