@@ -106,6 +106,7 @@ class CallsReprocessClassificationCommandTest extends TestCase
     {
         SalesforceLead::create([
             'salesforce_id' => '00Q-local-source',
+            'created_date' => '2026-05-20 09:00:00',
             'source_origin_new' => 'Coches.net',
             'portal_text' => 'Google Maps',
             'fuente_origen' => 'Wallapop',

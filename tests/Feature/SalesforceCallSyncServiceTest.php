@@ -157,7 +157,9 @@ class SalesforceCallSyncServiceTest extends TestCase
         $this->assertSame('lead', $call->portal_resolution_source);
         $this->assertSame('portal', $call->call_origin);
         $this->assertSame(70, $call->adjusted_duration_seconds);
-        $this->assertFalse($call->is_overflow);
+        $this->assertTrue($call->is_overflow);
+        $this->assertSame('Google Maps', data_get($call->parse_debug, 'portal_debug.legacy_value'));
+        $this->assertSame('Portal_Text__c', data_get($call->parse_debug, 'portal_debug.legacy_source_field'));
         $this->assertSame('Fuente_origen__c', data_get($call->parse_debug, 'portal_debug.effective_source_field'));
     }
 }
