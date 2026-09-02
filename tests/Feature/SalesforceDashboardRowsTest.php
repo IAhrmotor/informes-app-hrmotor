@@ -291,6 +291,10 @@ class SalesforceDashboardRowsTest extends TestCase
             'record_type_normalized' => null,
             'medio_nuevo' => 'Llamada',
             'fuente_nuevo' => 'Google Maps',
+            'source_origin_new' => 'New source',
+            'channel_new' => 'WhatsApp',
+            'medium_origin_new' => 'New medium',
+            'delegation_origin_new' => 'Alcobendas',
             'resolved_portal' => null,
             'synced_at' => null,
             'sync_metadata_source' => null,
@@ -308,8 +312,9 @@ class SalesforceDashboardRowsTest extends TestCase
         $this->assertDatabaseHas('salesforce_leads', [
             'salesforce_id' => '00Q-legacy-backfill',
             'record_type_normalized' => 'tasacion',
-            'resolved_portal' => 'Google Maps',
-            'portal_resolution_source' => 'Fuente_Nuevo__c',
+            'resolved_portal' => 'New source',
+            'resolved_channel' => 'WhatsApp',
+            'portal_resolution_source' => 'Fuente_origen__c',
             'sync_metadata_source' => 'legacy_local_backfill',
         ]);
     }

@@ -1567,6 +1567,20 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   habituales), por lo que las pruebas, Pint y verificaciones Composer quedan
   pendientes de ejecutarse en un entorno con PHP disponible antes de integrar.
 
+## Corrección de revisión: autorización y trazabilidad
+
+- La clasificación visible de delegación sigue usando nuevo → legacy, pero el
+  scope de autorización usa una delegación interna calculada exclusivamente
+  con la cadena legacy previa y el fallback contextual de Exposición. Así, un
+  valor de `Delegacion_procedencia__c` no amplía ni retira permisos.
+- La auditoría ahora muestra la delegación normalizada final y su origen
+  efectivo. Cuando Exposición resuelve fuera de `field_resolution`, la traza
+  identifica `persona_que_trabajo_delegation`, `owner_delegation` o
+  `salesforce_users.user_delegation`, sin falsear un API Name Salesforce.
+- Se añadieron regresiones de scope, fallback contextual, materialización del
+  sync y backfill local. No se ejecutaron en esta sesión por la ausencia del
+  runtime PHP/Composer; deben validarse en CI antes de integrar.
+
 ## Acciones manuales y pendientes
 
 - En despliegue: aprobar/ejecutar migración y después sincronizar ventanas

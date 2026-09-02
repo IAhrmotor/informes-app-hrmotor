@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Models\SalesforceLead;
+use App\Models\SalesforceUser;
 use App\Services\Reports\Leads\SalesforceLeadDashboardDatasetService;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -129,6 +130,31 @@ class SalesforceLeadDashboardDatasetServiceTest extends TestCase
         $this->assertSame('active_at_last_sync', $items[0]['salesforce_state']);
         $this->assertFalse($items[1]['exists_local']);
         $this->assertSame('not_synchronized', $items[1]['salesforce_state']);
+    }
+
+    public function test_auditoria_explica_el_fallback_contextual_de_delegacion_en_exposicion(): void
+    {
+        SalesforceLead::create([
+            'salesforce_id' => '00Q-AUDIT-EXPO',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Potencial',
+            'record_type_name' => 'Exposición',
+            'owner_id' => '005-audit-expo',
+            'is_deleted' => false,
+        ]);
+        SalesforceUser::create([
+            'salesforce_id' => '005-audit-expo',
+            'name' => 'Usuario sintético',
+            'profile_name' => 'Compra/Venta',
+            'user_delegation' => 'HR MOTOR VALENCIA',
+            'is_active' => true,
+        ]);
+
+        $item = $this->service->leadAudit(['00Q-AUDIT-EXPO'])['items'][0];
+
+        $this->assertNull(data_get($item, 'delegation_resolution.effective_value'));
+        $this->assertSame('Valencia', $item['delegation_effective_normalized']);
+        $this->assertSame('salesforce_users.user_delegation', $item['delegation_effective_source']);
     }
 
     public function test_potencial_sin_trabajar_si_no_tiene_actividad_o_si_ultima_es_mayor_3_dias(): void

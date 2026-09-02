@@ -59,6 +59,33 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
         $this->assertSame('Delegacion_procedencia__c', $lead['delegation_resolution']['source_field']);
     }
 
+    public function test_scope_de_acceso_conserva_delegacion_legacy_mientras_la_visible_usa_la_nueva(): void
+    {
+        $legacyValencia = $this->service->decorateLead([
+            'status' => 'Potencial',
+            'delegation_origin_new' => 'HR MOTOR MADRID',
+            'delegacion_encargada_bueno' => 'HR MOTOR VALENCIA',
+        ]);
+        $legacyMadrid = $this->service->decorateLead([
+            'status' => 'Potencial',
+            'delegation_origin_new' => 'HR MOTOR VALENCIA',
+            'delegacion_encargada_bueno' => 'HR MOTOR MADRID',
+        ]);
+
+        $this->assertSame('Madrid', $legacyValencia['lead_delegation']);
+        $this->assertSame('Valencia', $legacyValencia['lead_access_delegation']);
+        $this->assertTrue($this->passesDelegationScope($legacyValencia, 'Valencia'));
+        $this->assertFalse($this->passesDelegationScope($legacyValencia, 'Madrid'));
+        $commercialMatch = $legacyValencia;
+        $commercialMatch['commercial_delegation'] = 'Madrid';
+        $this->assertTrue($this->passesDelegationScope($commercialMatch, 'Madrid'));
+
+        $this->assertSame('Valencia', $legacyMadrid['lead_delegation']);
+        $this->assertSame('Madrid', $legacyMadrid['lead_access_delegation']);
+        $this->assertTrue($this->passesDelegationScope($legacyMadrid, 'Madrid'));
+        $this->assertFalse($this->passesDelegationScope($legacyMadrid, 'Valencia'));
+    }
+
     public function test_owner_solo_es_fallback_de_delegacion_para_tipo_funcional_exposicion(): void
     {
         $exposition = $this->service->decorateLead([
@@ -101,6 +128,8 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
         ]);
 
         $this->assertSame('Valencia', $exposition['lead_delegation']);
+        $this->assertSame('owner_delegation', $exposition['lead_delegation_effective_source']);
+        $this->assertNull($exposition['delegation_resolution']['effective_value']);
         $this->assertSame('Sin clasificar', $sale['lead_delegation']);
         $this->assertSame('Sin clasificar', $saleWithExpositionPortal['lead_delegation']);
         $this->assertSame('Zaragoza', $expositionWithBueno['lead_delegation']);
@@ -156,6 +185,17 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
             'profile_name' => 'Compra/Venta',
             'user_delegation' => $delegation,
             'is_active' => true,
+        ]);
+    }
+
+    private function passesDelegationScope(array $lead, string $delegation): bool
+    {
+        $method = new \ReflectionMethod($this->service, 'passesAccessScope');
+
+        return $method->invoke($this->service, $lead, [
+            'access_commercial' => null,
+            'access_zone' => null,
+            'access_delegation' => $delegation,
         ]);
     }
 }

@@ -68,6 +68,25 @@ class LeadClassificationResolver
         ];
     }
 
+    /**
+     * @return array{effective_value:?string,source_field:?string,used_fallback:bool,conflict:bool,new_raw:mixed,legacy_raw:mixed}
+     */
+    public function resolveLegacyDelegation(mixed $lead): array
+    {
+        $legacyDelegation = $this->firstInformed($lead, [
+            ['delegacion_encargada_bueno', 'Delegacion_Encargada_Bueno__c'],
+            ['delegacion_encargada', 'Delegacion_Encargada__c'],
+            ['delegacion_encargada_text', 'Delegacion_Encargada_Text__c'],
+        ]);
+
+        return $this->fieldResolver->resolve(
+            null,
+            'Delegacion_procedencia__c',
+            $legacyDelegation['value'],
+            $legacyDelegation['field'],
+        );
+    }
+
     /** @param list<array{0:string,1:string}> $fields @return array{value:mixed,field:string} */
     private function firstInformed(mixed $lead, array $fields): array
     {

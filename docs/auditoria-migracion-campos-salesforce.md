@@ -19,6 +19,10 @@ Actualizado: 2026-09-02.
 - No cambian SOQL WHERE, IDs del universo, reglas de actividad/gestión,
   comercial efectivo, Calls, Reservas/Ventas ni el universo o atribución de
   Campañas. No se ejecuta backfill ni se escribe en Salesforce.
+- La delegación visible puede provenir de `Delegacion_procedencia__c`, pero la
+  autorización por delegación conserva la cadena legacy y el fallback de
+  Exposición previo a esta fase. La dimensión de acceso se calcula solo en
+  memoria y no se expone como un nuevo contrato público.
 
 ## Alcance y línea base
 

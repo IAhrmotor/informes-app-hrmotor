@@ -14,14 +14,19 @@ use RuntimeException;
 
 class SalesforceMonthlyLeadsSyncService
 {
+    private readonly LeadClassificationResolver $classificationResolver;
+
     public function __construct(
         private readonly SalesforceClient $client,
         private readonly LeadRecordTypeNormalizer $recordTypeNormalizer,
         private readonly LeadPortalResolver $portalResolver,
         private readonly ChangedRowUpsert $changedRowUpsert = new ChangedRowUpsert,
         private readonly SalesforceLeadFieldResolver $fieldResolver = new SalesforceLeadFieldResolver,
-        private readonly LeadClassificationResolver $classificationResolver = new LeadClassificationResolver,
-    ) {}
+        ?LeadClassificationResolver $classificationResolver = null,
+    ) {
+        $this->classificationResolver = $classificationResolver
+            ?? new LeadClassificationResolver($this->portalResolver, $this->fieldResolver);
+    }
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
     {
