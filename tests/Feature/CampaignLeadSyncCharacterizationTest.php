@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Models\CampaignSalesforceLead;
 use App\Models\SalesforceLead;
 use App\Services\Campaigns\CampaignLeadSyncService;
 use App\Services\Salesforce\SalesforceClient;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class CampaignLeadSyncCharacterizationTest extends TestCase
@@ -144,14 +146,32 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
             'salesforce_id' => '00Q-shared',
             'name' => 'Nombre mensual',
             'created_date' => '2026-05-10 10:00:00',
-            'status' => 'Potencial',
+            'status' => 'Estado mensual',
+            'owner_id' => '005-monthly-owner',
+            'owner_name' => 'Owner mensual',
+            'phone' => '600000001',
+            'email' => 'monthly@example.test',
             'record_type_name' => 'Venta',
             'record_type_normalized' => 'venta',
             'fuente_origen' => 'Fuente mensual',
             'medio_origen' => 'Medio mensual',
             'campaign_acquired' => 'Campaña anterior',
             'acquired_id' => 'id-anterior',
+            'content_acquired' => 'content-anterior',
+            'acquired_source_legacy' => 'legacy-source-anterior',
+            'acquired_medium_legacy' => 'legacy-medium-anterior',
+            'utm_campaign_new' => 'campaign-new-existente',
+            'utm_id_new' => 'id-new-anterior',
             'utm_source_new' => 'source-anterior',
+            'utm_medium_new' => 'medium-new-anterior',
+            'utm_content_new' => 'content-new-anterior',
+            'field_resolution' => [
+                'source' => ['effective_value' => 'Meta'],
+                'channel' => ['effective_value' => 'WhatsApp'],
+                'medium' => ['effective_value' => 'Paid Social'],
+                'delegation' => ['effective_value' => 'Alcobendas'],
+                'utm_campaign' => ['effective_value' => 'Resolución obsoleta'],
+            ],
             'resolved_portal' => 'Portal mensual',
             'portal_resolution_source' => 'Portal_Text__c',
             'raw_payload' => ['scope' => 'monthly', 'complete' => true],
@@ -161,10 +181,19 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
         $client->expects($this->once())->method('query')->willReturn([
             $this->record('00Q-shared', [
                 'Name' => 'Nombre campaña',
+                'Status' => 'Estado campaña',
+                'Phone' => '600000999',
+                'Email' => 'campaign@example.test',
                 'Campa_a_Adquirida__c' => 'Campaña adquirida',
                 'Id_Adquirido__c' => '   ',
-                'utm_source__c' => '',
-                'utm_medium__c' => 'paid-social',
+                'Contenido_Adquirido__c' => 'content-legacy-nuevo',
+                'Fuente_Adquirida__c' => 'legacy-source-nuevo',
+                'Medio_Adquirido__c' => null,
+                'utm_campaign__c' => '   ',
+                'utm_id__c' => 'id-new-nuevo',
+                'utm_source__c' => 'source-nuevo',
+                'utm_medium__c' => null,
+                'utm_content__c' => 'content-new-nuevo',
             ]),
         ]);
 
@@ -182,12 +211,23 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
         $this->assertDatabaseHas('salesforce_leads', [
             'salesforce_id' => '00Q-shared',
             'name' => 'Nombre mensual',
+            'status' => 'Estado mensual',
+            'owner_id' => '005-monthly-owner',
+            'owner_name' => 'Owner mensual',
+            'phone' => '600000001',
+            'email' => 'monthly@example.test',
             'fuente_origen' => 'Fuente mensual',
             'medio_origen' => 'Medio mensual',
             'campaign_acquired' => 'Campaña adquirida',
             'acquired_id' => 'id-anterior',
-            'utm_source_new' => 'source-anterior',
-            'utm_medium_new' => 'paid-social',
+            'content_acquired' => 'content-legacy-nuevo',
+            'acquired_source_legacy' => 'legacy-source-nuevo',
+            'acquired_medium_legacy' => 'legacy-medium-anterior',
+            'utm_campaign_new' => 'campaign-new-existente',
+            'utm_id_new' => 'id-new-nuevo',
+            'utm_source_new' => 'source-nuevo',
+            'utm_medium_new' => 'medium-new-anterior',
+            'utm_content_new' => 'content-new-nuevo',
             'record_type_name' => 'Venta',
             'resolved_portal' => 'Portal mensual',
         ]);
@@ -195,6 +235,89 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
             ['scope' => 'monthly', 'complete' => true],
             SalesforceLead::query()->where('salesforce_id', '00Q-shared')->firstOrFail()->raw_payload,
         );
+        $resolution = SalesforceLead::query()->where('salesforce_id', '00Q-shared')->firstOrFail()->field_resolution;
+        $this->assertSame(['effective_value' => 'Meta'], $resolution['source']);
+        $this->assertSame(['effective_value' => 'WhatsApp'], $resolution['channel']);
+        $this->assertSame(['effective_value' => 'Paid Social'], $resolution['medium']);
+        $this->assertSame(['effective_value' => 'Alcobendas'], $resolution['delegation']);
+        $this->assertUtmResolution($resolution['utm_campaign'], 'campaign-new-existente', 'utm_campaign__c', false, true);
+        $this->assertUtmResolution($resolution['utm_id'], 'id-new-nuevo', 'utm_id__c', false, true);
+        $this->assertUtmResolution($resolution['utm_source'], 'source-nuevo', 'utm_source__c', false, true);
+        $this->assertUtmResolution($resolution['utm_medium'], 'medium-new-anterior', 'utm_medium__c', false, true);
+        $this->assertUtmResolution($resolution['utm_content'], 'content-new-nuevo', 'utm_content__c', false, true);
+        $this->assertDatabaseCount('salesforce_leads', 1);
+    }
+
+    public function test_sync_completa_resoluciones_utm_sobre_json_null_parcial_o_invalido(): void
+    {
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-null-resolution',
+            'created_date' => '2026-05-10 10:00:00',
+            'campaign_acquired' => 'Legacy existente',
+            'field_resolution' => null,
+        ]);
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-partial-resolution',
+            'created_date' => '2026-05-10 10:00:00',
+            'field_resolution' => [
+                'source' => ['effective_value' => 'Meta'],
+                'channel' => ['effective_value' => 'Chatbot'],
+            ],
+        ]);
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-invalid-resolution',
+            'created_date' => '2026-05-10 10:00:00',
+        ]);
+        DB::table('salesforce_leads')
+            ->where('salesforce_id', '00Q-invalid-resolution')
+            ->update(['field_resolution' => 'invalid-json']);
+
+        $client = $this->createMock(SalesforceClient::class);
+        $client->expects($this->once())->method('query')->willReturn([
+            $this->record('00Q-null-resolution', ['Campa_a_Adquirida__c' => 'Legacy entrante']),
+            $this->record('00Q-partial-resolution', [
+                'Id_Adquirido__c' => 'legacy-id',
+                'utm_source__c' => 'new-source',
+            ]),
+            $this->record('00Q-invalid-resolution', ['Contenido_Adquirido__c' => 'legacy-content']),
+        ]);
+
+        (new CampaignLeadSyncService($client))->sync(
+            CarbonImmutable::parse('2026-05-01'),
+            CarbonImmutable::parse('2026-06-01'),
+        );
+
+        $nullResolution = SalesforceLead::query()
+            ->where('salesforce_id', '00Q-null-resolution')
+            ->firstOrFail()
+            ->field_resolution;
+        $this->assertSame(
+            ['utm_campaign', 'utm_id', 'utm_source', 'utm_medium', 'utm_content'],
+            array_keys($nullResolution),
+        );
+        $this->assertUtmResolution($nullResolution['utm_campaign'], 'Legacy entrante', 'Campa_a_Adquirida__c', true, false);
+        $this->assertUtmResolution($nullResolution['utm_id'], null, null, false, false);
+
+        $partialResolution = SalesforceLead::query()
+            ->where('salesforce_id', '00Q-partial-resolution')
+            ->firstOrFail()
+            ->field_resolution;
+        $this->assertSame(['effective_value' => 'Meta'], $partialResolution['source']);
+        $this->assertSame(['effective_value' => 'Chatbot'], $partialResolution['channel']);
+        $this->assertArrayNotHasKey('medium', $partialResolution);
+        $this->assertArrayNotHasKey('delegation', $partialResolution);
+        $this->assertUtmResolution($partialResolution['utm_id'], 'legacy-id', 'Id_Adquirido__c', true, false);
+        $this->assertUtmResolution($partialResolution['utm_source'], 'new-source', 'utm_source__c', false, false);
+
+        $invalidResolution = SalesforceLead::query()
+            ->where('salesforce_id', '00Q-invalid-resolution')
+            ->firstOrFail()
+            ->field_resolution;
+        $this->assertSame(
+            ['utm_campaign', 'utm_id', 'utm_source', 'utm_medium', 'utm_content'],
+            array_keys($invalidResolution),
+        );
+        $this->assertUtmResolution($invalidResolution['utm_content'], 'legacy-content', 'Contenido_Adquirido__c', true, false);
     }
 
     public function test_sync_repetido_es_idempotente_y_conserva_nuevos_raw_en_ambas_tablas(): void
@@ -216,6 +339,10 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
         $end = CarbonImmutable::parse('2026-06-01');
 
         $service->sync($start, $end);
+        $firstGeneralResolution = SalesforceLead::query()
+            ->where('salesforce_id', '00Q-idempotent')
+            ->firstOrFail()
+            ->field_resolution;
         $service->sync($start, $end);
 
         $this->assertDatabaseCount('campaign_salesforce_leads', 1);
@@ -235,6 +362,16 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
             'salesforce_id' => '00Q-idempotent',
             'utm_campaign_new' => 'New campaign',
         ]);
+        $generalResolution = SalesforceLead::query()
+            ->where('salesforce_id', '00Q-idempotent')
+            ->firstOrFail()
+            ->field_resolution;
+        $campaignResolution = CampaignSalesforceLead::query()
+            ->where('salesforce_id', '00Q-idempotent')
+            ->firstOrFail()
+            ->field_resolution;
+        $this->assertSame($firstGeneralResolution, $generalResolution);
+        $this->assertSame($campaignResolution, $generalResolution);
     }
 
     private function record(string $id, array $overrides): array
@@ -259,5 +396,18 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
             'utm_medium__c' => null,
             'utm_content__c' => null,
         ], $overrides);
+    }
+
+    private function assertUtmResolution(
+        array $resolution,
+        ?string $effectiveValue,
+        ?string $sourceField,
+        bool $usedFallback,
+        bool $conflict,
+    ): void {
+        $this->assertSame($effectiveValue, $resolution['effective_value']);
+        $this->assertSame($sourceField, $resolution['source_field']);
+        $this->assertSame($usedFallback, $resolution['used_fallback']);
+        $this->assertSame($conflict, $resolution['conflict']);
     }
 }

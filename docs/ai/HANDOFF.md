@@ -1556,6 +1556,7 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Backfill, escritura Salesforce, producción y frontend: NO modificados.
 - Campos legacy eliminados o reutilizados: NO.
 
+<<<<<<< HEAD
 # Desglose de compras Tasador (2026-09-01)
 
 ## Resumen y decisiones
@@ -1592,3 +1593,44 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   54/54 y 446 aserciones. API de Comisiones: 22/22 y 138 aserciones.
 - Suite completa: 820/820 pruebas y 5.922 aserciones, correcta. Pint focal sobre
   los dos PHP modificados, lint PHP y `git diff --check`: correctos.
+=======
+# Corrección de coherencia UTM en doble escritura (2026-09-01)
+
+## Resumen
+
+- Causa: el upsert secundario de Campañas mezclaba correctamente los diez raw
+  de adquisición/UTM, pero no leía ni actualizaba `field_resolution`; una fila
+  general podía conservar una resolución UTM calculada sobre valores antiguos.
+- Solución: la lectura masiva existente incorpora `field_resolution`. Después
+  de aplicar la preservación incoming no vacío → incoming / vacío → existente,
+  recalcula los cinco nodos UTM con `SalesforceLeadFieldResolver` y los mezcla
+  sobre el JSON general existente.
+- Autoridad: Campañas solo puede sustituir `utm_campaign`, `utm_id`,
+  `utm_source`, `utm_medium` y `utm_content`. Conserva exactamente `source`,
+  `channel`, `medium`, `delegation`, cualquier otro nodo y `raw_payload`.
+- Robustez: JSON nulo, parcial o inválido produce cinco nodos UTM válidos sin
+  inventar dimensiones generales ni bloquear el chunk.
+- Rendimiento/atomicidad: una única lectura por chunk de 100, upsert masivo,
+  misma transacción corta y mismos retries; sin N+1 ni llamadas externas.
+
+## Archivos y alcance
+
+- Modificados: `CampaignLeadSyncService`, su test de caracterización, auditoría
+  transversal y este handoff.
+- Sin migraciones, configuración, frontend, rutas, Salesforce, backfill ni
+  cambios en sync mensual, resolver central, attribution builder, Calls,
+  Opportunities o Reservations/Sales.
+
+## Validación
+
+- Baseline antes del cambio: `php artisan test`, 816/816 y 5.880 aserciones.
+- Focal Campañas + resolver: 24/24 y 205 aserciones.
+- Suite completa final: 817/817 y 5.934 aserciones.
+- Pint focal sobre los dos PHP modificados: correcto. Pint global conserva
+  exclusivamente deuda preexistente en archivos ajenos; no se reformateó fuera
+  de alcance.
+- Composer validate: correcto. Composer audit: sin vulnerabilidades conocidas.
+- Build Vite: correcto, con avisos preexistentes de imagen runtime y deprecación
+  Node; artefactos regenerados restaurados al no existir cambio frontend.
+- `git diff --check`: correcto. Fallos introducidos: cero.
+>>>>>>> 1bb7794 (fix(campaigns): keep lead UTM resolution consistent)

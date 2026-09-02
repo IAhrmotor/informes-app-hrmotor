@@ -419,7 +419,9 @@ Google/Meta. Por ello no cambian universos, clasificación visible ni conteos.
 - `CampaignLeadSyncService` es autoritativo sobre toda la fila de
   `campaign_salesforce_leads`. En una fila general existente solo puede aportar
   adquisición legacy y UTM no vacíos; no modifica identidad, contacto,
-  conversión, procedencia, delegación, resolución general ni `raw_payload`.
+  conversión, procedencia, delegación ni `raw_payload`. Actualiza exclusivamente
+  los cinco nodos UTM de `field_resolution` para que correspondan al raw final;
+  conserva sin reconstruir `source`, `channel`, `medium` y `delegation`.
 - La lectura de filas generales existentes se hace una vez por chunk y los
   upserts continúan siendo masivos. Las dos escrituras del chunk comparten una
   transacción corta, abierta después de la consulta remota, y conservan los
@@ -429,3 +431,18 @@ Google/Meta. Por ello no cambian universos, clasificación visible ni conteos.
 El WHERE de Campañas conserva exactamente sus cinco condiciones legacy. Los
 nuevos campos solo crecen el SELECT; un Lead con UTM nuevos pero sin ninguno de
 los cinco criterios legacy continúa fuera del universo.
+
+#### Corrección de coherencia UTM (2026-09-01)
+
+La resolución UTM de una fila general existente se calcula después de aplicar
+la política incoming no vacío → incoming; incoming vacío → valor existente. La
+misma consulta masiva por chunk obtiene raw y `field_resolution`; no existe una
+segunda lectura ni una query por Lead. Los cinco pares se recalculan mediante
+`SalesforceLeadFieldResolver` y se mezclan sobre el JSON general existente.
+
+Un JSON nulo, parcial o inválido no detiene el sync: se interpreta como una
+estructura vacía cuando no es recuperable y se crean solo los cinco nodos UTM.
+Raw y resolución se escriben juntos dentro de la transacción corta del chunk.
+La prueba de caracterización cubre valores nuevos, preservados por whitespace,
+fallbacks legacy, conflictos, cinco dimensiones mezcladas, JSON nulo/parcial/
+inválido, `raw_payload`, campos generales e idempotencia.
