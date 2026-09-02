@@ -24,8 +24,9 @@ Permanecen como validaciones técnicas u operativas para fases posteriores:
   Campañas antes de proponer cualquier ampliación del filtro;
 - diseñar, aprobar y ejecutar por separado el backfill/reprocesado histórico,
   con lotes, reanudación, métricas y conciliación;
-- migrar conscientemente los consumidores de Llamadas, Reservas/Ventas y el
-  attribution builder; esta fase no cambia sus resoluciones actuales.
+- migrar conscientemente Reservas/Ventas y el attribution builder; Llamadas ya
+  consume `Fuente_origen__c` solo en su clasificación visible, conservando la
+  política operacional legacy y sin modificar su universo.
 
 Las siguientes reglas del alcance ya implantado permanecen cerradas y no se
 reabren por esta auditoría:

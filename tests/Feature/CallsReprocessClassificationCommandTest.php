@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\SalesforceCall;
+use App\Models\SalesforceLead;
+use App\Services\Reports\Calls\CallClassificationRules;
 use App\Models\SalesforceUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -98,6 +100,42 @@ class CallsReprocessClassificationCommandTest extends TestCase
 
         $this->assertSame('not_answered', SalesforceCall::where('salesforce_id', 'dry-call')->value('call_status'));
         $this->assertDatabaseCount('salesforce_call_classification_history', 0);
+    }
+
+    public function test_reproceso_usa_lead_local_en_lote_y_conserva_operativa_legacy(): void
+    {
+        SalesforceLead::create([
+            'salesforce_id' => '00Q-local-source',
+            'source_origin_new' => 'Coches.net',
+            'portal_text' => 'Google Maps',
+            'fuente_origen' => 'Wallapop',
+        ]);
+        SalesforceCall::create([
+            'salesforce_id' => 'call-local-source',
+            'created_date' => '2026-05-20 10:00:00',
+            'who_id' => '00Q-local-source',
+            'portales_raw' => '3CX',
+            'call_origin' => 'portal',
+            'portal_resolved' => 'Google Maps',
+            'portal_resolution_source' => 'lead',
+            'call_duration_seconds' => 80,
+            'call_status' => 'answered',
+            'is_answered' => true,
+            'is_lost' => false,
+        ]);
+
+        $this->artisan('reports:reprocess-calls-classification', [
+            '--from' => '2026-05-01',
+            '--to' => '2026-05-31',
+            '--reason' => 'Reclasificacion local de procedencia de Lead.',
+        ])->assertExitCode(0);
+
+        $call = SalesforceCall::where('salesforce_id', 'call-local-source')->firstOrFail();
+        $this->assertSame('Coches.net', $call->portal_resolved);
+        $this->assertSame('portal', $call->call_origin);
+        $this->assertSame(CallClassificationRules::VERSION, $call->classification_rule_version);
+        $this->assertSame(70, $call->adjusted_duration_seconds);
+        $this->assertSame('Fuente_origen__c', data_get($call->parse_debug, 'portal_debug.effective_source_field'));
     }
 
     public function test_reprocesado_considera_respondido_por_como_atendida_sin_pisar_abandoned(): void

@@ -24,6 +24,19 @@ Actualizado: 2026-09-02.
   Exposición previo a esta fase. La dimensión de acceso se calcula solo en
   memoria y no se expone como un nuevo contrato público.
 
+## Fase 4: procedencia de Llamadas
+
+- El universo de Tasks no cambia. Cuando `Task.Portales__c` entra en el fallback
+  de Lead ya existente, `Lead.Fuente_origen__c` informado gana para el portal
+  visible; null, vacío y whitespace conservan exactamente el orden legacy de
+  Llamadas: `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c`.
+- La resolución conserva dos salidas: la legacy operacional alimenta origen,
+  duración y overflow; la efectiva alimenta únicamente `portal_resolved` y su
+  traza. Un valor nuevo no normalizable no vuelve a recurrir a legacy.
+- Sync consulta solo el campo adicional imprescindible y el reproceso carga
+  Leads locales por chunk, sin Salesforce ni consultas por llamada. No se ha
+  ejecutado reproceso ni sincronización real.
+
 ## Alcance y línea base
 
 Este documento congela el comportamiento observado antes de migrar procedencia,

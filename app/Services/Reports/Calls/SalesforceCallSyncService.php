@@ -6,6 +6,7 @@ use App\Models\SalesforceCall;
 use App\Models\SalesforceCallClassificationHistory;
 use App\Models\SalesforceUser;
 use App\Services\Salesforce\SalesforceClient;
+use App\Services\Salesforce\SalesforceLeadFieldResolver;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -22,6 +23,10 @@ class SalesforceCallSyncService
         private readonly CallPortalNormalizer $portalNormalizer,
         private readonly CallAgentResolver $agentResolver,
         private readonly CallClassificationRules $rules,
+        private readonly CallLeadPortalResolver $leadPortalResolver = new CallLeadPortalResolver(
+            new CallPortalNormalizer,
+            new SalesforceLeadFieldResolver,
+        ),
     ) {}
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
@@ -184,7 +189,9 @@ SOQL;
     private function saveRecord(array $record, Collection $leadMatches): SalesforceCall
     {
         $parsed = $this->parser->parse(data_get($record, 'Description'));
-        $portal = $this->resolvePortal($record, $leadMatches);
+        $portalResolution = $this->leadPortalResolver->resolve(data_get($record, 'Portales__c'), $leadMatches->get(data_get($record, 'WhoId')));
+        $operationalPortal = $portalResolution['operational'];
+        $portal = $portalResolution['visible'];
         $duration = $this->duration(data_get($record, 'CallDurationInSeconds'), $parsed['parsed_duration_seconds']);
         $callStatus = $this->classifyStatus($parsed['result_raw'] ?? null);
         $direction = $this->classifyDirection(data_get($record, 'CallType'), data_get($record, 'Subject'), $parsed['type_raw'] ?? null);
@@ -192,16 +199,16 @@ SOQL;
             'id' => data_get($record, 'OwnerId'),
             'name' => data_get($record, 'Owner.Name'),
             'profile_name' => data_get($record, 'Owner.Profile.Name'),
-        ], $parsed, $portal['origin']);
+        ], $parsed, $operationalPortal['origin']);
         $normalizedUserKey = $this->agentResolver->normalizedUserKey(
             $agent['operational_user_name'] ?? null,
             $parsed['destination_agent_name'] ?? null,
             data_get($record, 'Owner.Name'),
         );
         $isOverflow = $this->isOverflow(
-            $portal['origin'],
+            $operationalPortal['origin'],
             $callStatus,
-            $portal['portal'],
+            $operationalPortal['portal'],
             $agent['operational_team'] ?? null,
             $parsed['poll_value'] ?? null,
             $parsed['result_raw'] ?? null,
@@ -236,11 +243,11 @@ SOQL;
                 'classified_at' => now(),
                 'call_duration_seconds' => is_numeric(data_get($record, 'CallDurationInSeconds')) ? (int) data_get($record, 'CallDurationInSeconds') : null,
                 'parsed_duration_seconds' => $parsed['parsed_duration_seconds'],
-                'adjusted_duration_seconds' => $this->adjustedDuration($duration, $portal['origin']),
+                'adjusted_duration_seconds' => $this->adjustedDuration($duration, $operationalPortal['origin']),
                 'call_type_raw' => data_get($record, 'CallType'),
                 'direction' => $direction,
                 'portales_raw' => data_get($record, 'Portales__c'),
-                'call_origin' => $portal['origin'],
+                'call_origin' => $operationalPortal['origin'],
                 'portal_resolved' => $portal['portal'],
                 'portal_resolution_source' => $portal['source'],
                 'poll_value' => $parsed['poll_value'],
@@ -250,9 +257,9 @@ SOQL;
                 'is_lost' => $callStatus !== 'answered',
                 'is_overflow' => $isOverflow,
                 'overflow_reason' => $this->rules->overflowReason(
-                    $portal['origin'],
+                    $operationalPortal['origin'],
                     $callStatus,
-                    $portal['portal'],
+                    $operationalPortal['portal'],
                     $agent['operational_team'] ?? null,
                     $parsed['poll_value'] ?? null,
                     $parsed['result_raw'] ?? null,
@@ -277,7 +284,7 @@ SOQL;
                 'raw_payload' => $record,
                 'parse_debug' => [
                     'parsed' => $parsed,
-                    'portal_debug' => $portal['debug'] ?? [],
+                    'portal_debug' => $portalResolution['debug'],
                 ],
             ]
         );
@@ -331,30 +338,6 @@ SOQL;
         return [true, null];
     }
 
-    private function resolvePortal(array $record, Collection $leadMatches): array
-    {
-        $portal = $this->portalNormalizer->normalize(data_get($record, 'Portales__c'));
-        $debug = ['portales_raw' => data_get($record, 'Portales__c'), 'lead_id' => null, 'lead_portal_raw' => null];
-
-        if (data_get($record, 'Portales__c') !== null && $portal['portal'] === CallPortalNormalizer::UNCLASSIFIED) {
-            $lead = $leadMatches->get(data_get($record, 'WhoId'));
-            $leadPortalRaw = $this->leadPortal($lead);
-            $leadPortal = $this->portalNormalizer->normalizeLeadPortal($leadPortalRaw);
-
-            if ($leadPortal['portal'] !== CallPortalNormalizer::UNCLASSIFIED) {
-                $portal['portal'] = $leadPortal['portal'];
-                $portal['source'] = 'lead';
-            }
-
-            $debug['lead_id'] = data_get($lead, 'Id');
-            $debug['lead_portal_raw'] = $leadPortalRaw;
-        }
-
-        $portal['debug'] = $debug;
-
-        return $portal;
-    }
-
     private function relatedLeadMatches(array $records): Collection
     {
         $ids = collect($records)
@@ -375,6 +358,7 @@ SELECT
     Portal_Text__c,
     LEA_SEL_Fuente_Origen__c,
     Fuente_Nuevo__c,
+    Fuente_origen__c,
     Medio_Nuevo__c,
     Delegacion_Encargada_Text__c,
     Delegacion_Encargada__c,
@@ -387,16 +371,6 @@ SOQL));
         return $leads->keyBy('Id');
     }
 
-    private function leadPortal(mixed $lead): ?string
-    {
-        if (! is_array($lead)) {
-            return null;
-        }
-
-        return $this->portalNormalizer->clean(data_get($lead, 'Portal_Text__c'))
-            ?? $this->portalNormalizer->clean(data_get($lead, 'LEA_SEL_Fuente_Origen__c'))
-            ?? $this->portalNormalizer->clean(data_get($lead, 'Fuente_Nuevo__c'));
-    }
 
     private function duration(mixed $callDuration, ?int $parsedDuration): int
     {

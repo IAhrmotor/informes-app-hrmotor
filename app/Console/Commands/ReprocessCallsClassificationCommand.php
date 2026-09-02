@@ -4,10 +4,11 @@ namespace App\Console\Commands;
 
 use App\Models\SalesforceCall;
 use App\Models\SalesforceCallClassificationHistory;
+use App\Models\SalesforceLead;
 use App\Models\SalesforceUser;
+use App\Services\Reports\Calls\CallLeadPortalResolver;
 use App\Services\Reports\Calls\CallClassificationRules;
 use App\Services\Reports\Calls\CallDescriptionParser;
-use App\Services\Reports\Calls\CallPortalNormalizer;
 use App\Services\Reports\Leads\LeadDelegationNormalizer;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
@@ -26,7 +27,7 @@ class ReprocessCallsClassificationCommand extends Command
     protected $description = 'Recalcula origen, portal, equipo operativo, delegacion y zona de llamadas ya sincronizadas.';
 
     public function handle(
-        CallPortalNormalizer $portalNormalizer,
+        CallLeadPortalResolver $leadPortalResolver,
         CallDescriptionParser $parser,
         CallClassificationRules $rules,
         LeadDelegationNormalizer $delegationNormalizer,
@@ -62,14 +63,25 @@ class ReprocessCallsClassificationCommand extends Command
             ->where('created_date', '>=', $from->startOfDay())
             ->where('created_date', '<', $to->addDay()->startOfDay())
             ->orderBy('id')
-            ->chunkById(1000, function ($calls) use ($portalNormalizer, $parser, $rules, $delegationNormalizer, $users, &$updated, &$dryRunStats, $dryRun, $reason): void {
+            ->chunkById(1000, function ($calls) use ($portalNormalizer, $leadPortalResolver, $parser, $rules, $delegationNormalizer, $users, &$updated, &$dryRunStats, $dryRun, $reason): void {
                 $updates = [];
                 $history = [];
+                $leadMatches = $this->relatedLeadMatches($calls);
 
                 foreach ($calls as $call) {
                     $parsed = $parser->parse($call->description);
-                    $portal = $portalNormalizer->normalize($call->portales_raw);
-                    $origin = $portal['origin'];
+                    $portalResolution = $leadPortalResolver->resolve(
+                        $call->portales_raw,
+                        $leadMatches->get($call->who_id),
+                        [
+                            'portal' => $call->portal_resolved,
+                            'origin' => $call->call_origin,
+                            'source' => $call->portal_resolution_source,
+                        ],
+                    );
+                    $operationalPortal = $portalResolution['operational'];
+                    $portal = $portalResolution['visible'];
+                    $origin = $operationalPortal['origin'];
                     $classificationResult = $parsed['result_raw'] ?? $call->result_raw;
                     $callStatus = $this->classifyStatus($classificationResult, $call->call_status);
                     $duration = is_numeric($call->call_duration_seconds)
@@ -93,7 +105,7 @@ class ReprocessCallsClassificationCommand extends Command
                         $call->owner_name,
                     );
                     $pollValue = $parsed['poll_value'];
-                    $isOverflow = $rules->isOverflow($origin, $callStatus, $portal['portal'], $team, $pollValue, $call->result_raw);
+                    $isOverflow = $rules->isOverflow($origin, $callStatus, $operationalPortal['portal'], $team, $pollValue, $call->result_raw);
 
                     $operationalProfile = data_get($users->get($call->operational_user_id) ?: $users->get($call->owner_id), 'profile_name')
                         ?: $call->owner_profile_name;
@@ -133,9 +145,10 @@ class ReprocessCallsClassificationCommand extends Command
                         'delegation' => $delegationZone['delegation'],
                         'zone' => $delegationZone['zone'],
                         'is_overflow' => $isOverflow,
-                        'overflow_reason' => $rules->overflowReason($origin, $callStatus, $portal['portal'], $team, $pollValue, $call->result_raw),
+                        'overflow_reason' => $rules->overflowReason($origin, $callStatus, $operationalPortal['portal'], $team, $pollValue, $call->result_raw),
                         'parse_debug' => json_encode(array_merge($call->parse_debug ?? [], [
                             'reprocessed_poll_value' => $pollValue,
+                            'portal_debug' => $portalResolution['debug'],
                         ]), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
                         'updated_at' => now(),
                     ];
@@ -347,6 +360,29 @@ class ReprocessCallsClassificationCommand extends Command
                 'user_delegation' => $user->user_delegation,
                 'profile_name' => $user->profile_name,
             ]);
+    }
+
+    private function relatedLeadMatches(Collection $calls): Collection
+    {
+        $ids = $calls->pluck('who_id')
+            ->filter(fn ($id) => is_string($id) && str_starts_with($id, '00Q'))
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        return SalesforceLead::query()
+            ->whereIn('salesforce_id', $ids)
+            ->get([
+                'salesforce_id',
+                'source_origin_new',
+                'portal_text',
+                'fuente_origen',
+                'fuente_nuevo',
+            ])
+            ->keyBy('salesforce_id');
     }
 
     private function dashboardInclusion(mixed $callObject, ?string $operationalProfile, CallClassificationRules $rules): array

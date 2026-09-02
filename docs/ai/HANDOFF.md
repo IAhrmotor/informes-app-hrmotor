@@ -1591,6 +1591,21 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   los booleanos CSV siguen siendo `Si`/`No`. No se afirma CI verde hasta que
   GitHub complete la nueva ejecución.
 
+# Fase 4 — Procedencia nuevo → legacy de Llamadas (2026-09-02)
+
+- Se añadió una política pura específica de Calls; no usa el resolver del
+  dashboard de Leads porque su prioridad legacy es distinta. `Fuente_origen__c`
+  gana únicamente en la clasificación visible cuando el fallback relacionado
+  ya aplica; null/vacío/whitespace conservan `Portal_Text__c` →
+  `LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c`.
+- Sync y reproceso local comparten la política. El reproceso obtiene Leads por
+  lote desde persistencia local y conserva la clasificación previa si falta un
+  Lead necesario; no consulta Salesforce ni se ha ejecutado sobre datos reales.
+- La clasificación operacional legacy permanece separada para origen, duración
+  y overflow. Se incrementó `CallClassificationRules::VERSION` por el cambio
+  de política visible. No cambiaron Task WHERE, equipos, delegaciones, zonas,
+  estados, universos ni otros informes.
+
 ## Acciones manuales y pendientes
 
 - En despliegue: aprobar/ejecutar migración y después sincronizar ventanas
