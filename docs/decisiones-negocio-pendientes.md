@@ -1,6 +1,6 @@
 # Decisiones de negocio pendientes
 
-Actualizado: 2026-09-01.
+Actualizado: 2026-09-02.
 
 Este documento contiene exclusivamente decisiones que el código no puede tomar
 sin una definición funcional o una validación externa. Las decisiones ya
@@ -13,8 +13,8 @@ implantadas se resumen al final y no deben volver a tratarse como pendientes.
 Dirección ha cerrado la prioridad nuevo → legacy, la validez basada únicamente
 en null/vacío/whitespace, la resolución independiente, la prioridad de
 delegación incluida Exposición, la política de conflictos y las cinco parejas
-UTM. Estas reglas ya están implementadas en la capa técnica de resolución y no
-deben volver a tratarse como decisiones pendientes.
+UTM. La clasificación de Leads (fuente, canal, medio y delegación) ya consume
+estas reglas; no deben volver a tratarse como decisiones pendientes.
 
 Permanecen como validaciones técnicas u operativas para fases posteriores:
 

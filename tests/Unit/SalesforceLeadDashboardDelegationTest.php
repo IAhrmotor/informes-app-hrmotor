@@ -45,6 +45,20 @@ class SalesforceLeadDashboardDelegationTest extends TestCase
         $this->assertSame('Sin clasificar', $empty['lead_delegation']);
     }
 
+    public function test_delegacion_nueva_gana_incluso_en_exposicion(): void
+    {
+        $lead = $this->service->decorateLead([
+            'status' => 'Potencial',
+            'record_type_name' => 'Exposición',
+            'delegation_origin_new' => 'HR MOTOR MADRID',
+            'delegacion_encargada_bueno' => 'HR MOTOR ZARAGOZA',
+            'owner_delegation' => 'HR MOTOR VALENCIA',
+        ]);
+
+        $this->assertSame('Madrid', $lead['lead_delegation']);
+        $this->assertSame('Delegacion_procedencia__c', $lead['delegation_resolution']['source_field']);
+    }
+
     public function test_owner_solo_es_fallback_de_delegacion_para_tipo_funcional_exposicion(): void
     {
         $exposition = $this->service->decorateLead([

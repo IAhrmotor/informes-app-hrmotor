@@ -4,6 +4,7 @@ namespace App\Services\Reports\MonthlyCommercial\Sync;
 
 use App\Models\SalesforceLead;
 use App\Services\Reports\Leads\LeadPortalResolver;
+use App\Services\Reports\Leads\LeadClassificationResolver;
 use App\Services\Reports\Leads\LeadRecordTypeNormalizer;
 use App\Services\Salesforce\SalesforceClient;
 use App\Services\Salesforce\SalesforceLeadFieldResolver;
@@ -19,6 +20,7 @@ class SalesforceMonthlyLeadsSyncService
         private readonly LeadPortalResolver $portalResolver,
         private readonly ChangedRowUpsert $changedRowUpsert = new ChangedRowUpsert,
         private readonly SalesforceLeadFieldResolver $fieldResolver = new SalesforceLeadFieldResolver,
+        private readonly LeadClassificationResolver $classificationResolver = new LeadClassificationResolver,
     ) {}
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
@@ -125,12 +127,7 @@ class SalesforceMonthlyLeadsSyncService
                 $seenIds[(string) data_get($record, 'Id')] = true;
 
                 $recordTypeName = data_get($record, 'RecordType.Name');
-                $portalResolution = $this->portalResolver->resolve([
-                    'medio_nuevo' => data_get($record, 'Medio_Nuevo__c'),
-                    'fuente_nuevo' => data_get($record, 'Fuente_Nuevo__c'),
-                    'portal_text' => data_get($record, 'Portal_Text__c'),
-                    'fuente_origen' => data_get($record, 'LEA_SEL_Fuente_Origen__c'),
-                ]);
+                $classification = $this->classificationResolver->resolve($record);
 
                 $values[] = [
                     'salesforce_id' => data_get($record, 'Id'),
@@ -173,7 +170,7 @@ class SalesforceMonthlyLeadsSyncService
                     'utm_medium_new' => data_get($record, 'utm_medium__c'),
                     'utm_content_new' => data_get($record, 'utm_content__c'),
                     'field_resolution' => json_encode(
-                        $this->resolveFields($record, $portalResolution),
+                        $classification['fields'],
                         JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
                     ),
                     'vehicle_interest' => data_get($record, 'LEA_BUS_Vehiculo_de_interes__c'),
@@ -189,9 +186,9 @@ class SalesforceMonthlyLeadsSyncService
                     'fuente_nuevo' => data_get($record, 'Fuente_Nuevo__c'),
                     'remitente_lead' => data_get($record, 'Remitente_Lead__c'),
                     'portal_text' => data_get($record, 'Portal_Text__c'),
-                    'resolved_channel' => $portalResolution['channel'],
-                    'resolved_portal' => $portalResolution['portal'],
-                    'portal_resolution_source' => $portalResolution['source'],
+                    'resolved_channel' => $classification['channel'],
+                    'resolved_portal' => $classification['portal'],
+                    'portal_resolution_source' => $classification['portal_resolution_source'],
                     'salesforce_last_modified_at' => $this->parseDateTime(data_get($record, 'LastModifiedDate')),
                     'synced_at' => $syncedAt,
                     'is_deleted' => false,
@@ -531,40 +528,6 @@ SOQL;
             'resolved_portal',
             'portal_resolution_source',
         ];
-    }
-
-    /** @return array<string, array<string, mixed>> */
-    private function resolveFields(array $record, array $portalResolution): array
-    {
-        $legacyDelegation = $this->firstInformedField($record, [
-            'Delegacion_Encargada_Bueno__c',
-            'Delegacion_Encargada__c',
-            'Delegacion_Encargada_Text__c',
-        ]);
-
-        return $this->fieldResolver->resolveLead(
-            $record,
-            ['value' => $portalResolution['portal'], 'field' => $portalResolution['source']],
-            ['value' => $portalResolution['channel'], 'field' => 'Medio_Nuevo__c'],
-            $legacyDelegation,
-        );
-    }
-
-    /**
-     * @param  list<string>  $fields
-     * @return array{value:mixed,field:string}
-     */
-    private function firstInformedField(array $record, array $fields): array
-    {
-        foreach ($fields as $field) {
-            $value = data_get($record, $field);
-
-            if (trim((string) $value) !== '') {
-                return ['value' => $value, 'field' => $field];
-            }
-        }
-
-        return ['value' => null, 'field' => 'legacy_delegation_fallback'];
     }
 
     private function soqlDateTime(CarbonInterface $date): string

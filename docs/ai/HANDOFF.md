@@ -1539,6 +1539,34 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   los artefactos generados porque no existe cambio frontend.
 - `git diff --check`: correcto. Fallos introducidos: cero.
 
+# Fase 3 — Clasificación nuevo → legacy de Leads (2026-09-02)
+
+## Resumen
+
+- Se resolvió el residuo de merge de este documento conservando completas las
+  secciones de Tasador y coherencia UTM.
+- `LeadClassificationResolver` compone el resolver central de campos nuevos
+  con `LeadPortalResolver` como fallback legacy inalterado. Fuente, canal,
+  medio y delegación priorizan sus nuevos raw persistidos únicamente cuando no
+  son null, vacíos o whitespace.
+- Sync, dashboard y el backfill local emplean la misma composición. El
+  dashboard recalcula desde raw locales y no confía en `resolved_*` heredados.
+  Los audit outputs incorporan raws, resolución, conflicto y fallback por
+  dimensión. No se ejecutó el backfill.
+
+## Alcance y seguridad
+
+- Sin cambios de WHERE, universo de Leads, KPIs no clasificatorios,
+  delegación comercial, Calls, Reservas/Ventas ni funcionalidad de Campañas.
+- No se hicieron DML Salesforce, backfills históricos, migraciones, cambios de
+  configuración ni consultas remotas durante la lectura del dashboard.
+
+## Validación pendiente de entorno
+
+- La sesión no expone un ejecutable PHP (ni `PATH` ni las rutas Herd locales
+  habituales), por lo que las pruebas, Pint y verificaciones Composer quedan
+  pendientes de ejecutarse en un entorno con PHP disponible antes de integrar.
+
 ## Acciones manuales y pendientes
 
 - En despliegue: aprobar/ejecutar migración y después sincronizar ventanas

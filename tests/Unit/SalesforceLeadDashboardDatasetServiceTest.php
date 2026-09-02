@@ -37,6 +37,26 @@ class SalesforceLeadDashboardDatasetServiceTest extends TestCase
         $this->assertTrue($lead['is_formulario']);
     }
 
+    public function test_raw_new_classification_overrides_legacy_materialization_and_keeps_other_channels_out_of_formulario(): void
+    {
+        $lead = $this->service->decorateLead([
+            'status' => 'Potencial',
+            'source_origin_new' => 'Meta',
+            'channel_new' => 'Whatsapp',
+            'medium_origin_new' => 'Paid Social',
+            'resolved_channel' => 'Formulario',
+            'resolved_portal' => 'Coches.net',
+            'portal_resolution_source' => 'Portal_Text__c',
+        ]);
+
+        $this->assertSame('Meta', $lead['portal']);
+        $this->assertSame('Fuente_origen__c', $lead['portal_resolution_source']);
+        $this->assertSame('Whatsapp', $lead['canal']);
+        $this->assertFalse($lead['is_llamada']);
+        $this->assertFalse($lead['is_formulario']);
+        $this->assertSame('Paid Social', $lead['medio_efectivo']);
+    }
+
     public function test_portal_de_llamada_usa_fuente_nuevo(): void
     {
         $lead = $this->service->decorateLead([
