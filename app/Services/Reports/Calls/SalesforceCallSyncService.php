@@ -371,7 +371,6 @@ SOQL));
         return $leads->keyBy('Id');
     }
 
-
     private function duration(mixed $callDuration, ?int $parsedDuration): int
     {
         if (is_numeric($callDuration) && (int) $callDuration >= 0) {
