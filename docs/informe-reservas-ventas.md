@@ -1,6 +1,6 @@
 # Informe de Reservas / Ventas
 
-Actualizado: 2026-08-25.
+Actualizado: 2026-09-03.
 
 ## Fuente y datos locales
 
@@ -86,9 +86,14 @@ contradictorios.
 ## Portal y agrupaciones
 
 El portal se resuelve con la regla centralizada de Opportunity y Lead
-relacionado. Se conservan portal original, portal final, fuente de resolución y
-Lead utilizado. Delegación y zona proceden del owner y usan la misma
-normalización territorial que los informes comerciales.
+relacionado. Un `Opportunity.Portal__c` concluyente gana siempre. En caso
+contrario, el Lead relacionado prioriza `Fuente_origen__c`; solo si está vacío
+aplica `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c`.
+Placeholders no vacíos son autoritativos y pueden normalizar a `Sin clasificar`
+sin reactivar fallbacks. Se conservan portal original, portal final, fuente de
+resolución, Lead utilizado y traza de nuevo/legacy. Delegación y zona proceden
+del owner y usan la misma normalización territorial que los informes
+comerciales.
 
 ## Auditoría y permisos
 

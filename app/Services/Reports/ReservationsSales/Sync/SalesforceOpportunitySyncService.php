@@ -6,6 +6,7 @@ use App\Models\LeadRaw;
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
 use App\Services\Salesforce\SalesforceClient;
+use App\Services\Salesforce\SalesforceLeadFieldResolver;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -22,6 +23,7 @@ class SalesforceOpportunitySyncService
     public function __construct(
         private readonly SalesforceClient $client,
         private readonly OpportunityPortalNormalizer $portalNormalizer,
+        private readonly SalesforceLeadFieldResolver $leadFieldResolver,
     ) {}
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $modifiedOnly = false): array
@@ -488,7 +490,8 @@ SELECT
     Email,
     Portal_Text__c,
     LEA_SEL_Fuente_Origen__c,
-    Fuente_Nuevo__c
+    Fuente_Nuevo__c,
+    Fuente_origen__c
 FROM Lead
 WHERE
     IsDeleted = false
@@ -563,6 +566,7 @@ SOQL);
                     'Portal_Text__c' => data_get($payload, 'Portal_Text__c') ?: $lead->portal,
                     'LEA_SEL_Fuente_Origen__c' => data_get($payload, 'LEA_SEL_Fuente_Origen__c') ?: $lead->lea_sel_fuente_origen,
                     'Fuente_Nuevo__c' => data_get($payload, 'Fuente_Nuevo__c') ?: $lead->fuente_nuevo,
+                    'Fuente_origen__c' => data_get($payload, 'Fuente_origen__c'),
                 ];
             })
             ->sortByDesc('CreatedDate')
@@ -582,7 +586,13 @@ SOQL);
             'opportunitySourceRaw' => $sourceRaw,
             'opportunitySourceNormalized' => $sourceNormalized['portal'],
             'selectedLeadId' => null,
+            'selectedLeadSourceNewRaw' => null,
+            'selectedLeadLegacyPortalRaw' => null,
+            'selectedLeadLegacySourceField' => null,
             'selectedLeadPortalRaw' => null,
+            'selectedLeadEffectiveSourceField' => null,
+            'selectedLeadUsedFallback' => null,
+            'selectedLeadConflict' => null,
             'reason' => null,
         ];
 
@@ -609,14 +619,23 @@ SOQL);
 
                 return $emailMatch || $phoneMatch;
             })
-            ->first(fn (array $lead): bool => $this->portalNormalizer->isValidForLead($this->leadPortal($lead)));
+            ->first(fn (array $lead): bool => $this->isEligibleLeadSource($lead));
 
         if ($candidate) {
-            $leadPortalRaw = $this->leadPortal($candidate);
+            $leadResolution = $this->resolveLeadSource($candidate);
+            $leadPortalRaw = $leadResolution['effective_value'];
             $leadPortal = $this->portalNormalizer->normalize($leadPortalRaw);
             $debug['selectedLeadId'] = data_get($candidate, 'Id');
+            $debug['selectedLeadSourceNewRaw'] = $leadResolution['new_raw'];
+            $debug['selectedLeadLegacyPortalRaw'] = $leadResolution['legacy_value'];
+            $debug['selectedLeadLegacySourceField'] = $leadResolution['legacy_source_field'];
             $debug['selectedLeadPortalRaw'] = $leadPortalRaw;
-            $debug['reason'] = 'lead_related_valid_portal';
+            $debug['selectedLeadEffectiveSourceField'] = $leadResolution['source_field'];
+            $debug['selectedLeadUsedFallback'] = $leadResolution['used_fallback'];
+            $debug['selectedLeadConflict'] = $leadResolution['conflict'];
+            $debug['reason'] = $leadResolution['source_field'] === 'Fuente_origen__c'
+                ? 'lead_related_new_source'
+                : 'lead_related_valid_portal';
 
             return [
                 'portal' => $leadPortal['portal'],
@@ -649,11 +668,51 @@ SOQL);
         return ['portal' => OpportunityPortalNormalizer::UNCLASSIFIED, 'source' => 'unclassified', 'lead_id' => null, 'debug' => $debug];
     }
 
-    private function leadPortal(array $lead): ?string
+    private function isEligibleLeadSource(array $lead): bool
     {
-        return $this->portalNormalizer->clean(data_get($lead, 'Portal_Text__c'))
-            ?? $this->portalNormalizer->clean(data_get($lead, 'LEA_SEL_Fuente_Origen__c'))
-            ?? $this->portalNormalizer->clean(data_get($lead, 'Fuente_Nuevo__c'));
+        $resolution = $this->resolveLeadSource($lead);
+
+        return $resolution['source_field'] === 'Fuente_origen__c'
+            || $this->portalNormalizer->isValidForLead($resolution['effective_value']);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function resolveLeadSource(array $lead): array
+    {
+        $legacy = $this->legacyLeadSource($lead);
+
+        return array_merge(
+            $this->leadFieldResolver->resolve(
+                data_get($lead, 'Fuente_origen__c'),
+                'Fuente_origen__c',
+                $legacy['value'],
+                $legacy['field'] ?? 'fallback',
+            ),
+            [
+                'legacy_value' => $legacy['value'],
+                'legacy_source_field' => $legacy['field'],
+            ],
+        );
+    }
+
+    /**
+     * @return array{value:?string,field:?string}
+     */
+    private function legacyLeadSource(array $lead): array
+    {
+        foreach ([
+            ['Portal_Text__c', data_get($lead, 'Portal_Text__c')],
+            ['LEA_SEL_Fuente_Origen__c', data_get($lead, 'LEA_SEL_Fuente_Origen__c')],
+            ['Fuente_Nuevo__c', data_get($lead, 'Fuente_Nuevo__c')],
+        ] as [$field, $value]) {
+            if (($clean = $this->portalNormalizer->clean($value)) !== null) {
+                return ['value' => $clean, 'field' => $field];
+            }
+        }
+
+        return ['value' => null, 'field' => null];
     }
 
     private function soqlDateTime(CarbonInterface $date): string

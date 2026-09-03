@@ -2,10 +2,12 @@
 
 namespace Tests\Unit;
 
+use App\Models\LeadRaw;
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
 use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService;
 use App\Services\Salesforce\SalesforceClient;
+use App\Services\Salesforce\SalesforceLeadFieldResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -22,6 +24,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                 public function __construct() {}
             },
             app(OpportunityPortalNormalizer::class),
+            app(SalesforceLeadFieldResolver::class),
         );
         $soql = $service->modifiedSoql(
             CarbonImmutable::parse('2026-08-24', 'UTC'),
@@ -44,6 +47,10 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             public function query(string $soql): array
             {
                 if (str_contains($soql, 'FROM Lead')) {
+                    if (! str_contains($soql, 'Fuente_origen__c')) {
+                        throw new \RuntimeException('La consulta auxiliar de Leads no contiene la fuente nueva esperada.');
+                    }
+
                     return [
                         [
                             'Id' => '00Q-lead-1',
@@ -51,6 +58,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                             'Phone' => '600 000 001',
                             'MobilePhone' => null,
                             'Email' => 'cliente@example.com',
+                            'Fuente_origen__c' => 'Coches.net',
                             'Portal_Text__c' => 'Meta',
                         ],
                         [
@@ -172,7 +180,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             }
         };
 
-        $service = new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class));
+        $service = $this->service($client);
         $result = $service->sync(
             CarbonImmutable::parse('2026-04-01 00:00:00', 'UTC'),
             CarbonImmutable::parse('2026-06-01 00:00:00', 'UTC'),
@@ -230,7 +238,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         ]);
         $this->assertDatabaseHas('salesforce_opportunities', [
             'salesforce_id' => '006-opportunity-2',
-            'portal_resolved' => 'Meta',
+            'portal_resolved' => 'Coches.net',
             'amount' => 18000,
             'opo_for_importe_total' => 18100,
             'portal_resolution_source' => 'lead',
@@ -255,6 +263,71 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertSame('2026-05-10', $storedOpportunity->raw_payload['OPO_FEC_Fecha_entrega__c'] ?? null);
         $this->assertSame('1234ABC Opel Corsa', data_get($storedOpportunity->raw_payload, 'OPO_BUS_Vehiculo_a_tasar__r.Name'));
         $this->assertSame('5678DEF Peugeot 308', data_get($storedOpportunity->raw_payload, 'OPP_BUS_Vehiculo_de_interes__r.Name'));
+
+        $storedLeadOpportunity = SalesforceOpportunity::query()->where('salesforce_id', '006-opportunity-2')->firstOrFail();
+        $this->assertSame('Coches.net', data_get($storedLeadOpportunity->portal_resolution_debug, 'selectedLeadSourceNewRaw'));
+        $this->assertSame('Meta', data_get($storedLeadOpportunity->portal_resolution_debug, 'selectedLeadLegacyPortalRaw'));
+        $this->assertSame('Fuente_origen__c', data_get($storedLeadOpportunity->portal_resolution_debug, 'selectedLeadEffectiveSourceField'));
+        $this->assertTrue(data_get($storedLeadOpportunity->portal_resolution_debug, 'selectedLeadConflict'));
+    }
+
+    public function test_fallback_leads_raw_reconstruye_fuente_nueva_desde_raw_payload_y_conserva_legacy_sin_ella(): void
+    {
+        LeadRaw::query()->create([
+            'salesforce_id' => '00Q-raw-new',
+            'lead_created_at' => '2026-05-20 10:00:00',
+            'remitente_lead' => 'nuevo@example.com',
+            'portal' => 'Google Maps',
+            'raw_payload' => [
+                'Email' => 'nuevo@example.com',
+                'Fuente_origen__c' => 'Wallapop',
+                'Portal_Text__c' => 'Google Maps',
+            ],
+        ]);
+        LeadRaw::query()->create([
+            'salesforce_id' => '00Q-raw-legacy',
+            'lead_created_at' => '2026-05-19 10:00:00',
+            'remitente_lead' => 'legacy@example.com',
+            'portal' => 'Google Maps',
+            'raw_payload' => [
+                'Email' => 'legacy@example.com',
+                'Portal_Text__c' => 'Google Maps',
+            ],
+        ]);
+
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $this->assertLeadQuery($soql);
+
+                return [];
+            }
+
+            private function assertLeadQuery(string $soql): void
+            {
+                if (! str_contains($soql, 'FROM Lead') || ! str_contains($soql, 'Fuente_origen__c')) {
+                    throw new \RuntimeException('La consulta auxiliar de Leads no contiene la fuente nueva esperada.');
+                }
+            }
+        };
+        $service = $this->service($client);
+        $opportunities = [
+            $this->opportunityForLeadRaw('nuevo@example.com'),
+            $this->opportunityForLeadRaw('legacy@example.com'),
+        ];
+        $matches = $service->relatedLeadMatchesForOpportunities($opportunities);
+
+        $newResult = $service->resolvePortalForRecord($opportunities[0], $matches);
+        $legacyResult = $service->resolvePortalForRecord($opportunities[1], $matches);
+
+        $this->assertSame('Wallapop', $newResult['portal']);
+        $this->assertSame('Fuente_origen__c', data_get($newResult, 'debug.selectedLeadEffectiveSourceField'));
+        $this->assertSame('Google Maps', $legacyResult['portal']);
+        $this->assertSame('Portal_Text__c', data_get($legacyResult, 'debug.selectedLeadEffectiveSourceField'));
+        $this->assertTrue(data_get($legacyResult, 'debug.selectedLeadUsedFallback'));
     }
 
     public function test_reintenta_sin_email_de_empresa_cuando_salesforce_rechaza_el_campo_opcional(): void
@@ -277,7 +350,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             }
         };
 
-        $service = new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class));
+        $service = $this->service($client);
         $result = $service->sync(
             CarbonImmutable::parse('2026-07-01 00:00:00', 'UTC'),
             CarbonImmutable::parse('2026-07-02 00:00:00', 'UTC'),
@@ -304,7 +377,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             }
         };
 
-        $service = new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class));
+        $service = $this->service($client);
 
         try {
             $service->sync(
@@ -346,7 +419,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                 ]];
             }
         };
-        $service = new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class));
+        $service = $this->service($client);
 
         $first = $service->syncBySalesforceIds(['006-by-id', '006-by-id']);
         $second = $service->syncBySalesforceIds(collect(['006-by-id']));
@@ -383,12 +456,34 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $ids = collect(range(1, 204))->map(fn (int $number): string => sprintf('006-%03d', $number));
         $ids->push("006-quote'escaped");
 
-        $result = (new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class)))
+        $result = $this->service($client)
             ->syncBySalesforceIds($ids);
 
         $this->assertSame(205, $result['requested']);
         $this->assertCount(3, $client->queries);
         $this->assertStringContainsString("006-quote\\'escaped", end($client->queries));
         $this->assertSame(205, count($result['missing']));
+    }
+
+    private function opportunityForLeadRaw(string $email): array
+    {
+        return [
+            'Portal__c' => '3CX',
+            'Fuente_de_Origen__c' => null,
+            'Account' => [
+                'Phone' => null,
+                'PersonEmail' => $email,
+                'AC_C_EMA_email__c' => null,
+            ],
+        ];
+    }
+
+    private function service(SalesforceClient $client): SalesforceOpportunitySyncService
+    {
+        return new SalesforceOpportunitySyncService(
+            $client,
+            app(OpportunityPortalNormalizer::class),
+            app(SalesforceLeadFieldResolver::class),
+        );
     }
 }

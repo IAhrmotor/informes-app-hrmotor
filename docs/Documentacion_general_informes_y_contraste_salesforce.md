@@ -299,7 +299,8 @@ Campos funcionales principales:
   `Owner.USR_SEL_Delegacion__c`;
 - cliente: `AccountId`, `Account.Name`, `Account.Phone`,
   `Account.PersonEmail`, `Account.AC_C_EMA_email__c`;
-- procedencia: `Portal__c`, `Fuente_de_Origen__c`;
+- procedencia: `Opportunity.Portal__c`, `Opportunity.Fuente_de_Origen__c` y
+  `Lead.Fuente_origen__c` con fallback legacy del Lead;
 - importes: `Amount`, `OPO_FOR_Importe_total__c`,
   `OPO_FOR_Importe_vehiculo_venta__c`,
   `OPO_FOR_Importe_vehiculo_a_cambio__c`;
@@ -397,11 +398,18 @@ ORDER BY OPO_FEC_Fecha_de_reserva__c, Id
 - Delegación y zona salen del owner y se normalizan con el mismo catálogo de Leads.
 - Resolución de portal, por prioridad:
   1. `Opportunity.Portal__c` si es concluyente;
-  2. lead relacionado por email/teléfono con portal válido;
+  2. Lead relacionado por email/teléfono: `Fuente_origen__c` si está informado;
+     si falta, `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` →
+     `Fuente_Nuevo__c`, manteniendo la validación legacy;
   3. `Opportunity.Fuente_de_Origen__c` si es útil;
   4. fallback `Exposición`;
   5. fallback `Web`;
   6. `Sin clasificar`.
+
+Un valor nuevo no vacío es autoritativo aunque no se normalice a un portal
+oficial: en ese caso el resultado es `Sin clasificar` con fuente `lead` y no se
+continúa por los fallbacks posteriores. La consulta auxiliar mantiene el orden
+`CreatedDate DESC`, los chunks de 80 y las señales de email/teléfono existentes.
 
 ### 4.4 Auditoría
 

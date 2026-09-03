@@ -10,6 +10,7 @@ use App\Services\Reports\ReservationsSales\CommercialPerformanceDatasetService;
 use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunityHistorySyncService;
 use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService;
 use App\Services\Salesforce\SalesforceClient;
+use App\Services\Salesforce\SalesforceLeadFieldResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -304,7 +305,11 @@ class SalesforceOpportunityHistorySyncServiceTest extends TestCase
     {
         return new SalesforceOpportunityHistorySyncService(
             $client,
-            new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class)),
+            new SalesforceOpportunitySyncService(
+                $client,
+                app(OpportunityPortalNormalizer::class),
+                app(SalesforceLeadFieldResolver::class),
+            ),
         );
     }
 }

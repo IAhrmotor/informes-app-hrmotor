@@ -1,6 +1,6 @@
 # Auditoría preparatoria de procedencia y atribución Salesforce
 
-Actualizado: 2026-09-02.
+Actualizado: 2026-09-03.
 
 ## Fase 3: clasificación efectiva de Leads
 
@@ -36,6 +36,21 @@ Actualizado: 2026-09-02.
 - Sync consulta solo el campo adicional imprescindible y el reproceso carga
   Leads locales por chunk, sin Salesforce ni consultas por llamada. No se ha
   ejecutado reproceso ni sincronización real.
+
+## Fase 5: procedencia de Reservas/Ventas
+
+- `Opportunity.Portal__c` concluyente conserva prioridad absoluta. Cuando debe
+  consultarse el Lead relacionado, `Fuente_origen__c` informado gana y solo
+  null, vacío o whitespace activa el fallback congelado
+  `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c`.
+- `SalesforceLeadFieldResolver` decide nuevo → legacy. Un placeholder no vacío
+  selecciona el Lead de forma autoritativa y, si no es normalizable, persiste
+  `Sin clasificar` con fuente `lead`, sin continuar a la fuente de Opportunity.
+- Matching, orden `CreatedDate DESC`, chunks, SOQL base y universo de
+  Opportunities permanecen intactos. El fallback `leads_raw` reconstruye el
+  nuevo API Name desde `raw_payload`, sin columnas ni consultas adicionales.
+- `portal_resolution_debug` añade raw nuevo, legacy y campo legacy ganador,
+  efectivo, campo efectivo, fallback y conflicto. No incorpora PII nueva.
 
 ## Alcance y línea base
 
@@ -242,12 +257,12 @@ legacy y fuente nueva. Esta divergencia debe tratarse conscientemente.
 
 El universo nace de Opportunity y sus fechas/reglas; no depende de Lead. El
 portal se resuelve así: `Opportunity.Portal__c` conclusivo → Lead relacionado
-por email/teléfono (más reciente y con portal válido) →
+por email/teléfono (más reciente y con fuente nueva informada o portal legacy válido) →
 `Opportunity.Fuente_de_Origen__c` útil → fallbacks Exposición/Web → Sin
-clasificar. En el Lead relacionado la prioridad es `Portal_Text__c` →
-`LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c`. Cambiar procedencia futura solo
-debe cambiar `portal_resolved` y su traza, nunca las Opportunities consultadas,
-reservas, contratos ni conteos.
+clasificar. En el Lead relacionado la prioridad es `Fuente_origen__c` y, solo
+si falta, `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c`.
+Esta migración solo cambia `portal_resolved` y su traza, nunca las Opportunities
+consultadas, reservas, contratos ni conteos.
 
 Si la consulta de Leads no devuelve filas, existe fallback local a `leads_raw`.
 La consulta Opportunity solo reintenta sin email de empresa cuando Salesforce

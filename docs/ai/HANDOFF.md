@@ -1539,6 +1539,53 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   los artefactos generados porque no existe cambio frontend.
 - `git diff --check`: correcto. Fallos introducidos: cero.
 
+# Fase 5 — Procedencia nuevo → legacy en Reservas/Ventas (2026-09-03)
+
+## Resumen y archivos
+
+- `SalesforceOpportunitySyncService` prioriza `Lead.Fuente_origen__c` cuando
+  una Opportunity no tiene `Portal__c` concluyente. El fallback específico se
+  mantiene como `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` →
+  `Fuente_Nuevo__c`.
+- Se ampliaron las pruebas de resolución, sync, reproceso y fallback
+  `leads_raw`, además de la documentación de auditoría, Reservas/Ventas,
+  contraste general y decisiones pendientes.
+- No se modificaron `OpportunityPortalNormalizer`, el comando de reproceso, el
+  dataset, modelos, migraciones, esquema, frontend ni otros informes.
+
+## Decisiones, seguridad y rendimiento
+
+- `SalesforceLeadFieldResolver` es la autoridad para null/vacío/whitespace. Un
+  valor nuevo no vacío, incluso placeholder o no normalizable, selecciona el
+  Lead y bloquea legacy, fuente de Opportunity y fallbacks posteriores.
+- `Opportunity.Portal__c` concluyente conserva prioridad absoluta. El matching
+  por email/teléfono, `CreatedDate DESC`, chunks y todos los WHERE permanecen
+  intactos; sync y reproceso comparten `resolvePortalForRecord()`.
+- La traza añade exclusivamente fuente nueva, legacy, campos ganadores,
+  fallback y conflicto. No añade teléfono, email, nombres ni payloads completos.
+- `leads_raw` lee `Fuente_origen__c` desde `raw_payload`; no requiere columna ni
+  consulta adicional. No hay N+1 ni consultas remotas por Opportunity.
+
+## Base de datos, validación y operación
+
+- Base: `origin/main` en `29210aae97fc329dc7bf41fc855a1c7e791e90ae`.
+- Migraciones/configuración: ninguna. No requiere variables de entorno nuevas.
+- PHP, Composer y Pint no estaban accesibles localmente al iniciar la tarea;
+  la validación ejecutable queda registrada en la entrega final y deberá
+  completarse en CI antes del merge.
+- Baseline, pruebas focales, suite, Pint y Composer no se ejecutaron por esa
+  limitación. La revisión estática de imports/constructores y
+  `git diff --check` fueron correctas.
+- No se ejecutaron sync Salesforce, reproceso histórico, backfill ni escrituras
+  remotas. Acción posterior: abrir PR y validar CI; no ejecutar reproceso de
+  datos como parte de esta fase.
+
+## Riesgos pendientes
+
+- La clasificación histórica no cambia hasta un reproceso posterior aprobado.
+- `CampaignAttributionBuilderService` y las decisiones pendientes de matching
+  temporal/ConvertedOpportunityId continúan expresamente fuera de alcance.
+
 # Fase 3 — Clasificación nuevo → legacy de Leads (2026-09-02)
 
 ## Resumen
