@@ -1820,3 +1820,59 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Build Vite: correcto, con avisos preexistentes de imagen runtime y deprecación
   Node; artefactos regenerados restaurados al no existir cambio frontend.
 - `git diff --check`: correcto. Fallos introducidos: cero.
+
+# Fase 7A — Backfill histórico controlado de atribución Lead (2026-09-03)
+
+## Resumen y archivos
+
+- Se añadió el comando `salesforce:backfill-lead-attribution-fields`, su servicio
+  por lotes, el modelo/migración de histórico y una suite feature dedicada.
+- Se actualizaron la auditoría Salesforce, la guía general, el estado de
+  decisiones pendientes, la decisión arquitectónica de backfill y este
+  handoff. `PROJECT_CONTEXT.md` no cambia porque no se altera la estructura
+  general de módulos ni una convención transversal de la aplicación.
+
+## Decisiones y base de datos
+
+- El universo se obtiene mediante la unión ordenada de IDs ya existentes y
+  dentro del rango local en `salesforce_leads` y
+  `campaign_salesforce_leads`. Salesforce solo recibe consultas `Lead WHERE Id
+  IN (...)` sobre IDs 00Q validados.
+- Se creó `salesforce_lead_attribution_backfill_history` porque los mecanismos
+  existentes no guardaban before/after por fila para ambas tablas. Conserva
+  run UUID, tabla, Salesforce ID, motivo, campos cambiados, valores anteriores/
+  nuevos y fecha. No guarda PII ni payloads completos.
+- Las escrituras son UPDATE masivos y transaccionales por chunk junto con el
+  histórico. No existe ruta de insert de Lead. Los resolvers centrales calculan
+  `field_resolution` y las materializaciones del dashboard.
+
+## Seguridad y rendimiento
+
+- `--from`/`--to` y un modo exclusivo son obligatorios; `--apply` requiere un
+  motivo de al menos 10 caracteres. Dry-run no escribe tablas, histórico ni
+  cachés.
+- Se consultan solo Id y once campos de atribución, sin nombre, email o teléfono.
+  El proceso usa lotes de 100, una consulta Salesforce por lote, lecturas SQL
+  agrupadas, UPDATE masivo y transacción corta. No hay N+1 ni red desde HTTP.
+- `raw_payload` conserva todas sus claves y solo fusiona las once consultadas;
+  el histórico registra únicamente ese subconjunto. Las cachés concretas se
+  versionan solo después de cambios aplicados.
+
+## Pruebas y operación
+
+- La suite nueva cubre validación de modo/rango/motivo, dry-run, apply,
+  idempotencia, tablas general/especializada, IDs extra/ausentes/inválidos,
+  UTM-only, cursor/limit, fallo Salesforce entre lotes y rollback conjunto ante
+  error DB.
+- Test específico: 9 pruebas y 74 aserciones, correcto. Bloque focal con
+  resolvers, sync mensual y Campañas: 56 pruebas y 394 aserciones, correcto.
+  Suite completa: 865 pruebas y 6.229 aserciones, correcta. Pint WRITE y
+  `--test`, Composer validate/audit, build Vite y `git diff --check`: correctos.
+  El build conserva los avisos preexistentes de imagen runtime y deprecación de
+  Node; sus artefactos hash se restauraron porque no hay cambio frontend.
+- La herramienta está preparada, pero el histórico todavía **NO ha sido
+  modificado**. No se ejecutaron `--apply`, backfill real, sincronizadores,
+  Calls, Opportunities, reconstrucción de Campañas ni escrituras Salesforce.
+- Acción manual posterior: desplegar la migración, revisar primero una ventana
+  con `--dry-run`, aprobar motivo/rango y ejecutar `--apply` únicamente mediante
+  el runbook operativo correspondiente.

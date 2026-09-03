@@ -1364,3 +1364,22 @@ solo migra la clasificación efectiva posterior a la admisión.
 La ejecución implementada es local y por chunks, sin consultas por Lead ni
 llamadas externas añadidas. No se ha realizado backfill ni validación contra
 datos reales de Salesforce, Google o Meta.
+
+### 9.2 Backfill histórico de atribución de Leads (Fase 7A)
+
+La herramienta `salesforce:backfill-lead-attribution-fields` parte siempre de
+IDs ya persistidos en las dos tablas locales de Leads y consulta Salesforce por
+lotes de esos IDs. Requiere un rango explícito de `created_date` local y
+exactamente uno de `--dry-run` o `--apply`; la escritura exige además un motivo
+operativo. `--limit` y `--after-salesforce-id` permiten ensayos acotados y
+reanudar en orden estable.
+
+El modo simulación no escribe filas, histórico ni cachés. El modo apply actualiza
+exclusivamente los campos de atribución aprobados mediante operaciones UPDATE,
+fusiona solo esas claves en `raw_payload`, registra before/after por fila y
+confirma cada lote en una transacción independiente. Los IDs ausentes en
+Salesforce no se limpian ni se marcan eliminados. Los UTM-only se cuentan para
+conciliación, pero nunca se insertan en el universo legacy de Campañas.
+
+La infraestructura está preparada; el histórico todavía **NO ha sido
+modificado** y su ejecución requiere una aprobación operativa posterior.

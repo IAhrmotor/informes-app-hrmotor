@@ -516,3 +516,33 @@ La excepción Meta Direct Form sigue admitiendo exclusivamente por
 `Portal_Text__c = Meta` y `LEA_SEL_Fuente_Origen__c = Facebook`; una vez dentro,
 su clasificación efectiva usa `Fuente_origen__c` con fallback a ese origen
 legacy. No hubo migración, backfill ni acceso real a Salesforce, Google o Meta.
+
+## Fase 7A: herramienta controlada de backfill histórico (2026-09-03)
+
+Se incorpora `salesforce:backfill-lead-attribution-fields` para consultar en
+Salesforce, únicamente en lectura y por lotes, los IDs que ya existen en
+`salesforce_leads` o `campaign_salesforce_leads`. El rango local
+`[--from, --to)`, el modo exclusivo `--dry-run`/`--apply`, el motivo obligatorio
+de escritura, `--limit` y el cursor `--after-salesforce-id` hacen la operación
+acotada y reanudable. La consulta no incluye nombre, email ni teléfonos.
+
+La escritura usa `UPDATE` sobre filas existentes, nunca `upsert` ni insert. Solo
+materializa los once raw nuevos/adquiridos aprobados, `field_resolution` y, en
+la tabla general, `resolved_channel`, `resolved_portal` y su campo ganador. Los
+fallbacks proceden de los legacy locales y se resuelven con
+`LeadClassificationResolver`/`SalesforceLeadFieldResolver`; no se refresca el
+resto del histórico. `raw_payload` se fusiona únicamente con las claves
+consultadas y conserva el resto.
+
+Cada lote aplicado guarda before/after en
+`salesforce_lead_attribution_backfill_history` dentro de la misma transacción.
+El histórico solo contiene ID técnico, tabla, motivo, campos cambiados y sus
+valores aprobados; para `raw_payload` registra exclusivamente el subconjunto de
+atribución, nunca el payload completo. Las métricas incluyen conflictos,
+fallbacks, placeholders, ausentes en Salesforce, cambios por tabla/campo,
+cursor, duración, memoria y Leads UTM-only. Esta última medida es informativa y
+no crea filas de Campañas.
+
+La herramienta está preparada, pero el histórico todavía **NO ha sido
+modificado**. No se ejecutaron backfill, `--apply`, sincronizadores reales ni
+escrituras Salesforce, y no se reprocesaron Calls, Opportunities o Campañas.
