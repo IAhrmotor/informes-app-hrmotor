@@ -1876,3 +1876,31 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Acción manual posterior: desplegar la migración, revisar primero una ventana
   con `--dry-run`, aprobar motivo/rango y ejecutar `--apply` únicamente mediante
   el runbook operativo correspondiente.
+
+## Correctivo de consistencia previo al merge del PR #28
+
+- La identidad usada para conciliar Salesforce IDs es ahora los primeros 15
+  caracteres, conservando exactamente mayúsculas y minúsculas. Las variantes
+  local 15 / respuesta 18 se reconocen como el mismo Lead; un cambio de casing
+  en esos 15 caracteres continúa representando una identidad distinta.
+- El cursor sigue ordenando el `salesforce_id` local literal. Dentro de cada
+  lote, representaciones 15/18 equivalentes comparten una consulta lógica y
+  cada fila local existente conserva su clave original.
+- La consulta Salesforce permanece fuera de la transacción. En `--apply`, las
+  filas objetivo se releen con `lockForUpdate()` y `ORDER BY salesforce_id`; solo
+  después se fusiona el `raw_payload`, se recalcula la resolución y se construye
+  el before/after. Así se preservan cambios concurrentes confirmados por el sync
+  periódico y el histórico describe el estado realmente bloqueado.
+- Un lock atómico de Laravel sobre el store de caché configurado protege apply
+  frente a apply durante seis horas y se libera en `finally`. Dry-run no toma
+  este mutex. El lock no sustituye el bloqueo transaccional frente a otros
+  escritores.
+- Las regresiones cubren equivalencia 15/18, sensibilidad a casing, coexistencia
+  de representaciones entre tablas, cursor literal mixto, snapshot concurrente,
+  before real y exclusión mutua. La herramienta sigue sin haberse ejecutado
+  sobre datos reales y las escrituras Salesforce continúan siendo cero.
+- Validación local: backfill 16/16 y 114 aserciones; bloque focal completo 63/63
+  y 434 aserciones; suite completa 872/872 y 6.269 aserciones. Pint WRITE y
+  `--test`, Composer validate/audit, build Vite y `git diff --check` correctos.
+  El build solo emitió los avisos preexistentes y sus artefactos se restauraron
+  porque este correctivo no incluye frontend. No hay migraciones nuevas.

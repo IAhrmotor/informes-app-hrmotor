@@ -378,3 +378,12 @@ del hash porque no alteran la regla v1.
 - El histórico específico contiene solo campos de atribución aprobados. Cuando
   cambia `raw_payload`, guarda únicamente las claves consultadas y no el payload
   completo. Dry-run no crea ejecuciones ni histórico y no invalida cachés.
+- La identidad de conciliación Salesforce se define por los primeros 15
+  caracteres case-sensitive; no se normaliza físicamente la clave local. El
+  cursor conserva el orden literal para que la reanudación no omita ninguna de
+  las representaciones coexistentes.
+- Las respuestas remotas se obtienen antes de abrir la transacción. En apply,
+  candidato, merge, diff e histórico se calculan exclusivamente después de
+  releer las filas bajo `lockForUpdate()`. Un mutex atómico de caché con TTL de
+  seis horas evita dos apply simultáneos, mientras el lock de filas mantiene la
+  coherencia con sincronizadores que no participan en ese mutex.

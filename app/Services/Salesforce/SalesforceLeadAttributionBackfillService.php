@@ -9,6 +9,7 @@ use App\Services\Reports\Leads\LeadClassificationResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -17,9 +18,13 @@ use Throwable;
 
 class SalesforceLeadAttributionBackfillService
 {
+    public const APPLY_LOCK_KEY = 'salesforce_lead_attribution_backfill_apply';
+
     private const CHUNK_SIZE = 100;
 
     private const HISTORY_SAMPLE_LIMIT = 20;
+
+    private const APPLY_LOCK_TTL_SECONDS = 21600;
 
     private const TABLES = [
         'salesforce_leads' => SalesforceLead::class,
@@ -108,6 +113,40 @@ class SalesforceLeadAttributionBackfillService
             throw new RuntimeException('El cursor del backfill debe ser un Salesforce Lead ID valido.');
         }
 
+        $lock = $apply ? Cache::lock(self::APPLY_LOCK_KEY, self::APPLY_LOCK_TTL_SECONDS) : null;
+
+        if ($lock !== null && ! $lock->get()) {
+            throw new RuntimeException('Ya existe otro backfill de atribucion de Leads en modo apply.');
+        }
+
+        try {
+            return $this->execute(
+                $from,
+                $to,
+                $apply,
+                $reason,
+                $limit,
+                $afterSalesforceId,
+                $onSoql,
+            );
+        } finally {
+            $lock?->release();
+        }
+    }
+
+    /**
+     * @param  null|callable(string):void  $onSoql
+     * @return array<string, mixed>
+     */
+    private function execute(
+        CarbonImmutable $from,
+        CarbonImmutable $to,
+        bool $apply,
+        ?string $reason,
+        ?int $limit,
+        ?string $afterSalesforceId,
+        ?callable $onSoql,
+    ): array {
         $startedAt = microtime(true);
         $runIdentifier = (string) Str::uuid();
         $stats = $this->initialStats($from, $to, $apply, $runIdentifier);
@@ -124,17 +163,31 @@ class SalesforceLeadAttributionBackfillService
 
             $validIds = array_values(array_filter($ids, fn (string $id): bool => $this->isValidLeadId($id)));
             $invalidIds = array_values(array_diff($ids, $validIds));
+            $queryIdsByCanonicalId = [];
+            foreach ($validIds as $validId) {
+                $queryIdsByCanonicalId[$this->canonicalSalesforceId($validId)] ??= $validId;
+            }
+            $queryIds = array_values($queryIdsByCanonicalId);
             $records = [];
 
             try {
-                if ($validIds !== []) {
-                    $soql = $this->soql($validIds);
+                if ($queryIds !== []) {
+                    $soql = $this->soql($queryIds);
                     if ($onSoql !== null) {
                         $onSoql($soql);
                     }
                     $records = collect($this->client->query($soql))
-                        ->filter(fn (mixed $record): bool => is_array($record) && in_array((string) data_get($record, 'Id'), $validIds, true))
-                        ->keyBy(fn (array $record): string => (string) data_get($record, 'Id'))
+                        ->filter(function (mixed $record) use ($queryIdsByCanonicalId): bool {
+                            if (! is_array($record)) {
+                                return false;
+                            }
+
+                            $returnedId = (string) data_get($record, 'Id');
+
+                            return $this->isValidLeadId($returnedId)
+                                && array_key_exists($this->canonicalSalesforceId($returnedId), $queryIdsByCanonicalId);
+                        })
+                        ->keyBy(fn (array $record): string => $this->canonicalSalesforceId((string) data_get($record, 'Id')))
                         ->all();
                 }
 
@@ -145,11 +198,14 @@ class SalesforceLeadAttributionBackfillService
                 break;
             }
 
-            $stats['salesforce_ids_unique'] += count($ids);
-            $stats['ids_consulted'] += count($validIds);
+            $stats['salesforce_ids_unique'] += count($queryIds) + count($invalidIds);
+            $stats['ids_consulted'] += count($queryIds);
             $stats['ids_invalid_local'] += count($invalidIds);
             $stats['ids_found_in_salesforce'] += count($records);
-            $missingIds = array_values(array_diff($validIds, array_keys($records)));
+            $missingIds = collect($queryIdsByCanonicalId)
+                ->except(array_keys($records))
+                ->values()
+                ->all();
             $stats['ids_not_found_in_salesforce'] += count($missingIds);
             $this->appendSample($stats['samples']['missing_salesforce_ids'], $missingIds);
             $this->appendSample($stats['samples']['invalid_local_ids'], $invalidIds);
@@ -234,57 +290,123 @@ SOQL;
         string $runIdentifier,
         array &$stats,
     ): void {
-        $updatesByTable = [];
-        $history = [];
-        $chunkChanged = array_fill_keys(array_keys(self::TABLES), 0);
-        $chunkFieldChanges = [];
-        $chunkChangedIds = [];
-        $chunkChangeDetails = [];
+        if (! $apply) {
+            $rowsByTable = $this->loadRows($ids, $from, $to, false);
+            $result = $this->analyzeRows($rowsByTable, $records, false, $reason, $runIdentifier);
+            $this->mergeChunkStats($stats, $result['stats']);
+
+            return;
+        }
+
+        $this->beforeApplyTransaction($ids);
+
+        $result = DB::transaction(function () use ($ids, $records, $from, $to, $reason, $runIdentifier): array {
+            $rowsByTable = $this->loadRows($ids, $from, $to, true);
+            $result = $this->analyzeRows($rowsByTable, $records, true, $reason, $runIdentifier);
+
+            foreach ($result['updates'] as $table => $updates) {
+                $this->bulkUpdateExisting($table, $updates);
+            }
+
+            if ($result['history'] !== []) {
+                DB::table('salesforce_lead_attribution_backfill_history')->insert($result['history']);
+            }
+
+            return $result;
+        });
+
+        $this->mergeChunkStats($stats, $result['stats']);
+    }
+
+    /**
+     * Hook intentionally empty so concurrency can be coordinated deterministically in tests.
+     *
+     * @param  list<string>  $ids
+     */
+    protected function beforeApplyTransaction(array $ids): void {}
+
+    /**
+     * @param  list<string>  $ids
+     * @return array<string, Collection<int, Model>>
+     */
+    private function loadRows(
+        array $ids,
+        CarbonImmutable $from,
+        CarbonImmutable $to,
+        bool $lockForUpdate,
+    ): array {
+        $rowsByTable = [];
 
         foreach (self::TABLES as $table => $modelClass) {
-            $rows = $modelClass::query()
+            $query = $modelClass::query()
                 ->whereIn('salesforce_id', $ids)
                 ->where('created_date', '>=', $from)
                 ->where('created_date', '<', $to)
-                ->orderBy('salesforce_id')
-                ->get();
+                ->orderBy('salesforce_id');
 
-            $stats['rows_examined'][$table] += $rows->count();
+            if ($lockForUpdate) {
+                $query->lockForUpdate();
+            }
+
+            $rowsByTable[$table] = $query->get();
+        }
+
+        return $rowsByTable;
+    }
+
+    /**
+     * @param  array<string, Collection<int, Model>>  $rowsByTable
+     * @param  array<string, array<string, mixed>>  $records
+     * @return array{updates:array<string, list<array{salesforce_id:string,values:array<string,mixed>}>>,history:list<array<string,mixed>>,stats:array<string,mixed>}
+     */
+    private function analyzeRows(
+        array $rowsByTable,
+        array $records,
+        bool $prepareWrites,
+        ?string $reason,
+        string $runIdentifier,
+    ): array {
+        $updatesByTable = [];
+        $history = [];
+        $chunkStats = $this->emptyChunkStats();
+
+        foreach ($rowsByTable as $table => $rows) {
+            $chunkStats['rows_examined'][$table] += $rows->count();
 
             foreach ($rows as $row) {
                 $salesforceId = (string) $row->getAttribute('salesforce_id');
-                $record = $records[$salesforceId] ?? null;
+                $record = $records[$this->canonicalSalesforceId($salesforceId)] ?? null;
 
                 if ($record === null) {
-                    $stats['rows_unchanged'][$table]++;
+                    $chunkStats['rows_unchanged'][$table]++;
 
                     continue;
                 }
 
                 $candidate = $this->candidate($row, $table, $record);
-                $this->recordResolutionMetrics($candidate['field_resolution'], $stats);
+                $this->recordResolutionMetrics($candidate['field_resolution'], $chunkStats);
 
                 if ($table === 'salesforce_leads' && $this->isUtmOnly($row, $candidate)) {
-                    $stats['utm_only_detected']++;
+                    $chunkStats['utm_only_detected']++;
                 }
 
                 $changes = $this->changes($row, $candidate);
 
                 if ($changes === []) {
-                    $stats['rows_unchanged'][$table]++;
+                    $chunkStats['rows_unchanged'][$table]++;
 
                     continue;
                 }
 
-                $chunkChanged[$table]++;
-                $this->appendSample($chunkChangedIds, [$salesforceId]);
-                $this->appendChangeDetail($chunkChangeDetails, $table, $salesforceId, $changes);
+                $chunkStats['rows_changed'][$table]++;
+                $this->appendSample($chunkStats['samples']['changed_salesforce_ids'], [$salesforceId]);
+                $this->appendChangeDetail($chunkStats['samples']['change_details'], $table, $salesforceId, $changes);
 
                 foreach (array_keys($changes) as $field) {
-                    $chunkFieldChanges[$field] = ($chunkFieldChanges[$field] ?? 0) + 1;
+                    $chunkStats['changes_by_field'][$field] = ($chunkStats['changes_by_field'][$field] ?? 0) + 1;
                 }
 
-                if (! $apply) {
+                if (! $prepareWrites) {
                     continue;
                 }
 
@@ -302,35 +424,11 @@ SOQL;
             }
         }
 
-        if (! $apply) {
-            $this->mergeChangeStats($stats, $chunkChanged, $chunkFieldChanges, $chunkChangedIds, $chunkChangeDetails);
-
-            return;
-        }
-
-        if ($history === []) {
-            return;
-        }
-
-        DB::transaction(function () use ($updatesByTable, $history): void {
-            foreach ($updatesByTable as $table => $updates) {
-                $ids = array_column($updates, 'salesforce_id');
-                $locked = DB::table($table)
-                    ->whereIn('salesforce_id', $ids)
-                    ->lockForUpdate()
-                    ->count();
-
-                if ($locked !== count($ids)) {
-                    throw new RuntimeException("El universo local cambio durante el backfill de {$table}.");
-                }
-
-                $this->bulkUpdateExisting($table, $updates);
-            }
-
-            DB::table('salesforce_lead_attribution_backfill_history')->insert($history);
-        });
-
-        $this->mergeChangeStats($stats, $chunkChanged, $chunkFieldChanges, $chunkChangedIds, $chunkChangeDetails);
+        return [
+            'updates' => $updatesByTable,
+            'history' => $history,
+            'stats' => $chunkStats,
+        ];
     }
 
     /**
@@ -582,6 +680,11 @@ SOQL;
         return preg_match('/^00Q[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/', $id) === 1;
     }
 
+    private function canonicalSalesforceId(string $id): string
+    {
+        return substr($id, 0, 15);
+    }
+
     /** @param list<string> $target @param list<string> $values */
     private function appendSample(array &$target, array $values): void
     {
@@ -619,31 +722,50 @@ SOQL;
         ];
     }
 
-    /**
-     * @param  array<string, mixed>  $stats
-     * @param  array<string, int>  $chunkChanged
-     * @param  array<string, int>  $chunkFieldChanges
-     * @param  list<string>  $chunkChangedIds
-     * @param  list<array<string, mixed>>  $chunkChangeDetails
-     */
-    private function mergeChangeStats(
-        array &$stats,
-        array $chunkChanged,
-        array $chunkFieldChanges,
-        array $chunkChangedIds,
-        array $chunkChangeDetails,
-    ): void {
-        foreach ($chunkChanged as $table => $count) {
-            $stats['rows_changed'][$table] += $count;
+    /** @return array<string, mixed> */
+    private function emptyChunkStats(): array
+    {
+        $dimensionZeros = array_fill_keys(self::RESOLUTION_DIMENSIONS, 0);
+
+        return [
+            'rows_examined' => array_fill_keys(array_keys(self::TABLES), 0),
+            'rows_changed' => array_fill_keys(array_keys(self::TABLES), 0),
+            'rows_unchanged' => array_fill_keys(array_keys(self::TABLES), 0),
+            'changes_by_field' => [],
+            'conflicts_new_vs_legacy' => $dimensionZeros,
+            'fallbacks_new_empty_to_legacy' => $dimensionZeros,
+            'placeholders_new_non_empty' => $dimensionZeros,
+            'utm_only_detected' => 0,
+            'samples' => [
+                'changed_salesforce_ids' => [],
+                'change_details' => [],
+            ],
+        ];
+    }
+
+    /** @param array<string, mixed> $stats @param array<string, mixed> $chunkStats */
+    private function mergeChunkStats(array &$stats, array $chunkStats): void
+    {
+        foreach (['rows_examined', 'rows_changed', 'rows_unchanged'] as $metric) {
+            foreach ($chunkStats[$metric] as $table => $count) {
+                $stats[$metric][$table] += $count;
+            }
         }
 
-        foreach ($chunkFieldChanges as $field => $count) {
+        foreach ($chunkStats['changes_by_field'] as $field => $count) {
             $stats['changes_by_field'][$field] = ($stats['changes_by_field'][$field] ?? 0) + $count;
         }
 
-        $this->appendSample($stats['samples']['changed_salesforce_ids'], $chunkChangedIds);
+        foreach (['conflicts_new_vs_legacy', 'fallbacks_new_empty_to_legacy', 'placeholders_new_non_empty'] as $metric) {
+            foreach ($chunkStats[$metric] as $dimension => $count) {
+                $stats[$metric][$dimension] += $count;
+            }
+        }
 
-        foreach ($chunkChangeDetails as $detail) {
+        $stats['utm_only_detected'] += $chunkStats['utm_only_detected'];
+        $this->appendSample($stats['samples']['changed_salesforce_ids'], $chunkStats['samples']['changed_salesforce_ids']);
+
+        foreach ($chunkStats['samples']['change_details'] as $detail) {
             if (count($stats['samples']['change_details']) >= self::HISTORY_SAMPLE_LIMIT) {
                 break;
             }

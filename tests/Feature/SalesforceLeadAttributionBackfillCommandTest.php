@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\CampaignSalesforceLead;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceLeadAttributionBackfillHistory;
+use App\Services\Campaigns\CampaignValueNormalizer;
+use App\Services\Reports\Leads\LeadClassificationResolver;
 use App\Services\Salesforce\SalesforceClient;
 use App\Services\Salesforce\SalesforceLeadAttributionBackfillService;
 use Carbon\CarbonImmutable;
@@ -233,6 +235,122 @@ class SalesforceLeadAttributionBackfillCommandTest extends TestCase
         $this->assertSame($secondId, $stats['last_salesforce_id_processed']);
     }
 
+    public function test_local_15_character_id_matches_equivalent_18_character_salesforce_response(): void
+    {
+        $localId = '00QAbCdEfGhIjKl';
+        $returnedId = $localId.'XYZ';
+        $this->generalLead($localId);
+        $fake = $this->fakeSalesforce(fn (): array => [
+            $this->salesforceRecord($returnedId, ['Fuente_origen__c' => 'Canonical source']),
+        ]);
+
+        $stats = $this->app->make(SalesforceLeadAttributionBackfillService::class)->run(
+            CarbonImmutable::parse('2026-01-01'),
+            CarbonImmutable::parse('2026-02-01'),
+            true,
+            'Canonical identity regression',
+        );
+
+        $this->assertStringContainsString("'{$localId}'", $fake->queries[0]);
+        $this->assertStringNotContainsString("'{$returnedId}'", $fake->queries[0]);
+        $this->assertSame(1, $stats['ids_found_in_salesforce']);
+        $this->assertSame(0, $stats['ids_not_found_in_salesforce']);
+        $this->assertSame('Canonical source', SalesforceLead::query()->where('salesforce_id', $localId)->value('source_origin_new'));
+    }
+
+    public function test_canonical_identity_remains_case_sensitive(): void
+    {
+        $localId = '00QAbCdEfGhIjKl';
+        $differentCaseId = '00QabCdEfGhIjKlXYZ';
+        $this->generalLead($localId);
+        $this->fakeSalesforce(fn (): array => [
+            $this->salesforceRecord($differentCaseId, ['Fuente_origen__c' => 'Wrong identity']),
+        ]);
+
+        $stats = $this->app->make(SalesforceLeadAttributionBackfillService::class)->run(
+            CarbonImmutable::parse('2026-01-01'),
+            CarbonImmutable::parse('2026-02-01'),
+            false,
+        );
+
+        $this->assertSame(0, $stats['ids_found_in_salesforce']);
+        $this->assertSame(1, $stats['ids_not_found_in_salesforce']);
+        $this->assertSame(0, $stats['rows_changed']['salesforce_leads']);
+    }
+
+    public function test_local_18_character_id_matches_equivalent_15_character_salesforce_response(): void
+    {
+        $returnedId = '00QAbCdEfGhIjKl';
+        $localId = $returnedId.'XYZ';
+        $this->generalLead($localId);
+        $this->fakeSalesforce(fn (): array => [
+            $this->salesforceRecord($returnedId, ['Canal__c' => 'WhatsApp']),
+        ]);
+
+        $stats = $this->app->make(SalesforceLeadAttributionBackfillService::class)->run(
+            CarbonImmutable::parse('2026-01-01'),
+            CarbonImmutable::parse('2026-02-01'),
+            true,
+            'Reverse canonical identity regression',
+        );
+
+        $this->assertSame(1, $stats['ids_found_in_salesforce']);
+        $this->assertSame(0, $stats['ids_not_found_in_salesforce']);
+        $this->assertSame('WhatsApp', SalesforceLead::query()->where('salesforce_id', $localId)->value('channel_new'));
+        $this->assertDatabaseHas('salesforce_leads', ['salesforce_id' => $localId]);
+    }
+
+    public function test_equivalent_15_and_18_character_local_ids_share_one_query_identity_and_update_both_tables(): void
+    {
+        $shortId = '00QAbCdEfGhIjKl';
+        $longId = $shortId.'XYZ';
+        $this->generalLead($shortId);
+        $this->campaignLead($longId);
+        $fake = $this->fakeSalesforce(fn (): array => [
+            $this->salesforceRecord($longId, ['utm_content__c' => 'Shared identity']),
+        ]);
+
+        $stats = $this->app->make(SalesforceLeadAttributionBackfillService::class)->run(
+            CarbonImmutable::parse('2026-01-01'),
+            CarbonImmutable::parse('2026-02-01'),
+            true,
+            'Mixed Salesforce ID representations',
+        );
+
+        $this->assertSame(1, $stats['salesforce_ids_unique']);
+        $this->assertSame(1, $stats['ids_consulted']);
+        $this->assertSame(1, $stats['ids_found_in_salesforce']);
+        $this->assertCount(1, $fake->queries);
+        $this->assertSame('Shared identity', SalesforceLead::query()->where('salesforce_id', $shortId)->value('utm_content_new'));
+        $this->assertSame('Shared identity', CampaignSalesforceLead::query()->where('salesforce_id', $longId)->value('utm_content_new'));
+        $this->assertDatabaseHas('salesforce_leads', ['salesforce_id' => $shortId]);
+        $this->assertDatabaseHas('campaign_salesforce_leads', ['salesforce_id' => $longId]);
+    }
+
+    public function test_resume_cursor_uses_literal_local_id_order_with_mixed_15_and_18_character_representations(): void
+    {
+        $shortId = '00QAbCdEfGhIjKl';
+        $longId = $shortId.'XYZ';
+        $this->generalLead($shortId);
+        $this->campaignLead($longId);
+        $this->fakeSalesforce(fn (): array => [
+            $this->salesforceRecord($longId, ['Fuente_origen__c' => 'Resumed source']),
+        ]);
+
+        $stats = $this->app->make(SalesforceLeadAttributionBackfillService::class)->run(
+            CarbonImmutable::parse('2026-01-01'),
+            CarbonImmutable::parse('2026-02-01'),
+            false,
+            limit: 1,
+            afterSalesforceId: $shortId,
+        );
+
+        $this->assertSame($longId, $stats['last_salesforce_id_processed']);
+        $this->assertSame(0, $stats['rows_examined']['salesforce_leads']);
+        $this->assertSame(1, $stats['rows_examined']['campaign_salesforce_leads']);
+        $this->assertSame(1, $stats['ids_found_in_salesforce']);
+    }
+
     public function test_missing_salesforce_id_is_not_cleared_deleted_or_modified(): void
     {
         $id = $this->leadId(20);
@@ -337,6 +455,8 @@ class SalesforceLeadAttributionBackfillCommandTest extends TestCase
         $id = $this->leadId(200);
         $this->generalLead($id);
         $this->campaignLead($id);
+        Cache::forever('lead_dashboard_cache_version', 7);
+        Cache::forever('campaign_dashboard_cache_version', 9);
         $this->fakeSalesforce(fn (): array => [
             $this->salesforceRecord($id, ['Fuente_origen__c' => 'Rollback source']),
         ]);
@@ -361,6 +481,101 @@ SQL);
 
         $this->assertNull(SalesforceLead::query()->where('salesforce_id', $id)->value('source_origin_new'));
         $this->assertNull(CampaignSalesforceLead::query()->where('salesforce_id', $id)->value('source_origin_new'));
+        $this->assertDatabaseCount('salesforce_lead_attribution_backfill_history', 0);
+        $this->assertSame(7, Cache::get('lead_dashboard_cache_version'));
+        $this->assertSame(9, Cache::get('campaign_dashboard_cache_version'));
+    }
+
+    public function test_apply_builds_changes_and_history_from_the_latest_locked_row(): void
+    {
+        $id = $this->leadId(300);
+        $this->generalLead($id, [
+            'source_origin_new' => 'Initial local source',
+            'raw_payload' => [
+                'unrelated' => 'old',
+                'Fuente_origen__c' => 'Initial raw source',
+            ],
+        ]);
+        $fake = $this->fakeSalesforce(fn (): array => [
+            $this->salesforceRecord($id, ['Fuente_origen__c' => 'Salesforce source']),
+        ]);
+        $service = new class($fake, $this->app->make(LeadClassificationResolver::class), $this->app->make(CampaignValueNormalizer::class), $id) extends SalesforceLeadAttributionBackfillService
+        {
+            public function __construct(
+                SalesforceClient $client,
+                LeadClassificationResolver $classificationResolver,
+                CampaignValueNormalizer $campaignValueNormalizer,
+                private readonly string $leadId,
+            ) {
+                parent::__construct($client, $classificationResolver, $campaignValueNormalizer);
+            }
+
+            protected function beforeApplyTransaction(array $ids): void
+            {
+                DB::table('salesforce_leads')
+                    ->where('salesforce_id', $this->leadId)
+                    ->update([
+                        'source_origin_new' => 'Concurrent local source',
+                        'raw_payload' => json_encode([
+                            'unrelated' => 'new',
+                            'Fuente_origen__c' => 'Concurrent raw source',
+                        ], JSON_THROW_ON_ERROR),
+                    ]);
+            }
+        };
+
+        $stats = $service->run(
+            CarbonImmutable::parse('2026-01-01'),
+            CarbonImmutable::parse('2026-02-01'),
+            true,
+            'Concurrent snapshot regression',
+        );
+
+        $lead = SalesforceLead::query()->where('salesforce_id', $id)->sole();
+        $history = SalesforceLeadAttributionBackfillHistory::query()
+            ->where('source_table', 'salesforce_leads')
+            ->where('salesforce_id', $id)
+            ->sole();
+        $this->assertFalse($stats['failed']);
+        $this->assertSame('Salesforce source', $lead->source_origin_new);
+        $this->assertSame('new', data_get($lead->raw_payload, 'unrelated'));
+        $this->assertSame('Salesforce source', data_get($lead->raw_payload, 'Fuente_origen__c'));
+        $this->assertSame('Concurrent local source', $history->previous_values['source_origin_new']);
+        $this->assertSame('Concurrent raw source', data_get($history->previous_values, 'raw_payload.Fuente_origen__c'));
+    }
+
+    public function test_second_apply_fails_before_salesforce_when_mutex_is_held(): void
+    {
+        $id = $this->leadId(301);
+        $this->generalLead($id);
+        $fake = $this->fakeSalesforce(fn (): array => [
+            $this->salesforceRecord($id, ['Fuente_origen__c' => 'Must not be queried']),
+        ]);
+        $lock = Cache::lock(SalesforceLeadAttributionBackfillService::APPLY_LOCK_KEY, 3600);
+        $this->assertTrue($lock->get());
+
+        try {
+            $this->artisan('salesforce:backfill-lead-attribution-fields', [
+                '--from' => '2026-01-01',
+                '--to' => '2026-02-01',
+                '--apply' => true,
+                '--reason' => 'Concurrent apply must fail',
+            ])
+                ->expectsOutputToContain('Ya existe otro backfill')
+                ->assertFailed();
+
+            $this->assertSame([], $fake->queries);
+            $this->artisan('salesforce:backfill-lead-attribution-fields', [
+                '--from' => '2026-01-01',
+                '--to' => '2026-02-01',
+                '--dry-run' => true,
+            ])->assertSuccessful();
+        } finally {
+            $lock->release();
+        }
+
+        $this->assertCount(1, $fake->queries);
+        $this->assertNull(SalesforceLead::query()->where('salesforce_id', $id)->value('source_origin_new'));
         $this->assertDatabaseCount('salesforce_lead_attribution_backfill_history', 0);
     }
 

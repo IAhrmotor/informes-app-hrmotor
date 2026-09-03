@@ -546,3 +546,17 @@ no crea filas de Campañas.
 La herramienta está preparada, pero el histórico todavía **NO ha sido
 modificado**. No se ejecutaron backfill, `--apply`, sincronizadores reales ni
 escrituras Salesforce, y no se reprocesaron Calls, Opportunities o Campañas.
+
+#### Consistencia de identidad y concurrencia del backfill
+
+La conciliación trata un ID de 15 caracteres y su representación de 18 como la
+misma identidad mediante los primeros 15 caracteres, sin cambiar el casing ni
+reescribir los IDs locales. El cursor continúa avanzando sobre la clave local
+literal, por lo que ambas representaciones pueden coexistir sin perder filas.
+
+Salesforce se consulta antes de la transacción. En apply, cada lote relee y
+bloquea las filas locales en orden por `salesforce_id`; candidato,
+`raw_payload`, resolución e histórico before/after se calculan después de ese
+bloqueo. Un lock atómico de caché de seis horas impide dos apply concurrentes y
+se libera siempre; dry-run no lo adquiere. No se ha ejecutado el backfill real
+ni se ha realizado ninguna escritura Salesforce.
