@@ -1,6 +1,6 @@
 # Decisiones de negocio pendientes
 
-Actualizado: 2026-09-02.
+Actualizado: 2026-09-03.
 
 Este documento contiene exclusivamente decisiones que el código no puede tomar
 sin una definición funcional o una validación externa. Las decisiones ya
@@ -24,9 +24,9 @@ Permanecen como validaciones técnicas u operativas para fases posteriores:
   Campañas antes de proponer cualquier ampliación del filtro;
 - diseñar, aprobar y ejecutar por separado el backfill/reprocesado histórico,
   con lotes, reanudación, métricas y conciliación;
-- migrar conscientemente Reservas/Ventas y el attribution builder; Llamadas ya
-  consume `Fuente_origen__c` solo en su clasificación visible, conservando la
-  política operacional legacy y sin modificar su universo.
+- migrar conscientemente el attribution builder; Llamadas y Reservas/Ventas ya
+  consumen `Fuente_origen__c` en su clasificación visible, conservando sus
+  prioridades legacy específicas y sin modificar sus universos.
 
 Las siguientes reglas del alcance ya implantado permanecen cerradas y no se
 reabren por esta auditoría:
@@ -39,6 +39,11 @@ reabren por esta auditoría:
   `Comerciales Partner Community`.
 
 ### Reservas / Ventas
+
+La prioridad de procedencia del Lead relacionado queda cerrada como
+`Fuente_origen__c` → fallback legacy, considerando informado cualquier valor no
+vacío. No se modifica el matching existente por email/teléfono ni su orden por
+`CreatedDate DESC`.
 
 - Definir, si Dirección quiere utilizarlo, qué benchmark debe alimentar las
   conclusiones automáticas: objetivo, media ponderada, media simple o período
