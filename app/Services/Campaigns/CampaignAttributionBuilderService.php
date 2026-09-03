@@ -4,6 +4,7 @@ namespace App\Services\Campaigns;
 
 use App\Services\Reports\Leads\LeadRecordTypeNormalizer;
 use App\Services\Reports\Leads\SalesforceLeadDashboardDatasetService;
+use App\Services\Salesforce\SalesforceLeadFieldResolver;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -14,7 +15,7 @@ use Throwable;
 
 class CampaignAttributionBuilderService
 {
-    private const ATTRIBUTION_RULE_VERSION = '2026-08-07.1';
+    private const ATTRIBUTION_RULE_VERSION = '2026-09-03.1';
 
     private const LEAD_CHUNK_SIZE = 1000;
 
@@ -28,6 +29,7 @@ class CampaignAttributionBuilderService
         private readonly CampaignSaleAmountResolver $saleAmountResolver,
         private readonly CampaignTypeResolver $campaignTypeResolver,
         private readonly LeadRecordTypeNormalizer $leadRecordTypeNormalizer,
+        private readonly SalesforceLeadFieldResolver $fieldResolver,
     ) {}
 
     public function build(CarbonInterface $start, CarbonInterface $end, bool $dryRun = false): array
@@ -191,9 +193,13 @@ class CampaignAttributionBuilderService
                         $stats['leads_with_acquisition_not_null']++;
                     }
 
-                    $excludedReason = $this->campaignTypeResolver->excludedReason($lead->campaign_acquired);
+                    $this->resolveEffectiveAttributionFields($lead);
+                    $this->countFieldResolutionSources($stats, $lead);
 
-                    if ($hasValidCampaignAcquired && $excludedReason !== null) {
+                    $excludedReason = $this->campaignTypeResolver->excludedReason($lead->campaign_acquired);
+                    $hasValidEffectiveCampaign = $this->normalizer->isValidAttributionValue($lead->campaign_acquired);
+
+                    if ($hasValidEffectiveCampaign && $excludedReason !== null) {
                         $stats['excluded_campaigns']++;
                         $stats['excluded_by_reason'][$excludedReason]['count'] = ($stats['excluded_by_reason'][$excludedReason]['count'] ?? 0) + 1;
                         if (count($stats['excluded_by_reason'][$excludedReason]['sample_ids'] ?? []) < 20) {
@@ -257,9 +263,20 @@ class CampaignAttributionBuilderService
                 'propietario_descarte_name',
                 'fuente_origen',
                 'medio_origen',
+                'source_origin_new',
+                'medium_origin_new',
+                'channel_new',
+                'delegation_origin_new',
                 'campaign_acquired',
                 'acquired_id',
                 'content_acquired',
+                'acquired_source_legacy',
+                'acquired_medium_legacy',
+                'utm_campaign_new',
+                'utm_id_new',
+                'utm_source_new',
+                'utm_medium_new',
+                'utm_content_new',
                 'vehicle_interest',
                 'phone',
                 'mobile_phone',
@@ -291,9 +308,20 @@ class CampaignAttributionBuilderService
             DB::raw('NULL as propietario_descarte_name'),
             'fuente_origen',
             'medio_origen',
+            'source_origin_new',
+            'medium_origin_new',
+            'channel_new',
+            'delegation_origin_new',
             'campaign_acquired',
             'acquired_id',
             'content_acquired',
+            'acquired_source_legacy',
+            'acquired_medium_legacy',
+            'utm_campaign_new',
+            'utm_id_new',
+            'utm_source_new',
+            'utm_medium_new',
+            'utm_content_new',
             'vehicle_interest',
             'phone',
             'mobile_phone',
@@ -340,6 +368,86 @@ class CampaignAttributionBuilderService
                 $lead->{$localField} = data_get($payload, $salesforceField);
             }
         }
+
+        foreach ([
+            'source_origin_new' => 'Fuente_origen__c',
+            'medium_origin_new' => 'Medio_origen__c',
+            'channel_new' => 'Canal__c',
+            'delegation_origin_new' => 'Delegacion_procedencia__c',
+            'acquired_source_legacy' => 'Fuente_Adquirida__c',
+            'acquired_medium_legacy' => 'Medio_Adquirido__c',
+            'utm_campaign_new' => 'utm_campaign__c',
+            'utm_id_new' => 'utm_id__c',
+            'utm_source_new' => 'utm_source__c',
+            'utm_medium_new' => 'utm_medium__c',
+            'utm_content_new' => 'utm_content__c',
+            'medio_nuevo' => 'Medio_Nuevo__c',
+            'fuente_nuevo' => 'Fuente_Nuevo__c',
+        ] as $localField => $salesforceField) {
+            $payloadValue = data_get($payload, $salesforceField);
+
+            if ($this->isBlankValue($lead->{$localField} ?? null) && ! $this->isBlankValue($payloadValue)) {
+                $lead->{$localField} = $payloadValue;
+            }
+        }
+    }
+
+    private function resolveEffectiveAttributionFields(object $lead): void
+    {
+        $resolution = [
+            'utm_campaign' => $this->fieldResolver->resolve(
+                $lead->utm_campaign_new ?? null,
+                'utm_campaign__c',
+                $lead->campaign_acquired ?? null,
+                'Campa_a_Adquirida__c',
+            ),
+            'utm_id' => $this->fieldResolver->resolve(
+                $lead->utm_id_new ?? null,
+                'utm_id__c',
+                $lead->acquired_id ?? null,
+                'Id_Adquirido__c',
+            ),
+            'utm_source' => $this->fieldResolver->resolve(
+                $lead->utm_source_new ?? null,
+                'utm_source__c',
+                $lead->acquired_source_legacy ?? null,
+                'Fuente_Adquirida__c',
+            ),
+            'utm_medium' => $this->fieldResolver->resolve(
+                $lead->utm_medium_new ?? null,
+                'utm_medium__c',
+                $lead->acquired_medium_legacy ?? null,
+                'Medio_Adquirido__c',
+            ),
+            'utm_content' => $this->fieldResolver->resolve(
+                $lead->utm_content_new ?? null,
+                'utm_content__c',
+                $lead->content_acquired ?? null,
+                'Contenido_Adquirido__c',
+            ),
+            'source_origin' => $this->fieldResolver->resolve(
+                $lead->source_origin_new ?? null,
+                'Fuente_origen__c',
+                $lead->fuente_origen ?? null,
+                'LEA_SEL_Fuente_Origen__c',
+            ),
+        ];
+
+        $lead->campaign_field_resolution = $resolution;
+        $lead->campaign_acquired = $resolution['utm_campaign']['effective_value'];
+        $lead->campaign_acquired_source_field = $resolution['utm_campaign']['source_field'];
+        $lead->acquired_id = $resolution['utm_id']['effective_value'];
+        $lead->acquired_id_source_field = $resolution['utm_id']['source_field'];
+        $lead->source_acquired = $resolution['utm_source']['effective_value'];
+        $lead->medium_acquired = $resolution['utm_medium']['effective_value'];
+        $lead->content_acquired = $resolution['utm_content']['effective_value'];
+        $lead->content_acquired_source_field = $resolution['utm_content']['source_field'];
+        $lead->source_origin_effective = $resolution['source_origin']['effective_value'];
+    }
+
+    private function isBlankValue(mixed $value): bool
+    {
+        return trim((string) $value) === '';
     }
 
     private function normalizeLeadCampaign(object $lead): void
@@ -347,7 +455,7 @@ class CampaignAttributionBuilderService
         $hasMetaInstantFormsName = $this->campaignTypeResolver->isMetaDirectFormCampaignName($lead->campaign_acquired ?? null);
         $isMetaDirectFormLead = $this->campaignTypeResolver->isMetaDirectFormLead(
             $lead->portal_text ?? null,
-            $lead->fuente_origen ?? null,
+            $lead->source_origin_effective ?? null,
         );
 
         if (! $hasMetaInstantFormsName && ! $isMetaDirectFormLead) {
@@ -477,8 +585,8 @@ class CampaignAttributionBuilderService
         }
 
         $idCandidates = array_filter([
-            'Id_Adquirido__c' => $lead->acquired_id,
-            'Contenido_Adquirido__c' => $lead->content_acquired,
+            ($lead->acquired_id_source_field ?? 'Id_Adquirido__c') => $lead->acquired_id,
+            ($lead->content_acquired_source_field ?? 'Contenido_Adquirido__c') => $lead->content_acquired,
         ], fn ($value) => $this->normalizer->isValidAttributionValue($value));
 
         $resolved = [];
@@ -529,14 +637,14 @@ class CampaignAttributionBuilderService
                     'match_status' => 'Cruzada por nombre exacto normalizado',
                     'campaign_source_type' => 'platform_campaign',
                     'matched_to_platform' => true,
-                    'matched_source_field' => 'Campa_a_Adquirida__c',
+                    'matched_source_field' => $lead->campaign_acquired_source_field ?? 'Campa_a_Adquirida__c',
                     'matched_source_value' => (string) $lead->campaign_acquired,
                     'match_candidate_count' => 1,
                 ]);
             }
 
             if (count($matches) > 1) {
-                return $this->ambiguousCampaign($lead, 'Nombre exacto ambiguo entre campanas', 'Campa_a_Adquirida__c', $lead->campaign_acquired, $matches);
+                return $this->ambiguousCampaign($lead, 'Nombre exacto ambiguo entre campanas', $lead->campaign_acquired_source_field ?? 'Campa_a_Adquirida__c', $lead->campaign_acquired, $matches);
             }
 
             $flexibleNameKey = $this->normalizer->flexibleCampaignKey($lead->campaign_acquired);
@@ -549,15 +657,39 @@ class CampaignAttributionBuilderService
                     'match_status' => 'Cruzada por nombre flexible',
                     'campaign_source_type' => 'platform_campaign',
                     'matched_to_platform' => true,
-                    'matched_source_field' => 'Campa_a_Adquirida__c',
+                    'matched_source_field' => $lead->campaign_acquired_source_field ?? 'Campa_a_Adquirida__c',
                     'matched_source_value' => (string) $lead->campaign_acquired,
                     'match_candidate_count' => 1,
                 ]);
             }
 
             if (count($matches) > 1) {
-                return $this->ambiguousCampaign($lead, 'Nombre flexible ambiguo entre campanas', 'Campa_a_Adquirida__c', $lead->campaign_acquired, $matches);
+                return $this->ambiguousCampaign($lead, 'Nombre flexible ambiguo entre campanas', $lead->campaign_acquired_source_field ?? 'Campa_a_Adquirida__c', $lead->campaign_acquired, $matches);
             }
+        }
+
+        if ($this->normalizer->isValidAttributionValue($lead->campaign_acquired)) {
+            return $this->salesforceOnlyCampaign(
+                $lead,
+                sourceField: $lead->campaign_acquired_source_field,
+                sourceValue: $lead->campaign_acquired,
+            );
+        }
+
+        if ($this->normalizer->isValidAttributionValue($lead->acquired_id)) {
+            return $this->salesforceOnlyCampaign(
+                $lead,
+                sourceField: $lead->acquired_id_source_field,
+                sourceValue: $lead->acquired_id,
+            );
+        }
+
+        if ($this->normalizer->isValidAttributionValue($lead->content_acquired)) {
+            return $this->salesforceOnlyCampaign(
+                $lead,
+                sourceField: $lead->content_acquired_source_field,
+                sourceValue: $lead->content_acquired,
+            );
         }
 
         return $this->salesforceOnlyCampaign($lead);
@@ -582,7 +714,7 @@ class CampaignAttributionBuilderService
             'match_status' => $reason,
             'campaign_source_type' => 'excluded_campaign',
             'matched_to_platform' => false,
-            'matched_source_field' => 'Campa_a_Adquirida__c',
+            'matched_source_field' => $lead->campaign_acquired_source_field ?? 'Campa_a_Adquirida__c',
             'matched_source_value' => $this->normalizer->clean($lead->campaign_acquired),
             'matched_platform_field' => null,
             'matched_platform_value' => null,
@@ -1078,8 +1210,8 @@ class CampaignAttributionBuilderService
             return 2;
         }
 
-        if ($this->normalizer->isValidAttributionValue($lead->fuente_origen)
-            || $this->normalizer->isValidAttributionValue($lead->medio_origen)) {
+        if ($this->normalizer->isValidAttributionValue($lead->source_acquired)
+            || $this->normalizer->isValidAttributionValue($lead->medium_acquired)) {
             return 1;
         }
 
@@ -1294,8 +1426,8 @@ class CampaignAttributionBuilderService
             'campaign_id' => $campaign['campaign_id'],
             'campaign_name' => $campaign['campaign_name'],
             'campaign_name_key' => $this->normalizer->key($campaign['campaign_name']),
-            'source_acquired' => $lead->fuente_origen,
-            'medium_acquired' => $lead->medio_origen,
+            'source_acquired' => $lead->source_acquired,
+            'medium_acquired' => $lead->medium_acquired,
             'campaign_acquired' => $lead->campaign_acquired,
             'acquired_id' => $lead->acquired_id,
             'acquired_id_key' => $this->normalizer->compactKey($lead->acquired_id),
@@ -1370,8 +1502,8 @@ class CampaignAttributionBuilderService
     private function countLeadAcquisitionShape(array &$stats, object $lead): void
     {
         $hasCampaign = $this->normalizer->isValidAttributionValue($lead->campaign_acquired);
-        $hasSourceOrMedium = $this->normalizer->isValidAttributionValue($lead->fuente_origen)
-            || $this->normalizer->isValidAttributionValue($lead->medio_origen);
+        $hasSourceOrMedium = $this->normalizer->isValidAttributionValue($lead->source_acquired)
+            || $this->normalizer->isValidAttributionValue($lead->medium_acquired);
 
         if ($hasCampaign) {
             $stats['candidates_with_campaign_acquired']++;
@@ -1387,6 +1519,15 @@ class CampaignAttributionBuilderService
 
         if ($this->normalizer->isValidAttributionValue($lead->content_acquired)) {
             $stats['candidates_with_content_acquired']++;
+        }
+    }
+
+    private function countFieldResolutionSources(array &$stats, object $lead): void
+    {
+        foreach ($lead->campaign_field_resolution ?? [] as $dimension => $resolution) {
+            $source = $resolution['source_field'] ?? 'none';
+            $stats['field_resolution_sources'][$dimension][$source] =
+                ($stats['field_resolution_sources'][$dimension][$source] ?? 0) + 1;
         }
     }
 
@@ -1464,6 +1605,7 @@ class CampaignAttributionBuilderService
             'top_acquired_id' => [],
             'top_content_acquired' => [],
             'top_platform_spend' => [],
+            'field_resolution_sources' => [],
             'warnings' => [],
         ];
     }

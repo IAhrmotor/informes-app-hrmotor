@@ -211,3 +211,23 @@ La atribución recopila los matches de `Id_Adquirido__c` y
 elegir. Se agrupan por identidad `platform + campaign_id` (o nombre normalizado
 sin ID); identidades distintas quedan ambiguas. Para una misma campaña se usa
 como traza el match más específico: ad, adset, ad group y campaign ID.
+
+## Procedencia Salesforce efectiva (Fase 6)
+
+El universo de Campañas no cambia: la sincronización y el builder conservan sus
+señales legacy de admisión, incluida la excepción Meta Direct Form. Los campos
+UTM nuevos nunca crean candidatos por sí solos.
+
+Para cada Lead ya admitido, la atribución usa estas parejas independientes:
+
+- `utm_campaign__c` → `Campa_a_Adquirida__c`;
+- `utm_id__c` → `Id_Adquirido__c`;
+- `utm_source__c` → `Fuente_Adquirida__c`;
+- `utm_medium__c` → `Medio_Adquirido__c`;
+- `utm_content__c` → `Contenido_Adquirido__c`.
+
+Solo null, vacío o whitespace permiten fallback. El matching, first touch,
+deduplicación y ambigüedad conservan su precedencia; trabajan con el valor
+efectivo y trazan el API Name ganador. La versión de atribución es
+`2026-09-03.1`. El dry-run sigue sin escribir ni invalidar caché y expone un
+recuento agregado de fuentes ganadoras por dimensión.

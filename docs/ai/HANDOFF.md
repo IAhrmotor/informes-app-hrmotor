@@ -1539,6 +1539,75 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   los artefactos generados porque no existe cambio frontend.
 - `git diff --check`: correcto. Fallos introducidos: cero.
 
+# Correctivo PR #27 — hidratación legacy de Campañas (2026-09-03)
+
+- Se restauró exactamente la política histórica de
+  `fillCampaignFieldsFromRawPayload()` para los doce campos ya consumidos en
+  `main`: un valor local no válido según `CampaignValueNormalizer` puede
+  recuperarse desde un raw legacy informado.
+- Los campos incorporados por la migración permanecen en un bloque separado con
+  política blank-only. Un placeholder nuevo no vacío sigue siendo autoritativo
+  y no se sustituye desde `raw_payload`.
+- El gate, WHERE, Meta Direct Form, first touch, claiming, Opportunities y la
+  resolución efectiva de Fase 6 no cambian. No hay consultas, migraciones,
+  dependencias, PII ni accesos externos nuevos.
+- Regresión focal específica: 13 tests y 28 aserciones. Focal completo de
+  Campañas: 97 tests y 748 aserciones. Suite completa: 856 tests y 6.155
+  aserciones. Pint write + `--test` sobre los dos PHP del PR: correcto.
+- No se ejecutaron backfills, sincronizadores reales ni escrituras en
+  Salesforce, Meta o Google. No requiere acciones manuales adicionales al
+  despliegue ordinario una vez aprobado el PR.
+
+# Fase 6 — Migración de atribución de Campañas (2026-09-03)
+
+## Resumen y decisiones
+
+- Base utilizada: `origin/main` en
+  `95d2254c2b8a9f0c31a71325e17bbea9732dddc5`. Rama:
+  `feature/salesforce-campaign-attribution-migration`.
+- El WHERE del sync y el gate del builder siguen siendo legacy. Los Leads UTM-only
+  continúan excluidos y Meta Direct Form conserva su admisión por portal Meta más
+  fuente legacy Facebook.
+- Tras admitir el Lead, `SalesforceLeadFieldResolver` resuelve de forma
+  independiente campaña, ID, fuente adquirida, medio adquirido y contenido.
+  Cualquier nuevo no vacío gana, incluidos placeholders; solo null/vacío/
+  whitespace usa fallback.
+- Matching, first touch, claiming, deduplicación y ambigüedad no cambian de
+  algoritmo. `matched_source_field` identifica el API Name ganador. La versión
+  de regla pasa a `2026-09-03.1`.
+- La clasificación efectiva para Meta usa `Fuente_origen__c` →
+  `LEA_SEL_Fuente_Origen__c` después del gate. `source_acquired` y
+  `medium_acquired` usan las parejas UTM adquiridas, no `LEA_SEL_*`.
+
+## Archivos, base de datos y operación
+
+- Producción: `CampaignAttributionBuilderService`.
+- Pruebas: nueva regresión `CampaignAttributionFieldMigrationTest`.
+- Documentación: auditoría Salesforce, informe de Campañas, documentación
+  general, decisiones pendientes y este handoff.
+- Sin migraciones, esquema, configuración, frontend ni dependencias. La lectura
+  mantiene chunks y consultas existentes; la resolución es O(1) en memoria por
+  Lead y no añade N+1 ni llamadas externas.
+- `raw_payload` solo hidrata columnas vacías; no sustituye valores locales
+  informados y no se copia a trazas. Los diagnósticos agregan campos ganadores
+  por dimensión sin nombres, emails ni teléfonos.
+
+## Validación y pendientes
+
+- Baseline focal previo: 84 tests, 720 aserciones, correcto.
+- Focal tras implementación: 94 tests, 742 aserciones, correcto.
+- Suite completa: 853 tests, 6.149 aserciones, correcta. Pint se aplicó en modo
+  write y `--test` quedó verde sobre los dos PHP modificados.
+- Composer validate: correcto. Composer audit PHP: sin vulnerabilidades
+  conocidas. Build Vite: correcto; los artefactos regenerados se restauraron al
+  no existir cambio frontend. `git diff --check`: correcto.
+- `npm ci` informó 5 advisories de desarrollo del lock actual (3 high, 2
+  critical); `npm audit --omit=dev` informó 0 vulnerabilidades de producción.
+  No se modificaron dependencias dentro de esta migración funcional.
+- No se ejecutaron sincronizaciones reales, backfill ni escrituras en
+  Salesforce/Google/Meta. Continúa pendiente validar con datos autorizados la
+  semántica de `utm_id__c` por plataforma y medir el volumen UTM-only.
+
 # Fase 5 — Procedencia nuevo → legacy en Reservas/Ventas (2026-09-03)
 
 ## Resumen y archivos

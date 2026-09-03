@@ -127,14 +127,14 @@ no solo su etiqueta.
 | `Id_Adquirido__c` | candidato de ID | attribution builder: ad, adset, ad group y campaign ID | `acquired_id`, `matched_source_field/value` | Campañas | No tras selección; cambia atribución | Crítico | Acordar significado y prioridad ID/nombre |
 | `Contenido_Adquirido__c` | OR filtro, SELECT, mapper | ambos sync de Leads | `content_acquired` en ambas tablas | Campañas, auditoría Leads | Sí en sync Campañas | Crítico | No asumir equivalencia con `utm_content__c` |
 | `Contenido_Adquirido__c` | segundo candidato de ID | attribution builder | `content_acquired`, traza de match | Campañas | No tras selección; cambia atribución | Alto | Definir si es contenido, anuncio u otro identificador |
-| `Fuente_Adquirida__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Medio | Verificar API Name y equivalencia; no está seleccionado ni mapeado |
-| `Medio_Adquirido__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Medio | Verificar API Name y equivalencia |
+| `Fuente_Adquirida__c` | fallback de fuente adquirida | sync y attribution builder | `acquired_source_legacy`, `source_acquired` efectivo | Campañas | No | Alto | Fallback exclusivo de `utm_source__c`; no confundir con procedencia general |
+| `Medio_Adquirido__c` | fallback de medio adquirido | sync y attribution builder | `acquired_medium_legacy`, `medium_acquired` efectivo | Campañas | No | Alto | Fallback exclusivo de `utm_medium__c` |
 | `Fuente_origen__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Crítico | Verificar API Name; crear destino inequívoco en fase posterior |
 | `Medio_origen__c` | filtro SOQL aislado | `SalesforceOrganicLeadSyncService::soql` | `seo_salesforce_organic_daily_metrics.lead_count` agregado diario | SEO/Analytics | Sí, solo universo SEO orgánico | Alto | No mezclar con `salesforce_leads.medio_origen` legacy |
 | `Canal__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Alto | Pendiente definir autoridad y valores válidos |
 | `Delegacion_procedencia__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Crítico | Pendiente prioridad, Exposición y aliases |
-| `utm_campaign__c`, `utm_id__c`, `utm_source__c`, `utm_medium__c`, `utm_content__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Crítico | Verificar existencia, semántica, validez y fallback antes de consultar |
-| campos locales `source_acquired`, `medium_acquired` | proyección de atribución | `CampaignAttributionBuilderService::buildAttributionRow` | tablas de atribución | Campañas/export | No | Alto | Proceden de `fuente_origen`/`medio_origen`, por tanto de `LEA_SEL_*`, no de campos `*_Adquirida__c` |
+| `utm_campaign__c`, `utm_id__c`, `utm_source__c`, `utm_medium__c`, `utm_content__c` | SELECT y resolución efectiva tras gate legacy | ambos sync y attribution builder | columnas `utm_*_new`, `field_resolution`, atribuciones | Campañas | No en universo; sí en atribución | Crítico | Nuevo no vacío gana por dimensión; `utm_id__c` conserva la posición funcional del ID legacy |
+| campos locales `source_acquired`, `medium_acquired` | proyección de atribución | `CampaignAttributionBuilderService::makeAttributionRow` | tablas de atribución | Campañas/export | No | Alto | Proceden de `utm_source/Fuente_Adquirida` y `utm_medium/Medio_Adquirido`; no de `LEA_SEL_*` |
 
 ## Flujos de datos actuales
 
@@ -496,3 +496,23 @@ Raw y resolución se escriben juntos dentro de la transacción corta del chunk.
 La prueba de caracterización cubre valores nuevos, preservados por whitespace,
 fallbacks legacy, conflictos, cinco dimensiones mezcladas, JSON nulo/parcial/
 inválido, `raw_payload`, campos generales e idempotencia.
+
+## Fase 6: atribución efectiva de Campañas (2026-09-03)
+
+El universo permanece gobernado por el WHERE y el gate PHP legacy. Solo después
+de admitir un Lead, el builder resuelve de forma independiente `utm_campaign`,
+`utm_id`, `utm_source`, `utm_medium` y `utm_content` mediante
+`SalesforceLeadFieldResolver`; null, vacío o whitespace activan la pareja legacy
+y cualquier otro valor nuevo bloquea ese fallback.
+
+`source_acquired` y `medium_acquired` representan ahora correctamente
+`utm_source__c`/`Fuente_Adquirida__c` y
+`utm_medium__c`/`Medio_Adquirido__c`. `matched_source_field` conserva el API Name
+ganador en los cruces por ID, contenido o nombre. Los diagnósticos agregan
+`field_resolution_sources` por dimensión sin PII. La regla queda versionada como
+`2026-09-03.1`.
+
+La excepción Meta Direct Form sigue admitiendo exclusivamente por
+`Portal_Text__c = Meta` y `LEA_SEL_Fuente_Origen__c = Facebook`; una vez dentro,
+su clasificación efectiva usa `Fuente_origen__c` con fallback a ese origen
+legacy. No hubo migración, backfill ni acceso real a Salesforce, Google o Meta.

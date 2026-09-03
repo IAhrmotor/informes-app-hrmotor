@@ -24,9 +24,9 @@ Permanecen como validaciones técnicas u operativas para fases posteriores:
   Campañas antes de proponer cualquier ampliación del filtro;
 - diseñar, aprobar y ejecutar por separado el backfill/reprocesado histórico,
   con lotes, reanudación, métricas y conciliación;
-- migrar conscientemente el attribution builder; Llamadas y Reservas/Ventas ya
-  consumen `Fuente_origen__c` en su clasificación visible, conservando sus
-  prioridades legacy específicas y sin modificar sus universos.
+- Llamadas, Reservas/Ventas y el attribution builder ya consumen los campos
+  nuevos en su clasificación efectiva, conservando sus prioridades legacy
+  específicas y sin modificar sus universos.
 
 Las siguientes reglas del alcance ya implantado permanecen cerradas y no se
 reabren por esta auditoría:
@@ -92,6 +92,7 @@ vacío. No se modifica el matching existente por email/teléfono ni su orden por
 | Reservas / Ventas | El selector de fecha define toda la cohorte; reserva/firma repetida para el mismo vehículo y fecha cuenta una vez y genera incidencia auditable. |
 | Llamadas | Solo Tasks de llamada con `CallObject`; `ABANDONED` nunca es atendida ni desbordada; clasificación versionada y reproceso únicamente manual y trazable. |
 | Campañas | Google/Meta, Salesforce-only, prueba, pendiente, ambiguo y sin atribuir están separados; first touch no duplica entidades; las pruebas se excluyen solo por clasificación persistida. |
+| Campañas / Fase 6 | El gate de universo sigue siendo legacy; una vez admitido el Lead, las cinco parejas UTM se resuelven nuevo → legacy de forma independiente y Fuente/Medio adquiridos dejan de usar `LEA_SEL_*`. |
 | Comisiones | Mes único en seis pestañas y exports; mes actual provisional; cierre económico persistente, auditable y reproducible; ajustes posteriores no sobrescriben silenciosamente un definitivo. |
 | Stock | Catálogo canónico de Salesforce, todo Disponible evaluado, 60/90 como prioridad, Top 3 teórico, plan conjunto sin sobreasignar capacidad y sin reservas logísticas persistentes. |
 | Stock | Entre ventas válidas del mismo vehículo gana la firma más reciente; un empate exacto queda como `duplicate_ambiguous` y no suma. |
