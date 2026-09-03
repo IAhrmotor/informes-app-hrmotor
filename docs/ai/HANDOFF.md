@@ -1539,6 +1539,25 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   los artefactos generados porque no existe cambio frontend.
 - `git diff --check`: correcto. Fallos introducidos: cero.
 
+# Correctivo PR #27 — hidratación legacy de Campañas (2026-09-03)
+
+- Se restauró exactamente la política histórica de
+  `fillCampaignFieldsFromRawPayload()` para los doce campos ya consumidos en
+  `main`: un valor local no válido según `CampaignValueNormalizer` puede
+  recuperarse desde un raw legacy informado.
+- Los campos incorporados por la migración permanecen en un bloque separado con
+  política blank-only. Un placeholder nuevo no vacío sigue siendo autoritativo
+  y no se sustituye desde `raw_payload`.
+- El gate, WHERE, Meta Direct Form, first touch, claiming, Opportunities y la
+  resolución efectiva de Fase 6 no cambian. No hay consultas, migraciones,
+  dependencias, PII ni accesos externos nuevos.
+- Regresión focal específica: 13 tests y 28 aserciones. Focal completo de
+  Campañas: 97 tests y 748 aserciones. Suite completa: 856 tests y 6.155
+  aserciones. Pint write + `--test` sobre los dos PHP del PR: correcto.
+- No se ejecutaron backfills, sincronizadores reales ni escrituras en
+  Salesforce, Meta o Google. No requiere acciones manuales adicionales al
+  despliegue ordinario una vez aprobado el PR.
+
 # Fase 6 — Migración de atribución de Campañas (2026-09-03)
 
 ## Resumen y decisiones

@@ -353,13 +353,27 @@ class CampaignAttributionBuilderService
         foreach ([
             'fuente_origen' => 'LEA_SEL_Fuente_Origen__c',
             'medio_origen' => 'LEA_SEL_Medio_Origen__c',
+            'campaign_acquired' => 'Campa_a_Adquirida__c',
+            'acquired_id' => 'Id_Adquirido__c',
+            'content_acquired' => 'Contenido_Adquirido__c',
+            'vehicle_interest' => 'LEA_BUS_Vehiculo_de_interes__c',
+            'phone' => 'Phone',
+            'mobile_phone' => 'MobilePhone',
+            'email' => 'Email',
+            'converted_account_id' => 'ConvertedAccountId',
+            'converted_opportunity_id' => 'ConvertedOpportunityId',
+            'portal_text' => 'Portal_Text__c',
+        ] as $localField => $salesforceField) {
+            if (! $this->normalizer->isValidAttributionValue($lead->{$localField} ?? null) && filled(data_get($payload, $salesforceField))) {
+                $lead->{$localField} = data_get($payload, $salesforceField);
+            }
+        }
+
+        foreach ([
             'source_origin_new' => 'Fuente_origen__c',
             'medium_origin_new' => 'Medio_origen__c',
             'channel_new' => 'Canal__c',
             'delegation_origin_new' => 'Delegacion_procedencia__c',
-            'campaign_acquired' => 'Campa_a_Adquirida__c',
-            'acquired_id' => 'Id_Adquirido__c',
-            'content_acquired' => 'Contenido_Adquirido__c',
             'acquired_source_legacy' => 'Fuente_Adquirida__c',
             'acquired_medium_legacy' => 'Medio_Adquirido__c',
             'utm_campaign_new' => 'utm_campaign__c',
@@ -369,25 +383,11 @@ class CampaignAttributionBuilderService
             'utm_content_new' => 'utm_content__c',
             'medio_nuevo' => 'Medio_Nuevo__c',
             'fuente_nuevo' => 'Fuente_Nuevo__c',
-            'portal_text' => 'Portal_Text__c',
         ] as $localField => $salesforceField) {
             $payloadValue = data_get($payload, $salesforceField);
 
             if ($this->isBlankValue($lead->{$localField} ?? null) && ! $this->isBlankValue($payloadValue)) {
                 $lead->{$localField} = $payloadValue;
-            }
-        }
-
-        foreach ([
-            'vehicle_interest' => 'LEA_BUS_Vehiculo_de_interes__c',
-            'phone' => 'Phone',
-            'mobile_phone' => 'MobilePhone',
-            'email' => 'Email',
-            'converted_account_id' => 'ConvertedAccountId',
-            'converted_opportunity_id' => 'ConvertedOpportunityId',
-        ] as $localField => $salesforceField) {
-            if (! $this->normalizer->isValidAttributionValue($lead->{$localField} ?? null) && filled(data_get($payload, $salesforceField))) {
-                $lead->{$localField} = data_get($payload, $salesforceField);
             }
         }
     }

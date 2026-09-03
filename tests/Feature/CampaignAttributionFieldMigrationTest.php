@@ -233,6 +233,73 @@ class CampaignAttributionFieldMigrationTest extends TestCase
         $this->assertDatabaseMissing('campaign_attributions', ['lead_id' => '00Q-meta-new-only']);
     }
 
+    public function test_invalid_local_legacy_campaign_is_hydrated_from_raw_payload_as_before_phase_six(): void
+    {
+        $this->createLead([
+            'salesforce_id' => '00Q-legacy-raw-gate',
+            'campaign_acquired' => 'none',
+            'raw_payload' => [
+                'Campa_a_Adquirida__c' => 'Legacy campaign',
+            ],
+        ]);
+        $this->createMetric('metric-legacy-raw-gate', 'campaign-legacy-raw', 'Legacy campaign');
+
+        $stats = $this->build();
+
+        $this->assertSame(1, $stats['candidate_leads']);
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-legacy-raw-gate',
+            'campaign_id' => 'campaign-legacy-raw',
+            'campaign_acquired' => 'Legacy campaign',
+            'matched_source_field' => 'Campa_a_Adquirida__c',
+        ]);
+    }
+
+    public function test_legacy_raw_payload_recovers_admission_before_new_utm_campaign_wins(): void
+    {
+        $this->createLead([
+            'salesforce_id' => '00Q-legacy-gate-new-effective',
+            'campaign_acquired' => 'none',
+            'utm_campaign_new' => 'New campaign',
+            'raw_payload' => [
+                'Campa_a_Adquirida__c' => 'Legacy campaign',
+            ],
+        ]);
+        $this->createMetric('metric-legacy-gate-new-effective', 'campaign-new-effective', 'New campaign');
+
+        $stats = $this->build();
+
+        $this->assertSame(1, $stats['candidate_leads']);
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-legacy-gate-new-effective',
+            'campaign_id' => 'campaign-new-effective',
+            'campaign_acquired' => 'New campaign',
+            'matched_source_field' => 'utm_campaign__c',
+        ]);
+    }
+
+    public function test_meta_direct_form_keeps_legacy_raw_payload_hydration_for_admission(): void
+    {
+        $this->createLead([
+            'salesforce_id' => '00Q-meta-legacy-raw',
+            'campaign_acquired' => null,
+            'portal_text' => 'Meta',
+            'fuente_origen' => 'none',
+            'raw_payload' => [
+                'LEA_SEL_Fuente_Origen__c' => 'Facebook',
+            ],
+        ]);
+
+        $stats = $this->build();
+
+        $this->assertSame(1, $stats['candidate_leads']);
+        $this->assertDatabaseHas('campaign_attributions', [
+            'lead_id' => '00Q-meta-legacy-raw',
+            'campaign_id' => 'meta_instantforms_direct_form',
+            'campaign_name' => 'Formulario Directo Meta',
+        ]);
+    }
+
     public function test_raw_payload_hydrates_only_blank_local_fields_and_preserves_placeholders(): void
     {
         $this->createLead([
