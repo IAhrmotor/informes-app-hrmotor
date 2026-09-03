@@ -1351,3 +1351,16 @@ valores fallback sensibles para el endpoint interno de reseñas. Deben retirarse
 rotarse y proporcionarse únicamente mediante `INTERNAL_REVIEWS_ENDPOINT`,
 `INTERNAL_REVIEWS_USER` e `INTERNAL_REVIEWS_PASSWORD`. Este hallazgo no se
 resuelve copiando los valores a otro documento.
+
+### 9.1 Conciliación de Campañas tras Fase 6
+
+La cohorte debe conciliarse primero con las señales legacy, porque los UTM
+nuevos no amplían el universo. Dentro de esa misma lista de Lead IDs se comparan
+después los cinco valores efectivos nuevo → legacy y `matched_source_field`.
+`source_acquired`/`medium_acquired` proceden de Fuente/Medio adquiridos, no de
+los campos generales `LEA_SEL_*`. Meta Direct Form mantiene su gate legacy y
+solo migra la clasificación efectiva posterior a la admisión.
+
+La ejecución implementada es local y por chunks, sin consultas por Lead ni
+llamadas externas añadidas. No se ha realizado backfill ni validación contra
+datos reales de Salesforce, Google o Meta.
