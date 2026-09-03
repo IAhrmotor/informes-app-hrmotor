@@ -1820,3 +1820,87 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Build Vite: correcto, con avisos preexistentes de imagen runtime y deprecación
   Node; artefactos regenerados restaurados al no existir cambio frontend.
 - `git diff --check`: correcto. Fallos introducidos: cero.
+
+# Fase 7A — Backfill histórico controlado de atribución Lead (2026-09-03)
+
+## Resumen y archivos
+
+- Se añadió el comando `salesforce:backfill-lead-attribution-fields`, su servicio
+  por lotes, el modelo/migración de histórico y una suite feature dedicada.
+- Se actualizaron la auditoría Salesforce, la guía general, el estado de
+  decisiones pendientes, la decisión arquitectónica de backfill y este
+  handoff. `PROJECT_CONTEXT.md` no cambia porque no se altera la estructura
+  general de módulos ni una convención transversal de la aplicación.
+
+## Decisiones y base de datos
+
+- El universo se obtiene mediante la unión ordenada de IDs ya existentes y
+  dentro del rango local en `salesforce_leads` y
+  `campaign_salesforce_leads`. Salesforce solo recibe consultas `Lead WHERE Id
+  IN (...)` sobre IDs 00Q validados.
+- Se creó `salesforce_lead_attribution_backfill_history` porque los mecanismos
+  existentes no guardaban before/after por fila para ambas tablas. Conserva
+  run UUID, tabla, Salesforce ID, motivo, campos cambiados, valores anteriores/
+  nuevos y fecha. No guarda PII ni payloads completos.
+- Las escrituras son UPDATE masivos y transaccionales por chunk junto con el
+  histórico. No existe ruta de insert de Lead. Los resolvers centrales calculan
+  `field_resolution` y las materializaciones del dashboard.
+
+## Seguridad y rendimiento
+
+- `--from`/`--to` y un modo exclusivo son obligatorios; `--apply` requiere un
+  motivo de al menos 10 caracteres. Dry-run no escribe tablas, histórico ni
+  cachés.
+- Se consultan solo Id y once campos de atribución, sin nombre, email o teléfono.
+  El proceso usa lotes de 100, una consulta Salesforce por lote, lecturas SQL
+  agrupadas, UPDATE masivo y transacción corta. No hay N+1 ni red desde HTTP.
+- `raw_payload` conserva todas sus claves y solo fusiona las once consultadas;
+  el histórico registra únicamente ese subconjunto. Las cachés concretas se
+  versionan solo después de cambios aplicados.
+
+## Pruebas y operación
+
+- La suite nueva cubre validación de modo/rango/motivo, dry-run, apply,
+  idempotencia, tablas general/especializada, IDs extra/ausentes/inválidos,
+  UTM-only, cursor/limit, fallo Salesforce entre lotes y rollback conjunto ante
+  error DB.
+- Test específico: 9 pruebas y 74 aserciones, correcto. Bloque focal con
+  resolvers, sync mensual y Campañas: 56 pruebas y 394 aserciones, correcto.
+  Suite completa: 865 pruebas y 6.229 aserciones, correcta. Pint WRITE y
+  `--test`, Composer validate/audit, build Vite y `git diff --check`: correctos.
+  El build conserva los avisos preexistentes de imagen runtime y deprecación de
+  Node; sus artefactos hash se restauraron porque no hay cambio frontend.
+- La herramienta está preparada, pero el histórico todavía **NO ha sido
+  modificado**. No se ejecutaron `--apply`, backfill real, sincronizadores,
+  Calls, Opportunities, reconstrucción de Campañas ni escrituras Salesforce.
+- Acción manual posterior: desplegar la migración, revisar primero una ventana
+  con `--dry-run`, aprobar motivo/rango y ejecutar `--apply` únicamente mediante
+  el runbook operativo correspondiente.
+
+## Correctivo de consistencia previo al merge del PR #28
+
+- La identidad usada para conciliar Salesforce IDs es ahora los primeros 15
+  caracteres, conservando exactamente mayúsculas y minúsculas. Las variantes
+  local 15 / respuesta 18 se reconocen como el mismo Lead; un cambio de casing
+  en esos 15 caracteres continúa representando una identidad distinta.
+- El cursor sigue ordenando el `salesforce_id` local literal. Dentro de cada
+  lote, representaciones 15/18 equivalentes comparten una consulta lógica y
+  cada fila local existente conserva su clave original.
+- La consulta Salesforce permanece fuera de la transacción. En `--apply`, las
+  filas objetivo se releen con `lockForUpdate()` y `ORDER BY salesforce_id`; solo
+  después se fusiona el `raw_payload`, se recalcula la resolución y se construye
+  el before/after. Así se preservan cambios concurrentes confirmados por el sync
+  periódico y el histórico describe el estado realmente bloqueado.
+- Un lock atómico de Laravel sobre el store de caché configurado protege apply
+  frente a apply durante seis horas y se libera en `finally`. Dry-run no toma
+  este mutex. El lock no sustituye el bloqueo transaccional frente a otros
+  escritores.
+- Las regresiones cubren equivalencia 15/18, sensibilidad a casing, coexistencia
+  de representaciones entre tablas, cursor literal mixto, snapshot concurrente,
+  before real y exclusión mutua. La herramienta sigue sin haberse ejecutado
+  sobre datos reales y las escrituras Salesforce continúan siendo cero.
+- Validación local: backfill 16/16 y 114 aserciones; bloque focal completo 63/63
+  y 434 aserciones; suite completa 872/872 y 6.269 aserciones. Pint WRITE y
+  `--test`, Composer validate/audit, build Vite y `git diff --check` correctos.
+  El build solo emitió los avisos preexistentes y sus artefactos se restauraron
+  porque este correctivo no incluye frontend. No hay migraciones nuevas.

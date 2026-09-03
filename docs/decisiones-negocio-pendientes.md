@@ -22,8 +22,9 @@ Permanecen como validaciones técnicas u operativas para fases posteriores:
   plataforma; se conserva como identificador secundario y no decide el nombre;
 - medir Leads que solo tienen UTM nuevos y quedan fuera del universo legacy de
   Campañas antes de proponer cualquier ampliación del filtro;
-- diseñar, aprobar y ejecutar por separado el backfill/reprocesado histórico,
-  con lotes, reanudación, métricas y conciliación;
+- revisar operativamente y ejecutar por separado el backfill histórico: la
+  herramienta segura, simulable, reanudable y auditable ya está preparada en
+  Fase 7A, pero el histórico todavía NO ha sido modificado;
 - Llamadas, Reservas/Ventas y el attribution builder ya consumen los campos
   nuevos en su clasificación efectiva, conservando sus prioridades legacy
   específicas y sin modificar sus universos.
