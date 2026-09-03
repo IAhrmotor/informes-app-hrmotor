@@ -46,6 +46,10 @@ La prioridad de procedencia del Lead relacionado queda cerrada como
 vacío. No se modifica el matching existente por email/teléfono ni su orden por
 `CreatedDate DESC`.
 
+La herramienta segura de reproceso histórico de portales está preparada en
+Fase 7B con dry-run/apply explícitos, histórico y reanudación, pero todavía NO
+se ha ejecutado sobre el histórico ni se ha realizado un dry-run productivo.
+
 - Definir, si Dirección quiere utilizarlo, qué benchmark debe alimentar las
   conclusiones automáticas: objetivo, media ponderada, media simple o período
   anterior. Hasta entonces no se emiten recomendaciones basadas en benchmark.

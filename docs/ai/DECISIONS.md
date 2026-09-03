@@ -387,3 +387,20 @@ del hash porque no alteran la regla v1.
   releer las filas bajo `lockForUpdate()`. Un mutex atómico de caché con TTL de
   seis horas evita dos apply simultáneos, mientras el lock de filas mantiene la
   coherencia con sincronizadores que no participan en ese mutex.
+
+## 2026-09-03 - Reproceso de portales de Opportunity acotado y auditable
+
+- El reproceso conserva el comando existente y limita su universo a Opportunities
+  locales en un rango de `created_date`; la PK local numérica es el cursor
+  estable. No descubre, inserta ni elimina Opportunities.
+- Dry-run y apply son modos mutuamente excluyentes. Apply exige motivo, usa un
+  mutex de caché de seis horas y confirma por chunk el UPDATE junto al histórico
+  before/after. La caché se versiona una sola vez si existe algún commit efectivo.
+- El matching Lead remoto se completa antes de abrir la transacción. Después se
+  releen filas bajo `lockForUpdate()` y se valida una huella de los inputs; si
+  cambian, se libera el lock, se repite la consulta Lead y se limita a tres
+  intentos. No se mantiene HTTP bajo locks DB.
+- La auditoría específica conserva solo los seis campos de atribución y filtra
+  el debug mediante whitelist. Se omiten PII y `raw_payload` completo, y no se
+  añade FK para que la evidencia técnica sobreviva a la eventual retirada de la
+  réplica local.

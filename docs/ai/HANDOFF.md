@@ -1904,3 +1904,52 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   `--test`, Composer validate/audit, build Vite y `git diff --check` correctos.
   El build solo emitió los avisos preexistentes y sus artefactos se restauraron
   porque este correctivo no incluye frontend. No hay migraciones nuevas.
+
+# Fase 7B — Reproceso histórico seguro de portales de Opportunities (2026-09-03)
+
+## Resumen y archivos
+
+- Se endureció `reports:reprocess-opportunity-portals` y se extrajo la operación
+  a `OpportunityPortalReprocessService`; no se creó un comando paralelo.
+- Se añadieron el modelo y la migración de
+  `salesforce_opportunity_portal_reprocess_history` y se amplió la suite feature
+  del comando. También se actualizaron las guías de Reservas/Ventas, auditoría,
+  decisiones y contexto general. `PROJECT_CONTEXT.md` no cambia porque el módulo
+  y sus convenciones generales permanecen iguales.
+
+## Decisiones, seguridad y base de datos
+
+- El universo nace únicamente de `salesforce_opportunities` local y del rango
+  `[from, to)`. Dry-run/apply son exclusivos; apply exige motivo, toma un mutex
+  de seis horas y solo actualiza seis campos de atribución más `updated_at`
+  cuando existe un cambio real.
+- Salesforce se usa en lectura exclusivamente para el matching Lead agrupado ya
+  existente. No se consulta Opportunity ni se invocan create/update remotos.
+  No se registra PII en métricas, errores o histórico.
+- La tabla nueva guarda run UUID, IDs técnicos, motivo, campos modificados,
+  before/after y fecha. El debug se filtra por whitelist y no se guarda
+  `raw_payload`. UPDATE e histórico comparten transacción por chunk.
+
+## Concurrencia y rendimiento
+
+- Los chunks son de 100 y avanzan por PK local. La consulta Lead ocurre antes de
+  abrir la transacción. Las filas se releen ordenadas con `lockForUpdate()` y se
+  valida una huella de todos los inputs de resolución; cualquier cambio fuerza
+  reconsulta y reintento, con máximo de tres.
+- No hay N+1, HTTP bajo locks, insert/upsert/delete de Opportunity ni
+  `Cache::clear()`. La versión de caché se incrementa una vez si hubo cambios
+  confirmados, incluso cuando falla un chunk posterior.
+
+## Pruebas y operación
+
+- Baseline previo: 34 pruebas y 166 aserciones, correcto. Suite focal ampliada:
+  91 pruebas y 735 aserciones, correcta. Suite completa: 882 pruebas y 6.368
+  aserciones, correcta. Pint WRITE y `--test`, Composer validate/audit, build
+  Vite y `git diff --check`: correctos. El build solo emitió los avisos
+  preexistentes y sus artefactos se restauraron al no existir cambio frontend.
+  `npm ci` informó 5 advisories del lock actual (3 high, 2 critical); no se
+  alteraron dependencias porque su remediación queda fuera de esta fase.
+- La herramienta está preparada, pero el reproceso histórico **NO se ha
+  ejecutado** y tampoco se ha realizado un dry-run productivo. Escrituras
+  Salesforce: cero. Tras desplegar la migración, cualquier operación real
+  requiere conciliación, aprobación y runbook separados.
