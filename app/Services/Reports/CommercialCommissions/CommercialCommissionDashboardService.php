@@ -988,7 +988,7 @@ class CommercialCommissionDashboardService
         }
 
         if ($this->isAppraisal($operation)) {
-            return $this->operationCommissionDetail($operation, 'appraisal', 60.0, 'Tasacion 60 EUR');
+            return $this->operationCommissionDetail($operation, 'appraisal', 60.0, 'Tasación 60 EUR');
         }
 
         if ($this->isChange($operation)) {
