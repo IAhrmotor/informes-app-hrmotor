@@ -560,3 +560,26 @@ bloquea las filas locales en orden por `salesforce_id`; candidato,
 bloqueo. Un lock atómico de caché de seis horas impide dos apply concurrentes y
 se libera siempre; dry-run no lo adquiere. No se ha ejecutado el backfill real
 ni se ha realizado ninguna escritura Salesforce.
+
+## Fase 7B: reproceso controlado de atribución de Opportunities (2026-09-03)
+
+El comando existente `reports:reprocess-opportunity-portals` requiere ahora
+rango local `[--from, --to)`, modo explícito, motivo para apply y admite
+`--limit`/`--after-id`. Su universo son exclusivamente Opportunities locales ya
+persistidas. Mantiene la resolución de Fase 5 y solo consulta Leads Salesforce
+en lectura mediante el matching agrupado existente; las consultas Opportunity
+y las escrituras Salesforce son cero.
+
+Dry-run ejecuta la resolución sin UPDATE, histórico, cambio de `updated_at` ni
+invalidación de caché. Apply usa mutex de seis horas, chunks de 100 y transacción
+por lote. La consulta remota ocurre antes de la transacción; luego las filas se
+releen ordenadas bajo `lockForUpdate()` y se compara una huella de portal,
+fuente raw y datos locales de matching. Si cambia, se reconsulta Lead y se
+reintenta hasta tres veces.
+
+Solo pueden cambiar los seis campos de atribución aprobados. El before/after se
+guarda atómicamente en `salesforce_opportunity_portal_reprocess_history` con
+debug filtrado por whitelist, sin nombre, teléfono, email ni payload completo.
+Un fallo detiene el chunk y conserva como cursor el último lote confirmado; si
+ya hubo commits, la caché se invalida exactamente una vez. La herramienta está
+preparada, pero no se ha ejecutado el histórico ni un dry-run productivo.

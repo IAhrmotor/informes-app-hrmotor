@@ -1383,3 +1383,23 @@ conciliación, pero nunca se insertan en el universo legacy de Campañas.
 
 La infraestructura está preparada; el histórico todavía **NO ha sido
 modificado** y su ejecución requiere una aprobación operativa posterior.
+
+### 9.3 Reproceso histórico de portales de Opportunities (Fase 7B)
+
+`reports:reprocess-opportunity-portals` opera únicamente sobre filas locales de
+`salesforce_opportunities` dentro de un rango `created_date` `[--from, --to)`.
+Exige exactamente uno de `--dry-run` o `--apply`; apply requiere motivo, usa
+mutex de seis horas, lotes de 100 y cursor local exclusivo `--after-id`.
+
+La resolución reutiliza sin cambios la precedencia de Fase 5. Salesforce se
+consulta solo en lectura y únicamente sobre Lead para el matching por lotes;
+no existe consulta `FROM Opportunity` ni escritura remota. Antes de cada UPDATE,
+la fila se relee con `lockForUpdate()` y se valida una huella de todos los inputs
+de resolución. Un cambio concurrente fuerza una nueva consulta Lead, con máximo
+de tres intentos y sin HTTP bajo locks.
+
+Cada lote confirma conjuntamente los seis campos funcionales permitidos y su
+before/after en `salesforce_opportunity_portal_reprocess_history`. No guarda PII
+ni `raw_payload`, no inserta o elimina Opportunities y solo incrementa la versión
+de caché si hubo cambios confirmados. La herramienta está preparada; no se ha
+ejecutado el reproceso histórico ni un dry-run productivo.
