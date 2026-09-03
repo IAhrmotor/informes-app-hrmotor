@@ -14,10 +14,9 @@ class ReprocessOpportunityPortalsCommandTest extends TestCase
 
     public function test_reprocesa_oportunidades_actualiza_portal_y_soporta_limit(): void
     {
-        $this->app->bind(SalesforceClient::class, fn () => new class extends SalesforceClient {
-            public function __construct()
-            {
-            }
+        $this->app->bind(SalesforceClient::class, fn () => new class extends SalesforceClient
+        {
+            public function __construct() {}
 
             public function query(string $soql): array
             {
