@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
 use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService;
 use App\Services\Salesforce\SalesforceClient;
+use App\Services\Salesforce\SalesforceLeadFieldResolver;
 use Illuminate\Support\Collection;
 use Tests\TestCase;
 
@@ -90,6 +91,122 @@ class OpportunityPortalResolutionTest extends TestCase
         $this->assertSame('Google Maps', $result['portal']);
         $this->assertSame('lead', $result['source']);
         $this->assertSame('lead-conflict', $result['lead_id']);
+        $this->assertSame('Portal_Text__c', data_get($result, 'debug.selectedLeadLegacySourceField'));
+        $this->assertSame('Portal_Text__c', data_get($result, 'debug.selectedLeadEffectiveSourceField'));
+        $this->assertTrue(data_get($result, 'debug.selectedLeadUsedFallback'));
+    }
+
+    public function test_fallback_legacy_conserva_prioridad_de_los_tres_campos(): void
+    {
+        foreach ([
+            [['Portal_Text__c' => 'Google Maps', 'LEA_SEL_Fuente_Origen__c' => 'Coches.net', 'Fuente_Nuevo__c' => 'Wallapop'], 'Google Maps', 'Portal_Text__c'],
+            [['Portal_Text__c' => null, 'LEA_SEL_Fuente_Origen__c' => 'Coches.net', 'Fuente_Nuevo__c' => 'Wallapop'], 'Coches.net', 'LEA_SEL_Fuente_Origen__c'],
+            [['Portal_Text__c' => null, 'LEA_SEL_Fuente_Origen__c' => null, 'Fuente_Nuevo__c' => 'Wallapop'], 'Wallapop', 'Fuente_Nuevo__c'],
+        ] as [$leadFields, $expectedPortal, $expectedField]) {
+            $result = $this->service()->resolvePortalForRecord(
+                $this->opportunity(['Portal__c' => '3CX']),
+                $this->leads([[...$leadFields, 'Id' => 'lead-legacy-priority']]),
+            );
+
+            $this->assertSame($expectedPortal, $result['portal']);
+            $this->assertSame($expectedField, data_get($result, 'debug.selectedLeadLegacySourceField'));
+            $this->assertSame($expectedField, data_get($result, 'debug.selectedLeadEffectiveSourceField'));
+            $this->assertTrue(data_get($result, 'debug.selectedLeadUsedFallback'));
+        }
+    }
+
+    public function test_fuente_nueva_del_lead_gana_y_deja_traza_del_conflicto_legacy(): void
+    {
+        $result = $this->service()->resolvePortalForRecord(
+            $this->opportunity(['Portal__c' => '3CX']),
+            $this->leads([[
+                'Id' => 'lead-new-source',
+                'Fuente_origen__c' => 'Coches.net',
+                'Portal_Text__c' => 'Google Maps',
+                'LEA_SEL_Fuente_Origen__c' => 'Wallapop',
+                'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+            ]]),
+        );
+
+        $this->assertSame('Coches.net', $result['portal']);
+        $this->assertSame('lead', $result['source']);
+        $this->assertSame('Coches.net', data_get($result, 'debug.selectedLeadSourceNewRaw'));
+        $this->assertSame('Google Maps', data_get($result, 'debug.selectedLeadLegacyPortalRaw'));
+        $this->assertSame('Portal_Text__c', data_get($result, 'debug.selectedLeadLegacySourceField'));
+        $this->assertSame('Fuente_origen__c', data_get($result, 'debug.selectedLeadEffectiveSourceField'));
+        $this->assertFalse(data_get($result, 'debug.selectedLeadUsedFallback'));
+        $this->assertTrue(data_get($result, 'debug.selectedLeadConflict'));
+    }
+
+    public function test_fuente_nueva_vacia_o_whitespace_usa_fallback_legacy(): void
+    {
+        foreach (['', '   '] as $newSource) {
+            $result = $this->service()->resolvePortalForRecord(
+                $this->opportunity(['Portal__c' => '3CX']),
+                $this->leads([[
+                    'Id' => 'lead-legacy-source',
+                    'Fuente_origen__c' => $newSource,
+                    'Portal_Text__c' => 'Google Maps',
+                    'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+                ]]),
+            );
+
+            $this->assertSame('Google Maps', $result['portal']);
+            $this->assertSame('Portal_Text__c', data_get($result, 'debug.selectedLeadEffectiveSourceField'));
+            $this->assertTrue(data_get($result, 'debug.selectedLeadUsedFallback'));
+        }
+    }
+
+    public function test_lead_con_solo_fuente_nueva_puede_resolver_procedencia(): void
+    {
+        $result = $this->service()->resolvePortalForRecord(
+            $this->opportunity(['Portal__c' => '3CX']),
+            $this->leads([[
+                'Id' => 'lead-only-new-source',
+                'Fuente_origen__c' => 'Wallapop',
+                'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+            ]]),
+        );
+
+        $this->assertSame('Wallapop', $result['portal']);
+        $this->assertSame('lead', $result['source']);
+        $this->assertSame('lead-only-new-source', $result['lead_id']);
+    }
+
+    public function test_placeholder_nuevo_no_recurre_a_legacy_ni_a_fuente_de_opportunity(): void
+    {
+        $result = $this->service()->resolvePortalForRecord(
+            $this->opportunity(['Portal__c' => '3CX', 'Fuente_de_Origen__c' => 'Coches.net']),
+            $this->leads([[
+                'Id' => 'lead-placeholder',
+                'Fuente_origen__c' => 'No identificado',
+                'Portal_Text__c' => 'Google Maps',
+                'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+            ]]),
+        );
+
+        $this->assertSame('Sin clasificar', $result['portal']);
+        $this->assertSame('lead', $result['source']);
+        $this->assertSame('lead-placeholder', $result['lead_id']);
+        $this->assertSame('No identificado', data_get($result, 'debug.selectedLeadPortalRaw'));
+        $this->assertSame('Fuente_origen__c', data_get($result, 'debug.selectedLeadEffectiveSourceField'));
+        $this->assertFalse(data_get($result, 'debug.selectedLeadUsedFallback'));
+    }
+
+    public function test_portal_concluyente_de_opportunity_sigue_ganando_a_fuente_nueva_del_lead(): void
+    {
+        $result = $this->service()->resolvePortalForRecord(
+            $this->opportunity(['Portal__c' => 'Coches.net']),
+            $this->leads([[
+                'Id' => 'lead-new-source',
+                'Fuente_origen__c' => 'Wallapop',
+                'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+            ]]),
+        );
+
+        $this->assertSame('Coches.net', $result['portal']);
+        $this->assertSame('opportunity', $result['source']);
+        $this->assertNull($result['lead_id']);
     }
 
     private function service(): SalesforceOpportunitySyncService
@@ -99,7 +216,11 @@ class OpportunityPortalResolutionTest extends TestCase
             public function __construct() {}
         };
 
-        return new SalesforceOpportunitySyncService($client, app(OpportunityPortalNormalizer::class));
+        return new SalesforceOpportunitySyncService(
+            $client,
+            app(OpportunityPortalNormalizer::class),
+            app(SalesforceLeadFieldResolver::class),
+        );
     }
 
     private function opportunity(array $overrides = []): array
@@ -121,6 +242,7 @@ class OpportunityPortalResolutionTest extends TestCase
             'Phone' => '600000001',
             'MobilePhone' => null,
             'Email' => 'cliente@example.com',
+            'Fuente_origen__c' => null,
             'Portal_Text__c' => null,
             'LEA_SEL_Fuente_Origen__c' => null,
             'Fuente_Nuevo__c' => null,

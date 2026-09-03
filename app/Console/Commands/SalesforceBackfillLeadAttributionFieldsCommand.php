@@ -2,25 +2,26 @@
 
 namespace App\Console\Commands;
 
-use App\Services\Reports\ReservationsSales\OpportunityPortalReprocessService;
+use App\Services\Salesforce\SalesforceLeadAttributionBackfillService;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Throwable;
 
-class ReprocessOpportunityPortalsCommand extends Command
+class SalesforceBackfillLeadAttributionFieldsCommand extends Command
 {
-    protected $signature = 'reports:reprocess-opportunity-portals
-        {--from= : Fecha created_date inicial inclusiva (Y-m-d)}
-        {--to= : Fecha created_date final exclusiva (Y-m-d)}
-        {--dry-run : Simula la resolucion sin persistir cambios}
-        {--apply : Persiste cambios locales con historico auditable}
-        {--reason= : Motivo obligatorio para --apply (minimo 10 caracteres)}
-        {--limit= : Maximo de Opportunities locales a procesar}
-        {--after-id= : Cursor exclusivo basado en el ID local numerico}';
+    protected $signature = 'salesforce:backfill-lead-attribution-fields
+        {--from= : Fecha local created_date inicial inclusiva (Y-m-d)}
+        {--to= : Fecha local created_date final exclusiva (Y-m-d)}
+        {--dry-run : Simula y muestra cambios sin persistir nada}
+        {--apply : Persiste cambios locales y su historico auditable}
+        {--reason= : Motivo operativo obligatorio para --apply (minimo 10 caracteres)}
+        {--limit= : Maximo de Salesforce Lead IDs locales unicos a procesar}
+        {--after-salesforce-id= : Cursor exclusivo para reanudar por Salesforce Lead ID}
+        {--debug-soql : Imprime cada consulta SOQL de solo lectura}';
 
-    protected $description = 'Reprocesa de forma segura y auditable la atribucion de portales de Opportunities locales.';
+    protected $description = 'Materializa de forma segura los campos historicos de atribucion de Leads ya existentes localmente.';
 
-    public function handle(OpportunityPortalReprocessService $reprocess): int
+    public function handle(SalesforceLeadAttributionBackfillService $backfill): int
     {
         $dryRun = (bool) $this->option('dry-run');
         $apply = (bool) $this->option('apply');
@@ -54,45 +55,49 @@ class ReprocessOpportunityPortalsCommand extends Command
             return self::FAILURE;
         }
 
-        $afterId = $this->positiveIntegerOption('after-id');
-        if ($this->option('after-id') !== null && $afterId === null) {
-            $this->error('--after-id debe ser un ID local numerico positivo.');
+        $afterSalesforceId = $this->nullableStringOption('after-salesforce-id');
+        if ($afterSalesforceId !== null && preg_match('/^00Q[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/', $afterSalesforceId) !== 1) {
+            $this->error('--after-salesforce-id debe ser un Salesforce Lead ID valido de 15 o 18 caracteres.');
 
             return self::FAILURE;
         }
 
         try {
-            $stats = $reprocess->run(
+            $stats = $backfill->run(
                 $from,
                 $to,
                 $apply,
                 $apply ? $reason : null,
                 $limit,
-                $afterId,
+                $afterSalesforceId,
+                $this->option('debug-soql')
+                    ? function (string $soql): void {
+                        $this->newLine();
+                        $this->line('SOQL Lead attribution backfill:');
+                        $this->line($soql);
+                    }
+                : null,
             );
         } catch (Throwable $exception) {
-            $message = str_starts_with($exception->getMessage(), 'Ya existe otro reproceso')
-                ? $exception->getMessage()
-                : 'No se pudo iniciar el reproceso de forma segura.';
-            $this->error($message);
+            $this->error('No se pudo preparar el backfill: '.$exception->getMessage());
 
             return self::FAILURE;
         }
 
-        $this->line('REPROCESS_METRICS='.json_encode(
+        $this->line('BACKFILL_METRICS='.json_encode(
             $stats,
             JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
         ));
 
         if ($stats['failed']) {
-            $this->error('El reproceso se detuvo; reanudar desde last_local_id_processed tras resolver la causa.');
+            $this->error('El backfill se detuvo. Reanudar desde last_salesforce_id_processed tras resolver la causa.');
 
             return self::FAILURE;
         }
 
         $this->info($dryRun
-            ? 'Simulacion completada sin persistencia local.'
-            : 'Reproceso local completado con historico auditable.');
+            ? 'Simulacion completada: no se ha persistido ningun cambio.'
+            : 'Backfill local completado con historico auditable.');
 
         return self::SUCCESS;
     }
@@ -125,5 +130,12 @@ class ReprocessOpportunityPortalsCommand extends Command
         $validated = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
 
         return $validated === false ? null : $validated;
+    }
+
+    private function nullableStringOption(string $name): ?string
+    {
+        $value = trim((string) $this->option($name));
+
+        return $value === '' ? null : $value;
     }
 }

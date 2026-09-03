@@ -1539,6 +1539,194 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   los artefactos generados porque no existe cambio frontend.
 - `git diff --check`: correcto. Fallos introducidos: cero.
 
+# Correctivo PR #27 — hidratación legacy de Campañas (2026-09-03)
+
+- Se restauró exactamente la política histórica de
+  `fillCampaignFieldsFromRawPayload()` para los doce campos ya consumidos en
+  `main`: un valor local no válido según `CampaignValueNormalizer` puede
+  recuperarse desde un raw legacy informado.
+- Los campos incorporados por la migración permanecen en un bloque separado con
+  política blank-only. Un placeholder nuevo no vacío sigue siendo autoritativo
+  y no se sustituye desde `raw_payload`.
+- El gate, WHERE, Meta Direct Form, first touch, claiming, Opportunities y la
+  resolución efectiva de Fase 6 no cambian. No hay consultas, migraciones,
+  dependencias, PII ni accesos externos nuevos.
+- Regresión focal específica: 13 tests y 28 aserciones. Focal completo de
+  Campañas: 97 tests y 748 aserciones. Suite completa: 856 tests y 6.155
+  aserciones. Pint write + `--test` sobre los dos PHP del PR: correcto.
+- No se ejecutaron backfills, sincronizadores reales ni escrituras en
+  Salesforce, Meta o Google. No requiere acciones manuales adicionales al
+  despliegue ordinario una vez aprobado el PR.
+
+# Fase 6 — Migración de atribución de Campañas (2026-09-03)
+
+## Resumen y decisiones
+
+- Base utilizada: `origin/main` en
+  `95d2254c2b8a9f0c31a71325e17bbea9732dddc5`. Rama:
+  `feature/salesforce-campaign-attribution-migration`.
+- El WHERE del sync y el gate del builder siguen siendo legacy. Los Leads UTM-only
+  continúan excluidos y Meta Direct Form conserva su admisión por portal Meta más
+  fuente legacy Facebook.
+- Tras admitir el Lead, `SalesforceLeadFieldResolver` resuelve de forma
+  independiente campaña, ID, fuente adquirida, medio adquirido y contenido.
+  Cualquier nuevo no vacío gana, incluidos placeholders; solo null/vacío/
+  whitespace usa fallback.
+- Matching, first touch, claiming, deduplicación y ambigüedad no cambian de
+  algoritmo. `matched_source_field` identifica el API Name ganador. La versión
+  de regla pasa a `2026-09-03.1`.
+- La clasificación efectiva para Meta usa `Fuente_origen__c` →
+  `LEA_SEL_Fuente_Origen__c` después del gate. `source_acquired` y
+  `medium_acquired` usan las parejas UTM adquiridas, no `LEA_SEL_*`.
+
+## Archivos, base de datos y operación
+
+- Producción: `CampaignAttributionBuilderService`.
+- Pruebas: nueva regresión `CampaignAttributionFieldMigrationTest`.
+- Documentación: auditoría Salesforce, informe de Campañas, documentación
+  general, decisiones pendientes y este handoff.
+- Sin migraciones, esquema, configuración, frontend ni dependencias. La lectura
+  mantiene chunks y consultas existentes; la resolución es O(1) en memoria por
+  Lead y no añade N+1 ni llamadas externas.
+- `raw_payload` solo hidrata columnas vacías; no sustituye valores locales
+  informados y no se copia a trazas. Los diagnósticos agregan campos ganadores
+  por dimensión sin nombres, emails ni teléfonos.
+
+## Validación y pendientes
+
+- Baseline focal previo: 84 tests, 720 aserciones, correcto.
+- Focal tras implementación: 94 tests, 742 aserciones, correcto.
+- Suite completa: 853 tests, 6.149 aserciones, correcta. Pint se aplicó en modo
+  write y `--test` quedó verde sobre los dos PHP modificados.
+- Composer validate: correcto. Composer audit PHP: sin vulnerabilidades
+  conocidas. Build Vite: correcto; los artefactos regenerados se restauraron al
+  no existir cambio frontend. `git diff --check`: correcto.
+- `npm ci` informó 5 advisories de desarrollo del lock actual (3 high, 2
+  critical); `npm audit --omit=dev` informó 0 vulnerabilidades de producción.
+  No se modificaron dependencias dentro de esta migración funcional.
+- No se ejecutaron sincronizaciones reales, backfill ni escrituras en
+  Salesforce/Google/Meta. Continúa pendiente validar con datos autorizados la
+  semántica de `utm_id__c` por plataforma y medir el volumen UTM-only.
+
+# Fase 5 — Procedencia nuevo → legacy en Reservas/Ventas (2026-09-03)
+
+## Resumen y archivos
+
+- `SalesforceOpportunitySyncService` prioriza `Lead.Fuente_origen__c` cuando
+  una Opportunity no tiene `Portal__c` concluyente. El fallback específico se
+  mantiene como `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` →
+  `Fuente_Nuevo__c`.
+- Se ampliaron las pruebas de resolución, sync, reproceso y fallback
+  `leads_raw`, además de la documentación de auditoría, Reservas/Ventas,
+  contraste general y decisiones pendientes.
+- No se modificaron `OpportunityPortalNormalizer`, el comando de reproceso, el
+  dataset, modelos, migraciones, esquema, frontend ni otros informes.
+
+## Decisiones, seguridad y rendimiento
+
+- `SalesforceLeadFieldResolver` es la autoridad para null/vacío/whitespace. Un
+  valor nuevo no vacío, incluso placeholder o no normalizable, selecciona el
+  Lead y bloquea legacy, fuente de Opportunity y fallbacks posteriores.
+- `Opportunity.Portal__c` concluyente conserva prioridad absoluta. El matching
+  por email/teléfono, `CreatedDate DESC`, chunks y todos los WHERE permanecen
+  intactos; sync y reproceso comparten `resolvePortalForRecord()`.
+- La traza añade exclusivamente fuente nueva, legacy, campos ganadores,
+  fallback y conflicto. No añade teléfono, email, nombres ni payloads completos.
+- `leads_raw` lee `Fuente_origen__c` desde `raw_payload`; no requiere columna ni
+  consulta adicional. No hay N+1 ni consultas remotas por Opportunity.
+
+## Base de datos, validación y operación
+
+- Base: `origin/main` en `29210aae97fc329dc7bf41fc855a1c7e791e90ae`.
+- Migraciones/configuración: ninguna. No requiere variables de entorno nuevas.
+- PHP, Composer y Pint no estaban accesibles localmente al iniciar la tarea;
+  la validación ejecutable queda registrada en la entrega final y deberá
+  completarse en CI antes del merge.
+- Baseline, pruebas focales, suite, Pint y Composer no se ejecutaron por esa
+  limitación. La revisión estática de imports/constructores y
+  `git diff --check` fueron correctas.
+- No se ejecutaron sync Salesforce, reproceso histórico, backfill ni escrituras
+  remotas. Acción posterior: abrir PR y validar CI; no ejecutar reproceso de
+  datos como parte de esta fase.
+
+## Riesgos pendientes
+
+- La clasificación histórica no cambia hasta un reproceso posterior aprobado.
+- `CampaignAttributionBuilderService` y las decisiones pendientes de matching
+  temporal/ConvertedOpportunityId continúan expresamente fuera de alcance.
+
+# Fase 3 — Clasificación nuevo → legacy de Leads (2026-09-02)
+
+## Resumen
+
+- Se resolvió el residuo de merge de este documento conservando completas las
+  secciones de Tasador y coherencia UTM.
+- `LeadClassificationResolver` compone el resolver central de campos nuevos
+  con `LeadPortalResolver` como fallback legacy inalterado. Fuente, canal,
+  medio y delegación priorizan sus nuevos raw persistidos únicamente cuando no
+  son null, vacíos o whitespace.
+- Sync, dashboard y el backfill local emplean la misma composición. El
+  dashboard recalcula desde raw locales y no confía en `resolved_*` heredados.
+  Los audit outputs incorporan raws, resolución, conflicto y fallback por
+  dimensión. No se ejecutó el backfill.
+
+## Alcance y seguridad
+
+- Sin cambios de WHERE, universo de Leads, KPIs no clasificatorios,
+  delegación comercial, Calls, Reservas/Ventas ni funcionalidad de Campañas.
+- No se hicieron DML Salesforce, backfills históricos, migraciones, cambios de
+  configuración ni consultas remotas durante la lectura del dashboard.
+
+## Validación pendiente de entorno
+
+- La sesión no expone un ejecutable PHP (ni `PATH` ni las rutas Herd locales
+  habituales), por lo que las pruebas, Pint y verificaciones Composer quedan
+  pendientes de ejecutarse en un entorno con PHP disponible antes de integrar.
+
+## Corrección de revisión: autorización y trazabilidad
+
+- La clasificación visible de delegación sigue usando nuevo → legacy, pero el
+  scope de autorización usa una delegación interna calculada exclusivamente
+  con la cadena legacy previa y el fallback contextual de Exposición. Así, un
+  valor de `Delegacion_procedencia__c` no amplía ni retira permisos.
+- La auditoría ahora muestra la delegación normalizada final y su origen
+  efectivo. Cuando Exposición resuelve fuera de `field_resolution`, la traza
+  identifica `persona_que_trabajo_delegation`, `owner_delegation` o
+  `salesforce_users.user_delegation`, sin falsear un API Name Salesforce.
+- Se añadieron regresiones de scope, fallback contextual, materialización del
+  sync y backfill local. No se ejecutaron en esta sesión por la ausencia del
+  runtime PHP/Composer; deben validarse en CI antes de integrar.
+
+## Corrección CI PR #24: normalización y CSV
+
+- El CI detectó expectativas no canónicas: `Madrid` y `HR MOTOR MADRID`
+  normalizan a `Madrid General`; se corrigieron exclusivamente las assertions
+  de Fase 3, sin cambiar el normalizador ni la autorización.
+- El CSV de conciliación serializa las trazas de resolución estructuradas como
+  JSON UTF-8 al emitir cada celda. Las respuestas JSON conservan los arrays y
+  los booleanos CSV siguen siendo `Si`/`No`. No se afirma CI verde hasta que
+  GitHub complete la nueva ejecución.
+
+# Fase 4 — Procedencia nuevo → legacy de Llamadas (2026-09-02)
+
+- Se añadió una política pura específica de Calls; no usa el resolver del
+  dashboard de Leads porque su prioridad legacy es distinta. `Fuente_origen__c`
+  gana únicamente en la clasificación visible cuando el fallback relacionado
+  ya aplica; null/vacío/whitespace conservan `Portal_Text__c` →
+  `LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c`.
+- Sync y reproceso local comparten la política. El reproceso obtiene Leads por
+  lote desde persistencia local y conserva la clasificación previa si falta un
+  Lead necesario; no consulta Salesforce ni se ha ejecutado sobre datos reales.
+- La clasificación operacional legacy permanece separada para origen, duración
+  y overflow. Se incrementó `CallClassificationRules::VERSION` por el cambio
+  de política visible. No cambiaron Task WHERE, equipos, delegaciones, zonas,
+  estados, universos ni otros informes.
+- Correctivo de revisión: si el reproceso necesita un Lead pero este no existe
+  localmente, conserva `portal_resolved`, fuente de resolución y los cuatro
+  valores operativos persistidos (`call_origin`, duración ajustada, overflow y
+  motivo), dejando `lead_unavailable_locally` en la traza. Nunca usa el portal
+  visible nuevo como sustituto del portal operativo legacy.
+
 ## Acciones manuales y pendientes
 
 - En despliegue: aprobar/ejecutar migración y después sincronizar ventanas
@@ -1556,7 +1744,6 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Backfill, escritura Salesforce, producción y frontend: NO modificados.
 - Campos legacy eliminados o reutilizados: NO.
 
-<<<<<<< HEAD
 # Desglose de compras Tasador (2026-09-01)
 
 ## Resumen y decisiones
@@ -1593,7 +1780,7 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   54/54 y 446 aserciones. API de Comisiones: 22/22 y 138 aserciones.
 - Suite completa: 820/820 pruebas y 5.922 aserciones, correcta. Pint focal sobre
   los dos PHP modificados, lint PHP y `git diff --check`: correctos.
-=======
+
 # Corrección de coherencia UTM en doble escritura (2026-09-01)
 
 ## Resumen
@@ -1633,4 +1820,136 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Build Vite: correcto, con avisos preexistentes de imagen runtime y deprecación
   Node; artefactos regenerados restaurados al no existir cambio frontend.
 - `git diff --check`: correcto. Fallos introducidos: cero.
->>>>>>> 1bb7794 (fix(campaigns): keep lead UTM resolution consistent)
+
+# Fase 7A — Backfill histórico controlado de atribución Lead (2026-09-03)
+
+## Resumen y archivos
+
+- Se añadió el comando `salesforce:backfill-lead-attribution-fields`, su servicio
+  por lotes, el modelo/migración de histórico y una suite feature dedicada.
+- Se actualizaron la auditoría Salesforce, la guía general, el estado de
+  decisiones pendientes, la decisión arquitectónica de backfill y este
+  handoff. `PROJECT_CONTEXT.md` no cambia porque no se altera la estructura
+  general de módulos ni una convención transversal de la aplicación.
+
+## Decisiones y base de datos
+
+- El universo se obtiene mediante la unión ordenada de IDs ya existentes y
+  dentro del rango local en `salesforce_leads` y
+  `campaign_salesforce_leads`. Salesforce solo recibe consultas `Lead WHERE Id
+  IN (...)` sobre IDs 00Q validados.
+- Se creó `salesforce_lead_attribution_backfill_history` porque los mecanismos
+  existentes no guardaban before/after por fila para ambas tablas. Conserva
+  run UUID, tabla, Salesforce ID, motivo, campos cambiados, valores anteriores/
+  nuevos y fecha. No guarda PII ni payloads completos.
+- Las escrituras son UPDATE masivos y transaccionales por chunk junto con el
+  histórico. No existe ruta de insert de Lead. Los resolvers centrales calculan
+  `field_resolution` y las materializaciones del dashboard.
+
+## Seguridad y rendimiento
+
+- `--from`/`--to` y un modo exclusivo son obligatorios; `--apply` requiere un
+  motivo de al menos 10 caracteres. Dry-run no escribe tablas, histórico ni
+  cachés.
+- Se consultan solo Id y once campos de atribución, sin nombre, email o teléfono.
+  El proceso usa lotes de 100, una consulta Salesforce por lote, lecturas SQL
+  agrupadas, UPDATE masivo y transacción corta. No hay N+1 ni red desde HTTP.
+- `raw_payload` conserva todas sus claves y solo fusiona las once consultadas;
+  el histórico registra únicamente ese subconjunto. Las cachés concretas se
+  versionan solo después de cambios aplicados.
+
+## Pruebas y operación
+
+- La suite nueva cubre validación de modo/rango/motivo, dry-run, apply,
+  idempotencia, tablas general/especializada, IDs extra/ausentes/inválidos,
+  UTM-only, cursor/limit, fallo Salesforce entre lotes y rollback conjunto ante
+  error DB.
+- Test específico: 9 pruebas y 74 aserciones, correcto. Bloque focal con
+  resolvers, sync mensual y Campañas: 56 pruebas y 394 aserciones, correcto.
+  Suite completa: 865 pruebas y 6.229 aserciones, correcta. Pint WRITE y
+  `--test`, Composer validate/audit, build Vite y `git diff --check`: correctos.
+  El build conserva los avisos preexistentes de imagen runtime y deprecación de
+  Node; sus artefactos hash se restauraron porque no hay cambio frontend.
+- La herramienta está preparada, pero el histórico todavía **NO ha sido
+  modificado**. No se ejecutaron `--apply`, backfill real, sincronizadores,
+  Calls, Opportunities, reconstrucción de Campañas ni escrituras Salesforce.
+- Acción manual posterior: desplegar la migración, revisar primero una ventana
+  con `--dry-run`, aprobar motivo/rango y ejecutar `--apply` únicamente mediante
+  el runbook operativo correspondiente.
+
+## Correctivo de consistencia previo al merge del PR #28
+
+- La identidad usada para conciliar Salesforce IDs es ahora los primeros 15
+  caracteres, conservando exactamente mayúsculas y minúsculas. Las variantes
+  local 15 / respuesta 18 se reconocen como el mismo Lead; un cambio de casing
+  en esos 15 caracteres continúa representando una identidad distinta.
+- El cursor sigue ordenando el `salesforce_id` local literal. Dentro de cada
+  lote, representaciones 15/18 equivalentes comparten una consulta lógica y
+  cada fila local existente conserva su clave original.
+- La consulta Salesforce permanece fuera de la transacción. En `--apply`, las
+  filas objetivo se releen con `lockForUpdate()` y `ORDER BY salesforce_id`; solo
+  después se fusiona el `raw_payload`, se recalcula la resolución y se construye
+  el before/after. Así se preservan cambios concurrentes confirmados por el sync
+  periódico y el histórico describe el estado realmente bloqueado.
+- Un lock atómico de Laravel sobre el store de caché configurado protege apply
+  frente a apply durante seis horas y se libera en `finally`. Dry-run no toma
+  este mutex. El lock no sustituye el bloqueo transaccional frente a otros
+  escritores.
+- Las regresiones cubren equivalencia 15/18, sensibilidad a casing, coexistencia
+  de representaciones entre tablas, cursor literal mixto, snapshot concurrente,
+  before real y exclusión mutua. La herramienta sigue sin haberse ejecutado
+  sobre datos reales y las escrituras Salesforce continúan siendo cero.
+- Validación local: backfill 16/16 y 114 aserciones; bloque focal completo 63/63
+  y 434 aserciones; suite completa 872/872 y 6.269 aserciones. Pint WRITE y
+  `--test`, Composer validate/audit, build Vite y `git diff --check` correctos.
+  El build solo emitió los avisos preexistentes y sus artefactos se restauraron
+  porque este correctivo no incluye frontend. No hay migraciones nuevas.
+
+# Fase 7B — Reproceso histórico seguro de portales de Opportunities (2026-09-03)
+
+## Resumen y archivos
+
+- Se endureció `reports:reprocess-opportunity-portals` y se extrajo la operación
+  a `OpportunityPortalReprocessService`; no se creó un comando paralelo.
+- Se añadieron el modelo y la migración de
+  `salesforce_opportunity_portal_reprocess_history` y se amplió la suite feature
+  del comando. También se actualizaron las guías de Reservas/Ventas, auditoría,
+  decisiones y contexto general. `PROJECT_CONTEXT.md` no cambia porque el módulo
+  y sus convenciones generales permanecen iguales.
+
+## Decisiones, seguridad y base de datos
+
+- El universo nace únicamente de `salesforce_opportunities` local y del rango
+  `[from, to)`. Dry-run/apply son exclusivos; apply exige motivo, toma un mutex
+  de seis horas y solo actualiza seis campos de atribución más `updated_at`
+  cuando existe un cambio real.
+- Salesforce se usa en lectura exclusivamente para el matching Lead agrupado ya
+  existente. No se consulta Opportunity ni se invocan create/update remotos.
+  No se registra PII en métricas, errores o histórico.
+- La tabla nueva guarda run UUID, IDs técnicos, motivo, campos modificados,
+  before/after y fecha. El debug se filtra por whitelist y no se guarda
+  `raw_payload`. UPDATE e histórico comparten transacción por chunk.
+
+## Concurrencia y rendimiento
+
+- Los chunks son de 100 y avanzan por PK local. La consulta Lead ocurre antes de
+  abrir la transacción. Las filas se releen ordenadas con `lockForUpdate()` y se
+  valida una huella de todos los inputs de resolución; cualquier cambio fuerza
+  reconsulta y reintento, con máximo de tres.
+- No hay N+1, HTTP bajo locks, insert/upsert/delete de Opportunity ni
+  `Cache::clear()`. La versión de caché se incrementa una vez si hubo cambios
+  confirmados, incluso cuando falla un chunk posterior.
+
+## Pruebas y operación
+
+- Baseline previo: 34 pruebas y 166 aserciones, correcto. Suite focal ampliada:
+  91 pruebas y 735 aserciones, correcta. Suite completa: 882 pruebas y 6.368
+  aserciones, correcta. Pint WRITE y `--test`, Composer validate/audit, build
+  Vite y `git diff --check`: correctos. El build solo emitió los avisos
+  preexistentes y sus artefactos se restauraron al no existir cambio frontend.
+  `npm ci` informó 5 advisories del lock actual (3 high, 2 critical); no se
+  alteraron dependencias porque su remediación queda fuera de esta fase.
+- La herramienta está preparada, pero el reproceso histórico **NO se ha
+  ejecutado** y tampoco se ha realizado un dry-run productivo. Escrituras
+  Salesforce: cero. Tras desplegar la migración, cualquier operación real
+  requiere conciliación, aprobación y runbook separados.

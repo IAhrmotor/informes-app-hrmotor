@@ -1,6 +1,56 @@
 # Auditoría preparatoria de procedencia y atribución Salesforce
 
-Actualizado: 2026-09-01.
+Actualizado: 2026-09-03.
+
+## Fase 3: clasificación efectiva de Leads
+
+- La clasificación del informe de Leads compone `Fuente_origen__c`,
+  `Canal__c`, `Medio_origen__c` y `Delegacion_procedencia__c` mediante
+  `SalesforceLeadFieldResolver`: únicamente null, vacío o whitespace permite
+  aplicar el fallback legacy. Placeholders no vacíos permanecen válidos y los
+  conflictos siguen en `field_resolution`.
+- `LeadPortalResolver` no cambia: continúa siendo la autoridad exclusiva de la
+  prioridad legacy de fuente y del canal binario legacy. La composición vive en
+  `LeadClassificationResolver`, usada por sync, dashboard y backfill local.
+- El dashboard recalcula desde los raw locales; una materialización
+  `resolved_*` antigua no puede ocultar los campos nuevos persistidos. Las
+  auditorías de Lead añaden raws, efectivos y trazas por fuente, canal, medio y
+  delegación sin eliminar contratos existentes.
+- No cambian SOQL WHERE, IDs del universo, reglas de actividad/gestión,
+  comercial efectivo, Calls, Reservas/Ventas ni el universo o atribución de
+  Campañas. No se ejecuta backfill ni se escribe en Salesforce.
+- La delegación visible puede provenir de `Delegacion_procedencia__c`, pero la
+  autorización por delegación conserva la cadena legacy y el fallback de
+  Exposición previo a esta fase. La dimensión de acceso se calcula solo en
+  memoria y no se expone como un nuevo contrato público.
+
+## Fase 4: procedencia de Llamadas
+
+- El universo de Tasks no cambia. Cuando `Task.Portales__c` entra en el fallback
+  de Lead ya existente, `Lead.Fuente_origen__c` informado gana para el portal
+  visible; null, vacío y whitespace conservan exactamente el orden legacy de
+  Llamadas: `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c`.
+- La resolución conserva dos salidas: la legacy operacional alimenta origen,
+  duración y overflow; la efectiva alimenta únicamente `portal_resolved` y su
+  traza. Un valor nuevo no normalizable no vuelve a recurrir a legacy.
+- Sync consulta solo el campo adicional imprescindible y el reproceso carga
+  Leads locales por chunk, sin Salesforce ni consultas por llamada. No se ha
+  ejecutado reproceso ni sincronización real.
+
+## Fase 5: procedencia de Reservas/Ventas
+
+- `Opportunity.Portal__c` concluyente conserva prioridad absoluta. Cuando debe
+  consultarse el Lead relacionado, `Fuente_origen__c` informado gana y solo
+  null, vacío o whitespace activa el fallback congelado
+  `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c`.
+- `SalesforceLeadFieldResolver` decide nuevo → legacy. Un placeholder no vacío
+  selecciona el Lead de forma autoritativa y, si no es normalizable, persiste
+  `Sin clasificar` con fuente `lead`, sin continuar a la fuente de Opportunity.
+- Matching, orden `CreatedDate DESC`, chunks, SOQL base y universo de
+  Opportunities permanecen intactos. El fallback `leads_raw` reconstruye el
+  nuevo API Name desde `raw_payload`, sin columnas ni consultas adicionales.
+- `portal_resolution_debug` añade raw nuevo, legacy y campo legacy ganador,
+  efectivo, campo efectivo, fallback y conflicto. No incorpora PII nueva.
 
 ## Alcance y línea base
 
@@ -77,14 +127,14 @@ no solo su etiqueta.
 | `Id_Adquirido__c` | candidato de ID | attribution builder: ad, adset, ad group y campaign ID | `acquired_id`, `matched_source_field/value` | Campañas | No tras selección; cambia atribución | Crítico | Acordar significado y prioridad ID/nombre |
 | `Contenido_Adquirido__c` | OR filtro, SELECT, mapper | ambos sync de Leads | `content_acquired` en ambas tablas | Campañas, auditoría Leads | Sí en sync Campañas | Crítico | No asumir equivalencia con `utm_content__c` |
 | `Contenido_Adquirido__c` | segundo candidato de ID | attribution builder | `content_acquired`, traza de match | Campañas | No tras selección; cambia atribución | Alto | Definir si es contenido, anuncio u otro identificador |
-| `Fuente_Adquirida__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Medio | Verificar API Name y equivalencia; no está seleccionado ni mapeado |
-| `Medio_Adquirido__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Medio | Verificar API Name y equivalencia |
+| `Fuente_Adquirida__c` | fallback de fuente adquirida | sync y attribution builder | `acquired_source_legacy`, `source_acquired` efectivo | Campañas | No | Alto | Fallback exclusivo de `utm_source__c`; no confundir con procedencia general |
+| `Medio_Adquirido__c` | fallback de medio adquirido | sync y attribution builder | `acquired_medium_legacy`, `medium_acquired` efectivo | Campañas | No | Alto | Fallback exclusivo de `utm_medium__c` |
 | `Fuente_origen__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Crítico | Verificar API Name; crear destino inequívoco en fase posterior |
 | `Medio_origen__c` | filtro SOQL aislado | `SalesforceOrganicLeadSyncService::soql` | `seo_salesforce_organic_daily_metrics.lead_count` agregado diario | SEO/Analytics | Sí, solo universo SEO orgánico | Alto | No mezclar con `salesforce_leads.medio_origen` legacy |
 | `Canal__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Alto | Pendiente definir autoridad y valores válidos |
 | `Delegacion_procedencia__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Crítico | Pendiente prioridad, Exposición y aliases |
-| `utm_campaign__c`, `utm_id__c`, `utm_source__c`, `utm_medium__c`, `utm_content__c` | sin referencia | búsqueda global | Ninguna | Ninguno observado | No hoy | Crítico | Verificar existencia, semántica, validez y fallback antes de consultar |
-| campos locales `source_acquired`, `medium_acquired` | proyección de atribución | `CampaignAttributionBuilderService::buildAttributionRow` | tablas de atribución | Campañas/export | No | Alto | Proceden de `fuente_origen`/`medio_origen`, por tanto de `LEA_SEL_*`, no de campos `*_Adquirida__c` |
+| `utm_campaign__c`, `utm_id__c`, `utm_source__c`, `utm_medium__c`, `utm_content__c` | SELECT y resolución efectiva tras gate legacy | ambos sync y attribution builder | columnas `utm_*_new`, `field_resolution`, atribuciones | Campañas | No en universo; sí en atribución | Crítico | Nuevo no vacío gana por dimensión; `utm_id__c` conserva la posición funcional del ID legacy |
+| campos locales `source_acquired`, `medium_acquired` | proyección de atribución | `CampaignAttributionBuilderService::makeAttributionRow` | tablas de atribución | Campañas/export | No | Alto | Proceden de `utm_source/Fuente_Adquirida` y `utm_medium/Medio_Adquirido`; no de `LEA_SEL_*` |
 
 ## Flujos de datos actuales
 
@@ -207,12 +257,12 @@ legacy y fuente nueva. Esta divergencia debe tratarse conscientemente.
 
 El universo nace de Opportunity y sus fechas/reglas; no depende de Lead. El
 portal se resuelve así: `Opportunity.Portal__c` conclusivo → Lead relacionado
-por email/teléfono (más reciente y con portal válido) →
+por email/teléfono (más reciente y con fuente nueva informada o portal legacy válido) →
 `Opportunity.Fuente_de_Origen__c` útil → fallbacks Exposición/Web → Sin
-clasificar. En el Lead relacionado la prioridad es `Portal_Text__c` →
-`LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c`. Cambiar procedencia futura solo
-debe cambiar `portal_resolved` y su traza, nunca las Opportunities consultadas,
-reservas, contratos ni conteos.
+clasificar. En el Lead relacionado la prioridad es `Fuente_origen__c` y, solo
+si falta, `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` → `Fuente_Nuevo__c`.
+Esta migración solo cambia `portal_resolved` y su traza, nunca las Opportunities
+consultadas, reservas, contratos ni conteos.
 
 Si la consulta de Leads no devuelve filas, existe fallback local a `leads_raw`.
 La consulta Opportunity solo reintenta sin email de empresa cuando Salesforce
@@ -446,3 +496,90 @@ Raw y resolución se escriben juntos dentro de la transacción corta del chunk.
 La prueba de caracterización cubre valores nuevos, preservados por whitespace,
 fallbacks legacy, conflictos, cinco dimensiones mezcladas, JSON nulo/parcial/
 inválido, `raw_payload`, campos generales e idempotencia.
+
+## Fase 6: atribución efectiva de Campañas (2026-09-03)
+
+El universo permanece gobernado por el WHERE y el gate PHP legacy. Solo después
+de admitir un Lead, el builder resuelve de forma independiente `utm_campaign`,
+`utm_id`, `utm_source`, `utm_medium` y `utm_content` mediante
+`SalesforceLeadFieldResolver`; null, vacío o whitespace activan la pareja legacy
+y cualquier otro valor nuevo bloquea ese fallback.
+
+`source_acquired` y `medium_acquired` representan ahora correctamente
+`utm_source__c`/`Fuente_Adquirida__c` y
+`utm_medium__c`/`Medio_Adquirido__c`. `matched_source_field` conserva el API Name
+ganador en los cruces por ID, contenido o nombre. Los diagnósticos agregan
+`field_resolution_sources` por dimensión sin PII. La regla queda versionada como
+`2026-09-03.1`.
+
+La excepción Meta Direct Form sigue admitiendo exclusivamente por
+`Portal_Text__c = Meta` y `LEA_SEL_Fuente_Origen__c = Facebook`; una vez dentro,
+su clasificación efectiva usa `Fuente_origen__c` con fallback a ese origen
+legacy. No hubo migración, backfill ni acceso real a Salesforce, Google o Meta.
+
+## Fase 7A: herramienta controlada de backfill histórico (2026-09-03)
+
+Se incorpora `salesforce:backfill-lead-attribution-fields` para consultar en
+Salesforce, únicamente en lectura y por lotes, los IDs que ya existen en
+`salesforce_leads` o `campaign_salesforce_leads`. El rango local
+`[--from, --to)`, el modo exclusivo `--dry-run`/`--apply`, el motivo obligatorio
+de escritura, `--limit` y el cursor `--after-salesforce-id` hacen la operación
+acotada y reanudable. La consulta no incluye nombre, email ni teléfonos.
+
+La escritura usa `UPDATE` sobre filas existentes, nunca `upsert` ni insert. Solo
+materializa los once raw nuevos/adquiridos aprobados, `field_resolution` y, en
+la tabla general, `resolved_channel`, `resolved_portal` y su campo ganador. Los
+fallbacks proceden de los legacy locales y se resuelven con
+`LeadClassificationResolver`/`SalesforceLeadFieldResolver`; no se refresca el
+resto del histórico. `raw_payload` se fusiona únicamente con las claves
+consultadas y conserva el resto.
+
+Cada lote aplicado guarda before/after en
+`salesforce_lead_attribution_backfill_history` dentro de la misma transacción.
+El histórico solo contiene ID técnico, tabla, motivo, campos cambiados y sus
+valores aprobados; para `raw_payload` registra exclusivamente el subconjunto de
+atribución, nunca el payload completo. Las métricas incluyen conflictos,
+fallbacks, placeholders, ausentes en Salesforce, cambios por tabla/campo,
+cursor, duración, memoria y Leads UTM-only. Esta última medida es informativa y
+no crea filas de Campañas.
+
+La herramienta está preparada, pero el histórico todavía **NO ha sido
+modificado**. No se ejecutaron backfill, `--apply`, sincronizadores reales ni
+escrituras Salesforce, y no se reprocesaron Calls, Opportunities o Campañas.
+
+#### Consistencia de identidad y concurrencia del backfill
+
+La conciliación trata un ID de 15 caracteres y su representación de 18 como la
+misma identidad mediante los primeros 15 caracteres, sin cambiar el casing ni
+reescribir los IDs locales. El cursor continúa avanzando sobre la clave local
+literal, por lo que ambas representaciones pueden coexistir sin perder filas.
+
+Salesforce se consulta antes de la transacción. En apply, cada lote relee y
+bloquea las filas locales en orden por `salesforce_id`; candidato,
+`raw_payload`, resolución e histórico before/after se calculan después de ese
+bloqueo. Un lock atómico de caché de seis horas impide dos apply concurrentes y
+se libera siempre; dry-run no lo adquiere. No se ha ejecutado el backfill real
+ni se ha realizado ninguna escritura Salesforce.
+
+## Fase 7B: reproceso controlado de atribución de Opportunities (2026-09-03)
+
+El comando existente `reports:reprocess-opportunity-portals` requiere ahora
+rango local `[--from, --to)`, modo explícito, motivo para apply y admite
+`--limit`/`--after-id`. Su universo son exclusivamente Opportunities locales ya
+persistidas. Mantiene la resolución de Fase 5 y solo consulta Leads Salesforce
+en lectura mediante el matching agrupado existente; las consultas Opportunity
+y las escrituras Salesforce son cero.
+
+Dry-run ejecuta la resolución sin UPDATE, histórico, cambio de `updated_at` ni
+invalidación de caché. Apply usa mutex de seis horas, chunks de 100 y transacción
+por lote. La consulta remota ocurre antes de la transacción; luego las filas se
+releen ordenadas bajo `lockForUpdate()` y se compara una huella de portal,
+fuente raw y datos locales de matching. Si cambia, se reconsulta Lead y se
+reintenta hasta tres veces.
+
+Solo pueden cambiar los seis campos de atribución aprobados. El before/after se
+guarda atómicamente en `salesforce_opportunity_portal_reprocess_history` con
+debug filtrado por whitelist, sin nombre, teléfono, email ni payload completo.
+Un fallo detiene el chunk y conserva como cursor el último lote confirmado; si
+ya hubo commits, la caché se invalida exactamente una vez. La herramienta está
+preparada, pero no se ha ejecutado el histórico ni un dry-run productivo.

@@ -93,7 +93,20 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
         ]);
         $trace = SalesforceLead::query()->firstOrFail()->field_resolution;
         $this->assertSame('New source', data_get($trace, 'source.effective_value'));
+        $this->assertSame('Fuente_origen__c', data_get($trace, 'source.source_field'));
         $this->assertTrue(data_get($trace, 'source.conflict'));
+        $this->assertSame('WhatsApp', data_get($trace, 'channel.effective_value'));
+        $this->assertSame('Canal__c', data_get($trace, 'channel.source_field'));
+        $this->assertSame('New medium', data_get($trace, 'medium.effective_value'));
+        $this->assertSame('Medio_origen__c', data_get($trace, 'medium.source_field'));
+        $this->assertSame('Alcobendas', data_get($trace, 'delegation.effective_value'));
+        $this->assertSame('Delegacion_procedencia__c', data_get($trace, 'delegation.source_field'));
+        $this->assertDatabaseHas('salesforce_leads', [
+            'salesforce_id' => '00Q-new-fields',
+            'resolved_portal' => 'New source',
+            'portal_resolution_source' => 'Fuente_origen__c',
+            'resolved_channel' => 'WhatsApp',
+        ]);
         $this->assertSame('new-campaign', data_get($trace, 'utm_campaign.effective_value'));
         $this->assertSame('utm_campaign__c', data_get($trace, 'utm_campaign.source_field'));
     }

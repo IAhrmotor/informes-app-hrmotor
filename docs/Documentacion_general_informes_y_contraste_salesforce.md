@@ -299,7 +299,8 @@ Campos funcionales principales:
   `Owner.USR_SEL_Delegacion__c`;
 - cliente: `AccountId`, `Account.Name`, `Account.Phone`,
   `Account.PersonEmail`, `Account.AC_C_EMA_email__c`;
-- procedencia: `Portal__c`, `Fuente_de_Origen__c`;
+- procedencia: `Opportunity.Portal__c`, `Opportunity.Fuente_de_Origen__c` y
+  `Lead.Fuente_origen__c` con fallback legacy del Lead;
 - importes: `Amount`, `OPO_FOR_Importe_total__c`,
   `OPO_FOR_Importe_vehiculo_venta__c`,
   `OPO_FOR_Importe_vehiculo_a_cambio__c`;
@@ -397,11 +398,18 @@ ORDER BY OPO_FEC_Fecha_de_reserva__c, Id
 - Delegación y zona salen del owner y se normalizan con el mismo catálogo de Leads.
 - Resolución de portal, por prioridad:
   1. `Opportunity.Portal__c` si es concluyente;
-  2. lead relacionado por email/teléfono con portal válido;
+  2. Lead relacionado por email/teléfono: `Fuente_origen__c` si está informado;
+     si falta, `Portal_Text__c` → `LEA_SEL_Fuente_Origen__c` →
+     `Fuente_Nuevo__c`, manteniendo la validación legacy;
   3. `Opportunity.Fuente_de_Origen__c` si es útil;
   4. fallback `Exposición`;
   5. fallback `Web`;
   6. `Sin clasificar`.
+
+Un valor nuevo no vacío es autoritativo aunque no se normalice a un portal
+oficial: en ese caso el resultado es `Sin clasificar` con fuente `lead` y no se
+continúa por los fallbacks posteriores. La consulta auxiliar mantiene el orden
+`CreatedDate DESC`, los chunks de 80 y las señales de email/teléfono existentes.
 
 ### 4.4 Auditoría
 
@@ -1343,3 +1351,55 @@ valores fallback sensibles para el endpoint interno de reseñas. Deben retirarse
 rotarse y proporcionarse únicamente mediante `INTERNAL_REVIEWS_ENDPOINT`,
 `INTERNAL_REVIEWS_USER` e `INTERNAL_REVIEWS_PASSWORD`. Este hallazgo no se
 resuelve copiando los valores a otro documento.
+
+### 9.1 Conciliación de Campañas tras Fase 6
+
+La cohorte debe conciliarse primero con las señales legacy, porque los UTM
+nuevos no amplían el universo. Dentro de esa misma lista de Lead IDs se comparan
+después los cinco valores efectivos nuevo → legacy y `matched_source_field`.
+`source_acquired`/`medium_acquired` proceden de Fuente/Medio adquiridos, no de
+los campos generales `LEA_SEL_*`. Meta Direct Form mantiene su gate legacy y
+solo migra la clasificación efectiva posterior a la admisión.
+
+La ejecución implementada es local y por chunks, sin consultas por Lead ni
+llamadas externas añadidas. No se ha realizado backfill ni validación contra
+datos reales de Salesforce, Google o Meta.
+
+### 9.2 Backfill histórico de atribución de Leads (Fase 7A)
+
+La herramienta `salesforce:backfill-lead-attribution-fields` parte siempre de
+IDs ya persistidos en las dos tablas locales de Leads y consulta Salesforce por
+lotes de esos IDs. Requiere un rango explícito de `created_date` local y
+exactamente uno de `--dry-run` o `--apply`; la escritura exige además un motivo
+operativo. `--limit` y `--after-salesforce-id` permiten ensayos acotados y
+reanudar en orden estable.
+
+El modo simulación no escribe filas, histórico ni cachés. El modo apply actualiza
+exclusivamente los campos de atribución aprobados mediante operaciones UPDATE,
+fusiona solo esas claves en `raw_payload`, registra before/after por fila y
+confirma cada lote en una transacción independiente. Los IDs ausentes en
+Salesforce no se limpian ni se marcan eliminados. Los UTM-only se cuentan para
+conciliación, pero nunca se insertan en el universo legacy de Campañas.
+
+La infraestructura está preparada; el histórico todavía **NO ha sido
+modificado** y su ejecución requiere una aprobación operativa posterior.
+
+### 9.3 Reproceso histórico de portales de Opportunities (Fase 7B)
+
+`reports:reprocess-opportunity-portals` opera únicamente sobre filas locales de
+`salesforce_opportunities` dentro de un rango `created_date` `[--from, --to)`.
+Exige exactamente uno de `--dry-run` o `--apply`; apply requiere motivo, usa
+mutex de seis horas, lotes de 100 y cursor local exclusivo `--after-id`.
+
+La resolución reutiliza sin cambios la precedencia de Fase 5. Salesforce se
+consulta solo en lectura y únicamente sobre Lead para el matching por lotes;
+no existe consulta `FROM Opportunity` ni escritura remota. Antes de cada UPDATE,
+la fila se relee con `lockForUpdate()` y se valida una huella de todos los inputs
+de resolución. Un cambio concurrente fuerza una nueva consulta Lead, con máximo
+de tres intentos y sin HTTP bajo locks.
+
+Cada lote confirma conjuntamente los seis campos funcionales permitidos y su
+before/after en `salesforce_opportunity_portal_reprocess_history`. No guarda PII
+ni `raw_payload`, no inserta o elimina Opportunities y solo incrementa la versión
+de caché si hubo cambios confirmados. La herramienta está preparada; no se ha
+ejecutado el reproceso histórico ni un dry-run productivo.

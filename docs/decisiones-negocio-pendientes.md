@@ -1,6 +1,6 @@
 # Decisiones de negocio pendientes
 
-Actualizado: 2026-09-01.
+Actualizado: 2026-09-03.
 
 Este documento contiene exclusivamente decisiones que el código no puede tomar
 sin una definición funcional o una validación externa. Las decisiones ya
@@ -13,8 +13,8 @@ implantadas se resumen al final y no deben volver a tratarse como pendientes.
 Dirección ha cerrado la prioridad nuevo → legacy, la validez basada únicamente
 en null/vacío/whitespace, la resolución independiente, la prioridad de
 delegación incluida Exposición, la política de conflictos y las cinco parejas
-UTM. Estas reglas ya están implementadas en la capa técnica de resolución y no
-deben volver a tratarse como decisiones pendientes.
+UTM. La clasificación de Leads (fuente, canal, medio y delegación) ya consume
+estas reglas; no deben volver a tratarse como decisiones pendientes.
 
 Permanecen como validaciones técnicas u operativas para fases posteriores:
 
@@ -22,10 +22,12 @@ Permanecen como validaciones técnicas u operativas para fases posteriores:
   plataforma; se conserva como identificador secundario y no decide el nombre;
 - medir Leads que solo tienen UTM nuevos y quedan fuera del universo legacy de
   Campañas antes de proponer cualquier ampliación del filtro;
-- diseñar, aprobar y ejecutar por separado el backfill/reprocesado histórico,
-  con lotes, reanudación, métricas y conciliación;
-- migrar conscientemente los consumidores de Llamadas, Reservas/Ventas y el
-  attribution builder; esta fase no cambia sus resoluciones actuales.
+- revisar operativamente y ejecutar por separado el backfill histórico: la
+  herramienta segura, simulable, reanudable y auditable ya está preparada en
+  Fase 7A, pero el histórico todavía NO ha sido modificado;
+- Llamadas, Reservas/Ventas y el attribution builder ya consumen los campos
+  nuevos en su clasificación efectiva, conservando sus prioridades legacy
+  específicas y sin modificar sus universos.
 
 Las siguientes reglas del alcance ya implantado permanecen cerradas y no se
 reabren por esta auditoría:
@@ -38,6 +40,15 @@ reabren por esta auditoría:
   `Comerciales Partner Community`.
 
 ### Reservas / Ventas
+
+La prioridad de procedencia del Lead relacionado queda cerrada como
+`Fuente_origen__c` → fallback legacy, considerando informado cualquier valor no
+vacío. No se modifica el matching existente por email/teléfono ni su orden por
+`CreatedDate DESC`.
+
+La herramienta segura de reproceso histórico de portales está preparada en
+Fase 7B con dry-run/apply explícitos, histórico y reanudación, pero todavía NO
+se ha ejecutado sobre el histórico ni se ha realizado un dry-run productivo.
 
 - Definir, si Dirección quiere utilizarlo, qué benchmark debe alimentar las
   conclusiones automáticas: objetivo, media ponderada, media simple o período
@@ -86,6 +97,7 @@ reabren por esta auditoría:
 | Reservas / Ventas | El selector de fecha define toda la cohorte; reserva/firma repetida para el mismo vehículo y fecha cuenta una vez y genera incidencia auditable. |
 | Llamadas | Solo Tasks de llamada con `CallObject`; `ABANDONED` nunca es atendida ni desbordada; clasificación versionada y reproceso únicamente manual y trazable. |
 | Campañas | Google/Meta, Salesforce-only, prueba, pendiente, ambiguo y sin atribuir están separados; first touch no duplica entidades; las pruebas se excluyen solo por clasificación persistida. |
+| Campañas / Fase 6 | El gate de universo sigue siendo legacy; una vez admitido el Lead, las cinco parejas UTM se resuelven nuevo → legacy de forma independiente y Fuente/Medio adquiridos dejan de usar `LEA_SEL_*`. |
 | Comisiones | Mes único en seis pestañas y exports; mes actual provisional; cierre económico persistente, auditable y reproducible; ajustes posteriores no sobrescriben silenciosamente un definitivo. |
 | Stock | Catálogo canónico de Salesforce, todo Disponible evaluado, 60/90 como prioridad, Top 3 teórico, plan conjunto sin sobreasignar capacidad y sin reservas logísticas persistentes. |
 | Stock | Entre ventas válidas del mismo vehículo gana la firma más reciente; un empate exacto queda como `duplicate_ambiguous` y no suma. |

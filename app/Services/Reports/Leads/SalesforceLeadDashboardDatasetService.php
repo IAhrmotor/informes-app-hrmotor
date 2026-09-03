@@ -50,12 +50,18 @@ class SalesforceLeadDashboardDatasetService
 
     private array $portalGroupResolutionCache = [];
 
+    private readonly LeadClassificationResolver $classificationResolver;
+
     public function __construct(
         private readonly LeadDelegationNormalizer $delegationNormalizer,
         private readonly LeadDashboardAiInsightsService $aiInsights,
         private readonly LeadRecordTypeNormalizer $recordTypeNormalizer,
         private readonly LeadPortalResolver $portalResolver,
-    ) {}
+        ?LeadClassificationResolver $classificationResolver = null,
+    ) {
+        $this->classificationResolver = $classificationResolver
+            ?? new LeadClassificationResolver($this->portalResolver);
+    }
 
     public function payload(Request $request, string $context = 'summary', ?ReportServerTiming $timing = null): array
     {
@@ -154,6 +160,19 @@ class SalesforceLeadDashboardDatasetService
                     'channel_resolved' => $lead['canal'],
                     'portal_resolved' => $lead['portal'],
                     'portal_resolution_source' => $lead['portal_resolution_source'],
+                    'source_origin_new_raw' => $lead['source_origin_new'],
+                    'source_effective' => $lead['portal'],
+                    'source_resolution' => $lead['source_resolution'],
+                    'channel_new_raw' => $lead['channel_new'],
+                    'channel_resolution' => $lead['channel_resolution'],
+                    'medium_origin_new_raw' => $lead['medium_origin_new'],
+                    'medio_origen_legacy_raw' => $lead['medio_origen'],
+                    'medium_effective' => $lead['medio_efectivo'],
+                    'medium_resolution' => $lead['medium_resolution'],
+                    'delegation_origin_new_raw' => $lead['delegation_origin_new'],
+                    'delegation_resolution' => $lead['delegation_resolution'],
+                    'delegation_effective_normalized' => $lead['lead_delegation'],
+                    'delegation_effective_source' => $lead['lead_delegation_effective_source'],
                     'portal_text_raw' => $lead['portal_text'],
                     'fuente_nuevo_raw' => $lead['fuente_nuevo'],
                     'lea_sel_fuente_origen_raw' => $lead['fuente_origen'],
@@ -228,6 +247,19 @@ class SalesforceLeadDashboardDatasetService
                     'record_type_normalized' => $lead['lead_type_normalized'],
                     'portal_resolved' => $lead['portal'],
                     'portal_resolution_source' => $lead['portal_resolution_source'],
+                    'source_origin_new_raw' => $lead['source_origin_new'],
+                    'source_effective' => $lead['portal'],
+                    'source_resolution' => $lead['source_resolution'],
+                    'channel_new_raw' => $lead['channel_new'],
+                    'channel_resolution' => $lead['channel_resolution'],
+                    'medium_origin_new_raw' => $lead['medium_origin_new'],
+                    'medio_origen_legacy_raw' => $lead['medio_origen'],
+                    'medium_effective' => $lead['medio_efectivo'],
+                    'medium_resolution' => $lead['medium_resolution'],
+                    'delegation_origin_new_raw' => $lead['delegation_origin_new'],
+                    'delegation_resolution' => $lead['delegation_resolution'],
+                    'delegation_effective_normalized' => $lead['lead_delegation'],
+                    'delegation_effective_source' => $lead['lead_delegation_effective_source'],
                     'portal_text_raw' => $row->portal_text,
                     'fuente_nuevo_raw' => $row->fuente_nuevo,
                     'fuente_origen_raw' => $row->fuente_origen,
@@ -436,19 +468,20 @@ class SalesforceLeadDashboardDatasetService
         $isConverted = $status === 'Convertido';
         $isDiscarded = $status === 'Descartado';
         $isPotential = $status === 'Potencial';
-        $resolvedChannel = $this->clean(data_get($lead, 'resolved_channel'));
-        $resolvedPortal = $this->clean(data_get($lead, 'resolved_portal'));
-        $resolutionSource = $this->clean(data_get($lead, 'portal_resolution_source'));
-        $portalResolution = $resolvedChannel && $resolvedPortal && $resolutionSource
-            ? ['channel' => $resolvedChannel, 'portal' => $resolvedPortal, 'source' => $resolutionSource]
-            : $this->portalResolver->resolve($lead);
-        $channel = $portalResolution['channel'];
-        $portal = $portalResolution['portal'];
+        $classification = $this->classificationResolver->resolve($lead);
+        $channel = $classification['channel'];
+        $portal = $classification['portal'];
         $recordTypeRaw = $this->clean(data_get($lead, 'record_type_name'));
         $recordTypeNormalized = $this->clean(data_get($lead, 'record_type_normalized'))
             ?? $this->recordTypeNormalizer->normalize($recordTypeRaw);
         $manager = $this->resolveSimplifiedManager($lead, $isConverted, $isDiscarded);
-        $leadDelegation = $this->resolveLeadDelegation($lead, $recordTypeNormalized, $manager);
+        $leadDelegation = $this->resolveLeadDelegation($lead, $recordTypeNormalized, $manager, $classification['fields']['delegation']);
+        $accessLeadDelegation = $this->resolveLeadDelegation(
+            $lead,
+            $recordTypeNormalized,
+            $manager,
+            $this->classificationResolver->resolveLegacyDelegation($lead),
+        );
         $commercialUser = $manager['id'] ? $this->commercialUsers()->get($manager['id']) : null;
         $commercialDelegation = $this->normalizeCommercialDelegation(data_get($commercialUser, 'user_delegation'));
         $withoutEligibleCommercial = $commercialUser === null;
@@ -491,6 +524,15 @@ class SalesforceLeadDashboardDatasetService
             'content_acquired' => data_get($lead, 'content_acquired'),
             'fuente_origen' => data_get($lead, 'fuente_origen'),
             'medio_origen' => data_get($lead, 'medio_origen'),
+            'source_origin_new' => data_get($lead, 'source_origin_new'),
+            'medium_origin_new' => data_get($lead, 'medium_origin_new'),
+            'channel_new' => data_get($lead, 'channel_new'),
+            'delegation_origin_new' => data_get($lead, 'delegation_origin_new'),
+            'source_resolution' => $classification['fields']['source'],
+            'channel_resolution' => $classification['fields']['channel'],
+            'medium_resolution' => $classification['fields']['medium'],
+            'delegation_resolution' => $classification['fields']['delegation'],
+            'medio_efectivo' => $classification['fields']['medium']['effective_value'],
             'fuente_nuevo' => data_get($lead, 'fuente_nuevo'),
             'medio_nuevo' => data_get($lead, 'medio_nuevo'),
             'vehicle_interest' => data_get($lead, 'vehicle_interest'),
@@ -506,7 +548,7 @@ class SalesforceLeadDashboardDatasetService
             'is_formulario' => $channel === 'Formulario',
             'canal' => $channel,
             'portal' => $portal,
-            'portal_resolution_source' => $portalResolution['source'],
+            'portal_resolution_source' => $classification['portal_resolution_source'],
             'portal_text' => data_get($lead, 'portal_text'),
             'synced_at' => data_get($lead, 'synced_at'),
             'salesforce_last_modified_at' => data_get($lead, 'salesforce_last_modified_at'),
@@ -519,6 +561,8 @@ class SalesforceLeadDashboardDatasetService
             'lead_zone' => $leadDelegation['zone'],
             'lead_delegation_raw' => $leadDelegation['raw'],
             'lead_delegation_is_classified' => $leadDelegation['is_classified'],
+            'lead_delegation_effective_source' => $leadDelegation['effective_source'],
+            'lead_access_delegation' => $accessLeadDelegation['delegation'],
             'commercial_delegation' => $commercialDelegation['delegation'],
             'commercial_group' => $commercialDelegation['group'],
             'commercial_zone' => $commercialDelegation['zone'],
@@ -764,7 +808,7 @@ class SalesforceLeadDashboardDatasetService
         }
         if (filled($filters['access_delegation'] ?? null)
             && $lead['commercial_delegation'] !== $filters['access_delegation']
-            && $lead['lead_delegation'] !== $filters['access_delegation']) {
+            && $lead['lead_access_delegation'] !== $filters['access_delegation']) {
             return false;
         }
 
@@ -936,21 +980,31 @@ class SalesforceLeadDashboardDatasetService
         return array_values($rows);
     }
 
-    private function resolveLeadDelegation(mixed $lead, ?string $recordTypeNormalized, array $manager): array
+    private function resolveLeadDelegation(mixed $lead, ?string $recordTypeNormalized, array $manager, array $resolution): array
     {
-        $raw = $this->clean(data_get($lead, 'delegacion_encargada_bueno'))
-            ?? $this->clean(data_get($lead, 'delegacion_encargada'))
-            // Existing persisted fallback retained while the API Name of the
-            // approved functional "Delegación" field remains unverified.
-            ?? $this->clean(data_get($lead, 'delegacion_encargada_text'));
+        $raw = $resolution['effective_value'];
+        $source = $raw !== null ? $resolution['source_field'] : null;
 
         if ($raw === null && $recordTypeNormalized === LeadRecordTypeNormalizer::EXPOSICION) {
-            $raw = $this->clean(data_get($lead, 'persona_que_trabajo_delegation'))
-                ?? $this->clean(data_get($lead, 'owner_delegation'))
-                ?? $this->clean(data_get($this->commercialUsers()->get($manager['id']), 'user_delegation'));
+            $contextualCandidates = [
+                'persona_que_trabajo_delegation' => $this->clean(data_get($lead, 'persona_que_trabajo_delegation')),
+                'owner_delegation' => $this->clean(data_get($lead, 'owner_delegation')),
+                'salesforce_users.user_delegation' => $this->clean(data_get($this->commercialUsers()->get($manager['id']), 'user_delegation')),
+            ];
+
+            foreach ($contextualCandidates as $contextualSource => $candidate) {
+                if ($candidate !== null) {
+                    $raw = $candidate;
+                    $source = $contextualSource;
+
+                    break;
+                }
+            }
         }
 
-        return $this->delegationNormalizer->normalize($raw);
+        return array_merge($this->delegationNormalizer->normalize($raw), [
+            'effective_source' => $source ?? 'fallback',
+        ]);
     }
 
     private function normalizeCommercialDelegation(mixed $raw): array

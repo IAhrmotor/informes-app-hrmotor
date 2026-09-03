@@ -84,6 +84,7 @@ class SalesforceCallSyncServiceTest extends TestCase
         $this->assertSame(1, $result['saved']);
         $this->assertSame('Web', $call->portal_resolved);
         $this->assertSame('portal', $call->call_origin);
+        $this->assertSame(CallClassificationRules::VERSION, $call->classification_rule_version);
         $this->assertSame('answered', $call->call_status);
         $this->assertSame('inbound', $call->direction);
         $this->assertSame(70, $call->adjusted_duration_seconds);
@@ -110,10 +111,11 @@ class SalesforceCallSyncServiceTest extends TestCase
                 $this->assertStringContainsString('Portal_Text__c', $soql);
                 $this->assertStringContainsString('LEA_SEL_Fuente_Origen__c', $soql);
                 $this->assertStringContainsString('Fuente_Nuevo__c', $soql);
-                $this->assertStringNotContainsString('Fuente_origen__c', $soql);
+                $this->assertStringContainsString('Fuente_origen__c', $soql);
 
                 return [[
                     'Id' => '00Q-lead-conflict',
+                    'Fuente_origen__c' => 'Coches.net',
                     'Portal_Text__c' => 'Google Maps',
                     'LEA_SEL_Fuente_Origen__c' => 'Coches.net',
                     'Fuente_Nuevo__c' => 'Wallapop',
@@ -151,7 +153,13 @@ class SalesforceCallSyncServiceTest extends TestCase
         $service->sync(CarbonImmutable::parse('2026-05-10'), CarbonImmutable::parse('2026-05-11'));
 
         $call = SalesforceCall::query()->where('salesforce_id', '00T-call-conflict')->firstOrFail();
-        $this->assertSame('Google Maps', $call->portal_resolved);
+        $this->assertSame('Coches.net', $call->portal_resolved);
         $this->assertSame('lead', $call->portal_resolution_source);
+        $this->assertSame('portal', $call->call_origin);
+        $this->assertSame(70, $call->adjusted_duration_seconds);
+        $this->assertTrue($call->is_overflow);
+        $this->assertSame('Google Maps', data_get($call->parse_debug, 'portal_debug.legacy_value'));
+        $this->assertSame('Portal_Text__c', data_get($call->parse_debug, 'portal_debug.legacy_source_field'));
+        $this->assertSame('Fuente_origen__c', data_get($call->parse_debug, 'portal_debug.effective_source_field'));
     }
 }

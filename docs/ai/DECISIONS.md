@@ -366,3 +366,41 @@ del hash porque no alteran la regla v1.
 - Una extensión mínima del middleware oficial `TrustProxies` carga desde configuración cacheable la lista `TRUSTED_PROXIES`. Laravel interpreta `X-Forwarded-*` únicamente cuando `REMOTE_ADDR` pertenece a esa lista explícita. Producción debe configurar las IP/CIDR reales de la red del reverse proxy; no se admite `*` en una aplicación expuesta a Internet.
 - Se confían las cabeceras estándar de Symfony para origen, host, puerto, protocolo y prefijo. No se implementa parser propio, no se hardcodea el host público y no se aplica `URL::forceScheme`, por lo que local puede seguir funcionando por HTTP.
 - El proxy debe enviar `X-Forwarded-Proto: https` y producción debe mantener `APP_URL=https://informes.app.hrmotor.com`. `APP_URL` no sustituye la frontera de confianza del proxy para URLs derivadas de la request.
+
+## 2026-09-03 - Backfill de atribución limitado por universo local
+
+- Los backfills históricos de atribución de Lead parten de IDs ya existentes en
+  las tablas locales; nunca descubren ni insertan Leads a partir de un rango
+  Salesforce. El rango funcional se evalúa sobre `created_date` local.
+- La persistencia usa UPDATE masivo de filas bloqueadas y existentes. Cada lote
+  confirma conjuntamente el before/after técnico y las actualizaciones, de modo
+  que un fallo revierte ambos y permite reanudar por Salesforce ID.
+- El histórico específico contiene solo campos de atribución aprobados. Cuando
+  cambia `raw_payload`, guarda únicamente las claves consultadas y no el payload
+  completo. Dry-run no crea ejecuciones ni histórico y no invalida cachés.
+- La identidad de conciliación Salesforce se define por los primeros 15
+  caracteres case-sensitive; no se normaliza físicamente la clave local. El
+  cursor conserva el orden literal para que la reanudación no omita ninguna de
+  las representaciones coexistentes.
+- Las respuestas remotas se obtienen antes de abrir la transacción. En apply,
+  candidato, merge, diff e histórico se calculan exclusivamente después de
+  releer las filas bajo `lockForUpdate()`. Un mutex atómico de caché con TTL de
+  seis horas evita dos apply simultáneos, mientras el lock de filas mantiene la
+  coherencia con sincronizadores que no participan en ese mutex.
+
+## 2026-09-03 - Reproceso de portales de Opportunity acotado y auditable
+
+- El reproceso conserva el comando existente y limita su universo a Opportunities
+  locales en un rango de `created_date`; la PK local numérica es el cursor
+  estable. No descubre, inserta ni elimina Opportunities.
+- Dry-run y apply son modos mutuamente excluyentes. Apply exige motivo, usa un
+  mutex de caché de seis horas y confirma por chunk el UPDATE junto al histórico
+  before/after. La caché se versiona una sola vez si existe algún commit efectivo.
+- El matching Lead remoto se completa antes de abrir la transacción. Después se
+  releen filas bajo `lockForUpdate()` y se valida una huella de los inputs; si
+  cambian, se libera el lock, se repite la consulta Lead y se limita a tres
+  intentos. No se mantiene HTTP bajo locks DB.
+- La auditoría específica conserva solo los seis campos de atribución y filtra
+  el debug mediante whitelist. Se omiten PII y `raw_payload` completo, y no se
+  añade FK para que la evidencia técnica sobreviva a la eventual retirada de la
+  réplica local.
