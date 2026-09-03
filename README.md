@@ -113,6 +113,7 @@ Programación principal (`Europe/Madrid`):
 - Retención transversal: 00:30.
 - Leads incremental: cada 15 minutos, `--days=2`.
 - Tasaciones: 01:00, `--days=120`.
+- Leads Salesforce de Campañas: 01:15, `--days=120`.
 - Meta Ads: 01:30, `--days=120`.
 - Google Ads: 01:45, `--days=120`.
 - Atribución de campañas: 02:15, `--days=120`.

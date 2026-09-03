@@ -124,17 +124,25 @@ ambigüedad, RecordType, fechas, versión, construcción y sincronización.
 
 El scheduler ejecuta en `Europe/Madrid`:
 
+- Leads Salesforce de Campañas: 01:15;
 - Meta: 01:30;
 - Google: 01:45;
 - atribución: 02:15;
 - snapshot del informe: 03:15.
 
 ```bash
+php artisan salesforce:sync-campaign-leads --days=120
 php artisan campaigns:sync-meta --days=120
 php artisan campaigns:sync-google --days=120
 php -d memory_limit=512M artisan campaigns:build-attribution --days=120
 php artisan reports:refresh-campaigns --days=120 --store
 ```
+
+La sincronización diaria de Leads Salesforce usa upsert incremental, sin
+`--fresh`, se ejecuta antes de reconstruir la atribución y está monitorizada por
+la infraestructura común de alertas operativas. Un fallo abre una alerta y el
+primer éxito posterior la resuelve. No cambia el WHERE legacy ni amplía el
+universo de Campañas.
 
 Para un backfill debe usarse un rango explícito, probar primero sobre copia y
 conciliar por Lead/Opportunity ID. Reconstruir first touch puede cambiar

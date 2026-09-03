@@ -1953,3 +1953,29 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   ejecutado** y tampoco se ha realizado un dry-run productivo. Escrituras
   Salesforce: cero. Tras desplegar la migración, cualquier operación real
   requiere conciliación, aprobación y runbook separados.
+
+# Hotfix — Scheduler de Leads Salesforce de Campañas (2026-09-03)
+
+## Resumen y decisiones
+
+- Se añadió al scheduler monitorizado
+  `salesforce:sync-campaign-leads --days=120` a las 01:15 `Europe/Madrid`, antes
+  de Meta 01:30, Google 01:45, atribución 02:15 y snapshot 03:15.
+- Usa `withoutOverlapping(180)`, identificador estable
+  `salesforce-sync-campaign-leads` y la infraestructura `$monitor`; un fallo
+  abre la alerta operacional existente y un éxito posterior la resuelve.
+- El schedule no usa `--fresh`. No se modificaron comando, servicio, SOQL,
+  batching, reglas de atribución, universos ni horarios de otras tareas.
+
+## Seguridad, rendimiento y operación
+
+- Se conserva el upsert incremental por lotes y no se añaden queries por Lead.
+  El hotfix no contiene credenciales, PII, dependencias, migraciones ni cambios
+  de caché adicionales.
+- No se ejecutaron sincronización productiva, backfill, reproceso ni escrituras
+  Salesforce. Baseline de Campañas: 18 pruebas y 81 aserciones; focal final: 19
+  pruebas y 92 aserciones; suite completa: 883 pruebas y 6.379 aserciones.
+  `schedule:list`, Pint WRITE/`--test`, Composer validate/audit, build Vite y
+  `git diff --check` fueron correctos. Los artefactos del build se restauraron.
+  `npm ci` informó 5 advisories del lock actual (3 high, 2 critical), sin cambios
+  de dependencias por quedar fuera del alcance de este hotfix.

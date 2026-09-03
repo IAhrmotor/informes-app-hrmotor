@@ -80,7 +80,16 @@ $monitor(
     'sincronización de tasaciones',
 );
 
-// La atribucion se reconstruye despues de actualizar ambas plataformas.
+$monitor(
+    Schedule::command('salesforce:sync-campaign-leads --days=120')
+        ->dailyAt('01:15')
+        ->timezone('Europe/Madrid')
+        ->withoutOverlapping(180),
+    'salesforce-sync-campaign-leads',
+    'sincronización de Leads Salesforce de Campañas',
+);
+
+// La atribucion se reconstruye despues de actualizar Salesforce y ambas plataformas.
 $monitor(
     Schedule::command('campaigns:sync-meta --days=120')
         ->dailyAt('01:30')

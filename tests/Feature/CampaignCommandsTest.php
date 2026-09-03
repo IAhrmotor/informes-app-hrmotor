@@ -24,6 +24,32 @@ class CampaignCommandsTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_campaign_salesforce_leads_sync_is_scheduled_before_attribution(): void
+    {
+        $scheduler = file_get_contents(base_path('routes/console.php'));
+        $command = "Schedule::command('salesforce:sync-campaign-leads --days=120')";
+        $this->assertSame(1, substr_count($scheduler, $command));
+        $this->assertStringNotContainsString('salesforce:sync-campaign-leads --days=120 --fresh', $scheduler);
+
+        $builder = "Schedule::command('campaigns:build-attribution --days=120')";
+        $syncPosition = strpos($scheduler, $command);
+        $this->assertNotFalse($syncPosition);
+        $syncIdentifierPosition = strpos($scheduler, "'salesforce-sync-campaign-leads'", $syncPosition);
+        $this->assertNotFalse($syncIdentifierPosition);
+        $builderPosition = strpos($scheduler, $builder);
+        $this->assertNotFalse($builderPosition);
+        $builderIdentifierPosition = strpos($scheduler, "'campaigns-build-attribution'", $builderPosition);
+        $this->assertNotFalse($builderIdentifierPosition);
+
+        $syncConfiguration = substr($scheduler, $syncPosition, $syncIdentifierPosition - $syncPosition);
+        $builderConfiguration = substr($scheduler, $builderPosition, $builderIdentifierPosition - $builderPosition);
+        $this->assertStringContainsString("dailyAt('01:15')", $syncConfiguration);
+        $this->assertStringContainsString("timezone('Europe/Madrid')", $syncConfiguration);
+        $this->assertStringContainsString('withoutOverlapping(180)', $syncConfiguration);
+        $this->assertStringContainsString("dailyAt('02:15')", $builderConfiguration);
+        $this->assertLessThan($builderPosition, $syncPosition);
+    }
+
     public function test_campaign_lead_sync_mapper_guarda_campos_de_adquisicion(): void
     {
         $service = new CampaignLeadSyncService($this->createMock(SalesforceClient::class));
