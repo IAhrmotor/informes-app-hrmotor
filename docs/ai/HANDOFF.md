@@ -2016,32 +2016,37 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   gracias a otra Opportunity podía convertirse en candidato más reciente de la
   Opportunity objetivo. Además, cualquier resultado Salesforce del grupo
   suprimía globalmente el fallback `leads_raw`.
-- Los teléfonos de consulta ahora parten de la clave canónica existente
-  (dígitos, con retirada del prefijo español `34`) y se buscan mediante patrones
-  SOQL que toleran separadores. La validación final sigue usando
-  `normalizePhone()`; no se sustituyó por igualdad de texto bruto.
-- El fallback local se calcula para cada email/teléfono sin respuesta remota.
+- Los teléfonos de consulta parten de la clave canónica existente y generan
+  siete variantes exactas y finitas para `IN`: compacto, espacio, guion, punto,
+  `34` compacto y `+34` compacto/con espacios. No existe `LIKE` con wildcard.
+  La validación final sigue usando `normalizePhone()`.
+- El fallback local se calcula para cada email sin respuesta remota. El fallback
+  telefónico de `leads_raw` se elimina porque requería
+  `whereNotNull(raw_payload)->get()` sin índice telefónico.
   Los candidatos se deduplican y ordenan por `CreatedDate` descendente más
   `Lead.Id` ascendente como desempate total.
 
 ## Alcance, seguridad y rendimiento
 
 - La política compartida cubre sync normal, `syncBySalesforceIds()` y
-  `reports:reprocess-opportunity-portals`. Se mantienen consultas agrupadas: 80
-  emails o teléfonos canónicos por consulta, sin N+1 ni más llamadas remotas
-  que el diseño anterior para la misma cardinalidad.
+  `reports:reprocess-opportunity-portals`. Se agrupan 80 emails o 20 identidades
+  telefónicas. Cada consulta de teléfono contiene como máximo 140 valores
+  exactos repetidos en dos condiciones `IN`, tres condiciones lógicas contando
+  `IsDeleted`, y menos de 5.000 caracteres SOQL en el test máximo. Un chunk de
+  100 Opportunities requiere como máximo cinco consultas telefónicas, nunca
+  una por Opportunity.
 - No cambian precedencia, universo, reservas, ventas, contratos, caídas,
   conteos ni campos raw. No se añadieron migraciones o dependencias y no se
   ejecutaron reproceso histórico, comandos productivos ni escrituras Salesforce.
 - La regresión cubre los dos patrones observados, email, formatos `+34` y
   separadores, empate temporal y posiciones a ambos lados de lotes mayores de
   100 Opportunities.
-- Baseline focal: 31 pruebas y 237 aserciones. Los tres nuevos tests reprodujeron
-  el defecto antes del cambio. Focal final: 37 pruebas y 254 aserciones;
-  regresión completa Reservas/Ventas: 91 pruebas y 757 aserciones; suite
-  completa: 901 pruebas y 6.504 aserciones, todas correctas. Pint WRITE y
-  `--test`, Composer validate/audit, build Vite y `git diff --check` fueron
-  correctos; los artefactos del build se restauraron.
+- El primer correctivo partió de 31 pruebas/237 aserciones y sus regresiones
+  reprodujeron el defecto antes del cambio. Tras endurecer rendimiento, el focal
+  final suma 39 pruebas/287 aserciones; Reservas/Ventas, 93/790; y la suite
+  completa, 903/6.537, todas correctas. Pint WRITE y `--test`, Composer
+  validate/audit, build Vite y `git diff --check` fueron correctos; los
+  artefactos del build se restauraron.
 - No se ejecutaron reconstrucción real, backfill, reproceso, sincronización
   productiva ni escritura Salesforce.
 

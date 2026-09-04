@@ -390,11 +390,8 @@ SQL);
                 'account_person_email' => null,
             ]);
         }
-        $queryNumber = 0;
-        $this->fakeSalesforce(function () use (&$queryNumber): array {
-            $queryNumber++;
-
-            if ($queryNumber === 3) {
+        $this->fakeSalesforce(function (string $soql): array {
+            if (str_contains($soql, "'600000101'")) {
                 throw new \RuntimeException('Second chunk Salesforce failure');
             }
 

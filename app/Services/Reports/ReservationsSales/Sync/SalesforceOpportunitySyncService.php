@@ -22,7 +22,7 @@ class SalesforceOpportunitySyncService
 
     private const LEAD_EMAIL_CHUNK_SIZE = 80;
 
-    private const LEAD_PHONE_CHUNK_SIZE = 80;
+    private const LEAD_PHONE_CHUNK_SIZE = 20;
 
     public function __construct(
         private readonly SalesforceClient $client,
@@ -438,7 +438,12 @@ SOQL;
         }
 
         foreach ($phoneValues->chunk(self::LEAD_PHONE_CHUNK_SIZE) as $chunk) {
-            $matches = $matches->merge($this->queryLeads([], $chunk->all()));
+            $phoneVariants = $chunk
+                ->flatMap(fn (string $phone): array => $this->phoneQueryVariants($phone))
+                ->unique()
+                ->values()
+                ->all();
+            $matches = $matches->merge($this->queryLeads([], $phoneVariants));
         }
 
         return $matches
@@ -483,11 +488,9 @@ SOQL;
         }
 
         if ($phones !== []) {
-            foreach ($phones as $phone) {
-                $pattern = $this->phoneLikePattern($phone);
-                $clauses[] = "Phone LIKE '{$pattern}'";
-                $clauses[] = "MobilePhone LIKE '{$pattern}'";
-            }
+            $in = implode(', ', array_map(fn (string $value) => "'".$this->escape($value)."'", $phones));
+            $clauses[] = "Phone IN ({$in})";
+            $clauses[] = "MobilePhone IN ({$in})";
         }
 
         if ($clauses === []) {
@@ -520,26 +523,17 @@ SOQL);
             ->filter()
             ->unique()
             ->all();
-        $matchedPhones = collect($records)
-            ->flatMap(fn (array $lead): array => [
-                $this->normalizePhone(data_get($lead, 'Phone')),
-                $this->normalizePhone(data_get($lead, 'MobilePhone')),
-            ])
-            ->filter()
-            ->unique()
-            ->all();
         $fallbackEmails = array_values(array_diff($emails, $matchedEmails));
-        $fallbackPhones = array_values(array_diff($phones, $matchedPhones));
 
         return array_merge(
             $records,
-            $this->queryLeadRawFallback($fallbackEmails, $fallbackPhones),
+            $this->queryLeadRawFallback($fallbackEmails),
         );
     }
 
-    private function queryLeadRawFallback(array $emails, array $phones): array
+    private function queryLeadRawFallback(array $emails): array
     {
-        if (! Schema::hasTable('leads_raw')) {
+        if ($emails === [] || ! Schema::hasTable('leads_raw')) {
             return [];
         }
 
@@ -547,42 +541,21 @@ SOQL);
             ->filter()
             ->mapWithKeys(fn (string $value) => [Str::lower(trim($value)) => true])
             ->all();
-        $phoneMap = collect($phones)
-            ->filter()
-            ->map(fn (string $value) => $this->normalizePhone($value))
-            ->filter()
-            ->mapWithKeys(fn (string $value) => [$value => true])
-            ->all();
 
         $query = LeadRaw::query()
-            ->select(['salesforce_id', 'lead_created_at', 'fuente_nuevo', 'lea_sel_fuente_origen', 'portal', 'portal_value', 'remitente_lead', 'raw_payload']);
-
-        if ($emailMap !== []) {
-            $query->whereIn('remitente_lead', array_keys($emailMap));
-        } elseif ($phoneMap !== []) {
-            $query->whereNotNull('raw_payload');
-        } else {
-            return [];
-        }
+            ->select(['salesforce_id', 'lead_created_at', 'fuente_nuevo', 'lea_sel_fuente_origen', 'portal', 'portal_value', 'remitente_lead', 'raw_payload'])
+            ->whereIn('remitente_lead', array_keys($emailMap));
 
         return $query->get()
-            ->filter(function (LeadRaw $lead) use ($emailMap, $phoneMap): bool {
+            ->filter(function (LeadRaw $lead) use ($emailMap): bool {
                 $payload = is_array($lead->raw_payload) ? $lead->raw_payload : [];
                 $emailCandidates = [
                     Str::lower(trim((string) ($lead->remitente_lead ?? ''))),
                     Str::lower(trim((string) data_get($payload, 'Email', ''))),
                     Str::lower(trim((string) data_get($payload, 'PersonEmail', ''))),
                 ];
-                $phoneCandidates = [
-                    $this->normalizePhone(data_get($payload, 'Phone')),
-                    $this->normalizePhone(data_get($payload, 'MobilePhone')),
-                    $this->normalizePhone(data_get($payload, 'Account.Phone')),
-                ];
 
-                $emailMatch = collect($emailCandidates)->filter()->contains(fn (string $value) => isset($emailMap[$value]));
-                $phoneMatch = collect($phoneCandidates)->filter()->contains(fn (string $value) => isset($phoneMap[$value]));
-
-                return $emailMatch || $phoneMatch;
+                return collect($emailCandidates)->filter()->contains(fn (string $value) => isset($emailMap[$value]));
             })
             ->map(function (LeadRaw $lead): array {
                 $payload = is_array($lead->raw_payload) ? $lead->raw_payload : [];
@@ -764,9 +737,24 @@ SOQL);
         return $value !== '' ? $value : null;
     }
 
-    private function phoneLikePattern(string $normalizedPhone): string
+    /** @return list<string> */
+    private function phoneQueryVariants(string $normalizedPhone): array
     {
-        return '%'.implode('%', str_split($normalizedPhone)).'%';
+        if (strlen($normalizedPhone) !== 9) {
+            return [$normalizedPhone];
+        }
+
+        $grouped = implode(' ', str_split($normalizedPhone, 3));
+
+        return [
+            $normalizedPhone,
+            $grouped,
+            implode('-', str_split($normalizedPhone, 3)),
+            implode('.', str_split($normalizedPhone, 3)),
+            '34'.$normalizedPhone,
+            '+34'.$normalizedPhone,
+            '+34 '.$grouped,
+        ];
     }
 
     private function escape(string $value): string

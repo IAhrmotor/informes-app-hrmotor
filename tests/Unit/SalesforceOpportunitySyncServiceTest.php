@@ -10,6 +10,7 @@ use App\Services\Salesforce\SalesforceClient;
 use App\Services\Salesforce\SalesforceLeadFieldResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class SalesforceOpportunitySyncServiceTest extends TestCase
@@ -342,13 +343,6 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             {
                 $records = [];
 
-                if (str_contains($soql, "Phone LIKE '%6%0%0%0%0%0%0%0%1%'")) {
-                    return [
-                        $this->lead('00Q-target-lead', '+34 600 000 001', 'Coches.net', '2026-05-10T10:00:00.000+0000'),
-                        $this->lead('00Q-batch-lead', '600000001', 'Wallapop', '2026-05-11T10:00:00.000+0000'),
-                    ];
-                }
-
                 if (str_contains($soql, "'+34 600 000 001'")) {
                     $records[] = $this->lead('00Q-target-lead', '+34 600 000 001', 'Coches.net', '2026-05-10T10:00:00.000+0000');
                 }
@@ -420,8 +414,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
 
             public function query(string $soql): array
             {
-                if (! str_contains($soql, "'611000001'")
-                    && ! str_contains($soql, "Phone LIKE '%6%1%1%0%0%0%0%0%1%'")) {
+                if (! str_contains($soql, "'611000001'")) {
                     return [];
                 }
 
@@ -542,13 +535,6 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             {
                 $records = [];
 
-                if (str_contains($soql, "Phone LIKE '%6%2%2%0%0%0%0%0%1%'")) {
-                    return [
-                        $this->lead('00Q-stable-target', '+34 622 000 001', 'Coches.net'),
-                        $this->lead('00Q-shared-normalized', '622000001', 'Wallapop'),
-                    ];
-                }
-
                 if (str_contains($soql, "'+34 622 000 001'")) {
                     $records[] = $this->lead('00Q-stable-target', '+34 622 000 001', 'Coches.net');
                 }
@@ -587,6 +573,69 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
 
             $this->assertSame($isolated, $result);
         }
+    }
+
+    public function test_busqueda_telefonica_usa_variantes_in_acotadas_sin_wildcards_por_digito(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            /** @var list<string> */
+            public array $queries = [];
+
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $this->queries[] = $soql;
+
+                return [];
+            }
+        };
+        $opportunities = collect(range(1, 100))
+            ->map(fn (int $number): array => $this->opportunityForPhone('6'.str_pad((string) $number, 8, '0', STR_PAD_LEFT)))
+            ->all();
+
+        $this->service($client)->relatedLeadMatchesForOpportunities($opportunities);
+
+        $this->assertCount(5, $client->queries);
+        foreach ($client->queries as $soql) {
+            $this->assertStringContainsString('Phone IN (', $soql);
+            $this->assertStringContainsString('MobilePhone IN (', $soql);
+            $this->assertStringNotContainsString(' LIKE ', $soql);
+            $this->assertStringNotContainsString('%6%0%0%0%0%0%0%0%1%', $soql);
+            $this->assertLessThanOrEqual(5000, strlen($soql));
+        }
+    }
+
+    public function test_telefonos_sin_resultado_salesforce_no_activan_full_scan_de_leads_raw(): void
+    {
+        LeadRaw::query()->create([
+            'salesforce_id' => '00Q-phone-raw',
+            'lead_created_at' => '2026-05-10 10:00:00',
+            'raw_payload' => ['Phone' => '644 000 001', 'Portal_Text__c' => 'Coches.net'],
+        ]);
+        $queries = [];
+        DB::listen(function ($query) use (&$queries): void {
+            $queries[] = $query->sql;
+        });
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                return [];
+            }
+        };
+        $matches = $this->service($client)->relatedLeadMatchesForOpportunities([
+            $this->opportunityForPhone('644000001'),
+            $this->opportunityForPhone('655000001'),
+        ]);
+
+        $this->assertCount(0, $matches);
+        $this->assertFalse(collect($queries)->contains(
+            fn (string $sql): bool => str_contains(strtolower($sql), 'leads_raw'),
+        ));
     }
 
     public function test_reintenta_sin_email_de_empresa_cuando_salesforce_rechaza_el_campo_opcional(): void

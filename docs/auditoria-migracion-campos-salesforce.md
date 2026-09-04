@@ -589,10 +589,11 @@ preparada, pero no se ha ejecutado el histórico ni un dry-run productivo.
 La consulta agrupada de Reservas/Ventas ya no depende de los teléfonos brutos
 aportados por otras Opportunities del lote. Cada teléfono se transforma en la
 clave numérica canónica vigente y genera una búsqueda Salesforce tolerante a
-separadores; la aceptación final conserva la igualdad telefónica normalizada.
-Los identificadores sin respuesta remota recurren individualmente al fallback
-local, evitando que una respuesta para otro email o teléfono suprima su
-fallback.
+separadores mediante siete variantes exactas y dos condiciones `IN`; la
+aceptación final conserva la igualdad telefónica normalizada. Los emails sin
+respuesta remota recurren individualmente al fallback local. Los teléfonos no
+usan `leads_raw`: esa tabla no tiene una columna/index telefónico y leer todo su
+JSON por cada lote sería un full scan.
 
 La prioridad continúa siendo Opportunity conclusiva → Lead → fuente de
 Opportunity → Exposición → Web → Sin clasificar. Dentro del Lead se conserva
