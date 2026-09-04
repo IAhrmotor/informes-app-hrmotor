@@ -130,7 +130,19 @@ php artisan reports:debug-reservas-ventas
 php artisan reports:debug-reservas-ventas --reconcile-cohort --from=2026-07-01 --to=2026-07-31 --date-criterion=created_date --opportunity-type=all
 php artisan reports:reprocess-opportunity-portals --from=2026-05-01 --to=2026-06-01 --dry-run
 php artisan reports:reprocess-opportunity-portals --from=2026-05-01 --to=2026-06-01 --apply --reason="Motivo operativo aprobado"
+php artisan salesforce:repair-opportunity-lifecycle-dates --dry-run
+php artisan salesforce:repair-opportunity-lifecycle-dates --apply --reason="Incidencia aprobada y conciliada"
 ```
+
+La reparación de fechas es una herramienta manual previa a cualquier reproceso
+histórico que dependa de `created_date`. Parte solo de Opportunities locales con
+`created_date IS NULL`, consulta Salesforce por lotes de hasta 100 IDs y puede
+escribir exclusivamente `created_date` y `salesforce_last_modified_at`. Dry-run
+no persiste; apply requiere motivo, admite `--limit`/`--after-id` y queda
+auditado por ejecución. No usa el sincronizador completo, no modifica
+`raw_payload`, portales, hitos ni datos económicos y nunca inserta Opportunities.
+Debe conciliarse y completarse antes de cualquier operación histórica de Fase
+7B/7C que seleccione Opportunities mediante `created_date`.
 
 La conciliación muestra únicamente cantidades y diferencias `A - B` / `B - A`
 por Opportunity ID; no muestra datos de contacto. Debe ejecutarse en el entorno

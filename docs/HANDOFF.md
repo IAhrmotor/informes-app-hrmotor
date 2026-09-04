@@ -211,6 +211,13 @@ En sincronizaciones Salesforce/Campañas, `--to` es normalmente exclusivo. En
 el reproceso de Llamadas es inclusivo. Confirmar siempre con `php artisan help`
 antes de producción.
 
+La reparación manual `salesforce:repair-opportunity-lifecycle-dates` recupera
+exclusivamente `CreatedDate`/`LastModifiedDate` para Opportunities locales cuyo
+`created_date` sigue siendo NULL. Debe ejecutarse primero con `--dry-run`; el
+modo `--apply` exige motivo, admite `--limit` y `--after-id`, usa mutex y deja
+auditoría por ejecución. No forma parte del scheduler ni resincroniza datos
+funcionales de Opportunity.
+
 ## 11. Migraciones del lote pendiente
 
 Migraciones aditivas introducidas el 2026-08-05:
