@@ -189,6 +189,7 @@ Laravel usa ventanas móviles y bloqueos de solapamiento.
 ```text
 cada 15 min  salesforce:sync-monthly-commercial --days=2
 01:00         salesforce:sync-tasaciones --days=120
+01:15         salesforce:sync-campaign-leads --days=120
 01:30         campaigns:sync-meta --days=120
 01:45         campaigns:sync-google --days=120
 02:15         campaigns:build-attribution --days=120
