@@ -359,5 +359,6 @@ Riesgos operativos:
 
 - Dry-run disponible para sincronización de Campaign Leads y builder de
   atribución. Ambos son no persistentes; el builder reporta muestras de IDs y
-  cambios de campaña/ambigüedad.
+  cambios de campaña/ambigüedad. `became_unattributed` exige identidad previa de
+  campaña; `removed_attribution` cuenta filas actuales ausentes de la simulación.
 - La escritura histórica con `campaigns:build-attribution --from` exige motivo.

@@ -1979,3 +1979,32 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   `git diff --check` fueron correctos. Los artefactos del build se restauraron.
   `npm ci` informó 5 advisories del lock actual (3 high, 2 critical), sin cambios
   de dependencias por quedar fuera del alcance de este hotfix.
+
+# Hotfix — Conciliación dry-run de atribución de Campañas (2026-09-04)
+
+## Resumen y decisiones
+
+- `simulationSummary()` solo clasifica `became_unattributed` cuando la fila
+  actual tenía `campaign_id` o `campaign_name` y el Lead permanece simulado sin
+  identidad. Un Lead sin atribuir que continúa sin atribuir ya no es un falso
+  positivo.
+- Tras recorrer las filas simuladas se comparan sus Lead IDs con las claves de
+  las atribuciones actuales. Las filas actuales ausentes se contabilizan en
+  `removed_attribution`, separadas de los Leads que permanecen y pierden campaña.
+- Se reutiliza un helper único para reconocer identidad de campaña. No cambian
+  `resolveCampaign`, matching, UTM, first touch, exclusiones, persistencia,
+  versión de reglas, queries ni universo.
+
+## Seguridad, rendimiento y pruebas
+
+- La conciliación continúa O(n), usando únicamente arrays ya cargados y sin
+  queries dentro de los loops. No se añade PII a salida o logs.
+- Se añadió una caracterización matricial para atribución igual, pérdida,
+  continuidad sin campaña, fila eliminada, alta, cambio de campaña, cambio de
+  método y ambigüedad nueva/resuelta. Baseline focal: 32 pruebas y 120
+  aserciones; focal tras el cambio: 33 pruebas y 131 aserciones. Suite completa:
+  884 pruebas y 6.390 aserciones. Pint WRITE/`--test`, Composer validate/audit,
+  build Vite y `git diff --check` fueron correctos; los artefactos del build se
+  restauraron al no existir cambio frontend.
+- No se ejecutaron reconstrucción real, backfill, reproceso, sincronización
+  productiva ni escritura Salesforce.

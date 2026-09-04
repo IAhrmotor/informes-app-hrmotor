@@ -980,11 +980,13 @@ class CampaignAttributionBuilderService
         $changes = ['same_campaign_same_method' => [], 'attribution_method_changed' => [], 'campaign_identity_changed' => [], 'new_attribution' => [], 'removed_attribution' => [], 'new_ambiguous' => [], 'ambiguity_resolved' => [], 'became_unattributed' => []];
         $transitions = [];
         $details = [];
+        $simulatedLeadIds = [];
 
         foreach ($simulatedRows as $row) {
             $leadId = (string) $row['lead_id'];
+            $simulatedLeadIds[$leadId] = true;
             $state = $row['campaign_source_type'] === 'excluded_campaign' ? 'excluded'
-                : (($row['is_ambiguous'] ?? false) ? 'ambiguous' : (blank($row['campaign_id']) && blank($row['campaign_name']) ? 'unattributed' : 'attributed'));
+                : (($row['is_ambiguous'] ?? false) ? 'ambiguous' : ($this->hasCampaignIdentity($row) ? 'attributed' : 'unattributed'));
             $sets[$state][] = $leadId;
             $current = $currentRows[$leadId] ?? null;
             $currentAmbiguous = (bool) ($current['is_ambiguous'] ?? false);
@@ -994,7 +996,7 @@ class CampaignAttributionBuilderService
             if ($currentAmbiguous && ! ($row['is_ambiguous'] ?? false)) {
                 $changes['ambiguity_resolved'][] = $leadId;
             }
-            if ($current && ! $currentAmbiguous && $state === 'unattributed') {
+            if ($current && ! $currentAmbiguous && $this->hasCampaignIdentity($current) && $state === 'unattributed') {
                 $changes['became_unattributed'][] = $leadId;
             }
             if ($current === null && $state === 'attributed') {
@@ -1020,6 +1022,12 @@ class CampaignAttributionBuilderService
                         ],
                     ];
                 }
+            }
+        }
+
+        foreach (array_keys($currentRows) as $leadId) {
+            if (! isset($simulatedLeadIds[(string) $leadId])) {
+                $changes['removed_attribution'][] = (string) $leadId;
             }
         }
 
@@ -1052,6 +1060,11 @@ class CampaignAttributionBuilderService
         return filled($row['campaign_id'] ?? null)
             ? $platform.'|'.(string) $row['campaign_id']
             : $platform.'|'.$this->normalizer->key($row['campaign_name'] ?? '');
+    }
+
+    private function hasCampaignIdentity(array $row): bool
+    {
+        return filled($row['campaign_id'] ?? null) || filled($row['campaign_name'] ?? null);
     }
 
     private function diagnosticAttribution(array $row): array

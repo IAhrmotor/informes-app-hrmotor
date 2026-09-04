@@ -196,6 +196,13 @@ El último comando reutiliza el builder real, compara IDs actuales y simulados,
 informa cambios, ambigüedades, exclusiones y Salesforce-only, y aborta si la
 partición del universo no concilia. Para escritura histórica con `--from` se
 requiere `--reason`; no ejecutar sin aprobación tras la conciliación.
+
+En esas métricas, `became_unattributed` significa que el Lead permanece en la
+simulación, tenía antes una identidad de campaña y ahora queda sin ella. Una
+fila ya no atribuida que continúa igual no suma. `removed_attribution` identifica
+una atribución actual cuyo Lead ya no aparece entre las filas simuladas; es un
+caso distinto y no modifica el universo ni las reglas del builder.
+
 ## Diagnóstico de tipos nulos en simulación
 
 El resumen de dry-run representa un tipo no normalizable como `null` solo para
