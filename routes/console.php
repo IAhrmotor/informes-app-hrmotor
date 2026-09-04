@@ -141,6 +141,15 @@ $monitor(
 );
 
 $monitor(
+    Schedule::command('salesforce:sync-calls --days=7')
+        ->dailyAt('04:45')
+        ->timezone('Europe/Madrid')
+        ->withoutOverlapping(60),
+    'salesforce-sync-calls',
+    'sincronización de llamadas Salesforce',
+);
+
+$monitor(
     Schedule::command('seo:sync-search-console --days=120')
         ->dailyAt('05:15')
         ->timezone('Europe/Madrid')

@@ -119,6 +119,7 @@ Programación principal (`Europe/Madrid`):
 - Atribución de campañas: 02:15, `--days=120`.
 - Snapshot de campañas: 03:15.
 - Stock: 03:30.
+- Llamadas Salesforce: 04:45, `--days=7`.
 
 ## Despliegue
 
