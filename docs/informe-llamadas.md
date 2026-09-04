@@ -87,7 +87,11 @@ exportar la auditoría y revisar el resumen del modo simulación.
 
 - CSV: `/informes/llamadas/export/audit.csv`.
 - Diagnóstico: `php artisan reports:debug-calls`.
-- Sincronización: `php artisan salesforce:sync-calls --days=120`.
+- Sincronización operativa automática: diariamente a las 04:45
+  `Europe/Madrid`, `php artisan salesforce:sync-calls --days=7`, monitorizada
+  como `salesforce-sync-calls` y protegida con `withoutOverlapping(60)`.
+- Sincronización manual histórica o de diagnóstico, cuando exista una ventana
+  expresamente revisada: `php artisan salesforce:sync-calls --days=120`.
 
 El CSV contiene exactamente una fila por cada `Task.Id` del universo bruto
 conciliado en el período y ámbito solicitados. Incluye tanto las Tasks que

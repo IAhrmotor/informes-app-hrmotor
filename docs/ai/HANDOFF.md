@@ -2008,3 +2008,30 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   restauraron al no existir cambio frontend.
 - No se ejecutaron reconstrucción real, backfill, reproceso, sincronización
   productiva ni escritura Salesforce.
+
+# Hotfix — Scheduler de Llamadas Salesforce (2026-09-04)
+
+## Resumen y decisiones
+
+- Se añadió al scheduler monitorizado `salesforce:sync-calls --days=7`, una vez
+  al día a las 04:45 `Europe/Madrid`, entre responsables de delegación (04:15) y
+  el comienzo del bloque SEO (05:15).
+- La tarea usa `withoutOverlapping(60)`, el identificador estable
+  `salesforce-sync-calls` y la infraestructura `$monitor`; un fallo abre la
+  alerta operacional existente y un éxito posterior la resuelve.
+- La ventana móvil de siete días aporta solape operativo y conserva el
+  procesamiento idempotente existente. El schedule no usa `--fresh` ni
+  `--debug-soql`.
+
+## Alcance, seguridad y rendimiento
+
+- No se modificaron `SalesforceSyncCallsCommand`, `SalesforceCallSyncService`,
+  SOQL, universo, clasificación, duración, overflow, batching ni horarios de
+  otras tareas. No se añadieron consultas, dependencias o migraciones.
+- No se ejecutaron sincronización productiva, reproceso, backfill ni escrituras
+  Salesforce. Baseline focal: 21 pruebas y 114 aserciones; focal final: 18
+  pruebas y 113 aserciones; suite completa: 885 pruebas y 6.402 aserciones.
+  `schedule:list`, Pint WRITE/`--test` sobre los PHP del hotfix, Composer
+  validate/audit, build Vite y `git diff --check` fueron correctos; los
+  artefactos del build se restauraron. El barrido Pint global sigue señalando
+  infracciones preexistentes en PHP ajenos al diff, que no se reformatearon.

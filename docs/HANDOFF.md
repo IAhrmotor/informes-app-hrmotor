@@ -195,6 +195,7 @@ cada 15 min  salesforce:sync-monthly-commercial --days=2
 02:15         campaigns:build-attribution --days=120
 03:15         reports:refresh-campaigns --days=120 --store
 03:30         stock:sync-daily --sales-days=14 --logistics-days=30
+04:45         salesforce:sync-calls --days=7
 ```
 
 Comandos de inicialización o auditoría no automáticos:
