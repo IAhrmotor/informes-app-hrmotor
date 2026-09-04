@@ -373,3 +373,19 @@ certificación Salesforce al bootstrap. Calidad publica
 `delegation_history_evaluable_from`, `delegation_history_observed_from` y
 `delegation_history_bootstrap_from`; el campo histórico
 `delegation_history_certified_from` permanece solo por compatibilidad.
+
+## Matching Opportunity → Lead independiente del lote
+
+La búsqueda agrupada de Leads deriva cada teléfono desde la misma clave
+canónica que usa la comparación final: solo dígitos y retirada del prefijo
+español `34` cuando precede a nueve dígitos. La consulta SOQL usa patrones
+acotados que toleran separadores y prefijo, y continúa validando en memoria la
+igualdad normalizada antes de aceptar un Lead. Los correos se normalizan por
+trim y minúsculas.
+
+El fallback local de `leads_raw` se decide por cada identificador sin resultado
+Salesforce, no por el resultado global del lote. Los candidatos se ordenan por
+`CreatedDate` descendente y, en empate, por `Lead.Id` ascendente. Así, posición,
+composición y límites de chunk no alteran `portal_resolved`, fuente, Lead
+seleccionado ni debug. Se mantienen la precedencia funcional existente y el
+universo de Opportunities.

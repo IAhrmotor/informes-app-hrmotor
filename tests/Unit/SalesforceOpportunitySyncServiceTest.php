@@ -330,6 +330,265 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertTrue(data_get($legacyResult, 'debug.selectedLeadUsedFallback'));
     }
 
+    public function test_matching_de_lead_no_cambia_cuando_otro_registro_aporta_el_telefono_bruto_de_otro_candidato(): void
+    {
+        $target = $this->opportunityForPhone('+34 600 000 001');
+        $other = $this->opportunityForPhone('600000001');
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $records = [];
+
+                if (str_contains($soql, "Phone LIKE '%6%0%0%0%0%0%0%0%1%'")) {
+                    return [
+                        $this->lead('00Q-target-lead', '+34 600 000 001', 'Coches.net', '2026-05-10T10:00:00.000+0000'),
+                        $this->lead('00Q-batch-lead', '600000001', 'Wallapop', '2026-05-11T10:00:00.000+0000'),
+                    ];
+                }
+
+                if (str_contains($soql, "'+34 600 000 001'")) {
+                    $records[] = $this->lead('00Q-target-lead', '+34 600 000 001', 'Coches.net', '2026-05-10T10:00:00.000+0000');
+                }
+
+                if (str_contains($soql, "'600000001'")) {
+                    $records[] = $this->lead('00Q-batch-lead', '600000001', 'Wallapop', '2026-05-11T10:00:00.000+0000');
+                }
+
+                return $records;
+            }
+
+            private function lead(string $id, string $phone, string $source, string $createdDate): array
+            {
+                return [
+                    'Id' => $id,
+                    'CreatedDate' => $createdDate,
+                    'Phone' => $phone,
+                    'MobilePhone' => null,
+                    'Email' => null,
+                    'Fuente_origen__c' => $source,
+                    'Portal_Text__c' => null,
+                    'LEA_SEL_Fuente_Origen__c' => null,
+                    'Fuente_Nuevo__c' => null,
+                ];
+            }
+        };
+        $service = $this->service($client);
+
+        $isolated = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities([$target]));
+        $batched = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities([$target, $other]));
+
+        $this->assertSame('Wallapop', $isolated['portal']);
+        $this->assertSame($isolated, $batched);
+        $this->assertSame('00Q-batch-lead', $batched['lead_id']);
+    }
+
+    public function test_opportunity_sin_email_ni_telefono_no_consulta_leads_y_conserva_su_fallback(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            public int $queries = 0;
+
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $this->queries++;
+
+                return [];
+            }
+        };
+        $service = $this->service($client);
+        $target = $this->opportunityForPhone('', portal: 'Buscador');
+        $matches = $service->relatedLeadMatchesForOpportunities([$target]);
+        $result = $service->resolvePortalForRecord($target, $matches);
+
+        $this->assertSame(0, $client->queries);
+        $this->assertSame('Web', $result['portal']);
+        $this->assertSame('fallback_web', $result['source']);
+    }
+
+    public function test_matching_no_importa_un_lead_recuperado_exclusivamente_por_otro_registro_del_lote(): void
+    {
+        $target = $this->opportunityForPhone('+34 611 000 001', portal: 'Exposicion');
+        $other = $this->opportunityForPhone('611000001');
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                if (! str_contains($soql, "'611000001'")
+                    && ! str_contains($soql, "Phone LIKE '%6%1%1%0%0%0%0%0%1%'")) {
+                    return [];
+                }
+
+                return [[
+                    'Id' => '00Q-other-only',
+                    'CreatedDate' => '2026-05-11T10:00:00.000+0000',
+                    'Phone' => '611000001',
+                    'MobilePhone' => null,
+                    'Email' => null,
+                    'Fuente_origen__c' => 'Web',
+                    'Portal_Text__c' => null,
+                    'LEA_SEL_Fuente_Origen__c' => null,
+                    'Fuente_Nuevo__c' => null,
+                ]];
+            }
+        };
+        $service = $this->service($client);
+
+        $isolated = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities([$target]));
+        $batched = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities([$target, $other]));
+
+        $this->assertSame('Web', $isolated['portal']);
+        $this->assertSame('lead', $isolated['source']);
+        $this->assertSame($isolated, $batched);
+    }
+
+    public function test_fallback_local_de_email_se_decide_por_identificador_y_no_por_resultado_global_del_lote(): void
+    {
+        LeadRaw::query()->create([
+            'salesforce_id' => '00Q-email-fallback',
+            'lead_created_at' => '2026-05-10 10:00:00',
+            'remitente_lead' => 'target@example.test',
+            'portal' => 'Coches.net',
+            'raw_payload' => [
+                'Email' => 'target@example.test',
+                'Portal_Text__c' => 'Coches.net',
+            ],
+        ]);
+        $target = $this->opportunityForLeadRaw('target@example.test');
+        $other = $this->opportunityForLeadRaw('other@example.test');
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                if (! str_contains($soql, "'other@example.test'")) {
+                    return [];
+                }
+
+                return [[
+                    'Id' => '00Q-other-email',
+                    'CreatedDate' => '2026-05-11T10:00:00.000+0000',
+                    'Phone' => null,
+                    'MobilePhone' => null,
+                    'Email' => 'other@example.test',
+                    'Fuente_origen__c' => 'Wallapop',
+                ]];
+            }
+        };
+        $service = $this->service($client);
+
+        $isolated = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities([$target]));
+        $batched = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities([$target, $other]));
+
+        $this->assertSame('Coches.net', $isolated['portal']);
+        $this->assertSame('00Q-email-fallback', $isolated['lead_id']);
+        $this->assertSame($isolated, $batched);
+    }
+
+    public function test_empate_temporal_de_leads_se_resuelve_por_salesforce_id(): void
+    {
+        $target = $this->opportunityForPhone('633 000 001');
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                return [
+                    $this->lead('00Q-z', 'Wallapop'),
+                    $this->lead('00Q-a', 'Coches.net'),
+                ];
+            }
+
+            private function lead(string $id, string $source): array
+            {
+                return [
+                    'Id' => $id,
+                    'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+                    'Phone' => '633-000-001',
+                    'MobilePhone' => null,
+                    'Email' => null,
+                    'Fuente_origen__c' => $source,
+                ];
+            }
+        };
+        $service = $this->service($client);
+
+        $result = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities([$target]));
+
+        $this->assertSame('Coches.net', $result['portal']);
+        $this->assertSame('00Q-a', $result['lead_id']);
+    }
+
+    public function test_matching_es_invariante_en_primera_ultima_y_siguiente_posicion_de_chunk(): void
+    {
+        $target = $this->opportunityForPhone('+34 622 000 001');
+        $other = $this->opportunityForPhone('622000001');
+        $fillers = collect(range(1, 99))
+            ->map(fn (int $number): array => $this->opportunityForPhone('7'.str_pad((string) $number, 8, '0', STR_PAD_LEFT)))
+            ->all();
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $records = [];
+
+                if (str_contains($soql, "Phone LIKE '%6%2%2%0%0%0%0%0%1%'")) {
+                    return [
+                        $this->lead('00Q-stable-target', '+34 622 000 001', 'Coches.net'),
+                        $this->lead('00Q-shared-normalized', '622000001', 'Wallapop'),
+                    ];
+                }
+
+                if (str_contains($soql, "'+34 622 000 001'")) {
+                    $records[] = $this->lead('00Q-stable-target', '+34 622 000 001', 'Coches.net');
+                }
+
+                if (str_contains($soql, "'622000001'")) {
+                    $records[] = $this->lead('00Q-shared-normalized', '622000001', 'Wallapop');
+                }
+
+                return $records;
+            }
+
+            private function lead(string $id, string $phone, string $source): array
+            {
+                return [
+                    'Id' => $id,
+                    'CreatedDate' => $id === '00Q-shared-normalized'
+                        ? '2026-05-11T10:00:00.000+0000'
+                        : '2026-05-10T10:00:00.000+0000',
+                    'Phone' => $phone,
+                    'MobilePhone' => null,
+                    'Email' => null,
+                    'Fuente_origen__c' => $source,
+                ];
+            }
+        };
+        $service = $this->service($client);
+        $batches = [
+            [$target, ...$fillers, $other],
+            [...$fillers, $target, $other],
+            [...$fillers, $other, $target],
+        ];
+        $isolated = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities([$target]));
+
+        foreach ($batches as $batch) {
+            $result = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities($batch));
+
+            $this->assertSame($isolated, $result);
+        }
+    }
+
     public function test_reintenta_sin_email_de_empresa_cuando_salesforce_rechaza_el_campo_opcional(): void
     {
         $client = new class extends SalesforceClient
@@ -473,6 +732,19 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             'Account' => [
                 'Phone' => null,
                 'PersonEmail' => $email,
+                'AC_C_EMA_email__c' => null,
+            ],
+        ];
+    }
+
+    private function opportunityForPhone(string $phone, string $portal = '3CX'): array
+    {
+        return [
+            'Portal__c' => $portal,
+            'Fuente_de_Origen__c' => null,
+            'Account' => [
+                'Phone' => $phone,
+                'PersonEmail' => null,
                 'AC_C_EMA_email__c' => null,
             ],
         ];

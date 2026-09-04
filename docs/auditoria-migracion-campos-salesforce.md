@@ -583,3 +583,19 @@ debug filtrado por whitelist, sin nombre, teléfono, email ni payload completo.
 Un fallo detiene el chunk y conserva como cursor el último lote confirmado; si
 ya hubo commits, la caché se invalida exactamente una vez. La herramienta está
 preparada, pero no se ha ejecutado el histórico ni un dry-run productivo.
+
+## Invariancia del matching Opportunity → Lead (2026-09-04)
+
+La consulta agrupada de Reservas/Ventas ya no depende de los teléfonos brutos
+aportados por otras Opportunities del lote. Cada teléfono se transforma en la
+clave numérica canónica vigente y genera una búsqueda Salesforce tolerante a
+separadores; la aceptación final conserva la igualdad telefónica normalizada.
+Los identificadores sin respuesta remota recurren individualmente al fallback
+local, evitando que una respuesta para otro email o teléfono suprima su
+fallback.
+
+La prioridad continúa siendo Opportunity conclusiva → Lead → fuente de
+Opportunity → Exposición → Web → Sin clasificar. Dentro del Lead se conserva
+`Fuente_origen__c` → fallback legacy. El desempate entre Leads con el mismo
+`CreatedDate` es `Lead.Id` ascendente. No cambian universo, conteos, campos raw
+ni escrituras Salesforce.

@@ -20,6 +20,10 @@ class SalesforceOpportunitySyncService
 
     private const IDS_CHUNK_SIZE = 100;
 
+    private const LEAD_EMAIL_CHUNK_SIZE = 80;
+
+    private const LEAD_PHONE_CHUNK_SIZE = 80;
+
     public function __construct(
         private readonly SalesforceClient $client,
         private readonly OpportunityPortalNormalizer $portalNormalizer,
@@ -421,24 +425,34 @@ SOQL;
             }
 
             if (filled(data_get($record, 'Account.Phone'))) {
-                $phones->push(trim((string) data_get($record, 'Account.Phone')));
+                $phones->push($this->normalizePhone(data_get($record, 'Account.Phone')));
             }
         }
 
         $matches = collect();
         $emailValues = $emails->unique()->values();
-        $phoneValues = $phones->unique()->values();
+        $phoneValues = $phones->filter()->unique()->values();
 
-        foreach ($emailValues->chunk(80) as $chunk) {
+        foreach ($emailValues->chunk(self::LEAD_EMAIL_CHUNK_SIZE) as $chunk) {
             $matches = $matches->merge($this->queryLeads($chunk->all(), []));
         }
 
-        foreach ($phoneValues->chunk(80) as $chunk) {
+        foreach ($phoneValues->chunk(self::LEAD_PHONE_CHUNK_SIZE) as $chunk) {
             $matches = $matches->merge($this->queryLeads([], $chunk->all()));
         }
 
         return $matches
-            ->sortByDesc(fn (array $lead) => data_get($lead, 'CreatedDate'))
+            ->unique(fn (array $lead): string => (string) data_get($lead, 'Id'))
+            ->sort(function (array $left, array $right): int {
+                $createdDateComparison = strcmp(
+                    (string) data_get($right, 'CreatedDate'),
+                    (string) data_get($left, 'CreatedDate'),
+                );
+
+                return $createdDateComparison !== 0
+                    ? $createdDateComparison
+                    : strcmp((string) data_get($left, 'Id'), (string) data_get($right, 'Id'));
+            })
             ->values();
     }
 
@@ -469,9 +483,11 @@ SOQL;
         }
 
         if ($phones !== []) {
-            $in = implode(', ', array_map(fn (string $value) => "'".$this->escape($value)."'", $phones));
-            $clauses[] = "Phone IN ({$in})";
-            $clauses[] = "MobilePhone IN ({$in})";
+            foreach ($phones as $phone) {
+                $pattern = $this->phoneLikePattern($phone);
+                $clauses[] = "Phone LIKE '{$pattern}'";
+                $clauses[] = "MobilePhone LIKE '{$pattern}'";
+            }
         }
 
         if ($clauses === []) {
@@ -499,11 +515,26 @@ WHERE
 ORDER BY CreatedDate DESC
 SOQL);
 
-        if ($records !== []) {
-            return $records;
-        }
+        $matchedEmails = collect($records)
+            ->map(fn (array $lead): string => Str::lower(trim((string) data_get($lead, 'Email'))))
+            ->filter()
+            ->unique()
+            ->all();
+        $matchedPhones = collect($records)
+            ->flatMap(fn (array $lead): array => [
+                $this->normalizePhone(data_get($lead, 'Phone')),
+                $this->normalizePhone(data_get($lead, 'MobilePhone')),
+            ])
+            ->filter()
+            ->unique()
+            ->all();
+        $fallbackEmails = array_values(array_diff($emails, $matchedEmails));
+        $fallbackPhones = array_values(array_diff($phones, $matchedPhones));
 
-        return $this->queryLeadRawFallback($emails, $phones);
+        return array_merge(
+            $records,
+            $this->queryLeadRawFallback($fallbackEmails, $fallbackPhones),
+        );
     }
 
     private function queryLeadRawFallback(array $emails, array $phones): array
@@ -731,6 +762,11 @@ SOQL);
         $value = preg_replace('/^34(?=\d{9}$)/', '', $value ?? '');
 
         return $value !== '' ? $value : null;
+    }
+
+    private function phoneLikePattern(string $normalizedPhone): string
+    {
+        return '%'.implode('%', str_split($normalizedPhone)).'%';
     }
 
     private function escape(string $value): string

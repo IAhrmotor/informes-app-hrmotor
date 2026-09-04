@@ -2006,6 +2006,42 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   884 pruebas y 6.390 aserciones. Pint WRITE/`--test`, Composer validate/audit,
   build Vite y `git diff --check` fueron correctos; los artefactos del build se
   restauraron al no existir cambio frontend.
+
+# Hotfix — Invariancia del matching Opportunity → Lead (2026-09-04)
+
+## Causa y decisión
+
+- `relatedLeadMatches()` reunía teléfonos brutos de todo el lote y
+  `resolvePortal()` comparaba después teléfonos normalizados. Un Lead recuperado
+  gracias a otra Opportunity podía convertirse en candidato más reciente de la
+  Opportunity objetivo. Además, cualquier resultado Salesforce del grupo
+  suprimía globalmente el fallback `leads_raw`.
+- Los teléfonos de consulta ahora parten de la clave canónica existente
+  (dígitos, con retirada del prefijo español `34`) y se buscan mediante patrones
+  SOQL que toleran separadores. La validación final sigue usando
+  `normalizePhone()`; no se sustituyó por igualdad de texto bruto.
+- El fallback local se calcula para cada email/teléfono sin respuesta remota.
+  Los candidatos se deduplican y ordenan por `CreatedDate` descendente más
+  `Lead.Id` ascendente como desempate total.
+
+## Alcance, seguridad y rendimiento
+
+- La política compartida cubre sync normal, `syncBySalesforceIds()` y
+  `reports:reprocess-opportunity-portals`. Se mantienen consultas agrupadas: 80
+  emails o teléfonos canónicos por consulta, sin N+1 ni más llamadas remotas
+  que el diseño anterior para la misma cardinalidad.
+- No cambian precedencia, universo, reservas, ventas, contratos, caídas,
+  conteos ni campos raw. No se añadieron migraciones o dependencias y no se
+  ejecutaron reproceso histórico, comandos productivos ni escrituras Salesforce.
+- La regresión cubre los dos patrones observados, email, formatos `+34` y
+  separadores, empate temporal y posiciones a ambos lados de lotes mayores de
+  100 Opportunities.
+- Baseline focal: 31 pruebas y 237 aserciones. Los tres nuevos tests reprodujeron
+  el defecto antes del cambio. Focal final: 37 pruebas y 254 aserciones;
+  regresión completa Reservas/Ventas: 91 pruebas y 757 aserciones; suite
+  completa: 901 pruebas y 6.504 aserciones, todas correctas. Pint WRITE y
+  `--test`, Composer validate/audit, build Vite y `git diff --check` fueron
+  correctos; los artefactos del build se restauraron.
 - No se ejecutaron reconstrucción real, backfill, reproceso, sincronización
   productiva ni escritura Salesforce.
 

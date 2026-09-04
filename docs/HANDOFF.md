@@ -370,3 +370,13 @@ Riesgos operativos:
   cambios de campaña/ambigüedad. `became_unattributed` exige identidad previa de
   campaña; `removed_attribution` cuenta filas actuales ausentes de la simulación.
 - La escritura histórica con `campaigns:build-attribution --from` exige motivo.
+
+## 20. Invariancia Opportunity → Lead (2026-09-04)
+
+- Reservas/Ventas consulta teléfonos a partir de su clave normalizada y mantiene
+  la comparación final normalizada; otra Opportunity ya no puede incorporar un
+  candidato que la original no obtendría procesada aisladamente.
+- El fallback `leads_raw` se completa por email/teléfono sin resultado remoto.
+  Los empates de `CreatedDate` se resuelven por `Lead.Id` ascendente.
+- No cambian prioridad funcional, universo, conteos ni datos raw. No se ejecutó
+  reproceso histórico ni se realizaron escrituras Salesforce.
