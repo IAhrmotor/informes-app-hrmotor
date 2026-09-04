@@ -404,3 +404,16 @@ del hash porque no alteran la regla v1.
   el debug mediante whitelist. Se omiten PII y `raw_payload` completo, y no se
   añade FK para que la evidencia técnica sobreviva a la eventual retirada de la
   réplica local.
+
+## 2026-09-04 - Reparación separada de metadatos temporales de Opportunity
+
+- Las filas locales sin `created_date` no se recuperan mediante el sincronizador
+  completo: una herramienta dedicada consulta únicamente `Id`, `CreatedDate` y
+  `LastModifiedDate` por IDs locales `006` validados y solo puede escribir las
+  dos columnas temporales correspondientes.
+- La reparación usa cursor por PK local, lotes de 100, mutex apply y bloqueo de
+  filas antes del UPDATE bulk. `created_date IS NULL` permanece como guarda en
+  la escritura para no sobrescribir una reparación concurrente.
+- Dry-run no persiste. Apply exige motivo y crea una auditoría mínima por
+  ejecución, separada del historial de atribución porque no cambia portal,
+  fuente ni reglas funcionales. No se copian payloads ni PII a esa auditoría.

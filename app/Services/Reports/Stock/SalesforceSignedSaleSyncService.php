@@ -5,6 +5,7 @@ namespace App\Services\Reports\Stock;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceSaleSnapshot;
 use App\Services\Salesforce\SalesforceClient;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 
 class SalesforceSignedSaleSyncService
@@ -44,6 +45,8 @@ class SalesforceSignedSaleSyncService
                 ['salesforce_id' => data_get($record, 'Id')],
                 [
                     'name' => data_get($record, 'Name'),
+                    'created_date' => $this->parseDateTime(data_get($record, 'CreatedDate')),
+                    'salesforce_last_modified_at' => $this->parseDateTime(data_get($record, 'LastModifiedDate')),
                     'stage_name' => data_get($record, 'StageName'),
                     'record_type_name' => data_get($record, 'RecordType.Name'),
                     'delivery_store' => data_get($record, 'Tienda_de_entrega__c'),
@@ -129,6 +132,7 @@ class SalesforceSignedSaleSyncService
 SELECT
     Id,
     Name,
+    CreatedDate,
     StageName,
     LastModifiedDate,
     RecordType.Name,
@@ -178,5 +182,10 @@ WHERE IsDeleted = false
         OR LastModifiedDate >= {$startDateTime}
     )
 SOQL;
+    }
+
+    private function parseDateTime(mixed $value): ?CarbonImmutable
+    {
+        return blank($value) ? null : CarbonImmutable::parse($value);
     }
 }

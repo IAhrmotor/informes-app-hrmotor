@@ -241,6 +241,8 @@ class StockDataFoundationTest extends TestCase
                 return [[
                     'Id' => '006-fast-sale',
                     'Name' => 'Venta rápida',
+                    'CreatedDate' => '2026-07-20T08:30:00.000Z',
+                    'LastModifiedDate' => '2026-07-29T10:45:00.000Z',
                     'RecordType' => ['Name' => 'Venta'],
                     'OPO_CAS_Contrato_CV_firmado__c' => true,
                     'Fecha_firma_contrato__c' => '2026-07-28',
@@ -271,13 +273,41 @@ class StockDataFoundationTest extends TestCase
 
         $this->assertSame(1, $result['saved']);
         $this->assertStringNotContainsString('FROM Lead', $client->soql);
+        $this->assertStringContainsString('CreatedDate', $client->soql);
+        $this->assertStringContainsString('LastModifiedDate', $client->soql);
         $this->assertDatabaseHas('salesforce_opportunities', [
             'salesforce_id' => '006-fast-sale',
+            'created_date' => '2026-07-20 08:30:00',
+            'salesforce_last_modified_at' => '2026-07-29 10:45:00',
             'cv_signed' => true,
             'contract_vehicle_sale_amount' => 18500,
             'vehicle_purchase_price' => 14000,
             'plan_auto_plus_amount' => 390,
             'cae_amount' => 250,
+        ]);
+
+        SalesforceOpportunity::query()->where('salesforce_id', '006-fast-sale')->update([
+            'created_date' => null,
+            'salesforce_last_modified_at' => null,
+        ]);
+        $service->sync(
+            CarbonImmutable::parse('2026-07-01'),
+            CarbonImmutable::parse('2026-07-30'),
+        );
+        $this->assertDatabaseHas('salesforce_opportunities', [
+            'salesforce_id' => '006-fast-sale',
+            'created_date' => '2026-07-20 08:30:00',
+            'salesforce_last_modified_at' => '2026-07-29 10:45:00',
+        ]);
+
+        $service->sync(
+            CarbonImmutable::parse('2026-07-01'),
+            CarbonImmutable::parse('2026-07-30'),
+        );
+        $this->assertDatabaseHas('salesforce_opportunities', [
+            'salesforce_id' => '006-fast-sale',
+            'created_date' => '2026-07-20 08:30:00',
+            'salesforce_last_modified_at' => '2026-07-29 10:45:00',
         ]);
         $this->assertDatabaseHas('salesforce_sale_snapshots', [
             'opportunity_salesforce_id' => '006-fast-sale',

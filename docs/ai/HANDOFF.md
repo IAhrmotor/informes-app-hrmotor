@@ -2035,3 +2035,41 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   validate/audit, build Vite y `git diff --check` fueron correctos; los
   artefactos del build se restauraron. El barrido Pint global sigue señalando
   infracciones preexistentes en PHP ajenos al diff, que no se reformatearon.
+
+# Hotfix — Integridad temporal de Opportunities creadas por Stock (2026-09-04)
+
+## Causa y solución
+
+- `SalesforceSignedSaleSyncService` seleccionaba `LastModifiedDate`, omitía
+  `CreatedDate` y no materializaba ninguno. Las Opportunities creadas primero
+  por `stock:sync-daily` podían quedar con `created_date` y
+  `salesforce_last_modified_at` nulos, fuera de reprocesos por rango temporal.
+- El sync parcial de Stock ahora solicita ambos campos y los persiste con el
+  mismo parsing Carbon del sincronizador principal. No cambian su WHERE,
+  universo, snapshots, importes ni reglas de Stock/Reservas/Ventas.
+- Se añadió `salesforce:repair-opportunity-lifecycle-dates`, exclusivamente
+  manual. Selecciona filas locales con `created_date IS NULL`, valida IDs `006`,
+  consulta Salesforce solo mediante `SELECT Id, CreatedDate, LastModifiedDate`
+  en lotes de hasta 100 y no usa `syncBySalesforceIds()`.
+
+## Integridad, seguridad y rendimiento
+
+- Dry-run no escribe. Apply exige motivo de 10–500 caracteres, usa un mutex de
+  seis horas, consulta Salesforce antes de la transacción y relee las filas con
+  `lockForUpdate()`. Un UPDATE bulk condicionado por `created_date IS NULL`
+  puede modificar únicamente `created_date` y `salesforce_last_modified_at`.
+- No existen inserts/deletes de Opportunity, invalidación de caché, DML
+  Salesforce, PII, reemplazo de `raw_payload` ni cambios en portal/fuente. Las
+  muestras de métricas contienen exclusivamente Salesforce IDs.
+- La migración nueva crea `salesforce_opportunity_date_repair_runs`, auditoría
+  mínima por ejecución apply con UUID, motivo, estado, inicio/fin y contadores;
+  se separa del historial de portales por no compartir semántica funcional.
+- La herramienta queda preparada pero no se ejecutó ninguna reparación real,
+  sincronización productiva ni escritura Salesforce. Baseline focal: 18 pruebas
+  y 135 aserciones; focal final: 40 pruebas y 327 aserciones. La segunda suite
+  completa quedó verde con 895 pruebas y 6.487 aserciones. La primera corrida
+  solo excedió el umbral temporal del benchmark preexistente de recomendaciones
+  de Stock (27,95 s); aislado pasó en 9,38 s sin cambios en ese código.
+- Pint WRITE/`--test` sobre los PHP del hotfix, Composer validate/audit, build
+  Vite y `git diff --check` fueron correctos; los artefactos del build se
+  restauraron al no existir cambio frontend.

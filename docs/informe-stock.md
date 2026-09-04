@@ -144,6 +144,13 @@ Scheduler vigente: 03:30 `Europe/Madrid`, con
 `stock:sync-daily --sales-days=14 --logistics-days=30` y bloqueo de solapamiento
 durante 120 minutos.
 
+El sincronizador parcial de ventas de Stock selecciona y materializa también
+`Opportunity.CreatedDate` y `Opportunity.LastModifiedDate` como `created_date` y
+`salesforce_last_modified_at`. Estos metadatos temporales son necesarios para
+que las filas creadas inicialmente por Stock puedan participar posteriormente
+en herramientas acotadas por fecha, sin alterar las reglas ni el universo de
+ventas.
+
 ## Controles de catálogo y venta (2026-08-11)
 
 - La fecha de matriculación verificada en el describe de `Product2` es
