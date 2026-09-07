@@ -417,3 +417,18 @@ del hash porque no alteran la regla v1.
 - Dry-run no persiste. Apply exige motivo y crea una auditoría mínima por
   ejecución, separada del historial de atribución porque no cambia portal,
   fuente ni reglas funcionales. No se copian payloads ni PII a esa auditoría.
+
+## 2026-09-04 - Identidad de contacto determinista para Opportunity → Lead
+
+- El conjunto de candidatos se define por email normalizado y por la clave
+  telefónica canónica que ya usa Reservas/Ventas, no por la representación bruta
+  aportada accidentalmente por otros elementos del batch.
+- La búsqueda Salesforce conserva batching y usa siete variantes telefónicas
+  exactas `IN`, derivadas solo de la clave canónica, para tolerar los formatos
+  admitidos sin patrones `LIKE` no selectivos. La comprobación final continúa
+  exigiendo igualdad mediante `normalizePhone()`.
+- El fallback `leads_raw` se decide por email no resuelto. No existe fallback
+  telefónico local porque la tabla carece de columna/index para ello y la fuente
+  `salesforce_leads` no sustituye silenciosamente el estado Salesforce vivo. El orden
+  total de candidatos es `CreatedDate DESC, Lead.Id ASC`. Este desempate no
+  cambia la prioridad temporal y elimina dependencia del orden de respuesta.

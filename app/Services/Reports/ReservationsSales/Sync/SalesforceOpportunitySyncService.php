@@ -20,6 +20,10 @@ class SalesforceOpportunitySyncService
 
     private const IDS_CHUNK_SIZE = 100;
 
+    private const LEAD_EMAIL_CHUNK_SIZE = 80;
+
+    private const LEAD_PHONE_CHUNK_SIZE = 20;
+
     public function __construct(
         private readonly SalesforceClient $client,
         private readonly OpportunityPortalNormalizer $portalNormalizer,
@@ -421,24 +425,39 @@ SOQL;
             }
 
             if (filled(data_get($record, 'Account.Phone'))) {
-                $phones->push(trim((string) data_get($record, 'Account.Phone')));
+                $phones->push($this->normalizePhone(data_get($record, 'Account.Phone')));
             }
         }
 
         $matches = collect();
         $emailValues = $emails->unique()->values();
-        $phoneValues = $phones->unique()->values();
+        $phoneValues = $phones->filter()->unique()->values();
 
-        foreach ($emailValues->chunk(80) as $chunk) {
+        foreach ($emailValues->chunk(self::LEAD_EMAIL_CHUNK_SIZE) as $chunk) {
             $matches = $matches->merge($this->queryLeads($chunk->all(), []));
         }
 
-        foreach ($phoneValues->chunk(80) as $chunk) {
-            $matches = $matches->merge($this->queryLeads([], $chunk->all()));
+        foreach ($phoneValues->chunk(self::LEAD_PHONE_CHUNK_SIZE) as $chunk) {
+            $phoneVariants = $chunk
+                ->flatMap(fn (string $phone): array => $this->phoneQueryVariants($phone))
+                ->unique()
+                ->values()
+                ->all();
+            $matches = $matches->merge($this->queryLeads([], $phoneVariants));
         }
 
         return $matches
-            ->sortByDesc(fn (array $lead) => data_get($lead, 'CreatedDate'))
+            ->unique(fn (array $lead): string => (string) data_get($lead, 'Id'))
+            ->sort(function (array $left, array $right): int {
+                $createdDateComparison = strcmp(
+                    (string) data_get($right, 'CreatedDate'),
+                    (string) data_get($left, 'CreatedDate'),
+                );
+
+                return $createdDateComparison !== 0
+                    ? $createdDateComparison
+                    : strcmp((string) data_get($left, 'Id'), (string) data_get($right, 'Id'));
+            })
             ->values();
     }
 
@@ -499,16 +518,22 @@ WHERE
 ORDER BY CreatedDate DESC
 SOQL);
 
-        if ($records !== []) {
-            return $records;
-        }
+        $matchedEmails = collect($records)
+            ->map(fn (array $lead): string => Str::lower(trim((string) data_get($lead, 'Email'))))
+            ->filter()
+            ->unique()
+            ->all();
+        $fallbackEmails = array_values(array_diff($emails, $matchedEmails));
 
-        return $this->queryLeadRawFallback($emails, $phones);
+        return array_merge(
+            $records,
+            $this->queryLeadRawFallback($fallbackEmails),
+        );
     }
 
-    private function queryLeadRawFallback(array $emails, array $phones): array
+    private function queryLeadRawFallback(array $emails): array
     {
-        if (! Schema::hasTable('leads_raw')) {
+        if ($emails === [] || ! Schema::hasTable('leads_raw')) {
             return [];
         }
 
@@ -516,42 +541,21 @@ SOQL);
             ->filter()
             ->mapWithKeys(fn (string $value) => [Str::lower(trim($value)) => true])
             ->all();
-        $phoneMap = collect($phones)
-            ->filter()
-            ->map(fn (string $value) => $this->normalizePhone($value))
-            ->filter()
-            ->mapWithKeys(fn (string $value) => [$value => true])
-            ->all();
 
         $query = LeadRaw::query()
-            ->select(['salesforce_id', 'lead_created_at', 'fuente_nuevo', 'lea_sel_fuente_origen', 'portal', 'portal_value', 'remitente_lead', 'raw_payload']);
-
-        if ($emailMap !== []) {
-            $query->whereIn('remitente_lead', array_keys($emailMap));
-        } elseif ($phoneMap !== []) {
-            $query->whereNotNull('raw_payload');
-        } else {
-            return [];
-        }
+            ->select(['salesforce_id', 'lead_created_at', 'fuente_nuevo', 'lea_sel_fuente_origen', 'portal', 'portal_value', 'remitente_lead', 'raw_payload'])
+            ->whereIn('remitente_lead', array_keys($emailMap));
 
         return $query->get()
-            ->filter(function (LeadRaw $lead) use ($emailMap, $phoneMap): bool {
+            ->filter(function (LeadRaw $lead) use ($emailMap): bool {
                 $payload = is_array($lead->raw_payload) ? $lead->raw_payload : [];
                 $emailCandidates = [
                     Str::lower(trim((string) ($lead->remitente_lead ?? ''))),
                     Str::lower(trim((string) data_get($payload, 'Email', ''))),
                     Str::lower(trim((string) data_get($payload, 'PersonEmail', ''))),
                 ];
-                $phoneCandidates = [
-                    $this->normalizePhone(data_get($payload, 'Phone')),
-                    $this->normalizePhone(data_get($payload, 'MobilePhone')),
-                    $this->normalizePhone(data_get($payload, 'Account.Phone')),
-                ];
 
-                $emailMatch = collect($emailCandidates)->filter()->contains(fn (string $value) => isset($emailMap[$value]));
-                $phoneMatch = collect($phoneCandidates)->filter()->contains(fn (string $value) => isset($phoneMap[$value]));
-
-                return $emailMatch || $phoneMatch;
+                return collect($emailCandidates)->filter()->contains(fn (string $value) => isset($emailMap[$value]));
             })
             ->map(function (LeadRaw $lead): array {
                 $payload = is_array($lead->raw_payload) ? $lead->raw_payload : [];
@@ -731,6 +735,26 @@ SOQL);
         $value = preg_replace('/^34(?=\d{9}$)/', '', $value ?? '');
 
         return $value !== '' ? $value : null;
+    }
+
+    /** @return list<string> */
+    private function phoneQueryVariants(string $normalizedPhone): array
+    {
+        if (strlen($normalizedPhone) !== 9) {
+            return [$normalizedPhone];
+        }
+
+        $grouped = implode(' ', str_split($normalizedPhone, 3));
+
+        return [
+            $normalizedPhone,
+            $grouped,
+            implode('-', str_split($normalizedPhone, 3)),
+            implode('.', str_split($normalizedPhone, 3)),
+            '34'.$normalizedPhone,
+            '+34'.$normalizedPhone,
+            '+34 '.$grouped,
+        ];
     }
 
     private function escape(string $value): string
