@@ -26,13 +26,15 @@
 - Pruebas: se añadieron comprobaciones Ana/Bea para la agregación global,
   Zona, Delegación, intersección Zona+Delegación y Comercial, además del
   contrato de no evaluación y de `DEFAULT_RESERVATIONS_TARGET === 18`. El
-  análisis sintáctico JavaScript con Node fue correcto. La ejecución PHP queda
-  pendiente porque este entorno no dispone de un ejecutable PHP ni de los
-  comandos `composer`/`npm` en PATH; reintentar las validaciones obligatorias
-  cuando el runtime esté disponible.
-- Riesgos/acciones: verificar con el runtime del proyecto el feature test, las
-  pruebas transversales, suite completa, Pint limitado, audit y build Vite;
-  revisar después los assets generados y no subir bundles ajenos.
+  análisis sintáctico JavaScript con Node fue correcto. 
+- Validación final:
+  - suite completa: 926 tests, 6.663 aserciones, correcta;
+  - composer audit --locked --no-dev: sin vulnerabilidades;
+  - Pint limitado sobre PHP modificado: correcto;
+  - build Vite: correcto;
+  - git diff --check: correcto;
+  - CI del PR: correcto.
+- No quedan validaciones de runtime pendientes para esta implementación.
 
 ## Segunda iteración de Rendimiento comercial (2026-08-27)
 
