@@ -2114,3 +2114,61 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
 - Pint WRITE/`--test` sobre los PHP del hotfix, Composer validate/audit, build
   Vite y `git diff --check` fueron correctos; los artefactos del build se
   restauraron al no existir cambio frontend.
+
+# Índice telefónico normalizado para Opportunity → Lead (2026-09-07)
+
+## Resumen y archivos
+
+- Se añaden `salesforce_leads.phone_normalized` y
+  `mobile_phone_normalized`, `VARCHAR(255)` nullable con índices individuales.
+  La longitud conserva cualquier salida posible de los campos raw
+  `VARCHAR(255)` después de eliminar caracteres no numéricos. La migración es
+  exclusivamente estructural y no incorpora backfill de datos.
+- `SalesforcePhoneNormalizer` centraliza sin cambios la semántica que ya usaba
+  Reservas/Ventas: elimina caracteres no numéricos y retira `34` solo si quedan
+  exactamente nueve dígitos. El sync mensual y el camino que inserta Leads
+  generales desde Campañas materializan las claves con ese componente.
+- Inventario de escritores revisado: `SalesforceMonthlyLeadsSyncService` es el
+  escritor general de teléfono/móvil y de los estados `is_deleted`; su query
+  reducida omite ahora también ambas claves para conservarlas. La conciliación
+  de ausentes y `syncDeleted()` solo cambian el estado de borrado y no limpian
+  claves. `CampaignLeadSyncService` solo puede aportar teléfono a
+  `salesforce_leads` cuando crea la fila general ausente, por lo que normaliza
+  ese insert; no sobrescribe teléfonos de filas generales existentes. Los
+  backfills de atribución y auditoría revisados no escriben teléfono ni estado
+  de borrado.
+- `SalesforceOpportunitySyncService` consulta localmente por igualdad indexada
+  e `is_deleted = false`, recoge únicamente Salesforce Lead IDs y reconsulta
+  esos candidatos vivos mediante `Id IN (...)`. Fecha, contacto y procedencia
+  final proceden siempre de Salesforce vivo. El fallback remoto exacto de siete
+  variantes queda limitado a teléfonos sin candidatos locales; no existe
+  `LIKE`, búsqueda regex ni fallback telefónico en `leads_raw`.
+- Se crea el comando local
+  `salesforce:backfill-lead-phone-normalization`, con modos mutuamente
+  excluyentes `--dry-run`/`--apply`, `--limit`, `--after-id`, mutex apply de seis
+  horas, lectura y UPDATE bulk por chunks. No consulta Salesforce, no cambia
+  teléfonos raw ni actualiza timestamps del Lead.
+
+## Seguridad, rendimiento y despliegue
+
+- La fotografía local solo descubre IDs. Un candidato ausente de Salesforce,
+  borrado, no elegible o cuyo contacto vivo ya no coincide se descarta en la
+  validación final. No se añaden PII a métricas o logs y no existen escrituras
+  Salesforce.
+- Por 100 Opportunities se realiza como máximo una consulta local por cada 100
+  claves telefónicas. Las reconsultas por ID se agrupan en 100 IDs; el fallback
+  remoto agrupa 20 identidades y conserva las consultas de email de 80 valores.
+  El número por ID es `ceil(candidatos_locales / 100)` y no existe consulta por
+  Opportunity o Lead.
+- En MySQL la migración ejecuta dos adiciones de columna y dos índices sobre una
+  tabla grande. Debe programarse en ventana controlada y comprobarse el soporte
+  de DDL online de la versión concreta; rollback elimina índices y columnas,
+  con el mismo riesgo operativo de ALTER. Primero migrar, después dry-run del
+  backfill, luego apply explícito y finalmente validar cobertura antes de un
+  reproceso histórico de Opportunities.
+- No se ejecutaron migración, backfill, reproceso, sincronización productiva ni
+  escrituras Salesforce. Baseline focal: 45 pruebas y 356 aserciones. Focal
+  final: 74 pruebas y 556 aserciones; suite completa: 925 pruebas y 6.612
+  aserciones. Pint WRITE/`--test`, Composer validate/audit, build Vite y
+  `git diff --check` fueron correctos. Los artefactos generados por Vite se
+  restauraron. El diff permanece sin commit por instrucción expresa.

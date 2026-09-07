@@ -376,19 +376,35 @@ certificación Salesforce al bootstrap. Calidad publica
 
 ## Matching Opportunity → Lead independiente del lote
 
-La búsqueda agrupada de Leads deriva cada teléfono desde la misma clave
-canónica que usa la comparación final: solo dígitos y retirada del prefijo
-español `34` cuando precede a nueve dígitos. La consulta SOQL usa patrones
-exactos `IN` derivados de siete representaciones acotadas: compacto, grupos de
-tres con espacio, guion o punto, prefijo `34` compacto y prefijo `+34` compacto
-o con espacios. La validación final continúa usando la igualdad normalizada.
-Los correos se normalizan por trim y minúsculas.
+La búsqueda agrupada deriva cada teléfono con una implementación compartida:
+solo dígitos y retirada del prefijo español `34` cuando precede a nueve
+dígitos. `salesforce_leads.phone_normalized` y
+`mobile_phone_normalized`, ambos indexados, se usan exclusivamente para
+descubrir Salesforce Lead IDs activos. Los candidatos se reconsultan después
+en Salesforce vivo mediante `Lead.Id IN (...)`; solo la respuesta viva aporta
+fecha, contacto y procedencia para la resolución final. Los correos mantienen
+su política vigente de trim y minúsculas.
 
 El fallback local de `leads_raw` se decide por cada email sin resultado
 Salesforce, no por el resultado global del lote. No se usa como fallback de
-teléfono porque no dispone de una columna telefónica indexada; se evita así un
-escaneo completo del payload JSON. Los candidatos se ordenan por
+teléfono. Para Leads recientes aún ausentes del índice local se conserva como
+fallback una consulta Salesforce agrupada, exacta y sin `LIKE`, limitada a las
+siete representaciones seguras ya existentes; no es el descubrimiento
+principal. La comparación final vuelve a aplicar el mismo normalizador a los
+datos vivos. Los candidatos se ordenan por
 `CreatedDate` descendente y, en empate, por `Lead.Id` ascendente. Así, posición,
 composición y límites de chunk no alteran `portal_resolved`, fuente, Lead
 seleccionado ni debug. Se mantienen la precedencia funcional existente y el
 universo de Opportunities.
+
+La estructura se despliega separada de los datos. Después de aplicar la
+migración, el histórico se prepara primero en dry-run y solo se materializa con
+autorización operativa explícita:
+
+```bash
+php artisan salesforce:backfill-lead-phone-normalization --dry-run
+php artisan salesforce:backfill-lead-phone-normalization --apply
+```
+
+El comando es local, reanudable con `--after-id`, admite `--limit`, usa mutex en
+apply, realiza UPDATE masivo por lotes y nunca consulta ni escribe Salesforce.

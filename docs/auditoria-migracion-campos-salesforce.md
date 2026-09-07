@@ -587,13 +587,21 @@ preparada, pero no se ha ejecutado el histórico ni un dry-run productivo.
 ## Invariancia del matching Opportunity → Lead (2026-09-04)
 
 La consulta agrupada de Reservas/Ventas ya no depende de los teléfonos brutos
-aportados por otras Opportunities del lote. Cada teléfono se transforma en la
-clave numérica canónica vigente y genera una búsqueda Salesforce tolerante a
-separadores mediante siete variantes exactas y dos condiciones `IN`; la
-aceptación final conserva la igualdad telefónica normalizada. Los emails sin
-respuesta remota recurren individualmente al fallback local. Los teléfonos no
-usan `leads_raw`: esa tabla no tiene una columna/index telefónico y leer todo su
-JSON por cada lote sería un full scan.
+aportados por otras Opportunities del lote. La clave numérica canónica vigente
+se materializa en `salesforce_leads.phone_normalized` y
+`mobile_phone_normalized`, con índices exactos individuales. Esa fotografía
+local solo descubre IDs activos; el servicio vuelve a consultar los candidatos
+por `Lead.Id` en Salesforce y la aceptación final conserva la igualdad
+telefónica normalizada contra los datos vivos. Los emails sin respuesta remota
+recurren individualmente al fallback local. Los teléfonos no usan `leads_raw`.
+
+Para Leads recientes todavía ausentes del índice se mantiene únicamente como
+fallback una búsqueda Salesforce agrupada mediante las siete variantes exactas
+existentes. No se amplían formatos manualmente ni se usa `LIKE`. El sync mensual
+y las inserciones generales del sync de Campañas mantienen las dos claves. El
+histórico se materializa mediante el comando local, idempotente y chunked
+`salesforce:backfill-lead-phone-normalization`; no se ejecuta desde migraciones
+ni scheduler.
 
 La prioridad continúa siendo Opportunity conclusiva → Lead → fuente de
 Opportunity → Exposición → Web → Sin clasificar. Dentro del Lead se conserva

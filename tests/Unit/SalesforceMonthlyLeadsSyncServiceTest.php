@@ -42,6 +42,8 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
             'utm_source__c' => 'new-acquired-source',
             'utm_medium__c' => 'new-acquired-medium',
             'utm_content__c' => 'new-content',
+            'Phone' => '+34 612 34 56 78',
+            'MobilePhone' => '613-45-67-89',
         ];
         $client = new class($record) extends SalesforceClient
         {
@@ -90,6 +92,10 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
             'utm_source_new' => 'new-acquired-source',
             'utm_medium_new' => 'new-acquired-medium',
             'utm_content_new' => 'new-content',
+            'phone' => '+34 612 34 56 78',
+            'phone_normalized' => '612345678',
+            'mobile_phone' => '613-45-67-89',
+            'mobile_phone_normalized' => '613456789',
         ]);
         $trace = SalesforceLead::query()->firstOrFail()->field_resolution;
         $this->assertSame('New source', data_get($trace, 'source.effective_value'));
@@ -118,6 +124,10 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
             'created_date' => '2026-05-10 10:00:00',
             'source_origin_new' => 'Preserved source',
             'utm_campaign_new' => 'Preserved campaign',
+            'phone' => '614 56 78 90',
+            'phone_normalized' => '614567890',
+            'mobile_phone' => '+34 615 67 89 01',
+            'mobile_phone_normalized' => '615678901',
             'field_resolution' => ['source' => ['effective_value' => 'Preserved source']],
         ]);
         $client = new class extends SalesforceClient
@@ -160,11 +170,63 @@ class SalesforceMonthlyLeadsSyncServiceTest extends TestCase
             'name' => 'Updated through reduced query',
             'source_origin_new' => 'Preserved source',
             'utm_campaign_new' => 'Preserved campaign',
+            'phone' => '614 56 78 90',
+            'phone_normalized' => '614567890',
+            'mobile_phone' => '+34 615 67 89 01',
+            'mobile_phone_normalized' => '615678901',
         ]);
         $this->assertSame(
             'Preserved source',
             data_get(SalesforceLead::query()->firstOrFail()->field_resolution, 'source.effective_value'),
         );
+    }
+
+    public function test_cambio_y_null_de_telefonos_actualizan_las_claves_derivadas(): void
+    {
+        $client = new class extends SalesforceClient
+        {
+            public array $record = [
+                'Id' => '00Q-phone-change',
+                'Name' => 'Lead synthetic',
+                'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+                'LastModifiedDate' => '2026-05-10T11:00:00.000+0000',
+                'Status' => 'Potencial',
+                'RecordType' => ['Name' => 'Venta'],
+                'Phone' => '616 78 90 12',
+                'MobilePhone' => null,
+            ];
+
+            public function __construct() {}
+
+            public function queryPages(string $soql, bool $includeDeleted = false): \Generator
+            {
+                yield [$this->record];
+            }
+        };
+        $service = new SalesforceMonthlyLeadsSyncService(
+            $client,
+            new LeadRecordTypeNormalizer,
+            new LeadPortalResolver,
+        );
+        $start = CarbonImmutable::parse('2026-05-01');
+        $end = CarbonImmutable::parse('2026-06-01');
+
+        $service->syncCampaignLeads($start, $end);
+        $this->assertDatabaseHas('salesforce_leads', [
+            'salesforce_id' => '00Q-phone-change',
+            'phone_normalized' => '616789012',
+            'mobile_phone_normalized' => null,
+        ]);
+
+        $client->record['Phone'] = null;
+        $client->record['MobilePhone'] = '+34 617-89-01-23';
+        $service->syncCampaignLeads($start, $end);
+
+        $this->assertDatabaseHas('salesforce_leads', [
+            'salesforce_id' => '00Q-phone-change',
+            'phone_normalized' => null,
+            'mobile_phone_normalized' => '617890123',
+        ]);
     }
 
     public function test_guarda_leads_de_salesforce_con_relaciones_anidadas(): void

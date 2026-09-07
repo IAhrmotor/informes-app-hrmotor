@@ -285,8 +285,11 @@ Código fuente principal:
 ### 4.1 Objetos y fuentes
 
 Objeto pivote: `Opportunity`. Se consultan también `Account`, `Owner`, `RecordType`
-y relaciones a `Product2`. Para resolver procedencia se consulta `Lead` por email o
-teléfono; si Salesforce no devuelve coincidencia, se usa `leads_raw`.
+y relaciones a `Product2`. Para resolver procedencia, el email se consulta con
+la política vigente y el teléfono usa claves normalizadas indexadas en
+`salesforce_leads` para descubrir IDs. Los candidatos telefónicos se reconsultan
+por ID en Salesforce vivo antes de resolver. `leads_raw` permanece únicamente
+como fallback acotado de email.
 
 Campos funcionales principales:
 
@@ -408,8 +411,9 @@ ORDER BY OPO_FEC_Fecha_de_reserva__c, Id
 
 Un valor nuevo no vacío es autoritativo aunque no se normalice a un portal
 oficial: en ese caso el resultado es `Sin clasificar` con fuente `lead` y no se
-continúa por los fallbacks posteriores. La consulta auxiliar mantiene el orden
-`CreatedDate DESC`, los chunks de 80 y las señales de email/teléfono existentes.
+continúa por los fallbacks posteriores. La consulta auxiliar mantiene
+`CreatedDate DESC` y desempata por `Lead.Id` ascendente. La fotografía local
+nunca aporta procedencia: solo IDs de candidatos telefónicos activos.
 
 ### 4.4 Auditoría
 

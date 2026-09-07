@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Models\LeadRaw;
+use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
 use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService;
@@ -635,6 +636,188 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertCount(0, $matches);
         $this->assertFalse(collect($queries)->contains(
             fn (string $sql): bool => str_contains(strtolower($sql), 'leads_raw'),
+        ));
+    }
+
+    public function test_indice_local_descubre_formatos_telefonicos_no_cubiertos_por_variantes_textuales(): void
+    {
+        foreach ([
+            '612 34 56 78',
+            '+34 612 34 56 78',
+            '612-345-678 / extensión 90',
+        ] as $index => $leadPhone) {
+            $normalized = preg_replace('/\D+/', '', $leadPhone);
+            $normalized = preg_replace('/^34(?=\d{9}$)/', '', $normalized ?? '');
+            $salesforceId = '00QINDEXED'.str_pad((string) $index, 5, '0', STR_PAD_LEFT);
+            SalesforceLead::query()->create([
+                'salesforce_id' => $salesforceId,
+                'created_date' => '2026-05-10 10:00:00',
+                'phone' => $leadPhone,
+                'phone_normalized' => $normalized,
+                'is_deleted' => false,
+            ]);
+            $client = new class($salesforceId, $leadPhone) extends SalesforceClient
+            {
+                /** @var list<string> */
+                public array $queries = [];
+
+                public function __construct(private readonly string $leadId, private readonly string $phone) {}
+
+                public function query(string $soql): array
+                {
+                    $this->queries[] = $soql;
+
+                    if (! str_contains($soql, 'Id IN (')) {
+                        return [];
+                    }
+
+                    return [[
+                        'Id' => $this->leadId,
+                        'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+                        'Phone' => $this->phone,
+                        'MobilePhone' => null,
+                        'Email' => null,
+                        'Fuente_origen__c' => 'Coches.net',
+                    ]];
+                }
+            };
+            $target = $this->opportunityForPhone($leadPhone);
+
+            $result = $this->service($client)->resolvePortalForRecord(
+                $target,
+                $this->service($client)->relatedLeadMatchesForOpportunities([$target]),
+            );
+
+            $this->assertSame('Coches.net', $result['portal']);
+            $this->assertSame($salesforceId, $result['lead_id']);
+            $this->assertTrue(collect($client->queries)->contains(
+                fn (string $soql): bool => str_contains($soql, 'Id IN (') && str_contains($soql, $salesforceId),
+            ));
+        }
+    }
+
+    public function test_indice_local_solo_descubre_ids_y_la_validacion_final_usa_salesforce_vivo(): void
+    {
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00QLIVEVALIDATE1',
+            'created_date' => '2026-05-10 10:00:00',
+            'phone' => '623 45 67 89',
+            'phone_normalized' => '623456789',
+            'source_origin_new' => 'Fuente local obsoleta',
+            'is_deleted' => false,
+        ]);
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                if (str_contains($soql, 'Id IN (')) {
+                    return [[
+                        'Id' => '00QLIVEVALIDATE1',
+                        'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+                        'Phone' => '699999999',
+                        'MobilePhone' => null,
+                        'Email' => null,
+                        'Fuente_origen__c' => 'Wallapop',
+                    ]];
+                }
+
+                return [];
+            }
+        };
+        $target = $this->opportunityForPhone('623456789', portal: 'Exposicion');
+        $service = $this->service($client);
+        $result = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities([$target]));
+
+        $this->assertSame('Exposición', $result['portal']);
+        $this->assertSame('fallback_exposicion', $result['source']);
+        $this->assertNull($result['lead_id']);
+    }
+
+    public function test_id_descubierto_localmente_que_salesforce_no_devuelve_no_es_candidato(): void
+    {
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00QMISSINGLIVE001',
+            'created_date' => '2026-05-10 10:00:00',
+            'phone_normalized' => '625678901',
+            'is_deleted' => false,
+        ]);
+        $client = new class extends SalesforceClient
+        {
+            public array $queries = [];
+
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $this->queries[] = $soql;
+
+                return [];
+            }
+        };
+        $target = $this->opportunityForPhone('625 67 89 01', portal: 'Exposicion');
+        $service = $this->service($client);
+        $result = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities([$target]));
+
+        $this->assertSame('fallback_exposicion', $result['source']);
+        $this->assertNull($result['lead_id']);
+        $this->assertCount(1, $client->queries);
+        $this->assertStringContainsString("Id IN ('00QMISSINGLIVE001')", $client->queries[0]);
+    }
+
+    public function test_indice_descarta_borrados_y_usa_fuente_viva_del_lead_activo(): void
+    {
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00QDELETED000001',
+            'created_date' => '2026-05-11 10:00:00',
+            'phone_normalized' => '634567890',
+            'is_deleted' => true,
+        ]);
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00QACTIVE0000001',
+            'created_date' => '2026-05-10 10:00:00',
+            'mobile_phone_normalized' => '634567890',
+            'source_origin_new' => 'Fuente local obsoleta',
+            'is_deleted' => false,
+        ]);
+        $client = new class extends SalesforceClient
+        {
+            public array $queries = [];
+
+            public function __construct() {}
+
+            public function query(string $soql): array
+            {
+                $this->queries[] = $soql;
+
+                if (str_contains($soql, 'Id IN (')) {
+                    return [[
+                        'Id' => '00QACTIVE0000001',
+                        'CreatedDate' => '2026-05-10T10:00:00.000+0000',
+                        'Phone' => null,
+                        'MobilePhone' => '+34 634 56 78 90',
+                        'Email' => null,
+                        'Fuente_origen__c' => 'Wallapop',
+                    ]];
+                }
+
+                return [];
+            }
+        };
+        $target = $this->opportunityForPhone('634-567-890');
+        $service = $this->service($client);
+        $isolated = $service->resolvePortalForRecord($target, $service->relatedLeadMatchesForOpportunities([$target]));
+        $batched = $service->resolvePortalForRecord(
+            $target,
+            $service->relatedLeadMatchesForOpportunities([$this->opportunityForPhone('611111111'), $target]),
+        );
+
+        $this->assertSame($isolated, $batched);
+        $this->assertSame('Wallapop', $isolated['portal']);
+        $this->assertSame('00QACTIVE0000001', $isolated['lead_id']);
+        $this->assertFalse(collect($client->queries)->contains(
+            fn (string $soql): bool => str_contains($soql, '00QDELETED000001'),
         ));
     }
 
