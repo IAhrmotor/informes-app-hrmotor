@@ -423,12 +423,14 @@ del hash porque no alteran la regla v1.
 - El conjunto de candidatos se define por email normalizado y por la clave
   telefónica canónica que ya usa Reservas/Ventas, no por la representación bruta
   aportada accidentalmente por otros elementos del batch.
-- La búsqueda Salesforce conserva batching y usa siete variantes telefónicas
-  exactas `IN`, derivadas solo de la clave canónica, para tolerar los formatos
-  admitidos sin patrones `LIKE` no selectivos. La comprobación final continúa
-  exigiendo igualdad mediante `normalizePhone()`.
+- La clave telefónica se materializa e indexa en `salesforce_leads`. Esa tabla
+  es únicamente un índice de descubrimiento de IDs activos: los registros
+  candidatos se reconsultan por `Lead.Id` en Salesforce vivo y la comprobación
+  final vuelve a exigir igualdad con el mismo normalizador compartido.
+- Para un Lead reciente aún ausente localmente se mantiene un fallback Salesforce
+  agrupado con las siete variantes exactas ya existentes. No usa `LIKE`, no
+  escanea `leads_raw` y no sustituye al índice como camino principal.
 - El fallback `leads_raw` se decide por email no resuelto. No existe fallback
-  telefónico local porque la tabla carece de columna/index para ello y la fuente
-  `salesforce_leads` no sustituye silenciosamente el estado Salesforce vivo. El orden
-  total de candidatos es `CreatedDate DESC, Lead.Id ASC`. Este desempate no
-  cambia la prioridad temporal y elimina dependencia del orden de respuesta.
+  telefónico en esa tabla. El orden total de candidatos es
+  `CreatedDate DESC, Lead.Id ASC`. Este desempate no cambia la prioridad temporal
+  y elimina dependencia del orden de respuesta.

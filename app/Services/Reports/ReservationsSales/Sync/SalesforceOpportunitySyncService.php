@@ -3,10 +3,12 @@
 namespace App\Services\Reports\ReservationsSales\Sync;
 
 use App\Models\LeadRaw;
+use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
 use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
 use App\Services\Salesforce\SalesforceClient;
 use App\Services\Salesforce\SalesforceLeadFieldResolver;
+use App\Services\Salesforce\SalesforcePhoneNormalizer;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -24,10 +26,15 @@ class SalesforceOpportunitySyncService
 
     private const LEAD_PHONE_CHUNK_SIZE = 20;
 
+    private const LEAD_ID_CHUNK_SIZE = 100;
+
+    private const LOCAL_PHONE_CHUNK_SIZE = 100;
+
     public function __construct(
         private readonly SalesforceClient $client,
         private readonly OpportunityPortalNormalizer $portalNormalizer,
         private readonly SalesforceLeadFieldResolver $leadFieldResolver,
+        private readonly SalesforcePhoneNormalizer $phoneNormalizer = new SalesforcePhoneNormalizer,
     ) {}
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $modifiedOnly = false): array
@@ -425,7 +432,7 @@ SOQL;
             }
 
             if (filled(data_get($record, 'Account.Phone'))) {
-                $phones->push($this->normalizePhone(data_get($record, 'Account.Phone')));
+                $phones->push($this->phoneNormalizer->normalize(data_get($record, 'Account.Phone')));
             }
         }
 
@@ -437,7 +444,14 @@ SOQL;
             $matches = $matches->merge($this->queryLeads($chunk->all(), []));
         }
 
-        foreach ($phoneValues->chunk(self::LEAD_PHONE_CHUNK_SIZE) as $chunk) {
+        [$localLeadIds, $locallyMatchedPhones] = $this->localLeadIdsForPhones($phoneValues->all());
+
+        foreach (collect($localLeadIds)->chunk(self::LEAD_ID_CHUNK_SIZE) as $chunk) {
+            $matches = $matches->merge($this->queryLeadsByIds($chunk->all()));
+        }
+
+        $remoteFallbackPhones = $phoneValues->diff($locallyMatchedPhones)->values();
+        foreach ($remoteFallbackPhones->chunk(self::LEAD_PHONE_CHUNK_SIZE) as $chunk) {
             $phoneVariants = $chunk
                 ->flatMap(fn (string $phone): array => $this->phoneQueryVariants($phone))
                 ->unique()
@@ -459,6 +473,48 @@ SOQL;
                     : strcmp((string) data_get($left, 'Id'), (string) data_get($right, 'Id'));
             })
             ->values();
+    }
+
+    /**
+     * @param  list<string>  $phones
+     * @return array{0:list<string>,1:list<string>}
+     */
+    private function localLeadIdsForPhones(array $phones): array
+    {
+        if ($phones === [] || ! Schema::hasColumns('salesforce_leads', ['phone_normalized', 'mobile_phone_normalized'])) {
+            return [[], []];
+        }
+
+        $ids = [];
+        $matchedPhones = [];
+        $phoneMap = array_fill_keys($phones, true);
+
+        foreach (collect($phones)->chunk(self::LOCAL_PHONE_CHUNK_SIZE) as $chunk) {
+            $values = $chunk->all();
+            $rows = SalesforceLead::query()
+                ->select(['salesforce_id', 'phone_normalized', 'mobile_phone_normalized'])
+                ->where('is_deleted', false)
+                ->where(function ($query) use ($values): void {
+                    $query->whereIn('phone_normalized', $values)
+                        ->orWhereIn('mobile_phone_normalized', $values);
+                })
+                ->orderBy('salesforce_id')
+                ->get();
+
+            foreach ($rows as $row) {
+                if (filled($row->salesforce_id)) {
+                    $ids[(string) $row->salesforce_id] = true;
+                }
+
+                foreach ([$row->phone_normalized, $row->mobile_phone_normalized] as $phone) {
+                    if ($phone !== null && isset($phoneMap[$phone])) {
+                        $matchedPhones[$phone] = true;
+                    }
+                }
+            }
+        }
+
+        return [array_keys($ids), array_keys($matchedPhones)];
     }
 
     private function salesforceValue(array $record, string $key): mixed
@@ -502,7 +558,6 @@ SOQL;
         $records = $this->client->query(<<<SOQL
 SELECT
     Id,
-    Name,
     CreatedDate,
     Phone,
     MobilePhone,
@@ -529,6 +584,34 @@ SOQL);
             $records,
             $this->queryLeadRawFallback($fallbackEmails),
         );
+    }
+
+    /** @param list<string> $ids */
+    private function queryLeadsByIds(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $in = implode(', ', array_map(fn (string $value) => "'".$this->escape($value)."'", $ids));
+
+        return $this->client->query(<<<SOQL
+SELECT
+    Id,
+    CreatedDate,
+    Phone,
+    MobilePhone,
+    Email,
+    Portal_Text__c,
+    LEA_SEL_Fuente_Origen__c,
+    Fuente_Nuevo__c,
+    Fuente_origen__c
+FROM Lead
+WHERE
+    IsDeleted = false
+    AND Id IN ({$in})
+ORDER BY CreatedDate DESC
+SOQL);
     }
 
     private function queryLeadRawFallback(array $emails): array
@@ -611,14 +694,14 @@ SOQL);
             ->map(fn ($email) => Str::lower(trim((string) $email)))
             ->values()
             ->all();
-        $phone = $this->normalizePhone(data_get($opportunity, 'Account.Phone'));
+        $phone = $this->phoneNormalizer->normalize(data_get($opportunity, 'Account.Phone'));
 
         $candidate = $leads
             ->filter(function (array $lead) use ($emails, $phone): bool {
                 $emailMatch = filled(data_get($lead, 'Email')) && in_array(Str::lower(trim((string) data_get($lead, 'Email'))), $emails, true);
                 $phoneMatch = $phone !== null && in_array($phone, [
-                    $this->normalizePhone(data_get($lead, 'Phone')),
-                    $this->normalizePhone(data_get($lead, 'MobilePhone')),
+                    $this->phoneNormalizer->normalize(data_get($lead, 'Phone')),
+                    $this->phoneNormalizer->normalize(data_get($lead, 'MobilePhone')),
                 ], true);
 
                 return $emailMatch || $phoneMatch;
@@ -727,14 +810,6 @@ SOQL);
     private function parseDateTime(mixed $value): ?CarbonImmutable
     {
         return blank($value) ? null : CarbonImmutable::parse($value);
-    }
-
-    private function normalizePhone(mixed $value): ?string
-    {
-        $value = preg_replace('/\D+/', '', (string) $value);
-        $value = preg_replace('/^34(?=\d{9}$)/', '', $value ?? '');
-
-        return $value !== '' ? $value : null;
     }
 
     /** @return list<string> */

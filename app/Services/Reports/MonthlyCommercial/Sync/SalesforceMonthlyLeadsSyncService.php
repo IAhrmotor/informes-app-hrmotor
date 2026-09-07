@@ -8,6 +8,7 @@ use App\Services\Reports\Leads\LeadPortalResolver;
 use App\Services\Reports\Leads\LeadRecordTypeNormalizer;
 use App\Services\Salesforce\SalesforceClient;
 use App\Services\Salesforce\SalesforceLeadFieldResolver;
+use App\Services\Salesforce\SalesforcePhoneNormalizer;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use RuntimeException;
@@ -22,6 +23,7 @@ class SalesforceMonthlyLeadsSyncService
         private readonly LeadPortalResolver $portalResolver,
         private readonly ChangedRowUpsert $changedRowUpsert = new ChangedRowUpsert,
         private readonly SalesforceLeadFieldResolver $fieldResolver = new SalesforceLeadFieldResolver,
+        private readonly SalesforcePhoneNormalizer $phoneNormalizer = new SalesforcePhoneNormalizer,
         ?LeadClassificationResolver $classificationResolver = null,
     ) {
         $this->classificationResolver = $classificationResolver
@@ -180,7 +182,9 @@ class SalesforceMonthlyLeadsSyncService
                     ),
                     'vehicle_interest' => data_get($record, 'LEA_BUS_Vehiculo_de_interes__c'),
                     'phone' => data_get($record, 'Phone'),
+                    'phone_normalized' => $this->phoneNormalizer->normalize(data_get($record, 'Phone')),
                     'mobile_phone' => data_get($record, 'MobilePhone'),
+                    'mobile_phone_normalized' => $this->phoneNormalizer->normalize(data_get($record, 'MobilePhone')),
                     'email' => data_get($record, 'Email'),
                     'is_converted' => (bool) data_get($record, 'IsConverted', false),
                     'converted_date' => $this->parseDateTime(data_get($record, 'ConvertedDate')),
@@ -519,7 +523,9 @@ SOQL;
             'field_resolution',
             'vehicle_interest',
             'phone',
+            'phone_normalized',
             'mobile_phone',
+            'mobile_phone_normalized',
             'email',
             'is_converted',
             'converted_date',

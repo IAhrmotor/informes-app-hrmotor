@@ -6,6 +6,7 @@ use App\Models\CampaignSalesforceLead;
 use App\Services\Reports\Leads\LeadPortalResolver;
 use App\Services\Salesforce\SalesforceClient;
 use App\Services\Salesforce\SalesforceLeadFieldResolver;
+use App\Services\Salesforce\SalesforcePhoneNormalizer;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\QueryException;
@@ -30,6 +31,7 @@ class CampaignLeadSyncService
         private readonly SalesforceClient $client,
         private readonly SalesforceLeadFieldResolver $fieldResolver = new SalesforceLeadFieldResolver,
         private readonly LeadPortalResolver $portalResolver = new LeadPortalResolver,
+        private readonly SalesforcePhoneNormalizer $phoneNormalizer = new SalesforcePhoneNormalizer,
     ) {}
 
     public function sync(CarbonInterface $periodStart, CarbonInterface $periodEnd, bool $fresh = false, bool $dryRun = false): array
@@ -407,7 +409,9 @@ SOQL;
             'owner_id' => $row['owner_id'],
             'owner_name' => $row['owner_name'],
             'phone' => $row['phone'],
+            'phone_normalized' => $this->phoneNormalizer->normalize($row['phone']),
             'mobile_phone' => $row['mobile_phone'],
+            'mobile_phone_normalized' => $this->phoneNormalizer->normalize($row['mobile_phone']),
             'email' => $row['email'],
             'is_converted' => $row['is_converted'],
             'converted_date' => $row['converted_date'],

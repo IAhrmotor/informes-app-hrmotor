@@ -280,6 +280,11 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
                 'utm_source__c' => 'new-source',
             ]),
             $this->record('00Q-invalid-resolution', ['Contenido_Adquirido__c' => 'legacy-content']),
+            $this->record('00Q-new-phone', [
+                'Campa_a_Adquirida__c' => 'Legacy con teléfono',
+                'Phone' => '+34 618 90 12 34',
+                'MobilePhone' => '619-01-23-45',
+            ]),
         ]);
 
         (new CampaignLeadSyncService($client))->sync(
@@ -291,6 +296,11 @@ class CampaignLeadSyncCharacterizationTest extends TestCase
             ->where('salesforce_id', '00Q-null-resolution')
             ->firstOrFail()
             ->field_resolution;
+        $this->assertDatabaseHas('salesforce_leads', [
+            'salesforce_id' => '00Q-new-phone',
+            'phone_normalized' => '618901234',
+            'mobile_phone_normalized' => '619012345',
+        ]);
         $this->assertSame(
             ['utm_campaign', 'utm_id', 'utm_source', 'utm_medium', 'utm_content'],
             array_keys($nullResolution),

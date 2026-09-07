@@ -373,11 +373,19 @@ Riesgos operativos:
 
 ## 20. Invariancia Opportunity → Lead (2026-09-04)
 
-- Reservas/Ventas consulta por `IN` siete variantes exactas y acotadas de cada
-  teléfono normalizado; otra Opportunity ya no puede incorporar un candidato
-  que la original no obtendría procesada aisladamente.
+- Reservas/Ventas descubre candidatos telefónicos mediante las columnas
+  indexadas `salesforce_leads.phone_normalized` y
+  `mobile_phone_normalized`, filtrando `is_deleted = false`. La fotografía
+  local solo aporta IDs: cada candidato se reconsulta por `Lead.Id` en
+  Salesforce vivo antes de resolver procedencia.
 - El fallback `leads_raw` se completa por email sin resultado remoto. Se elimina
-  el fallback telefónico porque implicaba escanear `raw_payload` sin índice.
-  Los empates de `CreatedDate` se resuelven por `Lead.Id` ascendente.
+  el fallback telefónico local porque implicaba escanear `raw_payload` sin
+  índice. Leads recientes todavía ausentes de la fotografía usan únicamente el
+  fallback remoto exacto y agrupado existente, sin `LIKE`.
+- El sync mensual y las inserciones generales del sync de Campañas mantienen
+  las claves derivadas. El comando local
+  `salesforce:backfill-lead-phone-normalization` permite poblar el histórico en
+  lotes, con dry-run, cursor, limit y mutex apply; no se ha ejecutado.
+- Los empates de `CreatedDate` se resuelven por `Lead.Id` ascendente.
 - No cambian prioridad funcional, universo, conteos ni datos raw. No se ejecutó
   reproceso histórico ni se realizaron escrituras Salesforce.
