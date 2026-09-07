@@ -14,13 +14,18 @@ const performanceColumnDefinitions = [
     { key: 'leads', label: 'Leads', defaultVisible: true },
     { key: 'opportunities', label: 'Oportunidades', defaultVisible: true },
     { key: 'reservations_total', label: 'Reservas', defaultVisible: true },
+    { key: 'team_average_reservations', label: 'Media equipo', defaultVisible: false },
+    { key: 'team_reservations_deviation', label: 'Desviación reservas', defaultVisible: false },
     { key: 'reservations_active', label: 'Activas', defaultVisible: true },
     { key: 'objective', label: 'Objetivo' },
     { key: 'fulfillment_pct', label: 'Cumplimiento', defaultVisible: true },
     { key: 'lead_to_reservation_pct', label: 'Lead → Reserva' },
+    { key: 'lead_to_reservation_vs_team', label: 'Lead → Reserva vs equipo', defaultVisible: false },
     { key: 'opportunity_to_reservation_pct', label: 'Oportunidad → Reserva' },
+    { key: 'opportunity_to_reservation_vs_team', label: 'Oportunidad → Reserva vs equipo', defaultVisible: false },
     { key: 'sales', label: 'Ventas', defaultVisible: true },
     { key: 'reservation_to_sale_pct', label: 'Reserva → Venta' },
+    { key: 'reservation_to_sale_vs_team', label: 'Reserva → Venta vs equipo', defaultVisible: false },
     { key: 'cancellations', label: 'Cancelaciones' },
     { key: 'cancellation_pct', label: '% cancelación' },
     { key: 'margin_total', label: 'Margen total', defaultVisible: true },
@@ -359,10 +364,10 @@ function renderPerformanceRows(rows) {
         <td class="num" data-column="ranking">${escapeHtml(row.ranking ?? '-')}</td>
         <td data-column="traffic_light">${performanceLight(row.traffic_light)}</td>
         <td data-column="commercial"><strong>${escapeHtml(row.commercial || '-')}</strong></td><td data-column="delegation">${escapeHtml(row.delegation || '-')}</td><td data-column="zone">${escapeHtml(row.zone || '-')}</td>
-        <td class="num" data-column="leads">${formatNumber(row.leads)}</td><td class="num" data-column="opportunities">${formatNumber(row.opportunities)}</td><td class="num" data-column="reservations_total">${formatNumber(row.reservations_total)}</td><td class="num" data-column="reservations_active">${formatNumber(row.reservations_active)}</td>
+        <td class="num" data-column="leads">${formatNumber(row.leads)}</td><td class="num" data-column="opportunities">${formatNumber(row.opportunities)}</td><td class="num" data-column="reservations_total">${formatNumber(row.reservations_total)}</td><td class="num" data-column="team_average_reservations">${formatTeamNumber(row.team_average_reservations)}</td><td class="num" data-column="team_reservations_deviation">${formatReservationsDeviation(row.team_reservations_deviation, row.team_reservations_deviation_pct)}</td><td class="num" data-column="reservations_active">${formatNumber(row.reservations_active)}</td>
         <td class="num" data-column="objective">${formatNumber(row.objective)}</td><td class="num" data-column="fulfillment_pct">${formatPercent(row.fulfillment_pct)}</td>
-        <td class="num" data-column="lead_to_reservation_pct">${formatPercent(row.lead_to_reservation_pct)}</td><td class="num" data-column="opportunity_to_reservation_pct">${formatPercent(row.opportunity_to_reservation_pct)}</td>
-        <td class="num" data-column="sales">${formatNumber(row.sales)}</td><td class="num" data-column="reservation_to_sale_pct">${formatPercent(row.reservation_to_sale_pct)}</td>
+        <td class="num" data-column="lead_to_reservation_pct">${formatPercent(row.lead_to_reservation_pct)}</td><td class="num" data-column="lead_to_reservation_vs_team">${formatTeamRatioComparison(row.team_lead_to_reservation_pct, row.lead_to_reservation_vs_team_pp)}</td><td class="num" data-column="opportunity_to_reservation_pct">${formatPercent(row.opportunity_to_reservation_pct)}</td><td class="num" data-column="opportunity_to_reservation_vs_team">${formatTeamRatioComparison(row.team_opportunity_to_reservation_pct, row.opportunity_to_reservation_vs_team_pp)}</td>
+        <td class="num" data-column="sales">${formatNumber(row.sales)}</td><td class="num" data-column="reservation_to_sale_pct">${formatPercent(row.reservation_to_sale_pct)}</td><td class="num" data-column="reservation_to_sale_vs_team">${formatTeamRatioComparison(row.team_reservation_to_sale_pct, row.reservation_to_sale_vs_team_pp)}</td>
         <td class="num" data-column="cancellations">${formatAvailableNumber(row.cancellations)}</td><td class="num" data-column="cancellation_pct">${formatAvailablePercent(row.cancellation_pct)}</td>
         <td class="num" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">${formatCurrency(row.margin_total)}</td>
         <td class="num" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">${formatCurrency(row.average_margin_per_sale)}</td>
@@ -1141,6 +1146,34 @@ function formatAvailableNumber(value) {
 
 function formatAvailablePercent(value) {
     return value === null || value === undefined ? 'N/D' : formatPercent(value);
+}
+
+function formatTeamNumber(value) {
+    return value === null || value === undefined || Number.isNaN(Number(value))
+        ? 'N/D'
+        : Number(value).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+function formatSignedTeamNumber(value, suffix = '') {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) return 'N/D';
+
+    const rounded = Math.round(Number(value) * 10) / 10;
+    const sign = rounded > 0 ? '+' : '';
+    const formatted = Math.abs(rounded).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+    return `${sign}${rounded < 0 ? '-' : ''}${formatted}${suffix}`;
+}
+
+function formatReservationsDeviation(deviation, deviationPct) {
+    if (deviation === null || deviation === undefined || deviationPct === null || deviationPct === undefined) return 'N/D';
+
+    return `${formatSignedTeamNumber(deviation)} (${formatSignedTeamNumber(deviationPct, ' %')})`;
+}
+
+function formatTeamRatioComparison(teamRatio, difference) {
+    if (teamRatio === null || teamRatio === undefined || difference === null || difference === undefined) return 'N/D';
+
+    return `Equipo ${formatTeamNumber(teamRatio)} % · Δ ${formatSignedTeamNumber(difference, ' pp')}`;
 }
 
 function formatCurrency(value) {

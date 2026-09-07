@@ -233,8 +233,15 @@ El filtro Comercial incluye identidades comerciales válidas aunque su delegaci�
 mensual no sea certificable. Zona y Delegación solo ofrecen asignaciones
 observadas o con bootstrap aprobado. El ranking se construye antes de aplicar el
 filtro Comercial; los empates exactos comparten posición y no usa margen,
-cancelación ni scoring compuesto. Las medias internas de equipo se conservan en
-el contrato por compatibilidad, pero ya no se muestran en la interfaz.
+cancelación ni scoring compuesto.
+
+Las comparativas de equipo usan exactamente la misma población que el ranking:
+las filas `ranking_eligible=true` tras aplicar Zona y Delegación, pero antes de
+aplicar Comercial. Sin filtro organizativo el equipo incluye todos los
+comerciales evaluables del universo, sin agrupar por delegación. La media de
+reservas y los ratios Lead → Reserva, Oportunidad → Reserva y Reserva → Venta se
+calculan agregando sus contadores; las diferencias individuales se expresan en
+puntos porcentuales. Las filas no evaluables publican estos campos como `null`.
 
 ### Cancelaciones verificadas
 

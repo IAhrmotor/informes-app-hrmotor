@@ -1,5 +1,15 @@
 # Decisiones técnicas
 
+## 2026-09-07 - Referencia única de equipo en Rendimiento comercial
+
+Las comparativas de Rendimiento comercial reutilizan de forma estricta la
+población `ranking_eligible=true` del universo ya acotado por Zona y Delegación.
+Sin filtros organizativos no se agrupa por delegación: la referencia es todo el
+conjunto evaluable. El filtro Comercial se aplica después y solo reduce las
+filas mostradas, por lo que no puede alterar ranking, media ni ratios de
+referencia. Esta única definición evita denominadores inconsistentes y mantiene
+la comparación en O(n) sobre datos locales, sin consultas adicionales.
+
 ## 2026-08-26 - Dirección Comercial como derivación canónica de Area Manager
 
 La comisión de Oscar Ortega se identifica por el Salesforce User ID estable
