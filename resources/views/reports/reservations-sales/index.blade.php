@@ -311,10 +311,10 @@
                     <table class="performance-table" id="performanceTable">
                         <thead><tr>
                             <th data-column="ranking">Ranking</th><th data-column="traffic_light">Semáforo</th><th data-column="commercial">Comercial</th><th data-column="delegation">Delegación</th><th data-column="zone">Zona</th>
-                            <th class="num" data-column="leads">Leads</th><th class="num" data-column="opportunities">Oportunidades</th><th class="num" data-column="reservations_total">Reservas</th><th class="num" data-column="reservations_active">Activas</th>
+                            <th class="num" data-column="leads">Leads</th><th class="num" data-column="opportunities">Oportunidades</th><th class="num" data-column="reservations_total">Reservas</th><th class="num" data-column="team_average_reservations">Media equipo</th><th class="num" data-column="team_reservations_deviation">Desviación reservas</th><th class="num" data-column="reservations_active">Activas</th>
                             <th class="num" data-column="objective">Objetivo</th><th class="num" data-column="fulfillment_pct">Cumplimiento</th>
-                            <th class="num" data-column="lead_to_reservation_pct">Lead → Reserva</th><th class="num" data-column="opportunity_to_reservation_pct">Oportunidad → Reserva</th>
-                            <th class="num" data-column="sales">Ventas</th><th class="num" data-column="reservation_to_sale_pct">Reserva → Venta</th>
+                            <th class="num" data-column="lead_to_reservation_pct">Lead → Reserva</th><th class="num" data-column="lead_to_reservation_vs_team">Lead → Reserva vs equipo</th><th class="num" data-column="opportunity_to_reservation_pct">Oportunidad → Reserva</th><th class="num" data-column="opportunity_to_reservation_vs_team">Oportunidad → Reserva vs equipo</th>
+                            <th class="num" data-column="sales">Ventas</th><th class="num" data-column="reservation_to_sale_pct">Reserva → Venta</th><th class="num" data-column="reservation_to_sale_vs_team">Reserva → Venta vs equipo</th>
                             <th class="num" data-column="cancellations">Cancelaciones</th><th class="num" data-column="cancellation_pct">% cancelación</th>
                             <th class="num" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">Margen total</th>
                             <th class="num" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">Margen medio</th>

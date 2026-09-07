@@ -116,40 +116,62 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertSame(2, collect($response->json('evolution'))->firstWhere('month', '2026-07')['reservations_total']);
     }
 
-    public function test_filtro_comercial_no_recalcula_ranking_ni_media_de_delegacion(): void
+    public function test_comparativas_equipo_usan_el_universo_evaluable_y_el_filtro_comercial_no_lo_recalcula(): void
     {
-        foreach ([['005-a', 'Ana'], ['005-b', 'Bea']] as [$id, $name]) {
+        foreach ([
+            ['005-a', 'Ana', 'Alicante', 'Zona Mediterraneo'],
+            ['005-b', 'Bea', 'Murcia', 'Zona Levante'],
+        ] as [$id, $name, $delegation, $zone]) {
             $this->commercial($id, $name);
-            $this->snapshot($id, 'Alicante', 'Zona Mediterraneo', '2026-05-01');
-            SalesforceLead::query()->create([
-                'salesforce_id' => '00Q-'.$id,
-                'name' => 'Lead '.$name,
-                'created_date' => '2026-08-01 08:00:00',
-                'fecha_asignacion' => '2026-08-02 10:00:00',
-                'status' => 'Potencial',
-                'record_type_name' => 'Venta',
-                'record_type_normalized' => 'venta',
-                'owner_id' => $id,
-                'owner_name' => $name,
-                'is_deleted' => false,
-            ]);
+            $this->snapshot($id, $delegation, $zone, '2026-05-01');
         }
-        $this->opportunity('006-a', [
-            'owner_id' => '005-a', 'owner_name' => 'Ana',
-            'reservation' => true, 'reservation_date' => '2026-08-05',
-        ]);
+
+        $this->seedPerformanceMetrics('005-a', 'Ana', 20, 25, 10, 8);
+        $this->seedPerformanceMetrics('005-b', 'Bea', 20, 15, 5, 3);
+
+        $items = collect($this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->json('items'))
+            ->keyBy('commercial_id');
+        $ana = $items['005-a'];
+
+        $this->assertSame(7.5, $ana['team_average_reservations']);
+        $this->assertSame(2.5, $ana['team_reservations_deviation']);
+        $this->assertSame(33.33, $ana['team_reservations_deviation_pct']);
+        $this->assertSame(37.5, $ana['team_lead_to_reservation_pct']);
+        $this->assertSame(12.5, $ana['lead_to_reservation_vs_team_pp']);
+        $this->assertSame(37.5, $ana['team_opportunity_to_reservation_pct']);
+        $this->assertSame(2.5, $ana['opportunity_to_reservation_vs_team_pp']);
+        $this->assertSame(73.33, $ana['team_reservation_to_sale_pct']);
+        $this->assertSame(6.67, $ana['reservation_to_sale_vs_team_pp']);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08&zone=Zona%20Mediterraneo')
+            ->assertOk()
+            ->assertJsonCount(1, 'items')
+            ->assertJsonPath('items.0.commercial_id', '005-a')
+            ->assertJsonPath('items.0.team_average_reservations', 10)
+            ->assertJsonPath('items.0.team_lead_to_reservation_pct', 50);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08&delegation=Murcia')
+            ->assertOk()
+            ->assertJsonCount(1, 'items')
+            ->assertJsonPath('items.0.commercial_id', '005-b')
+            ->assertJsonPath('items.0.team_average_reservations', 5)
+            ->assertJsonPath('items.0.team_opportunity_to_reservation_pct', 33.33);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08&zone=Zona%20Mediterraneo&delegation=Alicante')
+            ->assertOk()
+            ->assertJsonCount(1, 'items')
+            ->assertJsonPath('items.0.commercial_id', '005-a')
+            ->assertJsonPath('items.0.team_average_reservations', 10);
 
         $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08&commercial=005-a')
             ->assertOk()
             ->assertJsonCount(1, 'items')
             ->assertJsonPath('items.0.ranking', 1)
-            ->assertJsonPath('items.0.delegation_average_reservations', 0.5)
-            ->assertJsonPath('items.0.delegation_reservations_deviation', 0.5);
-
-        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08&commercial=005-b')
-            ->assertOk()
-            ->assertJsonPath('items.0.ranking', 2)
-            ->assertJsonPath('items.0.delegation_average_reservations', 0.5);
+            ->assertJsonPath('items.0.team_average_reservations', 7.5)
+            ->assertJsonPath('items.0.team_reservation_to_sale_pct', 73.33)
+            ->assertJsonPath('items.0.reservation_to_sale_vs_team_pp', 6.67);
     }
 
     public function test_cumplimiento_agregado_suma_objetivos_individuales_en_resumen_evolucion_y_filtro(): void
@@ -223,6 +245,8 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
 
     public function test_objetivo_es_mensual_tiene_default_y_validacion_protegida(): void
     {
+        $this->assertSame(18, CommercialPerformanceMonthlyTarget::DEFAULT_RESERVATIONS_TARGET);
+
         $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
             ->assertOk()
             ->assertJsonPath('objective.reservations_target', 18)
@@ -394,6 +418,12 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString("not_certifiable: 'No certificable'", $javascript);
         $this->assertStringNotContainsString('delegation_average_reservations', $javascript);
         $this->assertStringNotContainsString('delegation_lead_to_reservation_pct', $javascript);
+        $this->assertStringContainsString("{ key: 'team_average_reservations', label: 'Media equipo', defaultVisible: false }", $javascript);
+        $this->assertStringContainsString('function formatTeamRatioComparison', $javascript);
+        $this->assertStringContainsString(
+            "return `Equipo \${formatTeamNumber(teamRatio)} % · Δ \${formatSignedTeamNumber(difference, ' pp')}`;",
+            $javascript,
+        );
 
         $resetBlock = substr($javascript, strpos($javascript, 'function bindResetFilters()'), strpos($javascript, 'function bindFilters()') - strpos($javascript, 'function bindResetFilters()'));
         $this->assertStringNotContainsString("document.getElementById('performanceTarget').value", $resetBlock);
@@ -415,7 +445,15 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertJsonPath('items.0.delegation_certified', false)
             ->assertJsonPath('items.0.delegation_status', 'not_certifiable')
             ->assertJsonPath('items.0.ranking', null)
-            ->assertJsonPath('items.0.delegation_average_reservations', null)
+            ->assertJsonPath('items.0.team_average_reservations', null)
+            ->assertJsonPath('items.0.team_reservations_deviation', null)
+            ->assertJsonPath('items.0.team_reservations_deviation_pct', null)
+            ->assertJsonPath('items.0.team_lead_to_reservation_pct', null)
+            ->assertJsonPath('items.0.lead_to_reservation_vs_team_pp', null)
+            ->assertJsonPath('items.0.team_opportunity_to_reservation_pct', null)
+            ->assertJsonPath('items.0.opportunity_to_reservation_vs_team_pp', null)
+            ->assertJsonPath('items.0.team_reservation_to_sale_pct', null)
+            ->assertJsonPath('items.0.reservation_to_sale_vs_team_pp', null)
             ->assertJsonPath('filters.commercials.0.id', '005-historic');
     }
 
@@ -632,6 +670,9 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertNull($incident['fulfillment_pct']);
         $this->assertNull($incident['traffic_light']);
         $this->assertNull($incident['ranking']);
+        $this->assertNull($incident['team_average_reservations']);
+        $this->assertNull($incident['team_lead_to_reservation_pct']);
+        $this->assertNull($incident['reservation_to_sale_vs_team_pp']);
 
         $auditRows = collect($this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')
             ->assertOk()->json('items'))->where('event_type', 'reservation');
@@ -702,8 +743,31 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertJsonPath('items.0.sales', 0)
             ->assertJsonPath('items.0.fulfillment_pct', 0)
             ->assertJsonPath('items.0.traffic_light', 'red')
-            ->assertJsonPath('items.0.delegation_average_reservations', 0)
+            ->assertJsonPath('items.0.team_average_reservations', 0)
+            ->assertJsonPath('items.0.team_reservations_deviation', null)
+            ->assertJsonPath('items.0.team_lead_to_reservation_pct', null)
+            ->assertJsonPath('items.0.lead_to_reservation_vs_team_pp', null)
+            ->assertJsonPath('items.0.team_opportunity_to_reservation_pct', null)
+            ->assertJsonPath('items.0.opportunity_to_reservation_vs_team_pp', null)
+            ->assertJsonPath('items.0.team_reservation_to_sale_pct', null)
+            ->assertJsonPath('items.0.reservation_to_sale_vs_team_pp', null)
             ->assertJsonPath('items.0.ranking', 1);
+    }
+
+    public function test_comparativas_equipo_mantienen_null_con_denominadores_cero(): void
+    {
+        $this->commercial('005-zero-denominators', 'Sin denominadores');
+        $this->snapshot('005-zero-denominators', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        $this->seedPerformanceMetrics('005-zero-denominators', 'Sin denominadores', 0, 0, 0, 0);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('items.0.team_lead_to_reservation_pct', null)
+            ->assertJsonPath('items.0.lead_to_reservation_vs_team_pp', null)
+            ->assertJsonPath('items.0.team_opportunity_to_reservation_pct', null)
+            ->assertJsonPath('items.0.opportunity_to_reservation_vs_team_pp', null)
+            ->assertJsonPath('items.0.team_reservation_to_sale_pct', null)
+            ->assertJsonPath('items.0.reservation_to_sale_vs_team_pp', null);
     }
 
     public function test_mes_cubierto_sin_transiciones_muestra_cero_cancelaciones(): void
@@ -1041,6 +1105,42 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             'completed_at' => now(),
             'queried_rows' => 0,
         ]);
+    }
+
+    private function seedPerformanceMetrics(
+        string $commercialId,
+        string $commercialName,
+        int $leads,
+        int $opportunities,
+        int $reservations,
+        int $sales,
+    ): void {
+        for ($index = 1; $index <= $leads; $index++) {
+            SalesforceLead::query()->create([
+                'salesforce_id' => "00Q-{$commercialId}-{$index}",
+                'name' => "Lead {$commercialName} {$index}",
+                'created_date' => '2026-08-01 08:00:00',
+                'fecha_asignacion' => '2026-08-02 10:00:00',
+                'status' => 'Potencial',
+                'record_type_name' => 'Venta',
+                'record_type_normalized' => 'venta',
+                'owner_id' => $commercialId,
+                'owner_name' => $commercialName,
+                'is_deleted' => false,
+            ]);
+        }
+
+        for ($index = 1; $index <= $opportunities; $index++) {
+            $this->opportunity("006-{$commercialId}-{$index}", [
+                'owner_id' => $commercialId,
+                'owner_name' => $commercialName,
+                'reservation' => $index <= $reservations,
+                'reservation_date' => $index <= $reservations ? '2026-08-05' : null,
+                'cv_signed' => $index <= $sales,
+                'cv_signed_date' => $index <= $sales ? '2026-08-10' : null,
+                'stage_name' => $index <= $sales ? 'Contrato' : 'Reserva',
+            ]);
+        }
     }
 
     private function opportunity(string $id, array $overrides = []): SalesforceOpportunity

@@ -470,7 +470,7 @@ class CommercialPerformanceDatasetService
 
     private function applyTeamComparisonsAndRanking(Collection $rows): Collection
     {
-        $teamStats = $rows
+        $delegationStats = $rows
             ->filter(fn (array $row): bool => $row['delegation_certified'] && $row['commercial_id'] !== null)
             ->groupBy('delegation')
             ->map(function (Collection $team): array {
@@ -492,8 +492,20 @@ class CommercialPerformanceDatasetService
                 ];
             });
 
-        $eligible = $rows
+        $teamPopulation = $rows
             ->filter(fn (array $row): bool => $row['ranking_eligible'])
+            ->values();
+        $teamCount = $teamPopulation->count();
+        $teamReservations = (int) $teamPopulation->sum('reservations_total');
+        $teamLeads = (int) $teamPopulation->sum('leads');
+        $teamOpportunities = (int) $teamPopulation->sum('opportunities');
+        $teamSales = (int) $teamPopulation->sum('sales');
+        $teamAverageReservations = $teamCount > 0 ? $teamReservations / $teamCount : null;
+        $teamLeadToReservation = $this->rawPercentage($teamReservations, $teamLeads);
+        $teamOpportunityToReservation = $this->rawPercentage($teamReservations, $teamOpportunities);
+        $teamReservationToSale = $this->rawPercentage($teamSales, $teamReservations);
+
+        $eligible = $teamPopulation
             ->sortBy([['fulfillment_pct', 'desc'], ['commercial', 'asc']]);
         $ranks = [];
         $position = 0;
@@ -507,21 +519,54 @@ class CommercialPerformanceDatasetService
             $ranks[$this->attributionSignature($row)] = $position;
         }
 
-        return $rows->map(function (array $row) use ($teamStats, $ranks): array {
-            $team = $row['delegation_certified'] ? $teamStats->get($row['delegation']) : null;
-            $average = data_get($team, 'average_reservations');
+        return $rows->map(function (array $row) use (
+            $delegationStats,
+            $ranks,
+            $teamAverageReservations,
+            $teamLeadToReservation,
+            $teamOpportunityToReservation,
+            $teamReservationToSale,
+        ): array {
+            $delegation = $row['delegation_certified'] ? $delegationStats->get($row['delegation']) : null;
+            $isEligible = (bool) $row['ranking_eligible'];
+            $individualLeadToReservation = $this->rawPercentage($row['reservations_total'], $row['leads']);
+            $individualOpportunityToReservation = $this->rawPercentage($row['reservations_total'], $row['opportunities']);
+            $individualReservationToSale = $this->rawPercentage($row['sales'], $row['reservations_total']);
+            $teamDeviation = $teamAverageReservations === null || $teamAverageReservations <= 0
+                ? null
+                : $row['reservations_total'] - $teamAverageReservations;
 
             return array_merge($row, [
-                'delegation_average_reservations' => $average,
-                'delegation_reservations_deviation' => $average === null
-                    ? null
-                    : round($row['reservations_total'] - $average, 2),
-                'delegation_lead_to_reservation_pct' => data_get($team, 'lead_to_reservation_pct'),
-                'delegation_opportunity_to_reservation_pct' => data_get($team, 'opportunity_to_reservation_pct'),
-                'delegation_reservation_to_sale_pct' => data_get($team, 'reservation_to_sale_pct'),
-                'delegation_cancellation_pct' => data_get($team, 'cancellation_pct'),
-                'delegation_margin_total' => data_get($team, 'margin_total'),
-                'delegation_average_margin_per_sale' => data_get($team, 'average_margin_per_sale'),
+                'team_average_reservations' => $isEligible && $teamAverageReservations !== null
+                    ? round($teamAverageReservations, 2)
+                    : null,
+                'team_reservations_deviation' => $isEligible && $teamDeviation !== null
+                    ? round($teamDeviation, 2)
+                    : null,
+                'team_reservations_deviation_pct' => $isEligible && $teamDeviation !== null
+                    ? round(($teamDeviation / $teamAverageReservations) * 100, 2)
+                    : null,
+                'team_lead_to_reservation_pct' => $isEligible && $teamLeadToReservation !== null
+                    ? round($teamLeadToReservation, 2)
+                    : null,
+                'lead_to_reservation_vs_team_pp' => $isEligible && $individualLeadToReservation !== null && $teamLeadToReservation !== null
+                    ? round($individualLeadToReservation - $teamLeadToReservation, 2)
+                    : null,
+                'team_opportunity_to_reservation_pct' => $isEligible && $teamOpportunityToReservation !== null
+                    ? round($teamOpportunityToReservation, 2)
+                    : null,
+                'opportunity_to_reservation_vs_team_pp' => $isEligible && $individualOpportunityToReservation !== null && $teamOpportunityToReservation !== null
+                    ? round($individualOpportunityToReservation - $teamOpportunityToReservation, 2)
+                    : null,
+                'team_reservation_to_sale_pct' => $isEligible && $teamReservationToSale !== null
+                    ? round($teamReservationToSale, 2)
+                    : null,
+                'reservation_to_sale_vs_team_pp' => $isEligible && $individualReservationToSale !== null && $teamReservationToSale !== null
+                    ? round($individualReservationToSale - $teamReservationToSale, 2)
+                    : null,
+                'delegation_cancellation_pct' => data_get($delegation, 'cancellation_pct'),
+                'delegation_margin_total' => data_get($delegation, 'margin_total'),
+                'delegation_average_margin_per_sale' => data_get($delegation, 'average_margin_per_sale'),
                 'ranking' => $ranks[$this->attributionSignature($row)] ?? null,
             ]);
         })->sortBy([
@@ -788,6 +833,11 @@ class CommercialPerformanceDatasetService
     private function percentage(int|float $numerator, int|float $denominator): ?float
     {
         return $denominator > 0 ? round(($numerator / $denominator) * 100, 2) : null;
+    }
+
+    private function rawPercentage(int|float $numerator, int|float $denominator): ?float
+    {
+        return $denominator > 0 ? ($numerator / $denominator) * 100 : null;
     }
 
     public function trafficLight(float $fulfillment): string

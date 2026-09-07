@@ -7,6 +7,10 @@ Actualizado: 2026-08-26.
 - `CommercialPerformanceDatasetService` agrega cuatro meses de actividad local
   por fecha propia de Lead, Opportunity, reserva, firma y cancelación; la unidad
   es Salesforce User ID + mes, nunca delegación, y no altera la cohorte legacy.
+- La comparación de equipo reutiliza el mismo universo `ranking_eligible` del
+  ranking, después de Zona/Delegación y antes de Comercial. Sus agregados se
+  calculan una vez en memoria sobre el dataset local; Comercial solo limita las
+  filas visibles y las filas no evaluables no reciben comparación.
 - `salesforce_opportunity_stage_transitions` materializa cambios demostrables de
   `OpportunityHistory` hacia Cerrada Perdida con estado de calidad; solo cuentan
   si la reserva no es posterior. `salesforce_opportunity_history_sync_intervals`

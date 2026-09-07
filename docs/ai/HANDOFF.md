@@ -1,5 +1,41 @@
 # Handoff para agentes
 
+## Comparativa de equipo en Rendimiento comercial (2026-09-07)
+
+- Tarea: se sustituyeron los cinco campos de comparación `delegation_*` sin
+  consumidor real por nueve campos `team_*`/`*_vs_team_pp`. La referencia usa
+  una sola población: `ranking_eligible=true` después de Zona/Delegación y
+  antes de Comercial. Los ratios se agregan por contadores y las diferencias se
+  calculan sin usar ratios redondeados; las filas no evaluables devuelven `null`.
+- Archivos modificados: `CommercialPerformanceDatasetService`, el test feature
+  de Rendimiento comercial, Blade, JavaScript y esta documentación.
+- UI: se añadieron cinco columnas opcionales, no visibles por defecto, al
+  selector persistente `reservationsSalesCommercialPerformanceColumnsV1`:
+  Media equipo, Desviación reservas y los tres ratios frente al equipo. Usan un
+  decimal español, `pp` y `N/D`; no alteran el semáforo.
+- Correctivo posterior: el signo de las diferencias se decide después de
+  redondear a una decimal, por lo que valores entre `-0,05` y `0,05` se
+  presentan como `0,0`, sin signo. El helper de fixtures usa bucles `for`
+  seguros cuando Leads u Opportunities valen cero.
+- Base de datos/configuración: sin migraciones, backfill, endpoint, permisos,
+  consultas Salesforce ni variables de entorno. El objetivo por defecto sigue
+  siendo 18 y permanece editable.
+- Seguridad/rendimiento: conserva la autorización Administrador/Dirección y no
+  expone datos nuevos; los agregados se calculan una vez en memoria sobre el
+  mismo Collection del ranking, sin N+1.
+- Pruebas: se añadieron comprobaciones Ana/Bea para la agregación global,
+  Zona, Delegación, intersección Zona+Delegación y Comercial, además del
+  contrato de no evaluación y de `DEFAULT_RESERVATIONS_TARGET === 18`. El
+  análisis sintáctico JavaScript con Node fue correcto. 
+- Validación final:
+  - suite completa: 926 tests, 6.663 aserciones, correcta;
+  - composer audit --locked --no-dev: sin vulnerabilidades;
+  - Pint limitado sobre PHP modificado: correcto;
+  - build Vite: correcto;
+  - git diff --check: correcto;
+  - CI del PR: correcto.
+- No quedan validaciones de runtime pendientes para esta implementación.
+
 ## Segunda iteración de Rendimiento comercial (2026-08-27)
 
 - Bootstrap: `CommercialDelegationSnapshotService` materializa, de forma
