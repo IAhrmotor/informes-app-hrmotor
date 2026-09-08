@@ -209,7 +209,7 @@ class SalesforceOpportunityPresenceReconciliationService
         $quotedIds = collect($ids)->map(fn (string $id): string => "'{$id}'")->implode(', ');
 
         return <<<SOQL
-SELECT Id, IsDeleted, SystemModStamp
+SELECT Id, IsDeleted, SystemModstamp
 FROM Opportunity
 WHERE Id IN ({$quotedIds})
 SOQL;
@@ -315,7 +315,7 @@ SOQL;
         if ((bool) data_get($record, 'IsDeleted')) {
             return [
                 'is_deleted' => true,
-                'salesforce_deleted_at' => $this->parseDateTime(data_get($record, 'SystemModStamp')),
+                'salesforce_deleted_at' => $this->parseDateTime(data_get($record, 'SystemModstamp')),
                 'deletion_detection_source' => SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL,
             ];
         }

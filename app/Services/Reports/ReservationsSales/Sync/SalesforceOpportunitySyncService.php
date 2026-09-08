@@ -843,11 +843,11 @@ SOQL);
         $start = $this->soqlDateTime($periodStart);
         $end = $this->soqlDateTime($periodEnd);
         $records = collect($this->client->queryAll(<<<SOQL
-SELECT Id, IsDeleted, SystemModStamp
+SELECT Id, IsDeleted, SystemModstamp
 FROM Opportunity
 WHERE IsDeleted = true
-    AND SystemModStamp >= {$start}
-    AND SystemModStamp < {$end}
+    AND SystemModstamp >= {$start}
+    AND SystemModstamp < {$end}
 SOQL))
             ->filter(fn (mixed $record): bool => is_array($record) && filled(data_get($record, 'Id')))
             ->values();
@@ -875,7 +875,7 @@ SOQL))
 
         foreach ($records as $record) {
             foreach ($localRowsByCanonicalId->get(substr((string) data_get($record, 'Id'), 0, 15), collect()) as $row) {
-                $deletedAt = $this->parseDateTime(data_get($record, 'SystemModStamp'));
+                $deletedAt = $this->parseDateTime(data_get($record, 'SystemModstamp'));
                 $sameDeletedAt = $row->salesforce_deleted_at?->toIso8601String() === $deletedAt?->toIso8601String();
                 if ($row->is_deleted
                     && $sameDeletedAt

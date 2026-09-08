@@ -61,11 +61,11 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
                 return [[
                     'Id' => '006AAAAAAAAAAAA',
                     'IsDeleted' => true,
-                    'SystemModStamp' => '2026-09-01T12:00:00.000Z',
+                    'SystemModstamp' => '2026-09-01T12:00:00.000Z',
                 ], [
                     'Id' => '006ZZZZZZZZZZZZ',
                     'IsDeleted' => true,
-                    'SystemModStamp' => '2026-09-01T12:00:00.000Z',
+                    'SystemModstamp' => '2026-09-01T12:00:00.000Z',
                 ]];
             }
 
@@ -82,7 +82,7 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         );
 
         $this->assertStringContainsString('IsDeleted = true', $client->deletedSoql);
-        $this->assertStringContainsString('SystemModStamp >= 2026-09-01T00:00:00Z', $client->deletedSoql);
+        $this->assertStringContainsString('SystemModstamp >= 2026-09-01T00:00:00Z', $client->deletedSoql);
         $this->assertStringNotContainsString('LastModifiedDate >=', $client->deletedSoql);
         $this->assertSame(1, $result['deletions']['changed']);
         $this->assertSame(1, $result['deletions']['matched_local']);
