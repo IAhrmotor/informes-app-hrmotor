@@ -1,6 +1,6 @@
 # Informe de Reservas / Ventas
 
-Actualizado: 2026-09-03.
+Actualizado: 2026-09-08.
 
 ## Fuente y datos locales
 
@@ -141,8 +141,8 @@ escribir exclusivamente `created_date` y `salesforce_last_modified_at`. Dry-run
 no persiste; apply requiere motivo, admite `--limit`/`--after-id` y queda
 auditado por ejecución. No usa el sincronizador completo, no modifica
 `raw_payload`, portales, hitos ni datos económicos y nunca inserta Opportunities.
-Debe conciliarse y completarse antes de cualquier operación histórica de Fase
-7B/7C que seleccione Opportunities mediante `created_date`.
+Debe conciliarse y completarse antes de cualquier reproceso histórico de
+portales de Opportunities que seleccione filas mediante `created_date`.
 
 La conciliación muestra únicamente cantidades y diferencias `A - B` / `B - A`
 por Opportunity ID; no muestra datos de contacto. Debe ejecutarse en el entorno
@@ -336,7 +336,7 @@ La réplica conserva las Opportunities retiradas de Salesforce para auditoría,
 pero las marca con `is_deleted`, `salesforce_deleted_at` y
 `deletion_detection_source`. El sync incremental consulta con `queryAll` los
 borrados confirmados por `IsDeleted=true` en la misma ventana de
-`SystemModStamp`. Solo `is_deleted=true` con fuente `query_all_deleted` sale del
+`SystemModstamp`. Solo `is_deleted=true` con fuente `query_all_deleted` sale del
 scope: `presence_reconciliation_missing` conserva el registro reportable porque
 una ausencia no acredita borrado, fusión, purga ni pérdida de permisos. Las
 cancelaciones materializadas de una Opportunity confirmada como eliminada
@@ -366,15 +366,21 @@ lifecycle, puede reintentarse de forma aislada con
 `php artisan stock:reconcile-sale-validity`. No borra filas ni escribe
 Salesforce.
 
-`SystemModStamp` es el cursor técnico de delta porque también refleja cambios de
+`SystemModstamp` es el cursor técnico de delta porque también refleja cambios de
 procesos automáticos y es el campo indexado para replicación. Se conserva como
 evidencia técnica de la detección, no como afirmación contractual de la hora
 exacta del borrado, exclusivamente en `salesforce_deleted_at`;
 `salesforce_last_modified_at` sigue reservado a `Opportunity.LastModifiedDate`.
-Antes de producción debe validarse en sandbox con una
-Opportunity sintética: consultar `LastModifiedDate` y `SystemModStamp`, borrarla,
-repetir la misma consulta mediante `queryAll` y comprobar que el filtro temporal
-por `SystemModStamp` recupera `IsDeleted=true`.
+
+La prueba sintética prevista en sandbox no pudo ejecutarse. El lifecycle sí fue
+desplegado y conciliado en producción el 8 de septiembre de 2026: `queryAll`
+recuperó tres Opportunities reales con `IsDeleted=true` y `SystemModstamp`, tres
+IDs quedaron como ausencias diagnósticas y 40.718 como activos. Tras corregir el
+casing del payload en PR #40, el apply materializó el timestamp técnico de los
+tres borrados y el dry-run final examinó 40.724 filas con cero cambios, errores,
+concurrencias omitidas o reactivaciones pendientes. Esta evidencia valida el
+flujo operativo sin convertir `SystemModstamp` en una fecha comercial de
+borrado.
 
 La franja queda fuera de atribución de Campañas (02:15), refresco (03:15), Stock
 (03:30, también escribe Opportunities) y el bloque SEO (05:15–06:30). La

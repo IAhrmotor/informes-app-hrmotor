@@ -1,6 +1,6 @@
 # Handoff del proyecto
 
-Actualizado: 2026-08-06. Proyecto: `informes-app-hrmotor`.
+Actualizado: 2026-09-08. Proyecto: `informes-app-hrmotor`.
 
 ## 1. Estado actual
 
@@ -9,19 +9,20 @@ en seis informes: Leads, Reservas/Ventas, Llamadas, Campañas, Comisiones y Stoc
 Los dashboards leen fotografías locales y deben mostrar período, fuente,
 actualización y corte; no deben presentarse como consultas en vivo a Salesforce.
 
-El árbol de trabajo contiene un lote amplio de cambios aún no consolidado en un
-commit. Se han preservado. La documentación histórica principal se ha movido a
-`docs/`; Git muestra los antiguos archivos raíz como eliminados y sus versiones
-en `docs/` como nuevas. No recrear copias en la raíz.
+`main` incluye PR #40 (`fe758b0dd7623acff35eb051b17b2b5072ec70b2`) y el
+refactor Salesforce descrito en este documento está desplegado. La presente
+actualización es exclusivamente documental; no modifica código, esquema ni
+datos.
 
-Última verificación funcional registrada:
+Última validación previa registrada para el correctivo de `SystemModstamp`:
 
-- suite completa: 393 pruebas, 2.667 aserciones;
-- regresión final de permisos: 8 pruebas, 55 aserciones;
-- regresión final de Reservas/Ventas: 2 pruebas, 21 aserciones;
-- build Vite correcto.
+- suite completa: 945 pruebas, 6.772 aserciones;
+- pruebas obligatorias de lifecycle: 33 pruebas, 208 aserciones;
+- bloque relacionado: 93 pruebas, 855 aserciones;
+- Pint focal, Composer validate/audit, Vite y `git diff --check`: correctos.
 
-Esta actualización es documental y no modifica código, esquema ni datos.
+Estos resultados son la validación reportada antes del merge; no se presentan
+como una comprobación nueva del estado de GitHub Actions.
 
 ## 2. Stack y arquitectura
 
@@ -396,7 +397,7 @@ Riesgos operativos:
   defecto solo borrados confirmados (`is_deleted=true` + `query_all_deleted`);
   una ausencia `presence_reconciliation_missing` sigue reportable.
 - El sync diario detecta borrados recientes mediante `queryAll`, los diferencia
-  de ausencias históricas reconciliadas por ID usando `SystemModStamp`. Solo el
+  de ausencias históricas reconciliadas por ID usando `SystemModstamp`. Solo el
   mapper completo del sync canónico puede reactivar una Opportunity; Stock no
   limpia el lifecycle con su fotografía parcial.
 - `salesforce:reconcile-opportunity-presence` ofrece dry-run, apply con motivo,
@@ -405,11 +406,28 @@ Riesgos operativos:
   identifica reapariciones pendientes. Si apply confirma borrados, el comando
   reconcilia inmediatamente la validez de snapshots Stock sin ejecutar ningún
   sincronizador; un fallo de esa fase local se reintenta únicamente con
-  `stock:reconcile-sale-validity`. El histórico no se ha ejecutado.
+  `stock:reconcile-sale-validity`.
 - Reservas/Ventas, reservas vivas, Rendimiento, auditoría y Comisiones excluyen
   los borrados confirmados. Campañas conserva el Lead y anula solo sus métricas
   dependientes de la Opportunity. Stock invalida snapshots de borrados
   confirmados; una Opportunity ausente localmente queda `unchecked` sin cambiar
-  por esa causa la validez previa. `SystemModStamp` solo alimenta
+  por esa causa la validez previa. `SystemModstamp` solo alimenta
   `salesforce_deleted_at`, nunca `salesforce_last_modified_at`. No cambian
   matching, portales ni reglas funcionales.
+
+## 22. Cierre del refactor Salesforce (2026-09-08)
+
+- El refactor técnico de procedencia, canal, medio, delegación, UTM, atribución
+  de Opportunities y lifecycle queda cerrado, desplegado y validado. El último
+  merge relevante es PR #40, `fe758b0dd7623acff35eb051b17b2b5072ec70b2`.
+- La reconciliación productiva de presencia terminó con 40.718 activas, tres
+  borrados confirmados y tres ausencias diagnósticas. Tras reparar el casing
+  `SystemModstamp`, el dry-run final examinó 40.724 filas y devolvió cero cambios,
+  errores, concurrencias omitidas o reactivaciones pendientes. Stock terminó con
+  `unchecked=0`.
+- `query_all_deleted` excluye una Opportunity confirmada; una
+  `presence_reconciliation_missing` continúa reportable. `SystemModstamp` es
+  evidencia temporal técnica, no fecha contractual de borrado.
+- Fase 7A y Fase 7B disponen de herramientas terminadas, pero no consta la
+  ejecución de sus operaciones históricas. Las validaciones externas de UTM y
+  otros asuntos funcionales siguen en `decisiones-negocio-pendientes.md`.

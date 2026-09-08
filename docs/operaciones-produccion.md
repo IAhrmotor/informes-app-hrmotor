@@ -27,6 +27,69 @@ Este hardening no modifica KPIs, fórmulas, cierres ni reglas funcionales.
 - Health `/up`: liveness de Laravel; no valida integraciones, colas ni frescura
   y no revela detalles internos.
 
+## Lifecycle de Opportunities: runbook y cierre de 2026-09-08
+
+### Operación reutilizable
+
+La conciliación parte exclusivamente de Opportunities locales y consulta
+Salesforce mediante `queryAll` por lotes. Ejecutar siempre dry-run antes de un
+apply aprobado:
+
+```bash
+php artisan salesforce:reconcile-opportunity-presence --dry-run --limit=1000
+php artisan salesforce:reconcile-opportunity-presence --apply --reason="Motivo operativo aprobado" --limit=1000
+```
+
+Continuar con `--after-id=<último-id-local>` cuando corresponda. Un apply que
+confirma borrados reconcilia inmediatamente la validez local de Stock. Si esa
+segunda fase falla después de persistir lifecycle, reintentar únicamente:
+
+```bash
+php artisan stock:reconcile-sale-validity
+```
+
+`query_all_deleted` significa borrado confirmado. Una
+`presence_reconciliation_missing` es solo ausencia diagnóstica y permanece
+reportable. `SystemModstamp` alimenta `salesforce_deleted_at` como evidencia
+técnica; no es fecha contractual de borrado y nunca sustituye a
+`salesforce_last_modified_at` (`Opportunity.LastModifiedDate`).
+
+### Evidencia del cierre productivo
+
+Tras desplegar PR #38 (`8231929cbda7427de40a163ef79e98f1e94c4be1`):
+
+- dry-run inicial `e35e835d-0945-4aa3-9e5a-d3aa08edae29`: 40.724 filas,
+  40.721 IDs encontrados, tres ausentes, 40.718 activos, tres borrados y seis
+  cambios previstos; cero errores, conflictos concurrentes o refresh pendientes;
+- apply `8fb4089e-20be-4353-b052-9d529a55ec26`: seis filas cambiadas, tres
+  marcadas borradas y tres marcadas ausentes;
+- dry-run post-apply `2ff8a397-0502-472b-969a-037122d83e09`: cero cambios y
+  40.724 filas sin diferencias;
+- Stock: 13.625 válidos, 326 inválidos, 66 duplicados y cero `unchecked`.
+
+La inspección posterior confirmó que Salesforce devuelve `SystemModstamp` y
+que el spelling anterior `SystemModStamp` dejaba nulo el timestamp, aunque el
+estado de tres borrados ya era correcto. Tras desplegar PR #40
+(`fe758b0dd7623acff35eb051b17b2b5072ec70b2`):
+
+- dry-run de reparación `ba49a054-50c6-481b-8f26-146182152811`: tres cambios
+  previstos, todos borrados confirmados, y ningún missing nuevo;
+- apply `8b370540-60ad-4c53-bc86-981210cc91da`: tres filas actualizadas, sin
+  concurrencias omitidas ni refresh pendientes;
+- dry-run final `b68aa962-7c3c-4bda-87b8-b69410d13e44`: 40.724 filas, 40.721
+  encontradas, tres ausentes, 40.718 activas, tres borradas y cero cambios,
+  errores, concurrencias omitidas o reactivaciones pendientes;
+- Stock final: 13.625 válidos, 326 inválidos, 66 duplicados y cero `unchecked`.
+
+La prueba sintética prevista en sandbox no pudo ejecutarse. No debe registrarse
+como superada. La evidencia productiva sí confirmó `queryAll`, los tres
+borrados, sus valores reales de `SystemModstamp`, la persistencia posterior y
+la idempotencia final.
+
+Fase 7A y Fase 7B son operaciones históricas distintas: sus herramientas están
+terminadas, pero no consta su ejecución. Este cierre de lifecycle no las ejecutó
+ni las autoriza implícitamente.
+
 ## API interna de Comisiones
 
 | Ruta | Método | Consumidor | Auth/autorización | Rate limit | Auditoría | Sensibilidad |
