@@ -15,12 +15,105 @@ use App\Services\Reports\ReservationsSales\CommercialPerformanceDatasetService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class ReservationsSalesCommercialPerformanceTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_cache_base_no_reconstruye_leads_para_filtros_y_se_invalida_por_version(): void
+    {
+        Cache::flush();
+        $this->commercial('005-cache', 'Comercial cache');
+        $this->snapshot('005-cache', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        $this->seedPerformanceMetrics('005-cache', 'Comercial cache', 1, 0, 0, 0);
+        $sourceQueries = [
+            'leads' => 0,
+            'opportunities' => 0,
+            'transitions' => 0,
+            'snapshots' => 0,
+        ];
+        DB::listen(function ($query) use (&$sourceQueries): void {
+            foreach ([
+                'leads' => 'salesforce_leads',
+                'opportunities' => 'salesforce_opportunities',
+                'transitions' => 'salesforce_opportunity_stage_transitions',
+                'snapshots' => 'commercial_delegation_snapshots',
+            ] as $source => $table) {
+                if (str_contains($query->sql, $table)) {
+                    $sourceQueries[$source]++;
+                }
+            }
+        });
+        $service = app(CommercialPerformanceDatasetService::class);
+
+        $service->payload(['month' => '2026-08']);
+        $firstBuildSourceQueries = $sourceQueries;
+        $service->payload(['month' => '2026-08', 'zone' => 'Zona Mediterraneo', 'delegation' => 'Alicante', 'commercial' => '005-cache']);
+
+        $this->assertGreaterThan(0, $firstBuildSourceQueries['leads']);
+        $this->assertSame($firstBuildSourceQueries, $sourceQueries);
+
+        Cache::forever('lead_dashboard_cache_version', 2);
+        $service->payload(['month' => '2026-08']);
+
+        $this->assertGreaterThan($firstBuildSourceQueries['leads'], $sourceQueries['leads']);
+    }
+
+    public function test_cache_base_preserva_dataset_generated_at_hasta_que_cambia_la_version(): void
+    {
+        Cache::flush();
+        $this->commercial('005-generated-at', 'Comercial timestamp');
+        $this->snapshot('005-generated-at', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        $fixedNow = CarbonImmutable::parse('2026-09-08 12:00:00', 'Europe/Madrid');
+        CarbonImmutable::setTestNow($fixedNow);
+
+        try {
+            $service = app(CommercialPerformanceDatasetService::class);
+            $first = $service->payload(['month' => '2026-08']);
+            $filtered = $service->payload(['month' => '2026-08', 'commercial' => '005-generated-at']);
+
+            $this->assertSame($first['dataset_generated_at'], $filtered['dataset_generated_at']);
+
+            CarbonImmutable::setTestNow($fixedNow->addSecond());
+            Cache::forever('lead_dashboard_cache_version', 2);
+            $rebuilt = $service->payload(['month' => '2026-08']);
+
+            $this->assertNotSame($first['dataset_generated_at'], $rebuilt['dataset_generated_at']);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+    public function test_lead_con_responsable_valido_y_nombre_vacio_usa_el_nombre_del_roster(): void
+    {
+        Cache::flush();
+        $this->commercial('005-roster-name', 'Nombre del roster');
+        $this->snapshot('005-roster-name', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-roster-name',
+            'name' => 'Lead con nombre vacío',
+            'created_date' => '2026-08-01 08:00:00',
+            'fecha_asignacion' => '2026-08-02 10:00:00',
+            'status' => 'Convertido',
+            'record_type_name' => 'Venta',
+            'record_type_normalized' => 'venta',
+            'owner_id' => '005-owner',
+            'owner_name' => 'Nombre owner que no debe prevalecer',
+            'persona_que_trabajo_id' => '005-roster-name',
+            'persona_que_trabajo_name' => '   ',
+            'is_deleted' => false,
+        ]);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('items.0.commercial_id', '005-roster-name')
+            ->assertJsonPath('items.0.commercial', 'Nombre del roster')
+            ->assertJsonPath('items.0.leads', 1);
+    }
 
     public function test_actividad_mensual_reutiliza_comercial_efectivo_y_fechas_de_cada_hito(): void
     {
@@ -264,13 +357,11 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         ]);
         $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-07')
             ->assertOk()->assertJsonPath('objective.reservations_target', 18);
-        CommercialPerformanceMonthlyTarget::query()
-            ->whereDate('month', '2026-07-01')
-            ->update(['reservations_target' => 23, 'updated_at' => now()->addSecond()]);
+        app(CommercialPerformanceDatasetService::class)->updateTarget('2026-07', 23, null);
         $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-07')
             ->assertOk()
             ->assertJsonPath('objective.reservations_target', 23)
-            ->assertJsonPath('objective.is_explicit', false);
+            ->assertJsonPath('objective.is_explicit', true);
         $this->putJson('/informes/reservas-ventas/data/commercial-performance/target', [
             'month' => '2026-08', 'reservations_target' => 0,
         ])->assertUnprocessable();

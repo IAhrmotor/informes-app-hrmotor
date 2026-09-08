@@ -2,7 +2,6 @@
 
 namespace App\Services\Reports\ReservationsSales;
 
-use App\Models\CommercialDelegationSnapshot;
 use App\Models\CommercialPerformanceMonthlyTarget;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
@@ -31,21 +30,14 @@ class CommercialPerformanceDatasetService
     {
         $filters = $this->normalizeFilters($filters);
 
-        return Cache::remember(
-            'reservas-ventas-commercial-performance-v1:'.hash('sha256', json_encode([
-                'filters' => $filters,
-                'version' => $this->dataVersion(),
-            ])),
-            now()->addMinutes(self::CACHE_TTL_MINUTES),
-            fn (): array => $this->build($filters),
-        );
+        return $this->present($this->basePayload($filters['month']), $filters);
     }
 
     public function updateTarget(string $month, int $target, ?int $reportUserId): CommercialPerformanceMonthlyTarget
     {
         $monthDate = CarbonImmutable::createFromFormat('!Y-m', $month, self::DATASET_TIMEZONE)->startOfMonth();
 
-        return CommercialPerformanceMonthlyTarget::query()->updateOrCreate(
+        $result = CommercialPerformanceMonthlyTarget::query()->updateOrCreate(
             ['month' => $monthDate->toDateString()],
             [
                 'reservations_target' => $target,
@@ -53,11 +45,41 @@ class CommercialPerformanceDatasetService
                 'updated_by_report_user_id' => $reportUserId,
             ],
         );
+
+        $this->incrementCacheVersion();
+
+        return $result;
     }
 
-    private function build(array $filters): array
+    private function basePayload(string $month): array
     {
-        $selected = CarbonImmutable::createFromFormat('!Y-m', $filters['month'], self::DATASET_TIMEZONE)->startOfMonth();
+        $version = $this->cacheVersion();
+        $key = 'reservas-ventas-commercial-performance-base-v2:'.hash('sha256', json_encode([
+            'month' => $month,
+            'version' => $version,
+        ]));
+        $cached = Cache::get($key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        return Cache::lock($key.':lock', 30)->block(10, function () use ($key, $month): array {
+            $cached = Cache::get($key);
+
+            if (is_array($cached)) {
+                return $cached;
+            }
+
+            $base = $this->buildBase($month);
+            Cache::put($key, $base, now()->addMinutes(self::CACHE_TTL_MINUTES));
+
+            return $base;
+        });
+    }
+
+    private function buildBase(string $month): array
+    {
+        $selected = CarbonImmutable::createFromFormat('!Y-m', $month, self::DATASET_TIMEZONE)->startOfMonth();
         $months = collect(range(3, 0))->map(fn (int $offset): CarbonImmutable => $selected->subMonthsNoOverflow($offset));
         $start = $months->first()->startOfMonth();
         $end = $selected->addMonth()->startOfMonth();
@@ -72,13 +94,13 @@ class CommercialPerformanceDatasetService
             'uncertified_historical_events' => 0,
             'margin_conflict_groups' => 0,
             'invalid_cancellation_chronology' => 0,
-            'organisation_changes_within_month' => collect($rosterContext['assessments'][$filters['month']] ?? [])
+            'organisation_changes_within_month' => collect($rosterContext['assessments'][$month] ?? [])
                 ->where('reason', 'organisation_change_within_month')
                 ->count(),
-            'bootstrap_approved_assignments' => collect($rosterContext['assignments'][$filters['month']] ?? [])
+            'bootstrap_approved_assignments' => collect($rosterContext['assignments'][$month] ?? [])
                 ->where('delegation_status', 'bootstrap_approved')
                 ->count(),
-            'observed_assignments' => collect($rosterContext['assignments'][$filters['month']] ?? [])
+            'observed_assignments' => collect($rosterContext['assignments'][$month] ?? [])
                 ->where('delegation_status', 'observed')
                 ->count(),
         ];
@@ -99,6 +121,34 @@ class CommercialPerformanceDatasetService
                 ->values();
         }
 
+        $delegationHistory = [
+            'delegation_history_certified_from' => DB::table('commercial_delegation_snapshots')->min('observed_from'),
+            'delegation_history_evaluable_from' => DB::table('commercial_delegation_snapshots')
+                ->whereIn('source', [
+                    CommercialDelegationSnapshotService::SOURCE_OBSERVED,
+                    CommercialDelegationSnapshotService::SOURCE_BUSINESS_BOOTSTRAP,
+                ])->min('observed_from'),
+            'delegation_history_observed_from' => DB::table('commercial_delegation_snapshots')
+                ->where('source', CommercialDelegationSnapshotService::SOURCE_OBSERVED)
+                ->min('observed_from'),
+            'delegation_history_bootstrap_from' => DB::table('commercial_delegation_snapshots')
+                ->where('source', CommercialDelegationSnapshotService::SOURCE_BUSINESS_BOOTSTRAP)
+                ->min('observed_from'),
+        ];
+        $generatedAt = now()->toIso8601String();
+
+        return compact('monthKeys', 'targets', 'historyCoverage', 'quality', 'rowsByMonth', 'delegationHistory', 'generatedAt');
+    }
+
+    private function present(array $base, array $filters): array
+    {
+        $monthKeys = $base['monthKeys'];
+        $targets = $base['targets'];
+        $historyCoverage = $base['historyCoverage'];
+        $quality = $base['quality'];
+        $rowsByMonth = $base['rowsByMonth'];
+        $delegationHistory = $base['delegationHistory'];
+        $generatedAt = $base['generatedAt'];
         $currentRows = $rowsByMonth[$filters['month']];
         $filterOptions = $this->filterOptions($currentRows, $filters);
         $rankUniverse = $this->applyOrganisationFilters($currentRows, $filters);
@@ -144,18 +194,7 @@ class CommercialPerformanceDatasetService
                 'cancellation_unresolved_dependencies' => $historyCoverage[$filters['month']]['unresolved_dependencies'],
                 'cancellation_coverage_by_month' => $historyCoverage,
                 'cancellation_source' => 'OpportunityHistory',
-                'delegation_history_certified_from' => DB::table('commercial_delegation_snapshots')->min('observed_from'),
-                'delegation_history_evaluable_from' => DB::table('commercial_delegation_snapshots')
-                    ->whereIn('source', [
-                        CommercialDelegationSnapshotService::SOURCE_OBSERVED,
-                        CommercialDelegationSnapshotService::SOURCE_BUSINESS_BOOTSTRAP,
-                    ])->min('observed_from'),
-                'delegation_history_observed_from' => DB::table('commercial_delegation_snapshots')
-                    ->where('source', CommercialDelegationSnapshotService::SOURCE_OBSERVED)
-                    ->min('observed_from'),
-                'delegation_history_bootstrap_from' => DB::table('commercial_delegation_snapshots')
-                    ->where('source', CommercialDelegationSnapshotService::SOURCE_BUSINESS_BOOTSTRAP)
-                    ->min('observed_from'),
+                ...$delegationHistory,
                 'delegation_history_limitation' => 'Desde 2026-04-01 se admite el bootstrap aprobado por negocio cuando la primera asignación fiable no tiene evidencias contradictorias; se distingue de la observación Salesforce.',
             ],
             'semantics' => [
@@ -165,7 +204,7 @@ class CommercialPerformanceDatasetService
                 'cancellation_date_field' => 'salesforce_opportunity_stage_transitions.transitioned_at',
             ],
             'dataset_source' => 'local_snapshot',
-            'dataset_generated_at' => now()->toIso8601String(),
+            'dataset_generated_at' => $generatedAt,
             'dataset_timezone' => self::DATASET_TIMEZONE,
         ];
     }
@@ -177,10 +216,37 @@ class CommercialPerformanceDatasetService
         CarbonImmutable $end,
         array $rosterContext,
     ): void {
+        foreach (collect(range(3, 0))->map(fn (int $offset): CarbonImmutable => $end->subMonth()->subMonthsNoOverflow($offset)->startOfMonth()) as $month) {
+            $monthEnd = $month->addMonth();
+            $responsibleId = "CASE WHEN LOWER(TRIM(status)) = 'convertido' THEN COALESCE(NULLIF(TRIM(persona_que_trabajo_id), ''), NULLIF(TRIM(owner_id), '')) WHEN LOWER(TRIM(status)) = 'descartado' THEN COALESCE(NULLIF(TRIM(propietario_descarte_id), ''), NULLIF(TRIM(persona_que_trabajo_id), ''), NULLIF(TRIM(owner_id), '')) ELSE NULLIF(TRIM(owner_id), '') END";
+            $responsibleName = "CASE WHEN LOWER(TRIM(status)) = 'convertido' THEN CASE WHEN NULLIF(TRIM(persona_que_trabajo_id), '') IS NOT NULL THEN NULLIF(TRIM(persona_que_trabajo_name), '') ELSE NULLIF(TRIM(owner_name), '') END WHEN LOWER(TRIM(status)) = 'descartado' THEN CASE WHEN NULLIF(TRIM(propietario_descarte_id), '') IS NOT NULL THEN NULLIF(TRIM(propietario_descarte_name), '') WHEN NULLIF(TRIM(persona_que_trabajo_id), '') IS NOT NULL THEN NULLIF(TRIM(persona_que_trabajo_name), '') ELSE NULLIF(TRIM(owner_name), '') END ELSE NULLIF(TRIM(owner_name), '') END";
+
+            SalesforceLead::query()
+                ->where('is_deleted', false)
+                ->where('fecha_asignacion', '>=', $month->utc())
+                ->where('fecha_asignacion', '<', $monthEnd->utc())
+                ->whereIn('record_type_normalized', $this->recordTypeNormalizer->ventaFilterTypes())
+                ->selectRaw("{$responsibleId} as responsible_id, {$responsibleName} as responsible_name, COUNT(*) as leads")
+                ->groupByRaw("{$responsibleId}, {$responsibleName}")
+                ->get()
+                ->each(function (object $group) use (&$buckets, &$quality, $rosterContext, $month): void {
+                    $userId = $group->responsible_id;
+                    $attribution = $this->attribution(
+                        $userId,
+                        $group->responsible_name ?? data_get($rosterContext['users']->get($userId), 'name'),
+                        $month,
+                        $rosterContext,
+                        $quality,
+                    );
+                    $this->increment($buckets, $month->format('Y-m'), $attribution, 'leads', (int) $group->leads);
+                });
+        }
+
         SalesforceLead::query()
             ->where('is_deleted', false)
             ->where('fecha_asignacion', '>=', $start->utc())
             ->where('fecha_asignacion', '<', $end->utc())
+            ->whereNull('record_type_normalized')
             ->select([
                 'id', 'salesforce_id', 'status', 'record_type_name', 'record_type_normalized',
                 'owner_id', 'owner_name', 'persona_que_trabajo_id', 'persona_que_trabajo_name',
@@ -862,20 +928,17 @@ class CommercialPerformanceDatasetService
         };
     }
 
-    private function dataVersion(): array
+    private function cacheVersion(): array
     {
         return [
-            'leads' => [SalesforceLead::query()->count(), SalesforceLead::query()->max('updated_at')],
-            'opportunities' => [SalesforceOpportunity::query()->count(), SalesforceOpportunity::query()->max('updated_at')],
-            'transitions' => [SalesforceOpportunityStageTransition::query()->count(), SalesforceOpportunityStageTransition::query()->max('updated_at')],
-            'history_coverage' => [SalesforceOpportunityHistorySyncInterval::query()->count(), SalesforceOpportunityHistorySyncInterval::query()->max('updated_at')],
-            'delegations' => [CommercialDelegationSnapshot::query()->count(), CommercialDelegationSnapshot::query()->max('updated_at')],
-            'targets' => [
-                CommercialPerformanceMonthlyTarget::query()->count(),
-                CommercialPerformanceMonthlyTarget::query()->max('updated_at'),
-                CommercialPerformanceMonthlyTarget::query()->sum('reservations_target'),
-                CommercialPerformanceMonthlyTarget::query()->sum('is_explicit'),
-            ],
+            'lead_dashboard' => (int) Cache::get('lead_dashboard_cache_version', 1),
+            'reservas_ventas_dashboard' => (int) Cache::get('reservas_ventas_dashboard_cache_version', 1),
+            'commercial_performance' => (int) Cache::get('commercial_performance_cache_version', 1),
         ];
+    }
+
+    private function incrementCacheVersion(): void
+    {
+        Cache::forever('commercial_performance_cache_version', ((int) Cache::get('commercial_performance_cache_version', 1)) + 1);
     }
 }
