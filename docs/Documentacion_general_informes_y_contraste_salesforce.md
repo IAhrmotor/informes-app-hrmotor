@@ -1,6 +1,6 @@
 # Documentación general de informes y contraste con Salesforce
 
-Versión: 2026-08-25
+Versión: 2026-09-08
 Proyecto: `informes-app-hrmotor`
 
 ## 1. Propósito y criterio de verdad
@@ -1366,8 +1366,10 @@ los campos generales `LEA_SEL_*`. Meta Direct Form mantiene su gate legacy y
 solo migra la clasificación efectiva posterior a la admisión.
 
 La ejecución implementada es local y por chunks, sin consultas por Lead ni
-llamadas externas añadidas. No se ha realizado backfill ni validación contra
-datos reales de Salesforce, Google o Meta.
+llamadas externas añadidas. Durante la implementación no se realizó backfill ni
+validación externa de Google o Meta. El refactor técnico quedó posteriormente
+desplegado; las validaciones externas de `utm_id__c` y la medición UTM-only
+continúan pendientes y no alteran el contrato actual.
 
 ### 9.2 Backfill histórico de atribución de Leads (Fase 7A)
 
@@ -1407,3 +1409,28 @@ before/after en `salesforce_opportunity_portal_reprocess_history`. No guarda PII
 ni `raw_payload`, no inserta o elimina Opportunities y solo incrementa la versión
 de caché si hubo cambios confirmados. La herramienta está preparada; no se ha
 ejecutado el reproceso histórico ni un dry-run productivo.
+
+### 9.4 Lifecycle/presencia de Opportunities y cierre técnico
+
+El refactor de procedencia, canal, medio, delegación, UTM y atribución de
+Opportunities está implementado y desplegado. Mantiene la autoridad nuevo →
+legacy de cada módulo y no amplía sus universos funcionales.
+
+El lifecycle se desplegó con PR #38 y se corrigió con PR #40 para consumir el
+API Name real `SystemModstamp`. `query_all_deleted` identifica exclusivamente
+un borrado confirmado y queda fuera de los consumidores dependientes de la
+Opportunity. `presence_reconciliation_missing` solo significa que una consulta
+explícita por ID no devolvió la fila y continúa reportable. Solo el sync canónico
+completo puede reactivar una Opportunity retirada.
+
+La reconciliación productiva del 8 de septiembre de 2026 terminó con 40.718
+activas, tres borrados confirmados, tres ausencias diagnósticas y cero cambios
+pendientes en el dry-run final. `SystemModstamp` se guarda en
+`salesforce_deleted_at` como evidencia temporal técnica; no sustituye a
+`Opportunity.LastModifiedDate` ni constituye una fecha contractual de borrado.
+La prueba sintética sandbox no pudo ejecutarse, pero la evidencia productiva
+confirmó consulta, persistencia e idempotencia.
+
+Este cierre no acredita los históricos de Fase 7A o Fase 7B: ambas herramientas
+están disponibles, pero sus ejecuciones continúan pendientes según la evidencia
+versionada disponible.

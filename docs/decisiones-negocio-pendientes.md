@@ -1,6 +1,6 @@
 # Decisiones de negocio pendientes
 
-Actualizado: 2026-09-03.
+Actualizado: 2026-09-08.
 
 Este documento contiene exclusivamente decisiones que el código no puede tomar
 sin una definición funcional o una validación externa. Las decisiones ya
@@ -22,9 +22,6 @@ Permanecen como validaciones técnicas u operativas para fases posteriores:
   plataforma; se conserva como identificador secundario y no decide el nombre;
 - medir Leads que solo tienen UTM nuevos y quedan fuera del universo legacy de
   Campañas antes de proponer cualquier ampliación del filtro;
-- revisar operativamente y ejecutar por separado el backfill histórico: la
-  herramienta segura, simulable, reanudable y auditable ya está preparada en
-  Fase 7A, pero el histórico todavía NO ha sido modificado;
 - Llamadas, Reservas/Ventas y el attribution builder ya consumen los campos
   nuevos en su clasificación efectiva, conservando sus prioridades legacy
   específicas y sin modificar sus universos.
@@ -45,10 +42,6 @@ La prioridad de procedencia del Lead relacionado queda cerrada como
 `Fuente_origen__c` → fallback legacy, considerando informado cualquier valor no
 vacío. No se modifica el matching existente por email/teléfono ni su orden por
 `CreatedDate DESC`.
-
-La herramienta segura de reproceso histórico de portales está preparada en
-Fase 7B con dry-run/apply explícitos, histórico y reanudación, pero todavía NO
-se ha ejecutado sobre el histórico ni se ha realizado un dry-run productivo.
 
 - Definir, si Dirección quiere utilizarlo, qué benchmark debe alimentar las
   conclusiones automáticas: objetivo, media ponderada, media simple o período
@@ -87,6 +80,20 @@ se ha ejecutado sobre el histórico ni se ha realizado un dry-run productivo.
 - Confirmar mediante metadata de Salesforce el API Name exacto de la fecha o
   año de matriculación de `Product2`. Hasta entonces la matriculación no puede
   participar en el ranking de comparables.
+
+## Operaciones históricas pendientes
+
+Estas operaciones no son decisiones funcionales ni código pendiente. Sus
+herramientas están terminadas, pero requieren aprobación, dry-run y ejecución
+controlada conforme a `operaciones-produccion.md`:
+
+- Fase 7A: no existe evidencia de ejecución del backfill histórico de campos de
+  atribución de Leads; no debe declararse el histórico modificado.
+- Fase 7B: no existe evidencia de dry-run productivo ni de ejecución del
+  reproceso histórico de portales de Opportunities.
+
+El lifecycle/presencia de Opportunities no pertenece a esta lista: quedó
+desplegado, reconciliado e idempotente en producción el 8 de septiembre de 2026.
 
 ## Decisiones cerradas e implementadas
 

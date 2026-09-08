@@ -470,13 +470,16 @@ del hash porque no alteran la regla v1.
   con lotes de 100, cursor por PK, mutex apply y auditoría por ejecución. El sync
   diario solo consulta borrados modificados en su ventana; no infiere ausencias
   desde el universo funcional parcial de una consulta por fechas.
-- El delta de borrados usa `SystemModStamp`: Salesforce lo mantiene para cambios
-  de usuario y sistema y lo indexa para replicación. El valor se conserva como
+- El delta de borrados usa el API Name canónico `SystemModstamp`: Salesforce lo
+  mantiene para cambios de usuario y sistema y lo indexa para replicación. El
+  valor se conserva como
   timestamp técnico del evento detectado únicamente en `salesforce_deleted_at`;
   nunca sobrescribe `salesforce_last_modified_at`, cuya semántica continúa siendo
-  `Opportunity.LastModifiedDate`. Queda pendiente contrastar en sandbox
-  que coincide con el instante de borrado para Opportunity; no se presenta como
-  una certeza funcional equivalente a una fecha de negocio.
+  `Opportunity.LastModifiedDate`. La prueba sintética prevista en sandbox no
+  pudo ejecutarse; la reconciliación productiva sí confirmó que `queryAll`
+  devuelve borrados reales con `SystemModstamp`, que el timestamp se persiste y
+  que la repetición converge a cero cambios. No se presenta como una fecha de
+  negocio ni como el instante contractual exacto de borrado.
 - Campañas no filtra la fila de atribución tras el `LEFT JOIN`: mantiene Lead,
   campaña y procedencia, y hace cero únicamente las métricas dependientes de una
   Opportunity confirmada como eliminada. Stock invalida snapshots conservados

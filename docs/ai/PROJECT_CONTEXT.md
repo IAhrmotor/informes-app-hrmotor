@@ -1,6 +1,30 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-08-26.
+Actualizado: 2026-09-08.
+
+## Autoridad Salesforce y lifecycle vigente
+
+- El refactor técnico de campos Salesforce está desplegado. Leads resuelve
+  fuente, canal, medio y delegación de forma independiente: el campo nuevo gana
+  cuando no es null, vacío o whitespace; cualquier placeholder no vacío es
+  autoritativo y el fallback conserva la prioridad legacy de cada informe.
+- Campañas mantiene su gate legacy y, una vez admitido el Lead, resuelve las
+  cinco parejas UTM nuevo → legacy. Llamadas separa clasificación visible de
+  reglas operativas. Opportunities mantiene la precedencia Opportunity
+  conclusiva → Lead relacionado → fuente de Opportunity → fallbacks existentes.
+  El índice local de teléfonos solo descubre Lead IDs; Salesforce vivo sigue
+  siendo la fuente funcional final.
+- El lifecycle de Opportunities está reconciliado en producción.
+  `query_all_deleted` representa borrado confirmado y se excluye de los
+  consumidores dependientes de Opportunity; `presence_reconciliation_missing`
+  es una ausencia diagnóstica y continúa reportable. Solo el mapper completo de
+  `SalesforceOpportunitySyncService` puede reactivar una fila.
+- El API Name real es `SystemModstamp`. Su valor se guarda exclusivamente en
+  `salesforce_deleted_at` como evidencia técnica de modificación detectada, no
+  como fecha contractual de borrado. `salesforce_last_modified_at` conserva la
+  semántica de `Opportunity.LastModifiedDate`.
+- Fase 7A y Fase 7B aportan herramientas históricas terminadas, pero no consta
+  su ejecución. Esa operación pendiente no reabre el refactor de código.
 
 ## Rendimiento comercial de Reservas / Ventas
 

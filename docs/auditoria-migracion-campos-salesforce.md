@@ -1,6 +1,6 @@
 # Auditoría preparatoria de procedencia y atribución Salesforce
 
-Actualizado: 2026-09-03.
+Actualizado: 2026-09-08.
 
 ## Fase 3: clasificación efectiva de Leads
 
@@ -614,7 +614,7 @@ ni escrituras Salesforce.
 `salesforce_opportunities` conserva físicamente su histórico y añade
 `is_deleted`, `salesforce_deleted_at` y `deletion_detection_source`. El sync
 canónico consulta por `queryAll` los `IsDeleted=true` modificados en la ventana,
-usando `SystemModStamp`, y marca solo filas locales ya existentes. Únicamente el
+usando `SystemModstamp`, y marca solo filas locales ya existentes. Únicamente el
 mapper completo del sync canónico reactiva/limpia metadata cuando vuelve a
 recibir una Opportunity activa. La fuente `query_all_deleted` representa un
 borrado confirmado; `presence_reconciliation_missing` representa únicamente
@@ -637,10 +637,48 @@ el sync parcial de Stock no limpia metadata lifecycle ni reactiva filas.
 La reconciliación histórica se prepara con
 `salesforce:reconcile-opportunity-presence --dry-run`, en lotes de 100 y con
 cursor local. Apply exige motivo, mutex y auditoría mínima por ejecución; no
-inserta ni borra Opportunities y no escribe Salesforce. En esta tarea no se ha
-ejecutado el histórico. Un apply que confirme borrados ejecuta después la
+inserta ni borra Opportunities y no escribe Salesforce. La reconciliación
+completa de presencia ya se ejecutó en producción el 8 de septiembre de 2026.
+Un apply que confirme borrados ejecuta después la
 reconciliación local de validez de Stock, sin sincronizaciones ni snapshots
 nuevos. La misma operación puede reintentarse de forma explícita con
 `stock:reconcile-sale-validity` si falla después de persistir lifecycle.
-`SystemModStamp` se almacena solo como evidencia técnica en
+`SystemModstamp` se almacena solo como evidencia técnica en
 `salesforce_deleted_at`; nunca sobrescribe `salesforce_last_modified_at`.
+
+## Cierre formal del refactor Salesforce (2026-09-08)
+
+El refactor técnico de procedencia, canal, medio, delegación, UTM y atribución
+de Opportunities queda cerrado, desplegado y validado. Las Fases 3–6 mantienen
+la autoridad nuevo → legacy ya aprobada, con resolución independiente por campo
+y placeholders no vacíos autoritativos. No se alteraron los universos
+funcionales: cada informe conserva sus filtros y prioridades legacy, salvo las
+exclusiones de lifecycle expresamente diseñadas para registros confirmados como
+eliminados.
+
+El bloque de lifecycle/presencia se desplegó mediante PR #38, merge
+`8231929cbda7427de40a163ef79e98f1e94c4be1`. La validación productiva completa
+encontró 40.718 Opportunities activas, tres borrados confirmados por
+`query_all_deleted` y tres ausencias diagnósticas
+`presence_reconciliation_missing`. El primer apply cambió seis filas y la
+repetición en dry-run quedó en cero cambios pendientes.
+
+PR #40, merge `fe758b0dd7623acff35eb051b17b2b5072ec70b2`, corrigió el
+casing del API Name real `SystemModstamp`. El apply posterior materializó la
+fecha técnica en los tres borrados confirmados y el dry-run final examinó
+40.724 filas, con cero cambios, cero errores, cero concurrencias omitidas y cero
+reactivaciones pendientes. Stock terminó conciliado con 13.625 snapshots
+válidos, 326 inválidos, 66 duplicados y cero `unchecked`.
+
+`SystemModstamp` se interpreta exclusivamente como timestamp técnico de la
+modificación detectada y se guarda en `salesforce_deleted_at`; no es una fecha
+funcional contractual de borrado ni sustituye a `LastModifiedDate`. La prueba
+sintética en sandbox no pudo ejecutarse, pero la evidencia productiva confirmó
+`queryAll`, el timestamp real, su persistencia y la idempotencia final.
+
+Este cierre técnico no acredita operaciones históricas distintas. La
+herramienta de Fase 7A está terminada, pero no existe evidencia de que se haya
+ejecutado el backfill histórico de Leads. La herramienta de Fase 7B también está
+terminada, pero no existe evidencia de dry-run o reproceso histórico de portales
+de Opportunities. Ambas permanecen como operaciones controladas pendientes, no
+como deuda de implementación.
