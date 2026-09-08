@@ -2330,3 +2330,22 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   preexistentes en archivos ajenos al diff, que no se reformatearon para
   mantener el alcance. No se ejecutaron migraciones, apply, sync real ni
   escrituras Salesforce.
+
+## Correctivo de casing `SystemModstamp` (2026-09-08)
+
+- Salesforce REST/queryAll devuelve la clave canónica `SystemModstamp`; las dos
+  rutas de lifecycle de Opportunities leían `SystemModStamp`, por lo que un
+  borrado confirmado podía conservar `salesforce_deleted_at` a null.
+- La reconciliación histórica y la detección incremental usan ahora
+  `SystemModstamp` tanto en SOQL como al leer el payload. No cambian estados,
+  scopes, universos, Stock, Campañas, Reservas/Ventas, chunks, mutex ni número de
+  consultas.
+- Las fixtures reproducen el casing real y cubren timestamp válido, timestamp
+  nulo, ausencia, fila activa, reactivación pendiente e idempotencia. No se
+  ejecutaron migraciones, reconciliaciones, sincronizaciones productivas ni
+  escrituras Salesforce.
+- Validación: tests obligatorios 33/208, bloque lifecycle/Stock/Campañas/
+  Reservas-Ventas 93/855 y suite completa 945/6.772, todos correctos. Pint WRITE
+  y `--test` sobre los cuatro PHP del correctivo, Composer validate/audit, Vite
+  y `git diff --check` correctos. El Pint global conserva infracciones
+  preexistentes en archivos ajenos al diff; no se reformatearon por alcance.

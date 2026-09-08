@@ -43,10 +43,15 @@ class SalesforceReconcileOpportunityPresenceCommandTest extends TestCase
         $deleted = $this->opportunity('006BBBBBBBBBBBB');
         $missing = $this->opportunity('006CCCCCCCCCCCC');
         $invalid = $this->opportunity('invalid-id');
-        $this->bindClient(fn (string $soql): array => [
-            ['Id' => $active->salesforce_id, 'IsDeleted' => false, 'SystemModStamp' => '2026-09-01T10:00:00Z'],
-            ['Id' => $deleted->salesforce_id, 'IsDeleted' => true, 'SystemModStamp' => '2026-09-01T11:00:00Z'],
-        ]);
+        $queriedSoql = '';
+        $this->bindClient(function (string $soql) use ($active, $deleted, &$queriedSoql): array {
+            $queriedSoql = $soql;
+
+            return [
+                ['Id' => $active->salesforce_id, 'IsDeleted' => false, 'SystemModstamp' => '2026-09-01T10:00:00Z'],
+                ['Id' => $deleted->salesforce_id, 'IsDeleted' => true, 'SystemModstamp' => '2026-09-01T11:00:00Z'],
+            ];
+        });
 
         $this->artisan('salesforce:reconcile-opportunity-presence --dry-run')
             ->expectsOutputToContain('OPPORTUNITY_PRESENCE_METRICS=')
@@ -56,6 +61,8 @@ class SalesforceReconcileOpportunityPresenceCommandTest extends TestCase
         $this->assertDatabaseHas('salesforce_opportunities', ['id' => $missing->id, 'is_deleted' => false]);
         $this->assertDatabaseHas('salesforce_opportunities', ['id' => $invalid->id, 'is_deleted' => false]);
         $this->assertDatabaseCount('salesforce_opportunity_presence_reconciliation_runs', 0);
+        $this->assertStringContainsString('SystemModstamp', $queriedSoql);
+        $this->assertStringNotContainsString('SystemModStamp', $queriedSoql);
     }
 
     public function test_exige_un_modo_exacto_y_motivo_descriptivo_para_apply(): void
@@ -87,8 +94,8 @@ class SalesforceReconcileOpportunityPresenceCommandTest extends TestCase
             'captured_at' => now(),
         ]);
         $this->bindClient(fn (string $soql): array => [
-            ['Id' => $deleted->salesforce_id, 'IsDeleted' => true, 'SystemModStamp' => '2026-09-01T11:00:00Z'],
-            ['Id' => $reactivated->salesforce_id, 'IsDeleted' => false, 'SystemModStamp' => '2026-09-01T12:00:00Z'],
+            ['Id' => $deleted->salesforce_id, 'IsDeleted' => true, 'SystemModstamp' => '2026-09-01T11:00:00Z'],
+            ['Id' => $reactivated->salesforce_id, 'IsDeleted' => false, 'SystemModstamp' => '2026-09-01T12:00:00Z'],
         ]);
 
         $this->artisan('salesforce:reconcile-opportunity-presence --apply --reason="Conciliacion controlada de presencia"')
@@ -142,7 +149,7 @@ class SalesforceReconcileOpportunityPresenceCommandTest extends TestCase
         $this->bindClient(fn (string $soql): array => [[
             'Id' => $reactivated->salesforce_id,
             'IsDeleted' => false,
-            'SystemModStamp' => '2026-09-01T12:00:00Z',
+            'SystemModstamp' => '2026-09-01T12:00:00Z',
         ]]);
 
         $stats = app(SalesforceOpportunityPresenceReconciliationService::class)->run(false);
@@ -152,6 +159,33 @@ class SalesforceReconcileOpportunityPresenceCommandTest extends TestCase
             [$reactivated->salesforce_id],
             $stats['samples']['pending_canonical_refresh_salesforce_ids'],
         );
+    }
+
+    public function test_borrado_confirmado_sin_system_modstamp_es_idempotente_y_conserva_fecha_nula(): void
+    {
+        $deleted = $this->opportunity('006QQQQQQQQQQQQ');
+        $this->bindClient(fn (string $soql): array => [[
+            'Id' => $deleted->salesforce_id,
+            'IsDeleted' => true,
+            'SystemModstamp' => null,
+        ]]);
+
+        $first = app(SalesforceOpportunityPresenceReconciliationService::class)
+            ->run(true, 'Conciliacion controlada sin timestamp tecnico');
+
+        $this->assertSame(1, $first['rows_changed']);
+        $this->assertDatabaseHas('salesforce_opportunities', [
+            'id' => $deleted->id,
+            'is_deleted' => true,
+            'salesforce_deleted_at' => null,
+            'deletion_detection_source' => SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL,
+        ]);
+
+        $second = app(SalesforceOpportunityPresenceReconciliationService::class)
+            ->run(true, 'Segunda conciliacion idempotente sin timestamp');
+
+        $this->assertSame(0, $second['rows_changed']);
+        $this->assertSame(1, $second['rows_unchanged']);
     }
 
     public function test_limit_y_cursor_procesan_lotes_deterministas(): void
@@ -240,7 +274,7 @@ class SalesforceReconcileOpportunityPresenceCommandTest extends TestCase
                 return [[
                     'Id' => $this->salesforceId,
                     'IsDeleted' => true,
-                    'SystemModStamp' => '2026-09-01T11:00:00Z',
+                    'SystemModstamp' => '2026-09-01T11:00:00Z',
                 ]];
             }
         };
@@ -284,7 +318,7 @@ class SalesforceReconcileOpportunityPresenceCommandTest extends TestCase
                 return [[
                     'Id' => $this->salesforceId,
                     'IsDeleted' => true,
-                    'SystemModStamp' => '2026-09-01T11:00:00Z',
+                    'SystemModstamp' => '2026-09-01T11:00:00Z',
                 ]];
             }
         };
