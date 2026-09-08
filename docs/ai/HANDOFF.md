@@ -1,5 +1,54 @@
 # Handoff para agentes
 
+## Rendimiento de Rendimiento comercial (2026-09-08)
+
+- La base pesada de `CommercialPerformanceDatasetService` se cachea por mes y
+  por tres versiones O(1): Leads, Reservas/Ventas y Rendimiento comercial. Los
+  filtros Zona, Delegación y Comercial se aplican después en memoria; Comercial
+  conserva su condición de filtro de display y no altera el ranking/equipo.
+- En producción el store de caché por defecto es `file` (`FileStore`),
+  compatible con `Cache::lock` sin Redis ni dependencias nuevas. El miss
+  verifica caché antes y después de un lock de 30 segundos, con espera máxima
+  de 10 segundos; solo entonces construye y hace `Cache::put`. `block()` libera
+  el lock ante retorno o excepción. FileStore coordina procesos que comparten
+  filesystem; si se escala a contenedores con almacenamiento no compartido,
+  caché y lock deberán migrar conjuntamente a un backend distribuido.
+- Se eliminó el versionado por `count`/`max`/`sum` de tablas. La actualización
+  del objetivo incrementa la versión específica, mientras que los syncs y la
+  reconciliación de Opportunities ya incrementan los versionadores reutilizados.
+- Leads materializados se agregan en SQL por mes/responsable efectivo; los
+  registros legacy con `record_type_normalized` nulo mantienen el fallback PHP
+  anterior para no cambiar el universo. No se añadieron índices ni llamadas
+  Salesforce desde HTTP.
+- Producción, ventana junio--septiembre: 56.207 Leads por
+  `fecha_asignacion`; 41.848 son elegibles materializados. Hay 11 filas con
+  `record_type_normalized` nulo, todas Tasación, por lo que no pertenecen al
+  universo del informe. El `EXPLAIN` del agregado SQL usa
+  `type=range`, `key=sf_leads_asign_idx`, 30.720 filas estimadas,
+  `filtered` aproximado del 26 % y
+  `Extra=Using index condition; Using where; Using temporary`. No se añade un
+  índice nuevo: la evidencia no lo justifica.
+- Tiempos medidos del agregado SQL de Leads: junio 444,57 ms; julio 346,59 ms;
+  agosto 235,42 ms; septiembre 88,91 ms; total aproximado 1.115,49 ms. No se
+  implementa warming en esta PR; tras el despliegue se medirán el cold path y
+  los cache hits del endpoint completo antes de decidirlo.
+- Corrección posterior de calidad: el agregado SQL de Leads pasa el tamaño del
+  grupo a `attribution`, para que `unresolved_attribution_events` y
+  `uncertified_historical_events` sigan contando Leads/eventos y no grupos.
+  Opportunities, cancelaciones y el fallback legacy conservan el peso por
+  defecto de un evento.
+- Validación final: `ReservationsSalesCommercialPerformanceTest` 40 passed,
+  367 assertions; `CampaignCommandsTest` 19 passed, 92 assertions; y
+  reconciliación de presencia de Opportunities 11 passed, 51 assertions. La
+  suite completa obtuvo 944 passed; un benchmark de Stock falló una vez por
+  22,56 s frente al límite de 20 s, pero pasó aislado después en 18,70 s. Se
+  documenta como variabilidad ambiental conocida, no como regresión de esta
+  rama.
+- Pint limitado sobre
+  `CommercialPerformanceDatasetService.php` y
+  `ReservationsSalesCommercialPerformanceTest.php`, correcto. `composer audit
+  --locked --no-dev` no detectó advisories y `git diff --check` fue correcto.
+
 ## Comparativa de equipo en Rendimiento comercial (2026-09-07)
 
 - Tarea: se sustituyeron los cinco campos de comparación `delegation_*` sin

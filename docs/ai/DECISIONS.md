@@ -1,5 +1,14 @@
 # Decisiones técnicas
 
+## 2026-09-08 - Base cacheada para Rendimiento comercial
+
+La construcción de cuatro meses de Rendimiento comercial se separa de los
+filtros interactivos y se identifica solo por mes y versiones O(1) de sus
+fuentes. Los filtros organizativos se resuelven sobre filas agregadas ya
+cacheadas, preservando la población de ranking. Los Leads con tipo materializado
+se agregan en SQL por mes y responsable efectivo; los legacy nulos siguen el
+fallback PHP para preservar semántica.
+
 ## 2026-09-07 - Referencia única de equipo en Rendimiento comercial
 
 Las comparativas de Rendimiento comercial reutilizan de forma estricta la
