@@ -92,6 +92,59 @@ class StockSaleValidityServiceTest extends TestCase
         $this->assertSame('missing_signed_date', $snapshot->fresh()->invalid_reason);
     }
 
+    public function test_invalida_borrado_confirmado_pero_conserva_sin_cambios_el_snapshot_ausente_localmente(): void
+    {
+        $deleted = $this->opportunity('006-deleted', 'Contrato', '01t-deleted');
+        $deleted->update([
+            'is_deleted' => true,
+            'salesforce_deleted_at' => '2026-09-01 10:00:00',
+            'deletion_detection_source' => SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL,
+        ]);
+        $deletedSnapshot = $this->snapshot($deleted, 18000);
+        $missingSnapshot = SalesforceSaleSnapshot::query()->create([
+            'opportunity_salesforce_id' => '006-missing',
+            'record_type' => 'Venta',
+            'signed_date' => '2026-07-20',
+            'vehicle_salesforce_id' => '01t-missing',
+            'sale_price' => 17000,
+            'is_valid' => true,
+            'captured_at' => now(),
+        ]);
+
+        $result = app(StockSaleValidityService::class)->reconcile();
+
+        $this->assertSame(1, $result['invalid']);
+        $this->assertSame(1, $result['unchecked']);
+        $this->assertFalse($deletedSnapshot->fresh()->is_valid);
+        $this->assertSame(
+            StockSaleValidityService::REASON_OPPORTUNITY_CONFIRMED_DELETED,
+            $deletedSnapshot->fresh()->invalid_reason,
+        );
+        $this->assertTrue($missingSnapshot->fresh()->is_valid);
+        $this->assertNull($missingSnapshot->fresh()->invalid_reason);
+        $this->assertNull($missingSnapshot->fresh()->validity_checked_at);
+    }
+
+    public function test_comando_reconcilia_exclusivamente_la_validez_de_snapshots_existentes(): void
+    {
+        $deleted = $this->opportunity('006-command-deleted', 'Contrato', '01t-command-deleted');
+        $deleted->update([
+            'is_deleted' => true,
+            'deletion_detection_source' => SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL,
+        ]);
+        $snapshot = $this->snapshot($deleted, 18000);
+
+        $this->artisan('stock:reconcile-sale-validity')
+            ->expectsOutputToContain('STOCK_SALE_VALIDITY_METRICS=')
+            ->assertSuccessful();
+
+        $this->assertFalse($snapshot->fresh()->is_valid);
+        $this->assertSame(
+            StockSaleValidityService::REASON_OPPORTUNITY_CONFIRMED_DELETED,
+            $snapshot->fresh()->invalid_reason,
+        );
+    }
+
     private function opportunity(string $id, string $stage, string $vehicleId): SalesforceOpportunity
     {
         return SalesforceOpportunity::query()->create([

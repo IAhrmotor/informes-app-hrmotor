@@ -265,6 +265,12 @@ class StockDataFoundationTest extends TestCase
             'opportunity_salesforce_id' => '006-fast-sale',
             'captured_at' => now(),
         ]);
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-fast-sale',
+            'is_deleted' => true,
+            'salesforce_deleted_at' => '2026-07-28 10:00:00',
+            'deletion_detection_source' => 'query_all_deleted',
+        ]);
         $service = new SalesforceSignedSaleSyncService($client);
         $result = $service->sync(
             CarbonImmutable::parse('2026-07-01'),
@@ -284,9 +290,12 @@ class StockDataFoundationTest extends TestCase
             'vehicle_purchase_price' => 14000,
             'plan_auto_plus_amount' => 390,
             'cae_amount' => 250,
+            'is_deleted' => true,
+            'salesforce_deleted_at' => '2026-07-28 10:00:00',
+            'deletion_detection_source' => 'query_all_deleted',
         ]);
 
-        SalesforceOpportunity::query()->where('salesforce_id', '006-fast-sale')->update([
+        SalesforceOpportunity::withoutGlobalScope(SalesforceOpportunity::ACTIVE_SCOPE)->where('salesforce_id', '006-fast-sale')->update([
             'created_date' => null,
             'salesforce_last_modified_at' => null,
         ]);

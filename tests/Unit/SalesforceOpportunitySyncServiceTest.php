@@ -40,11 +40,133 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
         $this->assertStringNotContainsString('CloseDate AS cancellation', $soql);
     }
 
+    public function test_sync_marca_borrado_confirmado_por_query_all_sin_borrar_la_fila(): void
+    {
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006AAAAAAAAAAAA',
+            'name' => 'Historica',
+            'created_date' => '2026-08-20 09:00:00',
+            'salesforce_last_modified_at' => '2026-08-30 08:00:00',
+        ]);
+        $client = new class extends SalesforceClient
+        {
+            public string $deletedSoql = '';
+
+            public function __construct() {}
+
+            public function queryAll(string $soql): array
+            {
+                $this->deletedSoql = $soql;
+
+                return [[
+                    'Id' => '006AAAAAAAAAAAA',
+                    'IsDeleted' => true,
+                    'SystemModStamp' => '2026-09-01T12:00:00.000Z',
+                ], [
+                    'Id' => '006ZZZZZZZZZZZZ',
+                    'IsDeleted' => true,
+                    'SystemModStamp' => '2026-09-01T12:00:00.000Z',
+                ]];
+            }
+
+            public function query(string $soql): array
+            {
+                return [];
+            }
+        };
+
+        $result = $this->service($client)->sync(
+            CarbonImmutable::parse('2026-09-01 00:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-09-02 00:00:00', 'UTC'),
+            true,
+        );
+
+        $this->assertStringContainsString('IsDeleted = true', $client->deletedSoql);
+        $this->assertStringContainsString('SystemModStamp >= 2026-09-01T00:00:00Z', $client->deletedSoql);
+        $this->assertStringNotContainsString('LastModifiedDate >=', $client->deletedSoql);
+        $this->assertSame(1, $result['deletions']['changed']);
+        $this->assertSame(1, $result['deletions']['matched_local']);
+        $this->assertNull(SalesforceOpportunity::query()->where('salesforce_id', '006AAAAAAAAAAAA')->first());
+        $this->assertDatabaseHas('salesforce_opportunities', [
+            'salesforce_id' => '006AAAAAAAAAAAA',
+            'is_deleted' => true,
+            'salesforce_deleted_at' => '2026-09-01 12:00:00',
+            'salesforce_last_modified_at' => '2026-08-30 08:00:00',
+            'deletion_detection_source' => 'query_all_deleted',
+        ]);
+        $this->assertDatabaseMissing('salesforce_opportunities', ['salesforce_id' => '006ZZZZZZZZZZZZ']);
+
+        $second = $this->service($client)->sync(
+            CarbonImmutable::parse('2026-09-01 00:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-09-02 00:00:00', 'UTC'),
+            true,
+        );
+
+        $this->assertSame(0, $second['deletions']['changed']);
+        $this->assertSame(1, $second['deletions']['unchanged']);
+        $this->assertDatabaseHas('salesforce_opportunities', [
+            'salesforce_id' => '006AAAAAAAAAAAA',
+            'salesforce_last_modified_at' => '2026-08-30 08:00:00',
+        ]);
+    }
+
+    public function test_sync_reactiva_una_opportunity_que_salesforce_devuelve_activa(): void
+    {
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006BBBBBBBBBBBB',
+            'name' => 'Marcada previamente',
+            'is_deleted' => true,
+            'salesforce_deleted_at' => '2026-08-31 10:00:00',
+            'deletion_detection_source' => 'query_all_deleted',
+        ]);
+        $client = new class extends SalesforceClient
+        {
+            public function __construct() {}
+
+            public function queryAll(string $soql): array
+            {
+                return [];
+            }
+
+            public function query(string $soql): array
+            {
+                return [[
+                    'Id' => '006BBBBBBBBBBBB',
+                    'Name' => 'Reaparecida',
+                    'CreatedDate' => '2026-09-01T09:00:00.000Z',
+                    'LastModifiedDate' => '2026-09-01T11:00:00.000Z',
+                    'StageName' => 'Abierta',
+                    'RecordType' => ['Name' => 'Venta'],
+                    'Account' => [],
+                ]];
+            }
+        };
+
+        $this->service($client)->sync(
+            CarbonImmutable::parse('2026-09-01 00:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-09-02 00:00:00', 'UTC'),
+            true,
+        );
+
+        $this->assertDatabaseHas('salesforce_opportunities', [
+            'salesforce_id' => '006BBBBBBBBBBBB',
+            'is_deleted' => false,
+            'salesforce_deleted_at' => null,
+            'deletion_detection_source' => null,
+        ]);
+        $this->assertSame('Reaparecida', SalesforceOpportunity::query()->where('salesforce_id', '006BBBBBBBBBBBB')->value('name'));
+    }
+
     public function test_guarda_oportunidades_y_resuelve_portal_desde_salesforce_o_lead(): void
     {
         $client = new class extends SalesforceClient
         {
             public function __construct() {}
+
+            public function queryAll(string $soql): array
+            {
+                return [];
+            }
 
             public function query(string $soql): array
             {
@@ -829,6 +951,11 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
 
             public function __construct() {}
 
+            public function queryAll(string $soql): array
+            {
+                return [];
+            }
+
             public function query(string $soql): array
             {
                 $this->queries++;
@@ -859,6 +986,11 @@ class SalesforceOpportunitySyncServiceTest extends TestCase
             public int $queries = 0;
 
             public function __construct() {}
+
+            public function queryAll(string $soql): array
+            {
+                return [];
+            }
 
             public function query(string $soql): array
             {

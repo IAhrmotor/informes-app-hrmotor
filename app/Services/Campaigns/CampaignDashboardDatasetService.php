@@ -5,6 +5,7 @@ namespace App\Services\Campaigns;
 use App\Models\CampaignAttribution;
 use App\Models\CampaignOperationalClassification;
 use App\Models\CampaignPlatformDailyMetric;
+use App\Models\SalesforceOpportunity;
 use App\Services\Reports\Leads\LeadRecordTypeNormalizer;
 use App\Support\ReportUserAccess;
 use Carbon\CarbonImmutable;
@@ -465,6 +466,8 @@ class CampaignDashboardDatasetService
                 'so.opportunity_source_raw',
                 'so.opportunity_source_normalized',
                 'so.opo_for_importe_total',
+                'so.is_deleted as opportunity_is_deleted',
+                'so.deletion_detection_source as opportunity_deletion_source',
             ])
             ->orderBy('cla.id')
             ->chunkById(1000, function ($chunk) use (&$items, $visibleRowKeys, $metric): void {
@@ -629,6 +632,8 @@ class CampaignDashboardDatasetService
 
         $this->applyLeadAttributionFilters($query, $filters, 'cla');
 
+        $reportableOpportunity = $this->reportableOpportunitySql('so');
+
         return $query
             ->select([
                 'cla.platform',
@@ -643,19 +648,19 @@ class CampaignDashboardDatasetService
                 DB::raw('MIN(cla.campaign_type) as campaign_type'),
                 DB::raw('MIN(cla.acquired_id) as acquired_id'),
                 DB::raw('MIN(cla.content_acquired) as content_acquired'),
-                DB::raw("MIN(CASE WHEN cla.has_opportunity = 1 THEN 'Cruzada por ID' ELSE 'Sin leads Salesforce' END) as match_status"),
+                DB::raw("MIN(CASE WHEN cla.has_opportunity = 1 AND {$reportableOpportunity} THEN 'Cruzada por ID' ELSE 'Sin leads Salesforce' END) as match_status"),
                 DB::raw('COUNT(DISTINCT cla.lead_id) as leads_salesforce'),
-                DB::raw('COUNT(DISTINCT CASE WHEN cla.has_opportunity = 1 THEN cla.opportunity_id END) as opportunities'),
-                DB::raw('COUNT(DISTINCT CASE WHEN cla.has_reservation = 1 THEN cla.opportunity_id END) as reservations'),
-                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_reservation = 1 AND (COALESCE(cla.campaign_type, '') = 'tasacion' OR cla.has_sale = 0) THEN cla.opportunity_id END) as live_reservations"),
-                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_reservation = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' AND cla.has_sale = 1 THEN cla.opportunity_id END) as fallen_reservations"),
-                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_sale = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' THEN cla.opportunity_id END) as sales"),
-                DB::raw("SUM(CASE WHEN cla.has_sale = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' THEN COALESCE(cla.sold_amount, CASE WHEN COALESCE(so.opo_for_importe_total, 0) > 0 THEN so.opo_for_importe_total ELSE NULL END) ELSE 0 END) as sale_amount"),
-                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_sale = 1 AND COALESCE(cla.campaign_type, '') <> 'tasacion' AND (cla.sold_amount IS NOT NULL OR COALESCE(so.opo_for_importe_total, 0) > 0) THEN cla.opportunity_id END) as sale_amount_rows"),
-                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_opportunity = 1 AND cla.campaign_type = 'tasacion' THEN cla.opportunity_id END) as appraisals_generated"),
-                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_purchase = 1 AND cla.campaign_type = 'tasacion' THEN cla.opportunity_id END) as purchases"),
-                DB::raw("SUM(CASE WHEN cla.has_purchase = 1 AND cla.campaign_type = 'tasacion' THEN ABS(COALESCE(so.opo_for_importe_total, 0)) ELSE 0 END) as appraisal_amount"),
-                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_purchase = 1 AND cla.campaign_type = 'tasacion' AND so.opo_for_importe_total IS NOT NULL THEN cla.opportunity_id END) as appraisal_amount_rows"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_opportunity = 1 AND {$reportableOpportunity} THEN cla.opportunity_id END) as opportunities"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_reservation = 1 AND {$reportableOpportunity} THEN cla.opportunity_id END) as reservations"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_reservation = 1 AND {$reportableOpportunity} AND (COALESCE(cla.campaign_type, '') = 'tasacion' OR cla.has_sale = 0) THEN cla.opportunity_id END) as live_reservations"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_reservation = 1 AND {$reportableOpportunity} AND COALESCE(cla.campaign_type, '') <> 'tasacion' AND cla.has_sale = 1 THEN cla.opportunity_id END) as fallen_reservations"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_sale = 1 AND {$reportableOpportunity} AND COALESCE(cla.campaign_type, '') <> 'tasacion' THEN cla.opportunity_id END) as sales"),
+                DB::raw("SUM(CASE WHEN cla.has_sale = 1 AND {$reportableOpportunity} AND COALESCE(cla.campaign_type, '') <> 'tasacion' THEN COALESCE(cla.sold_amount, CASE WHEN COALESCE(so.opo_for_importe_total, 0) > 0 THEN so.opo_for_importe_total ELSE NULL END) ELSE 0 END) as sale_amount"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_sale = 1 AND {$reportableOpportunity} AND COALESCE(cla.campaign_type, '') <> 'tasacion' AND (cla.sold_amount IS NOT NULL OR COALESCE(so.opo_for_importe_total, 0) > 0) THEN cla.opportunity_id END) as sale_amount_rows"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_opportunity = 1 AND {$reportableOpportunity} AND cla.campaign_type = 'tasacion' THEN cla.opportunity_id END) as appraisals_generated"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_purchase = 1 AND {$reportableOpportunity} AND cla.campaign_type = 'tasacion' THEN cla.opportunity_id END) as purchases"),
+                DB::raw("SUM(CASE WHEN cla.has_purchase = 1 AND {$reportableOpportunity} AND cla.campaign_type = 'tasacion' THEN ABS(COALESCE(so.opo_for_importe_total, 0)) ELSE 0 END) as appraisal_amount"),
+                DB::raw("COUNT(DISTINCT CASE WHEN cla.has_purchase = 1 AND {$reportableOpportunity} AND cla.campaign_type = 'tasacion' AND so.opo_for_importe_total IS NOT NULL THEN cla.opportunity_id END) as appraisal_amount_rows"),
                 DB::raw('MIN(cla.lead_status) as lead_status'),
                 DB::raw('MIN(cla.lead_delegation) as lead_delegation'),
                 DB::raw('MIN(cla.lead_zone) as lead_zone'),
@@ -1035,6 +1040,10 @@ class CampaignDashboardDatasetService
 
     private function qualifiesAuditMetric(object $row, string $metric): bool
     {
+        if ($metric !== 'leads_salesforce' && $this->isConfirmedDeletedOpportunityRow($row)) {
+            return false;
+        }
+
         return match ($metric) {
             'leads_salesforce' => filled($row->lead_id),
             'opportunities' => filled($row->opportunity_id) && (bool) $row->has_opportunity,
@@ -1252,6 +1261,20 @@ class CampaignDashboardDatasetService
     private function closedLostSql(): string
     {
         return "LOWER(COALESCE(so.stage_name, '')) = 'cerrada perdida'";
+    }
+
+    private function reportableOpportunitySql(?string $alias = null): string
+    {
+        $prefix = $alias === null ? '' : $alias.'.';
+        $confirmedSource = SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL;
+
+        return "({$prefix}is_deleted = 0 OR {$prefix}deletion_detection_source IS NULL OR {$prefix}deletion_detection_source <> '{$confirmedSource}')";
+    }
+
+    private function isConfirmedDeletedOpportunityRow(object $row): bool
+    {
+        return (bool) ($row->opportunity_is_deleted ?? false)
+            && ($row->opportunity_deletion_source ?? null) === SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL;
     }
 
     private function ventaOpportunitySql(): string
@@ -1507,6 +1530,8 @@ class CampaignDashboardDatasetService
                     'cla.has_purchase',
                     'cla.sold_amount',
                     'so.opo_for_importe_total',
+                    'so.is_deleted as opportunity_is_deleted',
+                    'so.deletion_detection_source as opportunity_deletion_source',
                 ])
                 ->orderBy('cla.id')
                 ->chunkById(1000, function ($chunk) use (
@@ -1639,6 +1664,10 @@ class CampaignDashboardDatasetService
             }
         }
 
+        if ($this->isConfirmedDeletedOpportunityRow($row)) {
+            return;
+        }
+
         if (! filled($row->opportunity_id)) {
             return;
         }
@@ -1718,6 +1747,10 @@ class CampaignDashboardDatasetService
                 $dailyLeadCounts[$metricDate] = ($dailyLeadCounts[$metricDate] ?? 0) + 1;
                 $dailyLeadKeys[$dailyLeadKey] = true;
             }
+        }
+
+        if ($this->isConfirmedDeletedOpportunityRow($row)) {
+            return;
         }
 
         if (! filled($row->opportunity_id)) {
@@ -1997,6 +2030,7 @@ class CampaignDashboardDatasetService
             });
 
         $attributionQuery = DB::table('campaign_lead_attributions as cla')
+            ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
             ->where('cla.lead_created_date', '>=', $startUtc)
             ->where('cla.lead_created_date', '<', $endUtcExclusive);
 
@@ -2025,6 +2059,8 @@ class CampaignDashboardDatasetService
                 'cla.has_sale',
                 'cla.has_purchase',
                 'cla.campaign_type',
+                'so.is_deleted as opportunity_is_deleted',
+                'so.deletion_detection_source as opportunity_deletion_source',
             ])
             ->get()
             ->each(function (object $row) use (&$months, $filters, &$opportunityKeysByMonth, &$reservationKeysByMonth, &$saleKeysByMonth, &$appraisalKeysByMonth, &$purchaseKeysByMonth): void {
@@ -2049,6 +2085,10 @@ class CampaignDashboardDatasetService
                 if (! isset($leadKeysByMonth[$leadKey])) {
                     $months[$month]['leads_salesforce']++;
                     $leadKeysByMonth[$leadKey] = true;
+                }
+
+                if ($this->isConfirmedDeletedOpportunityRow($row)) {
+                    return;
                 }
 
                 if ((bool) $row->has_opportunity && filled($row->opportunity_id)) {
@@ -2175,6 +2215,7 @@ class CampaignDashboardDatasetService
     private function dailyReservationsSales(array $filters, array $period): array
     {
         $query = DB::table('campaign_lead_attributions as cla')
+            ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
             ->where('cla.lead_created_date', '>=', $period['start_at'])
             ->where('cla.lead_created_date', '<', $period['end_at']);
 
@@ -2198,12 +2239,18 @@ class CampaignDashboardDatasetService
                 'cla.has_sale',
                 'cla.has_purchase',
                 'cla.campaign_type',
+                'so.is_deleted as opportunity_is_deleted',
+                'so.deletion_detection_source as opportunity_deletion_source',
             ])
             ->get()
             ->reduce(function (array $carry, object $row): array {
                 $metricDate = $this->reportDateTime($row->lead_created_date)?->toDateString();
 
                 if ($metricDate === null) {
+                    return $carry;
+                }
+
+                if ($this->isConfirmedDeletedOpportunityRow($row)) {
                     return $carry;
                 }
 
@@ -2339,6 +2386,8 @@ class CampaignDashboardDatasetService
                 'cla.has_purchase',
                 'cla.sold_amount',
                 'so.opo_for_importe_total',
+                'so.is_deleted as opportunity_is_deleted',
+                'so.deletion_detection_source as opportunity_deletion_source',
             ])
             ->orderBy('cla.id')
             ->chunkById(1000, function ($chunk) use (&$leadIds, &$opportunities, $visibleRowKeys): void {
@@ -2351,6 +2400,10 @@ class CampaignDashboardDatasetService
 
                     if (filled($row->lead_id)) {
                         $leadIds[(string) $row->lead_id] = true;
+                    }
+
+                    if ($this->isConfirmedDeletedOpportunityRow($row)) {
+                        continue;
                     }
 
                     if (! filled($row->opportunity_id)) {
@@ -2572,6 +2625,7 @@ class CampaignDashboardDatasetService
     private function sourceReconciliation(array $filters, array $period): array
     {
         $query = DB::table('campaign_lead_attributions as cla')
+            ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
             ->where('cla.lead_created_date', '>=', $period['start_at'])
             ->where('cla.lead_created_date', '<', $period['end_at']);
         $filtersWithoutSource = array_merge($filters, ['campaign_source_type' => '']);
@@ -2585,10 +2639,15 @@ class CampaignDashboardDatasetService
         foreach ($query->get([
             'cla.lead_id', 'cla.opportunity_id', 'cla.platform', 'cla.campaign_type',
             'cla.has_opportunity', 'cla.has_sale', 'cla.has_purchase',
+            'so.is_deleted as opportunity_is_deleted',
+            'so.deletion_detection_source as opportunity_deletion_source',
         ]) as $row) {
             $source = $row->platform === 'salesforce' ? 'salesforce_only' : 'platform';
             if (filled($row->lead_id)) {
                 $sets[$source]['leads'][(string) $row->lead_id] = true;
+            }
+            if ($this->isConfirmedDeletedOpportunityRow($row)) {
+                continue;
             }
             if ((bool) $row->has_opportunity && filled($row->opportunity_id)) {
                 $sets[$source]['opportunities'][(string) $row->opportunity_id] = true;
@@ -2737,6 +2796,7 @@ class CampaignDashboardDatasetService
 
         $salesWithLocalOpportunity = $this->attributionBase($period, $filters)
             ->join('salesforce_opportunities as so', 'so.salesforce_id', '=', 'campaign_lead_attributions.opportunity_id')
+            ->whereRaw($this->reportableOpportunitySql('so'))
             ->where('campaign_lead_attributions.has_sale', true)
             ->where(function ($query): void {
                 $query
@@ -2750,6 +2810,7 @@ class CampaignDashboardDatasetService
         }
 
         $synchronizedPositiveAmounts = DB::table('salesforce_opportunities')
+            ->whereRaw($this->reportableOpportunitySql())
             ->where('opo_for_importe_total', '>', 0)
             ->count();
 
@@ -2808,7 +2869,7 @@ class CampaignDashboardDatasetService
             'leads_salesforce_origins' => (clone $legacyAttributionBase)->where('campaign_source_type', 'salesforce_origin')->count(),
             'attributed_sales' => $rowCollection->sum('sales'),
             'sales_with_amount_available' => $rowCollection->filter(fn (array $row) => (int) ($row['sales'] ?? 0) > 0 && ($row['sale_amount'] ?? null) !== null)->sum('sales'),
-            'opportunities_cv_signed' => DB::table('salesforce_opportunities')->where('cv_signed', true)->count(),
+            'opportunities_cv_signed' => DB::table('salesforce_opportunities')->whereRaw($this->reportableOpportunitySql())->where('cv_signed', true)->count(),
             'attributed_sales_with_amount' => $this->attributedSalesWithResolvedAmount($period, $filters, 'count'),
             'attributed_sales_amount_sum' => $this->attributedSalesWithResolvedAmount($period, $filters, 'sum'),
             'sales_with_opo_for_importe_total' => $this->attributedSalesWithOpportunityAmount($period, $filters, 'opo_for_importe_total', 'count'),
@@ -2851,7 +2912,7 @@ class CampaignDashboardDatasetService
             return 'missing';
         }
 
-        $cvSigned = DB::table('salesforce_opportunities')->where('cv_signed', true);
+        $cvSigned = DB::table('salesforce_opportunities')->whereRaw($this->reportableOpportunitySql())->where('cv_signed', true);
         $cvSignedCount = (clone $cvSigned)->count();
         $cvSignedWithAmount = (clone $cvSigned)->where($column, '>', 0)->count();
 
@@ -2870,6 +2931,7 @@ class CampaignDashboardDatasetService
 
         $query = DB::table('campaign_lead_attributions as cla')
             ->join('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
+            ->whereRaw($this->reportableOpportunitySql('so'))
             ->where('cla.lead_created_date', '>=', $period['start_at'])
             ->where('cla.lead_created_date', '<', $period['end_at'])
             ->where('cla.has_sale', true)
@@ -2890,6 +2952,7 @@ class CampaignDashboardDatasetService
     {
         $query = DB::table('campaign_lead_attributions as cla')
             ->leftJoin('salesforce_opportunities as so', 'so.salesforce_id', '=', 'cla.opportunity_id')
+            ->whereRaw($this->reportableOpportunitySql('so'))
             ->where('cla.lead_created_date', '>=', $period['start_at'])
             ->where('cla.lead_created_date', '<', $period['end_at'])
             ->where('cla.has_sale', true)

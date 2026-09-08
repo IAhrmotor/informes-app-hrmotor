@@ -51,6 +51,36 @@ class OpportunityDateCriterionTest extends TestCase
             'reservation' => true,
             'cv_signed' => true,
         ]);
+        SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-deleted',
+            'created_date' => '2026-05-08 11:00:00',
+            'reservation_date' => '2026-05-08',
+            'cv_signed_date' => '2026-05-08',
+            'stage_name' => 'Reserva',
+            'owner_id' => '005-deleted',
+            'owner_name' => 'Eliminada',
+            'owner_delegation' => 'Alcobendas',
+            'portal_resolved' => 'Web',
+            'reservation' => true,
+            'cv_signed' => false,
+            'is_deleted' => true,
+            'deletion_detection_source' => 'query_all_deleted',
+        ]);
+        SalesforceOpportunity::withoutGlobalScope(SalesforceOpportunity::ACTIVE_SCOPE)->create([
+            'salesforce_id' => '006-missing',
+            'created_date' => '2026-05-08 12:00:00',
+            'reservation_date' => '2026-05-08',
+            'cv_signed_date' => '2026-05-08',
+            'stage_name' => 'Reserva',
+            'owner_id' => '005-missing',
+            'owner_name' => 'No localizada',
+            'owner_delegation' => 'Alcobendas',
+            'portal_resolved' => 'Web',
+            'reservation' => true,
+            'cv_signed' => false,
+            'is_deleted' => true,
+            'deletion_detection_source' => SalesforceOpportunity::PRESENCE_SOURCE_MISSING,
+        ]);
 
         $base = [
             'period' => 'custom',
@@ -60,9 +90,12 @@ class OpportunityDateCriterionTest extends TestCase
             'comparison_end' => '2026-05-02',
         ];
 
-        $this->assertTotal(1, array_merge($base, ['date_criterion' => 'created_date']));
-        $this->assertTotal(1, array_merge($base, ['date_criterion' => 'reservation_date']));
-        $this->assertTotal(1, array_merge($base, ['date_criterion' => 'cv_signed_date']));
+        $this->assertTotal(2, array_merge($base, ['date_criterion' => 'created_date']));
+        $this->assertTotal(2, array_merge($base, ['date_criterion' => 'reservation_date']));
+        $this->assertTotal(2, array_merge($base, ['date_criterion' => 'cv_signed_date']));
+        $this->getJson('/informes/reservas-ventas/data/summary?'.http_build_query(array_merge($base, ['date_criterion' => 'created_date'])))
+            ->assertOk()
+            ->assertJsonPath('kpis.reservas_vivas', 2);
     }
 
     private function assertTotal(int $expected, array $query): void

@@ -444,3 +444,40 @@ del hash porque no alteran la regla v1.
   telefónico en esa tabla. El orden total de candidatos es
   `CreatedDate DESC, Lead.Id ASC`. Este desempate no cambia la prioridad temporal
   y elimina dependencia del orden de respuesta.
+
+## 2026-09-07 - Lifecycle de Opportunity preservado y exclusión activa central
+
+- Las Opportunities retiradas no se eliminan físicamente: se conservan con
+  `is_deleted`, fecha Salesforce cuando está demostrada y una fuente de
+  detección. `query_all_deleted` y `presence_reconciliation_missing` son estados
+  distintos; una ausencia por ID no inventa causa ni timestamp.
+- `SalesforceOpportunity` incorpora un scope global activo para que nuevos
+  consumidores Eloquent no reintroduzcan borrados confirmados por omisión. El
+  scope no excluye `presence_reconciliation_missing`: una ausencia no demuestra
+  lifecycle. Solo `SalesforceOpportunitySyncService`, mediante su SELECT y
+  mapper completos, puede limpiar el borrado y reactivar la misma fila; el sync
+  parcial de Stock preserva esa metadata.
+- La reconciliación histórica es un comando separado, read-only en Salesforce,
+  con lotes de 100, cursor por PK, mutex apply y auditoría por ejecución. El sync
+  diario solo consulta borrados modificados en su ventana; no infiere ausencias
+  desde el universo funcional parcial de una consulta por fechas.
+- El delta de borrados usa `SystemModStamp`: Salesforce lo mantiene para cambios
+  de usuario y sistema y lo indexa para replicación. El valor se conserva como
+  timestamp técnico del evento detectado únicamente en `salesforce_deleted_at`;
+  nunca sobrescribe `salesforce_last_modified_at`, cuya semántica continúa siendo
+  `Opportunity.LastModifiedDate`. Queda pendiente contrastar en sandbox
+  que coincide con el instante de borrado para Opportunity; no se presenta como
+  una certeza funcional equivalente a una fecha de negocio.
+- Campañas no filtra la fila de atribución tras el `LEFT JOIN`: mantiene Lead,
+  campaña y procedencia, y hace cero únicamente las métricas dependientes de una
+  Opportunity confirmada como eliminada. Stock invalida snapshots conservados
+  solo por borrado confirmado; una ausencia local se contabiliza como
+  `unchecked` y no altera la validez previa. Tras un apply que confirma borrados,
+  el comando de presencia orquesta inmediatamente el reconciliador local de
+  validez, sin acoplar Stock al servicio lifecycle ni ejecutar sincronizadores.
+  `stock:reconcile-sale-validity` expone la misma operación local para recuperar
+  de forma segura un fallo posterior a la persistencia de lifecycle.
+- No se crea índice sobre el booleano `salesforce_opportunities.is_deleted`: con
+  aproximadamente 40.557 filas y baja selectividad no existe un `EXPLAIN` que
+  justifique el coste adicional de escritura/DDL. No se añade un índice
+  alternativo sin evidencia.

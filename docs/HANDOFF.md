@@ -389,3 +389,27 @@ Riesgos operativos:
 - Los empates de `CreatedDate` se resuelven por `Lead.Id` ascendente.
 - No cambian prioridad funcional, universo, conteos ni datos raw. No se ejecutó
   reproceso histórico ni se realizaron escrituras Salesforce.
+
+## 21. Lifecycle local de Opportunities (2026-09-07)
+
+- La réplica conserva registros retirados. `SalesforceOpportunity` excluye por
+  defecto solo borrados confirmados (`is_deleted=true` + `query_all_deleted`);
+  una ausencia `presence_reconciliation_missing` sigue reportable.
+- El sync diario detecta borrados recientes mediante `queryAll`, los diferencia
+  de ausencias históricas reconciliadas por ID usando `SystemModStamp`. Solo el
+  mapper completo del sync canónico puede reactivar una Opportunity; Stock no
+  limpia el lifecycle con su fotografía parcial.
+- `salesforce:reconcile-opportunity-presence` ofrece dry-run, apply con motivo,
+  mutex, lotes de 100, `--limit`, `--after-id` y métricas sin PII. No hard-delete
+  ni DML Salesforce. La muestra `pending_canonical_refresh_salesforce_ids`
+  identifica reapariciones pendientes. Si apply confirma borrados, el comando
+  reconcilia inmediatamente la validez de snapshots Stock sin ejecutar ningún
+  sincronizador; un fallo de esa fase local se reintenta únicamente con
+  `stock:reconcile-sale-validity`. El histórico no se ha ejecutado.
+- Reservas/Ventas, reservas vivas, Rendimiento, auditoría y Comisiones excluyen
+  los borrados confirmados. Campañas conserva el Lead y anula solo sus métricas
+  dependientes de la Opportunity. Stock invalida snapshots de borrados
+  confirmados; una Opportunity ausente localmente queda `unchecked` sin cambiar
+  por esa causa la validez previa. `SystemModStamp` solo alimenta
+  `salesforce_deleted_at`, nunca `salesforce_last_modified_at`. No cambian
+  matching, portales ni reglas funcionales.

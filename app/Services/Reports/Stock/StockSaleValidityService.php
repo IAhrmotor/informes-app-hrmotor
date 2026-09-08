@@ -17,9 +17,11 @@ class StockSaleValidityService
 
     public const REASON_DUPLICATE_AMBIGUOUS = 'duplicate_ambiguous';
 
+    public const REASON_OPPORTUNITY_CONFIRMED_DELETED = 'opportunity_confirmed_deleted';
+
     public function reconcile(): array
     {
-        $opportunities = SalesforceOpportunity::query()
+        $opportunities = SalesforceOpportunity::withoutGlobalScope(SalesforceOpportunity::ACTIVE_SCOPE)
             ->whereIn(
                 'salesforce_id',
                 SalesforceSaleSnapshot::query()->select('opportunity_salesforce_id'),
@@ -128,6 +130,10 @@ class StockSaleValidityService
 
     private function baseInvalidReason(SalesforceOpportunity $opportunity): ?string
     {
+        if ($opportunity->isConfirmedDeleted()) {
+            return self::REASON_OPPORTUNITY_CONFIRMED_DELETED;
+        }
+
         if (! $opportunity->cv_signed) {
             return 'contract_not_signed';
         }

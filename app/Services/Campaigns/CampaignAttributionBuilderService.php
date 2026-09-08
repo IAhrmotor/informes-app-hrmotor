@@ -2,6 +2,7 @@
 
 namespace App\Services\Campaigns;
 
+use App\Models\SalesforceOpportunity;
 use App\Services\Reports\Leads\LeadRecordTypeNormalizer;
 use App\Services\Reports\Leads\SalesforceLeadDashboardDatasetService;
 use App\Services\Salesforce\SalesforceLeadFieldResolver;
@@ -834,6 +835,11 @@ class CampaignAttributionBuilderService
         foreach (array_chunk($convertedIds, self::OPPORTUNITY_LOOKUP_CHUNK_SIZE) as $ids) {
             DB::table('salesforce_opportunities')
                 ->whereIn('salesforce_id', $ids)
+                ->where(function ($query): void {
+                    $query->where('is_deleted', false)
+                        ->orWhereNull('deletion_detection_source')
+                        ->orWhere('deletion_detection_source', '<>', SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL);
+                })
                 ->select($columns)
                 ->get()
                 ->each(function (object $opportunity) use ($opportunities): void {
@@ -844,6 +850,11 @@ class CampaignAttributionBuilderService
         foreach (array_chunk($convertedAccountIds, self::OPPORTUNITY_LOOKUP_CHUNK_SIZE) as $accountIds) {
             DB::table('salesforce_opportunities')
                 ->whereIn('account_id', $accountIds)
+                ->where(function ($query): void {
+                    $query->where('is_deleted', false)
+                        ->orWhereNull('deletion_detection_source')
+                        ->orWhere('deletion_detection_source', '<>', SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL);
+                })
                 ->select($columns)
                 ->get()
                 ->each(function (object $opportunity) use ($opportunities): void {

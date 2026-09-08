@@ -332,6 +332,50 @@ El scheduler ejecuta diariamente a las 07:10 (`Europe/Madrid`):
 php artisan salesforce:sync-opportunities --days=2 --modified
 ```
 
+La réplica conserva las Opportunities retiradas de Salesforce para auditoría,
+pero las marca con `is_deleted`, `salesforce_deleted_at` y
+`deletion_detection_source`. El sync incremental consulta con `queryAll` los
+borrados confirmados por `IsDeleted=true` en la misma ventana de
+`SystemModStamp`. Solo `is_deleted=true` con fuente `query_all_deleted` sale del
+scope: `presence_reconciliation_missing` conserva el registro reportable porque
+una ausencia no acredita borrado, fusión, purga ni pérdida de permisos. Las
+cancelaciones materializadas de una Opportunity confirmada como eliminada
+tampoco participan en rendimiento.
+
+Para el histórico existe una conciliación manual por IDs locales, sin descubrir
+ni insertar Opportunities:
+
+```bash
+php artisan salesforce:reconcile-opportunity-presence --dry-run --limit=1000
+php artisan salesforce:reconcile-opportunity-presence --apply --reason="Motivo operativo aprobado" --limit=1000
+```
+
+El cursor `--after-id` permite reanudar. `query_all_deleted` acredita un borrado
+devuelto por Salesforce; `presence_reconciliation_missing` solo documenta que
+el ID no fue recuperable durante una conciliación explícita, sin atribuir una
+causa, inventar fecha de borrado ni excluirlo. Una Opportunity confirmada como
+eliminada que reaparece activa queda pendiente de refresh: solo el mapper
+completo de `SalesforceOpportunitySyncService` puede limpiar el lifecycle y
+publicarla de nuevo. Apply usa mutex, lotes de 100, bloqueo local y auditoría por
+ejecución. `rows_pending_canonical_refresh` y su muestra acotada de Salesforce
+IDs permiten localizar reapariciones pendientes sin exponer PII. Si el apply
+confirma al menos un borrado, el propio comando ejecuta inmediatamente y solo
+`StockSaleValidityService::reconcile()`: no sincroniza Product2, logística,
+Opportunities ni crea snapshots. Si esa etapa local falla después de persistir
+lifecycle, puede reintentarse de forma aislada con
+`php artisan stock:reconcile-sale-validity`. No borra filas ni escribe
+Salesforce.
+
+`SystemModStamp` es el cursor técnico de delta porque también refleja cambios de
+procesos automáticos y es el campo indexado para replicación. Se conserva como
+evidencia técnica de la detección, no como afirmación contractual de la hora
+exacta del borrado, exclusivamente en `salesforce_deleted_at`;
+`salesforce_last_modified_at` sigue reservado a `Opportunity.LastModifiedDate`.
+Antes de producción debe validarse en sandbox con una
+Opportunity sintética: consultar `LastModifiedDate` y `SystemModStamp`, borrarla,
+repetir la misma consulta mediante `queryAll` y comprobar que el filtro temporal
+por `SystemModStamp` recupera `IsDeleted=true`.
+
 La franja queda fuera de atribución de Campañas (02:15), refresco (03:15), Stock
 (03:30, también escribe Opportunities) y el bloque SEO (05:15–06:30). La
 captura de delegaciones pertenece exclusivamente al sync mensual cada 15

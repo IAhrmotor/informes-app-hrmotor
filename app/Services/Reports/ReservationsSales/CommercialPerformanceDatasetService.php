@@ -292,6 +292,10 @@ class CommercialPerformanceDatasetService
             ->where('transitioned_at', '<', $end->utc())
             ->where('is_reservation_cancellation', true)
             ->whereRaw("LOWER(new_stage) = 'cerrada perdida'")
+            ->whereNotIn('opportunity_salesforce_id', SalesforceOpportunity::withoutGlobalScope(SalesforceOpportunity::ACTIVE_SCOPE)
+                ->where('is_deleted', true)
+                ->where('deletion_detection_source', SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL)
+                ->select('salesforce_id'))
             ->get();
         $opportunities = SalesforceOpportunity::query()
             ->whereIn('salesforce_id', $transitions->pluck('opportunity_salesforce_id')->unique())
@@ -320,6 +324,10 @@ class CommercialPerformanceDatasetService
             ->where('transitioned_at', '>=', $start->utc())
             ->where('transitioned_at', '<', $end->utc())
             ->where('quality_status', 'reservation_after_transition')
+            ->whereNotIn('opportunity_salesforce_id', SalesforceOpportunity::withoutGlobalScope(SalesforceOpportunity::ACTIVE_SCOPE)
+                ->where('is_deleted', true)
+                ->where('deletion_detection_source', SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL)
+                ->select('salesforce_id'))
             ->count();
 
         $this->applyDeduplicatedGroups($buckets, $quality, $groups, 'cancellations');
@@ -658,6 +666,10 @@ class CommercialPerformanceDatasetService
             ->whereIn('quality_status', ['opportunity_not_local', 'previous_stage_not_demonstrated'])
             ->where('transitioned_at', '>=', $globalStart->toDateTimeString())
             ->where('transitioned_at', '<', $globalEnd->toDateTimeString())
+            ->whereNotIn('opportunity_salesforce_id', SalesforceOpportunity::withoutGlobalScope(SalesforceOpportunity::ACTIVE_SCOPE)
+                ->where('is_deleted', true)
+                ->where('deletion_detection_source', SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL)
+                ->select('salesforce_id'))
             ->get(['transitioned_at', 'quality_status']);
 
         return $months->mapWithKeys(function (CarbonImmutable $month) use ($intervals, $blockingTransitions, $currentMonthStart): array {

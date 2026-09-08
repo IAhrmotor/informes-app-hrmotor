@@ -33,6 +33,14 @@ class OpportunitiesGlobalLiveReservationsKpiTest extends TestCase
             'cv_signed' => false,
             'stage_name' => 'Reserva',
         ]);
+        $this->opportunityRow('006-deleted-live', [
+            'created_date' => '2025-02-10 10:00:00',
+            'reservation' => true,
+            'cv_signed' => false,
+            'stage_name' => 'Reserva',
+            'is_deleted' => true,
+            'deletion_detection_source' => 'query_all_deleted',
+        ]);
         $this->opportunityRow('006-closed-lost', [
             'created_date' => '2026-05-11 10:00:00',
             'reservation' => true,

@@ -2211,6 +2211,112 @@ class CampaignDashboardTest extends TestCase
         $this->assertStringContainsString('ad_id_match', $csv);
     }
 
+    public function test_opportunity_eliminada_no_elimina_el_lead_de_campanas_pero_anula_metricas_dependientes(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'campaign_id' => 'campaign-lifecycle',
+            'campaign_name' => 'Venta lifecycle',
+            'campaign_type' => 'branding',
+        ]));
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-campaign-deleted-opportunity',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Nuevo',
+            'is_deleted' => false,
+        ]);
+        $opportunity = SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-campaign-deleted',
+            'created_date' => '2026-05-11 10:00:00',
+            'reservation' => true,
+            'cv_signed' => true,
+            'opo_for_importe_total' => 12000,
+        ]);
+        $opportunity->update([
+            'is_deleted' => true,
+            'salesforce_deleted_at' => '2026-09-01 10:00:00',
+            'deletion_detection_source' => SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL,
+        ]);
+        DB::table('campaign_lead_attributions')->insert($this->attributionRow([
+            'lead_id' => '00Q-campaign-deleted-opportunity',
+            'campaign_id' => 'campaign-lifecycle',
+            'campaign_name' => 'Venta lifecycle',
+            'campaign_type' => 'branding',
+            'opportunity_id' => '006-campaign-deleted',
+            'has_opportunity' => true,
+            'has_reservation' => true,
+            'has_sale' => true,
+            'sold_amount' => 12000,
+        ]));
+
+        $summary = $this->getJson('/informes/campanas/data/summary?'.$this->query())
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(1, data_get($summary, 'kpis.leads_salesforce'));
+        $this->assertSame(0, data_get($summary, 'kpis.opportunities'));
+        $this->assertSame(0, data_get($summary, 'kpis.reservations'));
+        $this->assertSame(0, data_get($summary, 'kpis.sales'));
+        $this->assertNull(data_get($summary, 'kpis.sale_amount'));
+        $this->assertSame(1, data_get($summary, 'source_reconciliation.leads.platform'));
+        $this->assertSame(0, data_get($summary, 'source_reconciliation.opportunities.platform'));
+        $this->assertSame(0, data_get($summary, 'source_reconciliation.results.platform'));
+
+        $leadAudit = $this->getJson('/informes/campanas/data/kpi-audit?'.$this->query().'&context=branding')
+            ->assertOk()
+            ->json();
+        $opportunityAudit = $this->getJson('/informes/campanas/data/kpi-audit?'.$this->query().'&metric=opportunities')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(1, $leadAudit['total']);
+        $this->assertSame('00Q-campaign-deleted-opportunity', $leadAudit['items'][0]['entity_id']);
+        $this->assertSame(0, $opportunityAudit['total']);
+    }
+
+    public function test_opportunity_eliminada_de_tasacion_conserva_lead_y_anula_compra_e_importes(): void
+    {
+        CampaignPlatformDailyMetric::query()->create($this->metricRow([
+            'campaign_id' => 'campaign-lifecycle-appraisal',
+            'campaign_name' => 'Tasacion lifecycle',
+            'campaign_type' => 'tasacion',
+        ]));
+        SalesforceLead::query()->create([
+            'salesforce_id' => '00Q-campaign-deleted-purchase',
+            'created_date' => '2026-05-10 10:00:00',
+            'status' => 'Nuevo',
+            'record_type_name' => 'Tasacion',
+            'is_deleted' => false,
+        ]);
+        $opportunity = SalesforceOpportunity::query()->create([
+            'salesforce_id' => '006-campaign-deleted-purchase',
+            'created_date' => '2026-05-11 10:00:00',
+            'opo_for_importe_total' => -9000,
+        ]);
+        $opportunity->update([
+            'is_deleted' => true,
+            'salesforce_deleted_at' => '2026-09-01 10:00:00',
+            'deletion_detection_source' => SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL,
+        ]);
+        DB::table('campaign_lead_attributions')->insert($this->attributionRow([
+            'lead_id' => '00Q-campaign-deleted-purchase',
+            'campaign_id' => 'campaign-lifecycle-appraisal',
+            'campaign_name' => 'Tasacion lifecycle',
+            'campaign_type' => 'tasacion',
+            'opportunity_id' => '006-campaign-deleted-purchase',
+            'has_opportunity' => true,
+            'has_purchase' => true,
+        ]));
+
+        $summary = $this->getJson('/informes/campanas/data/summary?'.$this->query().'&context=tasacion')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(1, data_get($summary, 'kpis.leads_salesforce'));
+        $this->assertSame(0, data_get($summary, 'kpis.opportunities'));
+        $this->assertSame(0, data_get($summary, 'kpis.purchases'));
+        $this->assertNull(data_get($summary, 'kpis.appraisal_amount'));
+    }
+
     private function authenticatedSession(string $role): array
     {
         $this->reportUserSequence++;
