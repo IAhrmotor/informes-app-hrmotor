@@ -237,6 +237,7 @@ class CommercialPerformanceDatasetService
                         $month,
                         $rosterContext,
                         $quality,
+                        (int) $group->leads,
                     );
                     $this->increment($buckets, $month->format('Y-m'), $attribution, 'leads', (int) $group->leads);
                 });
@@ -460,23 +461,24 @@ class CommercialPerformanceDatasetService
         mixed $eventAt,
         array $rosterContext,
         array &$quality,
+        int $eventCount = 1,
     ): array {
         $userId = trim((string) $userId);
         if ($userId === '') {
-            $quality['unresolved_attribution_events']++;
+            $quality['unresolved_attribution_events'] += $eventCount;
 
             return $this->monthlyRoster->incidentAttribution();
         }
 
         if (! $rosterContext['users']->has($userId)) {
-            $quality['unresolved_attribution_events']++;
+            $quality['unresolved_attribution_events'] += $eventCount;
 
             return $this->monthlyRoster->incidentAttribution();
         }
 
         $attribution = $this->monthlyRoster->attribution($rosterContext, $userId, $userName, $eventAt);
         if (! $attribution['delegation_certified']) {
-            $quality['uncertified_historical_events']++;
+            $quality['uncertified_historical_events'] += $eventCount;
         }
 
         return $attribution;

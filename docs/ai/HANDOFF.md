@@ -32,8 +32,13 @@
   agosto 235,42 ms; septiembre 88,91 ms; total aproximado 1.115,49 ms. No se
   implementa warming en esta PR; tras el despliegue se medirán el cold path y
   los cache hits del endpoint completo antes de decidirlo.
-- Validación final: `ReservationsSalesCommercialPerformanceTest` 37 passed,
-  358 assertions; `CampaignCommandsTest` 19 passed, 92 assertions; y
+- Corrección posterior de calidad: el agregado SQL de Leads pasa el tamaño del
+  grupo a `attribution`, para que `unresolved_attribution_events` y
+  `uncertified_historical_events` sigan contando Leads/eventos y no grupos.
+  Opportunities, cancelaciones y el fallback legacy conservan el peso por
+  defecto de un evento.
+- Validación final: `ReservationsSalesCommercialPerformanceTest` 40 passed,
+  367 assertions; `CampaignCommandsTest` 19 passed, 92 assertions; y
   reconciliación de presencia de Opportunities 11 passed, 51 assertions. La
   suite completa obtuvo 944 passed; un benchmark de Stock falló una vez por
   22,56 s frente al límite de 20 s, pero pasó aislado después en 18,70 s. Se

@@ -88,6 +88,84 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         }
     }
 
+    public function test_leads_materializados_agrupados_mantienen_el_numero_de_incidencias_por_evento(): void
+    {
+        Cache::flush();
+        for ($index = 1; $index <= 3; $index++) {
+            SalesforceLead::query()->create([
+                'salesforce_id' => "00Q-unresolved-{$index}",
+                'name' => "Lead sin responsable {$index}",
+                'created_date' => '2026-08-01 08:00:00',
+                'fecha_asignacion' => '2026-08-02 10:00:00',
+                'status' => 'Potencial',
+                'record_type_name' => 'Venta',
+                'record_type_normalized' => 'venta',
+                'owner_id' => '005-no-existe',
+                'owner_name' => 'Responsable inexistente',
+                'is_deleted' => false,
+            ]);
+        }
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonCount(1, 'items')
+            ->assertJsonPath('items.0.commercial_id', null)
+            ->assertJsonPath('items.0.leads', 3)
+            ->assertJsonPath('data_quality.unresolved_attribution_events', 3);
+    }
+
+    public function test_leads_materializados_agrupados_mantienen_eventos_historicos_no_certificables(): void
+    {
+        Cache::flush();
+        $this->commercial('005-uncertified-leads', 'Comercial no certificable');
+        for ($index = 1; $index <= 3; $index++) {
+            SalesforceLead::query()->create([
+                'salesforce_id' => "00Q-uncertified-{$index}",
+                'name' => "Lead no certificable {$index}",
+                'created_date' => '2026-08-01 08:00:00',
+                'fecha_asignacion' => '2026-08-02 10:00:00',
+                'status' => 'Potencial',
+                'record_type_name' => 'Venta',
+                'record_type_normalized' => 'venta',
+                'owner_id' => '005-uncertified-leads',
+                'owner_name' => 'Comercial no certificable',
+                'is_deleted' => false,
+            ]);
+        }
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('data_quality.uncertified_historical_events', 3);
+    }
+
+    public function test_opportunities_y_cancelaciones_mantienen_un_evento_de_incidencia_por_atribucion(): void
+    {
+        Cache::flush();
+        $this->coverHistoryMonth('2026-08');
+        $this->opportunity('006-unresolved-events', [
+            'owner_id' => '005-no-existe',
+            'owner_name' => 'Responsable inexistente',
+        ]);
+        SalesforceOpportunityStageTransition::query()->create([
+            'salesforce_history_id' => '0Jh-unresolved-events',
+            'opportunity_salesforce_id' => '006-unresolved-events',
+            'previous_stage' => 'Reserva',
+            'new_stage' => 'Cerrada Perdida',
+            'transitioned_at' => '2026-08-07 10:00:00',
+            'reservation_date' => '2026-08-01',
+            'owner_id' => '005-no-existe',
+            'owner_name' => 'Responsable inexistente',
+            'source' => 'OpportunityHistory',
+            'is_reservation_cancellation' => true,
+            'quality_status' => 'valid',
+            'synced_at' => now(),
+        ]);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('data_quality.unresolved_attribution_events', 2);
+    }
+
     public function test_lead_con_responsable_valido_y_nombre_vacio_usa_el_nombre_del_roster(): void
     {
         Cache::flush();
