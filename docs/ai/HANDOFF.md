@@ -2208,3 +2208,76 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   aserciones. Pint WRITE/`--test`, Composer validate/audit, build Vite y
   `git diff --check` fueron correctos. Los artefactos generados por Vite se
   restauraron. El diff permanece sin commit por instrucción expresa.
+
+# Lifecycle de Opportunities eliminadas/ausentes (2026-09-07)
+
+## Resumen y archivos
+
+- Se añaden de forma aditiva `salesforce_opportunities.is_deleted` (boolean,
+  default false, sin índice), `salesforce_deleted_at` y
+  `deletion_detection_source`, además de una tabla mínima de auditoría de
+  ejecuciones de reconciliación. La migración no modifica datos históricos.
+- `SalesforceOpportunity` aplica un scope activo global exclusivamente a
+  borrados confirmados (`is_deleted=true` + `query_all_deleted`). Una ausencia
+  `presence_reconciliation_missing` conserva semántica diagnóstica y permanece
+  reportable. Se revisaron los dos escritores reales: solo el mapper completo
+  del sync canónico limpia lifecycle y reactiva; Stock conserva la metadata de
+  una fila retirada aunque reciba su fotografía parcial. `--fresh` conserva su
+  semántica explícita incluyendo filas retiradas.
+- El sync canónico consulta `queryAll` por `IsDeleted=true` y
+  `SystemModStamp` en chunks temporales de siete días, antes del sync activo.
+  Marca únicamente filas locales existentes mediante UPDATE agrupado. Una fila
+  activa recibida por el mapper completo limpia toda la metadata de borrado.
+- Se crea `salesforce:reconcile-opportunity-presence`, con modos mutuamente
+  excluyentes, motivo de 10–500 caracteres en apply, `--limit`, `--after-id`,
+  chunks de 100, mutex de seis horas, lock local y métricas JSON. Consulta solo
+  `Id`, `IsDeleted` y `SystemModStamp` mediante `queryAll`; no inserta, borra ni
+  escribe Salesforce. Un activo previamente confirmado queda contado como
+  pendiente de refresh canónico y no se publica con campos locales obsoletos.
+- El scope cubre Reservas/Ventas, reservas vivas, Rendimiento, Comisiones y
+  auditorías. Las transiciones de una Opportunity confirmada como eliminada se
+  excluyen de Rendimiento/auditoría. Campañas conserva Lead, campaña y
+  procedencia, y anula solo oportunidad, reserva, venta, compra e importes de la
+  Opportunity retirada. Stock carga el lifecycle en batch sin scope e invalida
+  snapshots por borrado confirmado. Una ausencia local queda `unchecked` y no
+  altera la validez previa del snapshot.
+
+## Seguridad, rendimiento y operación
+
+- Las muestras contienen solo Salesforce IDs. Los fallos remotos se publican
+  con código técnico genérico; no hay payloads, nombres, email o teléfono. No se
+  modifica matching Opportunity → Lead ni portal/source.
+- No existe consulta Salesforce por fila: sync usa ventanas de siete días y la
+  reconciliación agrupa hasta 100 IDs. Apply consulta Salesforce fuera de la
+  transacción, relee filas con `lockForUpdate`, compara `updated_at` y el estado
+  lifecycle observado y ejecuta un único UPDATE CASE por chunk. Dry-run no crea
+  auditoría ni escribe.
+- No se añade el índice booleano propuesto: no existe `EXPLAIN` que justifique
+  una estructura de baja selectividad para unas 40.557 filas. El ALTER se limita
+  a columnas; debe planificarse igualmente en ventana controlada. Rollback
+  elimina columnas y la tabla técnica, sin hard-delete de Opportunities.
+- Procedimiento posterior: migrar estructura, ejecutar dry-run paginado y
+  revisar `OPPORTUNITY_PRESENCE_METRICS`; cualquier apply requiere aprobación y
+  motivo. No se ejecutaron migración, reconciliación, sync productivo ni
+  escrituras Salesforce en esta tarea.
+- Archivos productivos revisados/modificados: modelo Opportunity, sync canónico,
+  sync parcial de Stock, comando de sync, datasets/auditoría de Rendimiento y
+  consumidores SQL directos de Campañas. Nuevos: dos migraciones, modelo de run,
+  servicio/comando de presencia y su test feature. Se ampliaron las pruebas de
+  sync, Stock, cohortes por fecha, reservas vivas, Rendimiento, Campañas y
+  lifecycle temporal; la documentación funcional, auditoría, contexto y
+  decisiones quedó alineada.
+- Correctivo sénior: una ausencia no certifica borrado, una reaparición no
+  reactiva hasta el refresh canónico, Campañas conserva su universo de Leads y
+  Stock deja de mantener snapshots válidos para Opportunities confirmadas como
+  eliminadas. `SystemModStamp` solo actualiza `salesforce_deleted_at`; las
+  reapariciones pendientes incluyen una muestra acotada de IDs y apply orquesta
+  la validez Stock inmediatamente, sin otros sincronizadores. El comando local
+  `stock:reconcile-sale-validity` permite reintentar solo esa fase. Validación final
+  del correctivo: focales 114 pruebas/961 aserciones y suite completa 943
+  pruebas/6.715 aserciones, ambas verdes. Pint WRITE/`--test` sobre todos los PHP
+  modificados, Composer validate/audit, build Vite y `git diff --check`
+  correctos. El `pint --test` global continúa detectando infracciones
+  preexistentes en archivos ajenos al diff, que no se reformatearon para
+  mantener el alcance. No se ejecutaron migraciones, apply, sync real ni
+  escrituras Salesforce.

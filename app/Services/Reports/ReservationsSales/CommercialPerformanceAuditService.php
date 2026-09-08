@@ -148,12 +148,22 @@ class CommercialPerformanceAuditService
             ->where('transitioned_at', '<', $end->utc())
             ->orderBy('id')
             ->get();
+        $deletedOpportunityIds = SalesforceOpportunity::withoutGlobalScope(SalesforceOpportunity::ACTIVE_SCOPE)
+            ->where('is_deleted', true)
+            ->where('deletion_detection_source', SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL)
+            ->whereIn('salesforce_id', $transitions->pluck('opportunity_salesforce_id')->unique())
+            ->pluck('salesforce_id')
+            ->flip();
         $opportunities = SalesforceOpportunity::query()
             ->whereIn('salesforce_id', $transitions->pluck('opportunity_salesforce_id')->unique())
             ->get(['salesforce_id', 'vehicle_interest_id', 'vehicle_plate'])
             ->keyBy('salesforce_id');
 
         foreach ($transitions as $transition) {
+            if ($deletedOpportunityIds->has($transition->opportunity_salesforce_id)) {
+                continue;
+            }
+
             $attribution = $this->monthlyRoster->attribution(
                 $context,
                 $transition->owner_id,

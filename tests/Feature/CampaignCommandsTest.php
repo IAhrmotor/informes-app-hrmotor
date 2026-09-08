@@ -425,6 +425,12 @@ class CampaignCommandsTest extends TestCase
                 ->andReturn([
                     'queried' => 0,
                     'saved' => 0,
+                    'deletions' => [
+                        'queried' => 0,
+                        'matched_local' => 0,
+                        'changed' => 0,
+                        'unchanged' => 0,
+                    ],
                     'stats' => [
                         'opportunity' => 0,
                         'lead' => 0,

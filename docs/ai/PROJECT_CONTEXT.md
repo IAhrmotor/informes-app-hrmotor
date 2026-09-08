@@ -11,6 +11,14 @@ Actualizado: 2026-08-26.
   ranking, después de Zona/Delegación y antes de Comercial. Sus agregados se
   calculan una vez en memoria sobre el dataset local; Comercial solo limita las
   filas visibles y las filas no evaluables no reciben comparación.
+- `salesforce_opportunities` conserva lifecycle mediante `is_deleted`,
+  `salesforce_deleted_at` y `deletion_detection_source`. El modelo aplica scope
+  activo por defecto solo para `query_all_deleted`; una ausencia conciliada no
+  equivale a borrado y continúa reportable. Solo el mapper completo del sync
+  canónico puede reactivar una fila. Stock puede localizarla sin scope, pero no
+  limpia lifecycle; invalida snapshots por borrado confirmado y mantiene
+  `unchecked` una ausencia real de la réplica. Rendimiento excluye también
+  transiciones pertenecientes a una Opportunity con borrado confirmado.
 - `salesforce_opportunity_stage_transitions` materializa cambios demostrables de
   `OpportunityHistory` hacia Cerrada Perdida con estado de calidad; solo cuentan
   si la reserva no es posterior. `salesforce_opportunity_history_sync_intervals`

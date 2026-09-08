@@ -2,10 +2,17 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class SalesforceOpportunity extends Model
 {
+    public const ACTIVE_SCOPE = 'salesforce_opportunity_active';
+
+    public const DELETION_SOURCE_QUERY_ALL = 'query_all_deleted';
+
+    public const PRESENCE_SOURCE_MISSING = 'presence_reconciliation_missing';
+
     protected $fillable = [
         'salesforce_id',
         'name',
@@ -78,6 +85,9 @@ class SalesforceOpportunity extends Model
         'cv_signed',
         'cv_signed_date',
         'raw_payload',
+        'is_deleted',
+        'salesforce_deleted_at',
+        'deletion_detection_source',
     ];
 
     protected $casts = [
@@ -120,5 +130,26 @@ class SalesforceOpportunity extends Model
         'cv_signed_date' => 'date',
         'portal_resolution_debug' => 'array',
         'raw_payload' => 'array',
+        'is_deleted' => 'boolean',
+        'salesforce_deleted_at' => 'datetime',
     ];
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(self::ACTIVE_SCOPE, function (Builder $builder): void {
+            $builder->where(function (Builder $query) use ($builder): void {
+                $source = $builder->getModel()->qualifyColumn('deletion_detection_source');
+
+                $query->where($builder->getModel()->qualifyColumn('is_deleted'), false)
+                    ->orWhereNull($source)
+                    ->orWhere($source, '<>', self::DELETION_SOURCE_QUERY_ALL);
+            });
+        });
+    }
+
+    public function isConfirmedDeleted(): bool
+    {
+        return $this->is_deleted
+            && $this->deletion_detection_source === self::DELETION_SOURCE_QUERY_ALL;
+    }
 }

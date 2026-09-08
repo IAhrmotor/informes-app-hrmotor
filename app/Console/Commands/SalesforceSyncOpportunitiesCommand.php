@@ -45,7 +45,7 @@ class SalesforceSyncOpportunitiesCommand extends Command
 
         try {
             if ($this->option('fresh')) {
-                SalesforceOpportunity::query()->delete();
+                SalesforceOpportunity::withoutGlobalScope(SalesforceOpportunity::ACTIVE_SCOPE)->delete();
                 $this->warn('Tabla salesforce_opportunities vaciada.');
             }
             $this->info('Sincronizando Salesforce Reservas / Ventas.');
@@ -69,6 +69,8 @@ class SalesforceSyncOpportunitiesCommand extends Command
 
             $this->line('Opportunities consultadas: '.$result['queried']);
             $this->line('Opportunities guardadas: '.$result['saved']);
+            $this->line('Borradas confirmadas consultadas: '.$result['deletions']['queried']);
+            $this->line('Borradas locales actualizadas: '.$result['deletions']['changed']);
             $this->line('Con Portal__c util: '.$stats['opportunity']);
             $this->line('Portal reconstruido desde Lead: '.$stats['lead']);
             $this->line('Portal desde Fuente_de_Origen__c: '.$stats['opportunity_source']);
@@ -87,7 +89,7 @@ class SalesforceSyncOpportunitiesCommand extends Command
             $this->line('Candidatas sin transición previa demostrable: '.$history['unverifiable']);
             $this->line('Dependencias que impiden certificar KPI: '.$history['unresolved_dependencies']);
 
-            if ($result['queried'] === 0) {
+            if ($result['queried'] === 0 && $result['deletions']['queried'] === 0) {
                 $this->warn('Salesforce devolvio 0 opportunities para el periodo indicado.');
             }
 
@@ -95,6 +97,8 @@ class SalesforceSyncOpportunitiesCommand extends Command
             $syncRuns->complete($syncRun, now(), [
                 'queried' => $result['queried'],
                 'saved' => $result['saved'],
+                'deleted_queried' => $result['deletions']['queried'],
+                'deleted_changed' => $result['deletions']['changed'],
                 'history_saved' => $history['saved'],
                 'mode' => $this->option('modified') ? 'modified' : ($this->option('all-history') ? 'all_history' : 'period'),
             ]);
@@ -113,7 +117,9 @@ class SalesforceSyncOpportunitiesCommand extends Command
     private function invalidateDashboardCache(): void
     {
         Cache::forever('reservas_ventas_dashboard_cache_version', ((int) Cache::get('reservas_ventas_dashboard_cache_version', 1)) + 1);
+        Cache::forever('campaign_dashboard_cache_version', ((int) Cache::get('campaign_dashboard_cache_version', 1)) + 1);
         $this->line('Cache del dashboard Reservas / Ventas invalidada.');
+        $this->line('Cache del dashboard Campanas invalidada.');
     }
 
     private function periodStart(CarbonImmutable $end): CarbonImmutable

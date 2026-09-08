@@ -12,6 +12,7 @@ use App\Services\Salesforce\SalesforcePhoneNormalizer;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -44,6 +45,7 @@ class SalesforceOpportunitySyncService
         $seen = [];
         $includeCompanyEmail = true;
         $stats = $this->emptyStats();
+        $deletionStats = $this->syncDeleted($periodStart, $periodEnd);
 
         $chunkStart = CarbonImmutable::parse($periodStart);
         $finalEnd = CarbonImmutable::parse($periodEnd);
@@ -85,6 +87,7 @@ class SalesforceOpportunitySyncService
             'queried' => count($seen),
             'saved' => $saved,
             'stats' => $stats,
+            'deletions' => $deletionStats,
         ];
     }
 
@@ -339,7 +342,7 @@ SOQL;
         $reservation = (bool) data_get($record, 'OPO_CAS_Reserva__c', false);
         $cvSigned = (bool) data_get($record, 'OPO_CAS_Contrato_CV_firmado__c', false);
 
-        SalesforceOpportunity::updateOrCreate(
+        SalesforceOpportunity::withoutGlobalScope(SalesforceOpportunity::ACTIVE_SCOPE)->updateOrCreate(
             ['salesforce_id' => data_get($record, 'Id')],
             [
                 'name' => data_get($record, 'Name'),
@@ -410,6 +413,9 @@ SOQL;
                 'cv_signed' => $cvSigned,
                 'cv_signed_date' => data_get($record, 'Fecha_firma_contrato__c'),
                 'raw_payload' => $record,
+                'is_deleted' => false,
+                'salesforce_deleted_at' => null,
+                'deletion_detection_source' => null,
             ]
         );
 
@@ -810,6 +816,123 @@ SOQL);
     private function parseDateTime(mixed $value): ?CarbonImmutable
     {
         return blank($value) ? null : CarbonImmutable::parse($value);
+    }
+
+    /** @return array{queried:int,matched_local:int,changed:int,unchanged:int} */
+    private function syncDeleted(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
+    {
+        $stats = ['queried' => 0, 'matched_local' => 0, 'changed' => 0, 'unchanged' => 0];
+        $chunkStart = CarbonImmutable::parse($periodStart);
+        $finalEnd = CarbonImmutable::parse($periodEnd);
+
+        while ($chunkStart->lessThan($finalEnd)) {
+            $chunkEnd = $chunkStart->addDays(self::SYNC_CHUNK_DAYS)->min($finalEnd);
+            $chunkStats = $this->syncDeletedChunk($chunkStart, $chunkEnd);
+            foreach ($stats as $key => $value) {
+                $stats[$key] += $chunkStats[$key];
+            }
+            $chunkStart = $chunkEnd;
+        }
+
+        return $stats;
+    }
+
+    /** @return array{queried:int,matched_local:int,changed:int,unchanged:int} */
+    private function syncDeletedChunk(CarbonInterface $periodStart, CarbonInterface $periodEnd): array
+    {
+        $start = $this->soqlDateTime($periodStart);
+        $end = $this->soqlDateTime($periodEnd);
+        $records = collect($this->client->queryAll(<<<SOQL
+SELECT Id, IsDeleted, SystemModStamp
+FROM Opportunity
+WHERE IsDeleted = true
+    AND SystemModStamp >= {$start}
+    AND SystemModStamp < {$end}
+SOQL))
+            ->filter(fn (mixed $record): bool => is_array($record) && filled(data_get($record, 'Id')))
+            ->values();
+
+        $lookupIds = $records
+            ->flatMap(function (array $record): array {
+                $id = (string) data_get($record, 'Id');
+
+                return [$id, substr($id, 0, 15)];
+            })
+            ->unique()
+            ->values();
+        if ($lookupIds->isEmpty()) {
+            return ['queried' => 0, 'matched_local' => 0, 'changed' => 0, 'unchanged' => 0];
+        }
+
+        $localRows = SalesforceOpportunity::withoutGlobalScope(SalesforceOpportunity::ACTIVE_SCOPE)
+            ->select(['id', 'salesforce_id', 'is_deleted', 'salesforce_deleted_at', 'deletion_detection_source'])
+            ->whereIn('salesforce_id', $lookupIds)
+            ->get();
+        $localRowsByCanonicalId = $localRows
+            ->groupBy(fn (SalesforceOpportunity $row): string => substr((string) $row->salesforce_id, 0, 15));
+        $updates = [];
+        $unchanged = 0;
+
+        foreach ($records as $record) {
+            foreach ($localRowsByCanonicalId->get(substr((string) data_get($record, 'Id'), 0, 15), collect()) as $row) {
+                $deletedAt = $this->parseDateTime(data_get($record, 'SystemModStamp'));
+                $sameDeletedAt = $row->salesforce_deleted_at?->toIso8601String() === $deletedAt?->toIso8601String();
+                if ($row->is_deleted
+                    && $sameDeletedAt
+                    && $row->deletion_detection_source === SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL) {
+                    $unchanged++;
+
+                    continue;
+                }
+
+                $updates[] = ['id' => (int) $row->id, 'deleted_at' => $deletedAt];
+            }
+        }
+
+        $this->bulkMarkDeleted($updates);
+
+        return [
+            'queried' => $records->count(),
+            'matched_local' => $localRows->count(),
+            'changed' => count($updates),
+            'unchanged' => $unchanged,
+        ];
+    }
+
+    /** @param list<array{id:int,deleted_at:?CarbonImmutable}> $updates */
+    private function bulkMarkDeleted(array $updates): void
+    {
+        if ($updates === []) {
+            return;
+        }
+
+        $grammar = DB::connection()->getQueryGrammar();
+        $table = $grammar->wrapTable('salesforce_opportunities');
+        $idColumn = $grammar->wrap('id');
+        $bindings = [];
+
+        $cases = [];
+        foreach ($updates as $update) {
+            $cases[] = 'WHEN ? THEN ?';
+            $bindings[] = $update['id'];
+            $bindings[] = $update['deleted_at'];
+        }
+        $deletedAtColumn = $grammar->wrap('salesforce_deleted_at');
+        $dateAssignment = "{$deletedAtColumn} = CASE {$idColumn} ".implode(' ', $cases)." ELSE {$deletedAtColumn} END";
+
+        $ids = array_column($updates, 'id');
+        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+        $bindings[] = now();
+        array_push($bindings, ...$ids);
+
+        DB::update(
+            "UPDATE {$table} SET "
+            .$grammar->wrap('is_deleted').' = 1, '
+            .$dateAssignment.', '
+            .$grammar->wrap('deletion_detection_source')." = '".SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL."', "
+            .$grammar->wrap('updated_at')." = ? WHERE {$idColumn} IN ({$placeholders})",
+            $bindings,
+        );
     }
 
     /** @return list<string> */

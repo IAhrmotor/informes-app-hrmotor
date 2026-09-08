@@ -1059,6 +1059,49 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertJsonMissing(['opportunity_id' => '006-september-boundary']);
     }
 
+    public function test_rendimiento_y_auditoria_excluyen_opportunity_eliminada_y_su_cancelacion(): void
+    {
+        $this->coverHistoryMonth('2026-08');
+        $this->commercial('005-deleted-owner', 'Comercial eliminado');
+        $this->snapshot('005-deleted-owner', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        $deleted = $this->opportunity('006-deleted-performance', [
+            'owner_id' => '005-deleted-owner',
+            'owner_name' => 'Comercial eliminado',
+            'created_date' => '2026-08-02 10:00:00',
+            'reservation' => true,
+            'reservation_date' => '2026-08-03',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-08-04',
+            'stage_name' => 'Cerrada Perdida',
+            'is_deleted' => true,
+            'deletion_detection_source' => 'query_all_deleted',
+        ]);
+        SalesforceOpportunityStageTransition::query()->create([
+            'salesforce_history_id' => '0Jh-deleted-performance',
+            'opportunity_salesforce_id' => $deleted->salesforce_id,
+            'previous_stage' => 'Reserva',
+            'new_stage' => 'Cerrada Perdida',
+            'transitioned_at' => '2026-08-05 11:00:00',
+            'reservation_date' => '2026-08-03',
+            'owner_id' => '005-deleted-owner',
+            'owner_name' => 'Comercial eliminado',
+            'source' => 'OpportunityHistory',
+            'is_reservation_cancellation' => true,
+            'quality_status' => 'valid',
+            'synced_at' => now(),
+        ]);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('summary.opportunities', 0)
+            ->assertJsonPath('summary.reservations_total', 0)
+            ->assertJsonPath('summary.sales', 0)
+            ->assertJsonPath('summary.cancellations', 0);
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')
+            ->assertOk()
+            ->assertJsonMissing(['opportunity_id' => '006-deleted-performance']);
+    }
+
     public function test_scheduler_evitar_solapes_y_deja_un_unico_propietario_de_snapshots(): void
     {
         $scheduler = file_get_contents(base_path('routes/console.php'));

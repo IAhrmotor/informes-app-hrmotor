@@ -41,7 +41,7 @@ class SalesforceSignedSaleSyncService
                 ? ($financedSalePrice ?? $normalSalePrice)
                 : $normalSalePrice;
 
-            SalesforceOpportunity::updateOrCreate(
+            SalesforceOpportunity::withoutGlobalScope(SalesforceOpportunity::ACTIVE_SCOPE)->updateOrCreate(
                 ['salesforce_id' => data_get($record, 'Id')],
                 [
                     'name' => data_get($record, 'Name'),

@@ -608,3 +608,39 @@ Opportunity → Exposición → Web → Sin clasificar. Dentro del Lead se conse
 `Fuente_origen__c` → fallback legacy. El desempate entre Leads con el mismo
 `CreatedDate` es `Lead.Id` ascendente. No cambian universo, conteos, campos raw
 ni escrituras Salesforce.
+
+## Lifecycle de Opportunities eliminadas o ausentes (2026-09-07)
+
+`salesforce_opportunities` conserva físicamente su histórico y añade
+`is_deleted`, `salesforce_deleted_at` y `deletion_detection_source`. El sync
+canónico consulta por `queryAll` los `IsDeleted=true` modificados en la ventana,
+usando `SystemModStamp`, y marca solo filas locales ya existentes. Únicamente el
+mapper completo del sync canónico reactiva/limpia metadata cuando vuelve a
+recibir una Opportunity activa. La fuente `query_all_deleted` representa un
+borrado confirmado; `presence_reconciliation_missing` representa únicamente
+ausencia en una comprobación explícita por ID y no presupone borrado, fusión,
+purga ni pérdida de permisos, por lo que no sale del scope reportable.
+
+Los lectores Eloquent aplican un scope activo central. Las consultas SQL
+directas de Campañas filtran la misma metadata, y las transiciones de
+Opportunity eliminadas se excluyen de Rendimiento y su auditoría. No cambia la
+resolución Opportunity → Lead ni ningún campo de atribución.
+
+Campañas conserva siempre la entidad Lead y sus dimensiones. Cuando la
+Opportunity enlazada tiene borrado confirmado, solo se anulan oportunidad,
+reserva, venta, compra e importes derivados. Stock carga Opportunities sin el
+scope para distinguir ausencia local de borrado confirmado e invalida el
+snapshot solo ante borrado confirmado. Si la Opportunity no existe en la réplica
+local, conserva el estado previo del snapshot y lo contabiliza como `unchecked`;
+el sync parcial de Stock no limpia metadata lifecycle ni reactiva filas.
+
+La reconciliación histórica se prepara con
+`salesforce:reconcile-opportunity-presence --dry-run`, en lotes de 100 y con
+cursor local. Apply exige motivo, mutex y auditoría mínima por ejecución; no
+inserta ni borra Opportunities y no escribe Salesforce. En esta tarea no se ha
+ejecutado el histórico. Un apply que confirme borrados ejecuta después la
+reconciliación local de validez de Stock, sin sincronizaciones ni snapshots
+nuevos. La misma operación puede reintentarse de forma explícita con
+`stock:reconcile-sale-validity` si falla después de persistir lifecycle.
+`SystemModStamp` se almacena solo como evidencia técnica en
+`salesforce_deleted_at`; nunca sobrescribe `salesforce_last_modified_at`.
