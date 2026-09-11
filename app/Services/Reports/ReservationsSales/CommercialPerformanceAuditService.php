@@ -29,11 +29,12 @@ class CommercialPerformanceAuditService
         $context = $this->monthlyRoster->context($months);
         $coverage = $this->dataset->historyCoverage($months)[$filters['month']];
         $rows = collect();
+        $saleClassificationStates = [];
 
         $this->appendLeads($rows, $month, $end, $context);
-        $this->appendOpportunities($rows, $month, $end, $context);
+        $this->appendOpportunities($rows, $month, $end, $context, $saleClassificationStates);
         $this->appendTransitions($rows, $month, $end, $context, $coverage['status']);
-        $this->applyDeduplication($rows);
+        $this->applyDeduplication($rows, $saleClassificationStates);
 
         if (filled($filters['commercial'] ?? null)) {
             $rows = $rows->where('commercial_id', $filters['commercial']);
@@ -97,8 +98,13 @@ class CommercialPerformanceAuditService
             });
     }
 
-    private function appendOpportunities(Collection $rows, CarbonImmutable $start, CarbonImmutable $end, array $context): void
-    {
+    private function appendOpportunities(
+        Collection $rows,
+        CarbonImmutable $start,
+        CarbonImmutable $end,
+        array $context,
+        array &$saleClassificationStates,
+    ): void {
         SalesforceOpportunity::query()
             ->where(function ($query) use ($start, $end): void {
                 $query->where(function ($created) use ($start, $end): void {
@@ -118,19 +124,24 @@ class CommercialPerformanceAuditService
                 'vehicle_interest_id', 'vehicle_plate',
             ])
             ->orderBy('id')
-            ->chunkById(1000, function ($opportunities) use ($rows, $start, $end, $context): void {
+            ->chunkById(1000, function ($opportunities) use ($rows, $start, $end, $context, &$saleClassificationStates): void {
                 foreach ($opportunities as $opportunity) {
                     $eligibleType = in_array($opportunity->record_type_name, ['Venta', 'Cambio'], true);
+                    $funnel = $this->funnelClassification($opportunity);
+                    if ($eligibleType && $opportunity->cv_signed && filled($opportunity->cv_signed_date)) {
+                        $saleClassificationStates[$this->saleClassificationKey($opportunity)][$funnel['sales_dropped'] ? 'dropped' : 'valid'] = true;
+                    }
                     if ($this->inRange($opportunity->created_date, $start, $end)) {
-                        $this->pushOpportunityEvent($rows, $opportunity, 'opportunity', $opportunity->created_date, $context, $eligibleType);
+                        $this->pushOpportunityEvent($rows, $opportunity, 'opportunity', $opportunity->created_date, $context, $eligibleType, $eligibleType, $funnel);
                     }
                     if ($this->inRange($opportunity->reservation_date, $start, $end)) {
-                        $this->pushOpportunityEvent($rows, $opportunity, 'reservation', $opportunity->reservation_date, $context, $eligibleType && $opportunity->reservation);
+                        $this->pushOpportunityEvent($rows, $opportunity, 'reservation', $opportunity->reservation_date, $context, $eligibleType && $funnel['reservations_total'], $eligibleType, $funnel);
                     }
-                    if ($this->inRange($opportunity->cv_signed_date, $start, $end)) {
-                        $validSale = $eligibleType && $opportunity->cv_signed
-                            && strcasecmp((string) $opportunity->stage_name, 'Cerrada Perdida') !== 0;
-                        $this->pushOpportunityEvent($rows, $opportunity, 'sale', $opportunity->cv_signed_date, $context, $validSale);
+                    if ($funnel['sales_valid'] && $this->inRange($opportunity->cv_signed_date, $start, $end)) {
+                        $this->pushOpportunityEvent($rows, $opportunity, 'sale', $opportunity->cv_signed_date, $context, $eligibleType, $eligibleType, $funnel);
+                    }
+                    if ($funnel['sales_dropped'] && $this->inRange($funnel['sales_reference_date'], $start, $end)) {
+                        $this->pushOpportunityEvent($rows, $opportunity, 'sale_dropped', $funnel['sales_reference_date'], $context, $eligibleType, $eligibleType, $funnel);
                     }
                 }
             });
@@ -202,6 +213,8 @@ class CommercialPerformanceAuditService
         mixed $eventAt,
         array $context,
         bool $counted,
+        bool $eligibleType,
+        array $funnel = [],
     ): void {
         $attribution = $this->monthlyRoster->attribution($context, $opportunity->owner_id, $opportunity->owner_name, $eventAt);
         $commerciallyEligible = filled($opportunity->owner_id) && $context['users']->has($opportunity->owner_id);
@@ -215,10 +228,14 @@ class CommercialPerformanceAuditService
             counted: $countedInMetric,
             exclusion: match (true) {
                 $countedInMetric => null,
+                ! $eligibleType => 'record_type_excluded',
                 $counted && ! $commerciallyEligible => 'non_commercial_responsible',
                 default => 'business_rule_excluded',
             },
             deduplicationKey: $this->opportunityIdentity($opportunity).'|'.CarbonImmutable::parse($eventAt)->toDateString(),
+            funnel: $funnel,
+            classificationKey: $eligibleType ? $this->classificationKey($eventType, $opportunity) : null,
+            saleClassificationKey: $eligibleType ? $this->saleClassificationKey($opportunity) : null,
         ));
     }
 
@@ -233,6 +250,9 @@ class CommercialPerformanceAuditService
         ?string $exclusion = null,
         ?string $coverageStatus = null,
         ?string $deduplicationKey = null,
+        array $funnel = [],
+        ?string $classificationKey = null,
+        ?string $saleClassificationKey = null,
     ): array {
         return [
             'event_type' => $eventType,
@@ -253,14 +273,69 @@ class CommercialPerformanceAuditService
             'deduplication_key' => $deduplicationKey,
             'deduplication_status' => $deduplicationKey === null ? null : 'unique',
             'metric_attribution' => $attribution['commercial_id'],
+            'funnel' => $funnel,
+            'classification_key' => $classificationKey,
+            'sale_classification_key' => $saleClassificationKey,
         ];
     }
 
-    private function applyDeduplication(Collection $rows): void
+    private function classificationKey(string $eventType, SalesforceOpportunity $opportunity): ?string
+    {
+        if ($eventType === 'reservation' && filled($opportunity->reservation_date)) {
+            return 'reservation|'.$this->opportunityIdentity($opportunity).'|'.CarbonImmutable::parse($opportunity->reservation_date)->toDateString();
+        }
+
+        if (in_array($eventType, ['sale', 'sale_dropped'], true) && filled($opportunity->cv_signed_date)) {
+            return 'sale|'.$this->opportunityIdentity($opportunity).'|'.CarbonImmutable::parse($opportunity->cv_signed_date)->toDateString();
+        }
+
+        return null;
+    }
+
+    private function saleClassificationKey(SalesforceOpportunity $opportunity): ?string
+    {
+        if (! $opportunity->cv_signed || blank($opportunity->cv_signed_date)) {
+            return null;
+        }
+
+        return 'sale|'.$this->opportunityIdentity($opportunity).'|'.CarbonImmutable::parse($opportunity->cv_signed_date)->toDateString();
+    }
+
+    private function funnelClassification(SalesforceOpportunity $opportunity): array
+    {
+        $lost = strcasecmp(trim((string) $opportunity->stage_name), 'Cerrada Perdida') === 0;
+        $hasReservationDate = filled($opportunity->reservation_date);
+        $hasSignedDate = filled($opportunity->cv_signed_date);
+        $reservationsTotal = (bool) $opportunity->reservation && $hasReservationDate;
+        $salesReferenceDate = $hasReservationDate ? $opportunity->reservation_date : ($hasSignedDate ? $opportunity->cv_signed_date : null);
+        $salesDropped = (bool) $opportunity->cv_signed && $lost && $salesReferenceDate !== null;
+
+        return [
+            'reservations_total' => $reservationsTotal,
+            'reservations_active' => $reservationsTotal && ! $opportunity->cv_signed && ! $lost,
+            'reservations_valid_for_objective' => $reservationsTotal && ! $lost,
+            'reservations_dropped' => $reservationsTotal && ! $opportunity->cv_signed && $lost,
+            'sales_valid' => (bool) $opportunity->cv_signed && ! $lost && $hasSignedDate,
+            'sales_dropped' => $salesDropped,
+            'sales_signed_reference' => (bool) $opportunity->cv_signed && $salesReferenceDate !== null,
+            'sales_reference_date' => $salesReferenceDate,
+            'reservation_not_demonstrated' => $salesDropped && ! $hasReservationDate,
+            'fulfillment_contribution' => $reservationsTotal && ! $lost,
+            'fulfillment_exclusion_reason' => match (true) {
+                ! $reservationsTotal => 'reservation_not_demonstrated',
+                $lost && $opportunity->cv_signed => 'sale_dropped',
+                $lost => 'reservation_dropped',
+                default => null,
+            },
+            'data_insufficient' => (bool) $opportunity->cv_signed && $lost && $salesReferenceDate === null,
+        ];
+    }
+
+    private function applyDeduplication(Collection $rows, array $saleClassificationStates): void
     {
         $groups = $rows
             ->filter(fn (array $row): bool => $row['counted_in_metric']
-                && in_array($row['event_type'], ['reservation', 'sale', 'cancellation_transition'], true)
+                && in_array($row['event_type'], ['reservation', 'sale', 'sale_dropped', 'cancellation_transition'], true)
                 && filled($row['deduplication_key']))
             ->groupBy(fn (array $row): string => $row['event_type'].'|'.$row['deduplication_key'], true);
 
@@ -283,6 +358,65 @@ class CommercialPerformanceAuditService
                 $rows->put($key, $row);
             }
         }
+
+        $classificationGroups = $rows
+            ->filter(fn (array $row): bool => filled($row['classification_key']))
+            ->groupBy('classification_key', true);
+
+        foreach ($classificationGroups as $group) {
+            if ($group->count() < 2
+                || $group->map(fn (array $row): string => $this->funnelClassificationSignature($row['funnel']))->unique()->count() === 1) {
+                continue;
+            }
+
+            $this->markClassificationConflict($rows, $group);
+        }
+
+        $conflictingSaleKeys = collect($saleClassificationStates)
+            ->filter(fn (array $states): bool => isset($states['valid'], $states['dropped']))
+            ->keys();
+        foreach ($conflictingSaleKeys as $key) {
+            $group = $rows->filter(fn (array $row): bool => ($row['sale_classification_key'] ?? null) === $key);
+            if ($group->isNotEmpty()) {
+                $this->markClassificationConflict($rows, $group);
+            }
+        }
+    }
+
+    private function markClassificationConflict(Collection $rows, Collection $group): void
+    {
+        $attributionConflict = $group->pluck('commercial_id')->uniqueStrict()->count() > 1;
+        foreach ($group as $key => $row) {
+            if ($row['event_type'] === 'opportunity') {
+                continue;
+            }
+
+            $row['metric_attribution'] = 'data_quality_incident';
+            if (in_array($row['event_type'], ['sale', 'sale_dropped'], true)) {
+                $row['counted_in_metric'] = false;
+                $row['exclusion_reason'] = 'classification_conflict';
+                $row['deduplication_status'] = 'classification_conflict_excluded';
+            }
+            $row['classification_conflict'] = true;
+            $row['attribution_conflict'] = $attributionConflict;
+            $row['funnel']['classification_conflict'] = true;
+            $row['funnel']['reservations_active'] = false;
+            $row['funnel']['reservations_dropped'] = false;
+            $row['funnel']['reservations_valid_for_objective'] = false;
+            $row['funnel']['sales_valid'] = false;
+            $row['funnel']['sales_dropped'] = false;
+            $row['funnel']['fulfillment_contribution'] = false;
+            $row['funnel']['fulfillment_exclusion_reason'] = 'classification_conflict';
+            $rows->put($key, $row);
+        }
+    }
+
+    private function funnelClassificationSignature(array $funnel): string
+    {
+        return implode('|', array_map(
+            fn (string $key): string => (string) ((int) ($funnel[$key] ?? false)),
+            ['reservations_active', 'reservations_dropped', 'sales_valid', 'sales_dropped'],
+        ));
     }
 
     private function opportunityIdentity(?SalesforceOpportunity $opportunity, ?string $fallbackId = null): string

@@ -576,7 +576,17 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString("setParam(params, 'commercial', document.getElementById('commercial').value)", $javascript);
         $this->assertStringContainsString('if (isCommercialPerformanceMode())', $javascript);
         $this->assertStringContainsString("isCommercialPerformanceMode() || document.getElementById('period')?.value !== 'custom'", $javascript);
-        $this->assertStringContainsString('reservationsSalesCommercialPerformanceColumnsV1', $javascript);
+        $this->assertStringContainsString('reservationsSalesCommercialPerformanceColumnsV2', $javascript);
+        $this->assertStringContainsString("{ key: 'reservations_dropped', label: 'Reservas caídas', defaultVisible: true }", $javascript);
+        $this->assertStringContainsString("{ key: 'sales_dropped', label: 'Ventas caídas', defaultVisible: true }", $javascript);
+        $this->assertStringContainsString("{ key: 'team_average_reservations', label: 'Media equipo', defaultVisible: false }", $javascript);
+        $this->assertStringContainsString("{ key: 'team_reservations_deviation', label: 'Desviación reservas', defaultVisible: false }", $javascript);
+        $this->assertStringContainsString('formatAvailablePercent(row.sale_drop_pct)', $javascript);
+        $this->assertStringContainsString('function formatFunnelAudit', $javascript);
+        $this->assertStringContainsString('if (!applies) return \'-\';', $javascript);
+        $this->assertStringContainsString("['classification_conflict', 'Conflicto de clasificación']", $javascript);
+        $this->assertStringContainsString('Reserva no demostrada', $javascript);
+        $this->assertStringContainsString('Datos insuficientes: sin fecha de reserva ni fecha de CV', $javascript);
         $this->assertStringContainsString("{ key: 'traffic_light', label: 'Semáforo', alwaysVisible: true }", $javascript);
         $this->assertStringContainsString('function formatPerformanceMonth', $javascript);
         $this->assertStringContainsString("return value === null || value === undefined ? 'N/D'", $javascript);
@@ -1284,6 +1294,352 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString('CommercialDelegationSnapshotService', $monthlyCommand);
         $this->assertStringContainsString('captureCurrentUsers', $monthlyCommand);
         $this->assertStringNotContainsString('--bootstrap-performance-history', $scheduler);
+    }
+
+    public function test_funnel_clasifica_caidas_en_el_mes_de_reserva_y_excluye_cumplimiento(): void
+    {
+        Cache::flush();
+        $this->commercial('005-funnel', 'Comercial funnel');
+        $this->snapshot('005-funnel', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+
+        $this->opportunity('006-reservation-dropped', [
+            'owner_id' => '005-funnel', 'owner_name' => 'Comercial funnel',
+            'reservation' => true, 'reservation_date' => '2026-08-20', 'stage_name' => 'Cerrada Perdida',
+        ]);
+        $this->opportunity('006-sale-dropped', [
+            'owner_id' => '005-funnel', 'owner_name' => 'Comercial funnel',
+            'reservation' => true, 'reservation_date' => '2026-08-21',
+            'cv_signed' => true, 'cv_signed_date' => '2026-08-22', 'stage_name' => 'Cerrada Perdida',
+        ]);
+        $this->opportunity('006-reservation-active', [
+            'owner_id' => '005-funnel', 'owner_name' => 'Comercial funnel',
+            'reservation' => true, 'reservation_date' => '2026-08-23', 'stage_name' => 'Reserva',
+        ]);
+        $this->opportunity('006-sale-valid', [
+            'owner_id' => '005-funnel', 'owner_name' => 'Comercial funnel',
+            'reservation' => true, 'reservation_date' => '2026-07-20',
+            'cv_signed' => true, 'cv_signed_date' => '2026-08-24', 'stage_name' => 'Contrato',
+        ]);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('items.0.reservations_total', 3)
+            ->assertJsonPath('items.0.reservations_active', 1)
+            ->assertJsonPath('items.0.reservations_dropped', 1)
+            ->assertJsonPath('items.0.sales', 1)
+            ->assertJsonPath('items.0.sales_dropped', 1)
+            ->assertJsonPath('items.0.reservations_valid_for_objective', 1)
+            ->assertJsonPath('items.0.fulfillment_pct', 5.56)
+            ->assertJsonPath('items.0.reservation_drop_pct', 33.33)
+            ->assertJsonPath('items.0.sale_drop_pct', 100);
+    }
+
+    public function test_venta_caida_sin_reserva_demostrada_se_imputa_al_mes_cv_y_audita_la_excepcion(): void
+    {
+        Cache::flush();
+        $this->commercial('005-sale-without-reservation', 'Venta sin reserva');
+        $this->snapshot('005-sale-without-reservation', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        $this->opportunity('006-sale-without-reservation', [
+            'owner_id' => '005-sale-without-reservation', 'owner_name' => 'Venta sin reserva',
+            'reservation' => false, 'reservation_date' => null,
+            'cv_signed' => true, 'cv_signed_date' => '2026-08-12', 'stage_name' => 'Cerrada Perdida',
+        ]);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('items.0.reservations_total', 0)
+            ->assertJsonPath('items.0.reservations_valid_for_objective', 0)
+            ->assertJsonPath('items.0.sales_dropped', 1)
+            ->assertJsonPath('items.0.sale_drop_pct', 100)
+            ->assertJsonPath('items.0.fulfillment_pct', 0);
+
+        $audit = collect($this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')
+            ->assertOk()
+            ->json('items'))
+            ->firstWhere('event_type', 'sale_dropped');
+
+        $this->assertSame('006-sale-without-reservation', $audit['opportunity_id']);
+        $this->assertTrue($audit['counted_in_metric']);
+        $this->assertTrue($audit['funnel']['sales_dropped']);
+        $this->assertTrue($audit['funnel']['reservation_not_demonstrated']);
+        $this->assertFalse($audit['funnel']['fulfillment_contribution']);
+        $this->assertSame('reservation_not_demonstrated', $audit['funnel']['fulfillment_exclusion_reason']);
+    }
+
+    public function test_ratios_del_funnel_devuelven_null_con_denominadores_cero(): void
+    {
+        Cache::flush();
+        $this->commercial('005-funnel-zero', 'Comercial sin actividad');
+        $this->snapshot('005-funnel-zero', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('items.0.lead_to_reservation_pct', null)
+            ->assertJsonPath('items.0.opportunity_to_reservation_pct', null)
+            ->assertJsonPath('items.0.reservation_to_sale_pct', null)
+            ->assertJsonPath('items.0.reservation_drop_pct', null)
+            ->assertJsonPath('items.0.sale_drop_pct', null);
+    }
+
+    public function test_duplicado_reserva_viva_y_caida_excluye_clasificacion_ambigua(): void
+    {
+        Cache::flush();
+        $this->commercial('005-conflict-reservation', 'Conflicto reserva');
+        $this->snapshot('005-conflict-reservation', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        foreach ([['006-live', 'Reserva'], ['006-lost', 'Cerrada Perdida']] as [$id, $stage]) {
+            $this->opportunity($id, ['owner_id' => '005-conflict-reservation', 'owner_name' => 'Conflicto reserva', 'reservation' => true, 'reservation_date' => '2026-08-10', 'stage_name' => $stage, 'vehicle_interest_id' => '01t-conflict-reservation']);
+        }
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')->assertOk()
+            ->assertJsonPath('items.0.commercial_id', null)->assertJsonPath('items.0.reservations_total', 1)
+            ->assertJsonPath('items.0.reservations_active', 0)->assertJsonPath('items.0.reservations_dropped', 0)
+            ->assertJsonPath('items.0.reservations_valid_for_objective', 0)->assertJsonPath('data_quality.duplicate_conflict_groups', 1);
+    }
+
+    public function test_ventas_caidas_duplicadas_no_duplican_kpi_denominador_ni_calidad(): void
+    {
+        Cache::flush();
+        foreach (['006-drop-a', '006-drop-b'] as $id) {
+            $this->opportunity($id, ['owner_id' => '005-missing', 'owner_name' => 'No resoluble', 'created_date' => '2025-01-01', 'cv_signed' => true, 'cv_signed_date' => '2026-08-10', 'stage_name' => 'Cerrada Perdida', 'vehicle_interest_id' => '01t-drop']);
+        }
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')->assertOk()
+            ->assertJsonPath('items.0.sales_dropped', 1)->assertJsonPath('items.0.sales_signed_reference', 1)
+            ->assertJsonPath('data_quality.unresolved_attribution_events', 2);
+    }
+
+    public function test_duplicado_venta_valida_y_caida_excluye_clasificacion_ambigua(): void
+    {
+        Cache::flush();
+        $this->commercial('005-conflict-sale', 'Conflicto venta');
+        $this->snapshot('005-conflict-sale', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        foreach ([['006-sale-live', 'Contrato'], ['006-sale-lost', 'Cerrada Perdida']] as [$id, $stage]) {
+            $this->opportunity($id, ['owner_id' => '005-conflict-sale', 'owner_name' => 'Conflicto venta', 'created_date' => '2025-01-01', 'cv_signed' => true, 'cv_signed_date' => '2026-08-10', 'stage_name' => $stage, 'vehicle_interest_id' => '01t-conflict-sale']);
+        }
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')->assertOk()
+            ->assertJsonPath('items.0.commercial_id', null)->assertJsonPath('items.0.sales', 0)
+            ->assertJsonPath('items.0.sales_dropped', 0)->assertJsonPath('items.0.sales_signed_reference', 1)
+            ->assertJsonPath('data_quality.duplicate_conflict_groups', 1);
+    }
+
+    public function test_venta_caida_no_resoluble_cuenta_calidad_una_vez(): void
+    {
+        Cache::flush();
+        $this->opportunity('006-drop-unresolved', ['owner_id' => '005-missing', 'owner_name' => 'No resoluble', 'created_date' => '2025-01-01', 'cv_signed' => true, 'cv_signed_date' => '2026-08-10', 'stage_name' => 'Cerrada Perdida', 'vehicle_interest_id' => '01t-drop-unresolved']);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')->assertOk()
+            ->assertJsonPath('items.0.sales_dropped', 1)->assertJsonPath('items.0.sales_signed_reference', 1)
+            ->assertJsonPath('data_quality.unresolved_attribution_events', 1);
+    }
+
+    public function test_venta_caida_no_certificable_cuenta_calidad_una_vez(): void
+    {
+        Cache::flush();
+        $this->commercial('005-drop-uncertified', 'Venta no certificable');
+        $this->opportunity('006-drop-uncertified', ['owner_id' => '005-drop-uncertified', 'owner_name' => 'Venta no certificable', 'created_date' => '2025-01-01', 'cv_signed' => true, 'cv_signed_date' => '2026-08-10', 'stage_name' => 'Cerrada Perdida', 'vehicle_interest_id' => '01t-drop-uncertified']);
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')->assertOk()
+            ->assertJsonPath('items.0.sales_dropped', 1)->assertJsonPath('items.0.sales_signed_reference', 1)
+            ->assertJsonPath('data_quality.uncertified_historical_events', 1);
+    }
+
+    public function test_ventas_caidas_duplicadas_con_conflicto_atribucion_reportan_un_solo_grupo(): void
+    {
+        Cache::flush();
+        $this->commercial('005-drop-conflict-a', 'Venta caída A');
+        $this->commercial('005-drop-conflict-b', 'Venta caída B');
+        $this->snapshot('005-drop-conflict-a', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        $this->snapshot('005-drop-conflict-b', 'Murcia', 'Zona Levante', '2026-05-01');
+        foreach ([['006-drop-conflict-a', '005-drop-conflict-a', 'Venta caída A'], ['006-drop-conflict-b', '005-drop-conflict-b', 'Venta caída B']] as [$id, $ownerId, $ownerName]) {
+            $this->opportunity($id, ['owner_id' => $ownerId, 'owner_name' => $ownerName, 'created_date' => '2025-01-01', 'cv_signed' => true, 'cv_signed_date' => '2026-08-10', 'stage_name' => 'Cerrada Perdida', 'vehicle_interest_id' => '01t-drop-conflict']);
+        }
+
+        $payload = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')->assertOk()->json();
+        $incident = collect($payload['items'])->firstWhere('commercial_id', null);
+
+        $this->assertSame(1, $incident['sales_dropped']);
+        $this->assertSame(1, $incident['sales_signed_reference']);
+        $this->assertSame(1, $payload['data_quality']['duplicate_conflict_groups']);
+        $this->assertSame(0, $payload['data_quality']['unresolved_attribution_events']);
+        $this->assertSame(0, $payload['data_quality']['uncertified_historical_events']);
+    }
+
+    public function test_conflicto_de_firma_con_reserva_demostrada_no_cuenta_para_cumplimiento(): void
+    {
+        Cache::flush();
+        $this->commercial('005-conflict-sale-reservation', 'Conflicto firma');
+        $this->snapshot('005-conflict-sale-reservation', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        foreach ([['006-sale-res-live', 'Contrato'], ['006-sale-res-lost', 'Cerrada Perdida']] as [$id, $stage]) {
+            $this->opportunity($id, ['owner_id' => '005-conflict-sale-reservation', 'owner_name' => 'Conflicto firma', 'created_date' => '2025-01-01', 'reservation' => true, 'reservation_date' => '2026-08-05', 'cv_signed' => true, 'cv_signed_date' => '2026-08-10', 'stage_name' => $stage, 'vehicle_interest_id' => '01t-conflict-sale-reservation']);
+        }
+
+        $payload = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')->assertOk()->json();
+        $incident = collect($payload['items'])->firstWhere('commercial_id', null);
+
+        $this->assertSame(1, $incident['reservations_total']);
+        $this->assertSame(0, $incident['reservations_valid_for_objective']);
+        $this->assertSame(0, $incident['reservations_active']);
+        $this->assertSame(0, $incident['reservations_dropped']);
+        $this->assertSame(0, $incident['sales']);
+        $this->assertSame(0, $incident['sales_dropped']);
+        $this->assertSame(1, $incident['sales_signed_reference']);
+        $this->assertSame(1, $payload['data_quality']['duplicate_conflict_groups']);
+    }
+
+    public function test_conflicto_de_firma_fuera_del_mes_cv_invalida_reserva_del_mes(): void
+    {
+        Cache::flush();
+        $this->commercial('005-cross-month-conflict', 'Conflicto entre meses');
+        $this->snapshot('005-cross-month-conflict', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        foreach ([['006-cross-month-live', 'Contrato'], ['006-cross-month-lost', 'Cerrada Perdida']] as [$id, $stage]) {
+            $this->opportunity($id, ['owner_id' => '005-cross-month-conflict', 'owner_name' => 'Conflicto entre meses', 'created_date' => '2025-01-01', 'reservation' => true, 'reservation_date' => '2026-08-05', 'cv_signed' => true, 'cv_signed_date' => '2026-09-05', 'stage_name' => $stage, 'vehicle_interest_id' => '01t-cross-month-conflict']);
+        }
+
+        $payload = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')->assertOk()->json();
+        $incident = collect($payload['items'])->firstWhere('commercial_id', null);
+
+        $this->assertSame(1, $incident['reservations_total']);
+        $this->assertSame(0, $incident['reservations_valid_for_objective']);
+        $this->assertSame(0, $incident['reservations_active']);
+        $this->assertSame(0, $incident['reservations_dropped']);
+        $this->assertSame(0, $incident['sales']);
+        $this->assertSame(0, $incident['sales_dropped']);
+        $this->assertSame(1, $incident['sales_signed_reference']);
+        $this->assertSame(1, $payload['data_quality']['duplicate_conflict_groups']);
+    }
+
+    public function test_auditoria_cross_month_excluye_venta_caida_con_conflicto_de_firma(): void
+    {
+        Cache::flush();
+        $this->commercial('005-audit-cross-month-conflict', 'Auditoría conflicto entre meses');
+        $this->snapshot('005-audit-cross-month-conflict', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        foreach ([['006-audit-cross-month-live', 'Contrato'], ['006-audit-cross-month-lost', 'Cerrada Perdida']] as [$id, $stage]) {
+            $this->opportunity($id, ['owner_id' => '005-audit-cross-month-conflict', 'owner_name' => 'Auditoría conflicto entre meses', 'created_date' => '2025-01-01', 'reservation' => true, 'reservation_date' => '2026-08-05', 'cv_signed' => true, 'cv_signed_date' => '2026-09-05', 'stage_name' => $stage, 'vehicle_interest_id' => '01t-audit-cross-month-conflict']);
+        }
+
+        $audit = collect($this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')->assertOk()->json('items'));
+        $droppedSale = $audit->firstWhere('event_type', 'sale_dropped');
+        $reservations = $audit->where('event_type', 'reservation');
+
+        $this->assertFalse($droppedSale['counted_in_metric']);
+        $this->assertSame('data_quality_incident', $droppedSale['metric_attribution']);
+        $this->assertTrue($droppedSale['classification_conflict']);
+        $this->assertFalse($droppedSale['funnel']['sales_dropped']);
+        $this->assertFalse($droppedSale['funnel']['fulfillment_contribution']);
+        $this->assertSame('classification_conflict', $droppedSale['funnel']['fulfillment_exclusion_reason']);
+        $this->assertCount(2, $reservations);
+        $this->assertSame(1, $reservations->where('counted_in_metric', true)->count());
+        $this->assertTrue($reservations->every(fn (array $row): bool => $row['classification_conflict']));
+    }
+
+    public function test_conflicto_de_firma_sin_reserva_no_deja_venta_auditable_contada(): void
+    {
+        Cache::flush();
+        $this->commercial('005-audit-sale-no-reservation', 'Auditoría venta sin reserva');
+        $this->snapshot('005-audit-sale-no-reservation', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        foreach ([['006-audit-sale-no-res-live', 'Contrato'], ['006-audit-sale-no-res-lost', 'Cerrada Perdida']] as [$id, $stage]) {
+            $this->opportunity($id, ['owner_id' => '005-audit-sale-no-reservation', 'owner_name' => 'Auditoría venta sin reserva', 'created_date' => '2025-01-01', 'cv_signed' => true, 'cv_signed_date' => '2026-08-10', 'stage_name' => $stage, 'vehicle_interest_id' => '01t-audit-sale-no-reservation']);
+        }
+
+        $payload = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')->assertOk()->json();
+        $incident = collect($payload['items'])->firstWhere('commercial_id', null);
+        $audit = collect($this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')->assertOk()->json('items'))
+            ->filter(fn (array $row): bool => in_array($row['event_type'], ['sale', 'sale_dropped'], true));
+
+        $this->assertSame(0, $incident['sales']);
+        $this->assertSame(0, $incident['sales_dropped']);
+        $this->assertSame(1, $incident['sales_signed_reference']);
+        $this->assertCount(2, $audit);
+        $this->assertTrue($audit->every(fn (array $row): bool => ! $row['counted_in_metric']));
+        $this->assertTrue($audit->every(fn (array $row): bool => $row['classification_conflict']));
+        $this->assertTrue($audit->every(fn (array $row): bool => $row['metric_attribution'] === 'data_quality_incident'));
+        $this->assertTrue($audit->every(fn (array $row): bool => ! $row['funnel']['sales_valid'] && ! $row['funnel']['sales_dropped']));
+    }
+
+    public function test_conflicto_de_firma_no_colapsa_opportunities_ni_reservas(): void
+    {
+        Cache::flush();
+        $this->commercial('005-audit-opportunity-conflict', 'Auditoría opportunity');
+        $this->snapshot('005-audit-opportunity-conflict', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        foreach ([['006-audit-opportunity-live', 'Contrato'], ['006-audit-opportunity-lost', 'Cerrada Perdida']] as [$id, $stage]) {
+            $this->opportunity($id, ['owner_id' => '005-audit-opportunity-conflict', 'owner_name' => 'Auditoría opportunity', 'created_date' => '2026-08-01', 'reservation' => true, 'reservation_date' => '2026-08-05', 'cv_signed' => true, 'cv_signed_date' => '2026-08-10', 'stage_name' => $stage, 'vehicle_interest_id' => '01t-audit-opportunity-conflict']);
+        }
+
+        $audit = collect($this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')->assertOk()->json('items'));
+        $opportunities = $audit->where('event_type', 'opportunity');
+        $reservations = $audit->where('event_type', 'reservation');
+        $sales = $audit->filter(fn (array $row): bool => in_array($row['event_type'], ['sale', 'sale_dropped'], true));
+
+        $this->assertCount(2, $opportunities);
+        $this->assertSame(2, $opportunities->where('counted_in_metric', true)->count());
+        $this->assertCount(2, $reservations);
+        $this->assertSame(1, $reservations->where('counted_in_metric', true)->count());
+        $this->assertTrue($reservations->every(fn (array $row): bool => $row['classification_conflict']));
+        $this->assertTrue($reservations->every(fn (array $row): bool => ! $row['funnel']['reservations_active'] && ! $row['funnel']['reservations_dropped'] && ! $row['funnel']['reservations_valid_for_objective'] && ! $row['funnel']['fulfillment_contribution']));
+        $this->assertCount(2, $sales);
+        $this->assertTrue($sales->every(fn (array $row): bool => ! $row['counted_in_metric'] && $row['classification_conflict'] && $row['metric_attribution'] === 'data_quality_incident'));
+    }
+
+    public function test_record_type_excluido_no_contamina_conflicto_de_clasificacion(): void
+    {
+        Cache::flush();
+        $this->commercial('005-audit-record-type', 'Auditoría RecordType');
+        $this->snapshot('005-audit-record-type', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        $this->opportunity('006-audit-record-type-sale', ['owner_id' => '005-audit-record-type', 'owner_name' => 'Auditoría RecordType', 'record_type_name' => 'Venta', 'reservation' => true, 'reservation_date' => '2026-08-05', 'cv_signed' => true, 'cv_signed_date' => '2026-08-10', 'stage_name' => 'Contrato', 'vehicle_interest_id' => '01t-audit-record-type']);
+        $this->opportunity('006-audit-record-type-excluded', ['owner_id' => '005-audit-record-type', 'owner_name' => 'Auditoría RecordType', 'record_type_name' => 'Tasación', 'reservation' => true, 'reservation_date' => '2026-08-05', 'cv_signed' => true, 'cv_signed_date' => '2026-08-10', 'stage_name' => 'Cerrada Perdida', 'vehicle_interest_id' => '01t-audit-record-type']);
+
+        $payload = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')->assertOk()->json();
+        $commercial = collect($payload['items'])->firstWhere('commercial_id', '005-audit-record-type');
+        $audit = collect($this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')->assertOk()->json('items'));
+        $eligibleSale = $audit->first(fn (array $row): bool => $row['opportunity_id'] === '006-audit-record-type-sale' && $row['event_type'] === 'sale');
+        $excluded = $audit->where('opportunity_id', '006-audit-record-type-excluded');
+
+        $this->assertSame(1, $commercial['reservations_total']);
+        $this->assertSame(1, $commercial['reservations_valid_for_objective']);
+        $this->assertSame(1, $commercial['sales']);
+        $this->assertSame(0, $commercial['sales_dropped']);
+        $this->assertTrue($eligibleSale['counted_in_metric']);
+        $this->assertFalse($eligibleSale['classification_conflict'] ?? false);
+        $this->assertTrue($excluded->isNotEmpty());
+        $this->assertTrue($excluded->every(fn (array $row): bool => ! $row['counted_in_metric'] && $row['exclusion_reason'] === 'record_type_excluded'));
+        $this->assertTrue($excluded->every(fn (array $row): bool => ! ($row['classification_conflict'] ?? false)));
+    }
+
+    public function test_auditoria_marca_conflicto_de_clasificacion_de_reserva_viva_y_caida(): void
+    {
+        Cache::flush();
+        $this->commercial('005-audit-classification-reservation', 'Auditoría reserva');
+        $this->snapshot('005-audit-classification-reservation', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        foreach ([['006-audit-res-live', 'Reserva'], ['006-audit-res-lost', 'Cerrada Perdida']] as [$id, $stage]) {
+            $this->opportunity($id, ['owner_id' => '005-audit-classification-reservation', 'owner_name' => 'Auditoría reserva', 'reservation' => true, 'reservation_date' => '2026-08-05', 'stage_name' => $stage, 'vehicle_interest_id' => '01t-audit-classification-reservation']);
+        }
+
+        $audit = collect($this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')->assertOk()->json('items'))
+            ->where('event_type', 'reservation')->values();
+        $this->assertCount(2, $audit);
+        $this->assertSame(1, $audit->where('counted_in_metric', true)->count());
+        $this->assertTrue($audit->every(fn (array $row): bool => $row['classification_conflict']));
+        $this->assertTrue($audit->every(fn (array $row): bool => $row['metric_attribution'] === 'data_quality_incident'));
+        $this->assertTrue($audit->every(fn (array $row): bool => $row['funnel']['classification_conflict']));
+        $this->assertTrue($audit->every(fn (array $row): bool => ! $row['funnel']['reservations_active']));
+    }
+
+    public function test_auditoria_marca_conflicto_de_clasificacion_de_venta_con_reserva(): void
+    {
+        Cache::flush();
+        $this->commercial('005-audit-classification-sale', 'Auditoría venta');
+        $this->snapshot('005-audit-classification-sale', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        foreach ([['006-audit-sale-live', 'Contrato'], ['006-audit-sale-lost', 'Cerrada Perdida']] as [$id, $stage]) {
+            $this->opportunity($id, ['owner_id' => '005-audit-classification-sale', 'owner_name' => 'Auditoría venta', 'created_date' => '2025-01-01', 'reservation' => true, 'reservation_date' => '2026-08-05', 'cv_signed' => true, 'cv_signed_date' => '2026-08-10', 'stage_name' => $stage, 'vehicle_interest_id' => '01t-audit-classification-sale']);
+        }
+
+        $audit = collect($this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')->assertOk()->json('items'))
+            ->filter(fn (array $row): bool => in_array($row['event_type'], ['sale', 'sale_dropped'], true))->values();
+        $this->assertCount(2, $audit);
+        $this->assertSame(0, $audit->where('counted_in_metric', true)->count());
+        $this->assertTrue($audit->every(fn (array $row): bool => $row['classification_conflict']));
+        $this->assertTrue($audit->every(fn (array $row): bool => $row['metric_attribution'] === 'data_quality_incident'));
+        $this->assertTrue($audit->every(fn (array $row): bool => $row['funnel']['classification_conflict']));
+        $this->assertTrue($audit->every(fn (array $row): bool => ! $row['funnel']['sales_valid'] && ! $row['funnel']['sales_dropped']));
     }
 
     private function commercial(string $id, string $name): void

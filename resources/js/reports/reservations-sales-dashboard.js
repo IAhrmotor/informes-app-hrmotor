@@ -4,7 +4,7 @@ let reservationsReloadController = null;
 let latestReservationsReloadRequestId = 0;
 let performanceReloadController = null;
 let latestPerformanceReloadRequestId = 0;
-const performanceColumnsStorageKey = 'reservationsSalesCommercialPerformanceColumnsV1';
+const performanceColumnsStorageKey = 'reservationsSalesCommercialPerformanceColumnsV2';
 const performanceColumnDefinitions = [
     { key: 'ranking', label: 'Ranking' },
     { key: 'traffic_light', label: 'Semáforo', alwaysVisible: true },
@@ -13,18 +13,22 @@ const performanceColumnDefinitions = [
     { key: 'zone', label: 'Zona' },
     { key: 'leads', label: 'Leads', defaultVisible: true },
     { key: 'opportunities', label: 'Oportunidades', defaultVisible: true },
-    { key: 'reservations_total', label: 'Reservas', defaultVisible: true },
+    { key: 'reservations_total', label: 'Reservas totales', defaultVisible: true },
     { key: 'team_average_reservations', label: 'Media equipo', defaultVisible: false },
     { key: 'team_reservations_deviation', label: 'Desviación reservas', defaultVisible: false },
-    { key: 'reservations_active', label: 'Activas', defaultVisible: true },
+    { key: 'reservations_active', label: 'Reservas vivas', defaultVisible: true },
+    { key: 'reservations_dropped', label: 'Reservas caídas', defaultVisible: true },
     { key: 'objective', label: 'Objetivo' },
     { key: 'fulfillment_pct', label: 'Cumplimiento', defaultVisible: true },
     { key: 'lead_to_reservation_pct', label: 'Lead → Reserva' },
     { key: 'lead_to_reservation_vs_team', label: 'Lead → Reserva vs equipo', defaultVisible: false },
     { key: 'opportunity_to_reservation_pct', label: 'Oportunidad → Reserva' },
     { key: 'opportunity_to_reservation_vs_team', label: 'Oportunidad → Reserva vs equipo', defaultVisible: false },
-    { key: 'sales', label: 'Ventas', defaultVisible: true },
+    { key: 'sales', label: 'Ventas válidas', defaultVisible: true },
+    { key: 'sales_dropped', label: 'Ventas caídas', defaultVisible: true },
     { key: 'reservation_to_sale_pct', label: 'Reserva → Venta' },
+    { key: 'reservation_drop_pct', label: '% Reserva caída' },
+    { key: 'sale_drop_pct', label: '% Venta caída' },
     { key: 'reservation_to_sale_vs_team', label: 'Reserva → Venta vs equipo', defaultVisible: false },
     { key: 'cancellations', label: 'Cancelaciones' },
     { key: 'cancellation_pct', label: '% cancelación' },
@@ -262,7 +266,7 @@ function renderCommercialPerformanceAudit(data) {
             <table class="performance-audit-table">
                 <thead><tr>
                     <th>Evento</th><th>Fecha</th><th>ID Lead</th><th>ID oportunidad</th>
-                    <th>Responsable</th><th>Delegación / cobertura</th><th>Contado</th><th>Incidencia / exclusión</th>
+                    <th>Responsable</th><th>Delegación / cobertura</th><th>Funnel / cumplimiento</th><th>Contado</th><th>Incidencia / exclusión</th>
                 </tr></thead>
                 <tbody id="performanceAuditRows"></tbody>
             </table>
@@ -271,7 +275,7 @@ function renderCommercialPerformanceAudit(data) {
     const root = document.getElementById('performanceAuditRows');
     const rows = data.items || [];
     if (!rows.length) {
-        root.innerHTML = '<tr><td colspan="8">No hay eventos auditables para el filtro.</td></tr>';
+        root.innerHTML = '<tr><td colspan="9">No hay eventos auditables para el filtro.</td></tr>';
         initPerformanceScrolls();
         refreshPerformanceScrolls();
         return;
@@ -282,10 +286,26 @@ function renderCommercialPerformanceAudit(data) {
         <td>${escapeHtml(row.lead_id || '-')}</td><td>${escapeHtml(row.opportunity_id || '-')}</td>
         <td><strong>${escapeHtml(row.commercial || '-')}</strong><br><small>${escapeHtml(row.commercial_id || '-')}</small></td>
         <td>${escapeHtml(row.delegation || '-')}<br><small>${escapeHtml(formatDelegationStatus(row.delegation_status, row.delegation_issue))}</small></td>
+        <td>${escapeHtml(formatFunnelAudit(row.funnel))}</td>
         <td>${row.counted_in_metric ? 'Sí' : 'No'}</td><td>${escapeHtml(row.exclusion_reason || row.deduplication_status || '-')}<br><small>${escapeHtml(row.metric_attribution || '-')}</small></td>
     </tr>`).join('');
     initPerformanceScrolls();
     refreshPerformanceScrolls();
+}
+
+function formatFunnelAudit(funnel = {}) {
+    const applies = funnel.reservations_total || funnel.reservations_active || funnel.reservations_dropped || funnel.sales_valid || funnel.sales_dropped || funnel.data_insufficient || funnel.classification_conflict;
+    if (!applies) return '-';
+    const labels = [
+        ['reservations_total', 'Reserva total'], ['reservations_active', 'Reserva viva'], ['reservations_dropped', 'Reserva caída'],
+        ['sales_valid', 'Venta válida'], ['sales_dropped', 'Venta caída'], ['classification_conflict', 'Conflicto de clasificación'],
+    ].filter(([key]) => funnel[key]).map(([, label]) => label);
+    if (Object.hasOwn(funnel, 'fulfillment_contribution')) labels.push(funnel.fulfillment_contribution ? 'Contribuye a cumplimiento' : 'No contribuye a cumplimiento');
+    const exclusionLabels = { reservation_not_demonstrated: 'Reserva no demostrada', reservation_dropped: 'Reserva caída', sale_dropped: 'Venta caída', classification_conflict: 'Conflicto de clasificación' };
+    if (funnel.reservation_not_demonstrated) labels.push('Reserva no demostrada');
+    if (funnel.fulfillment_exclusion_reason && !labels.includes(exclusionLabels[funnel.fulfillment_exclusion_reason])) labels.push(exclusionLabels[funnel.fulfillment_exclusion_reason] || 'No aplica');
+    if (funnel.data_insufficient) labels.push('Datos insuficientes: sin fecha de reserva ni fecha de CV');
+    return [...new Set(labels)].join(' · ');
 }
 
 function formatDelegationStatus(status, issue) {
@@ -344,7 +364,10 @@ function renderPerformanceKpis(summary) {
         ['Leads', formatNumber(summary.leads)],
         ['Oportunidades', formatNumber(summary.opportunities)],
         ['Reservas totales', formatNumber(summary.reservations_total)],
-        ['Ventas', formatNumber(summary.sales)],
+        ['Reservas vivas', formatNumber(summary.reservations_active)],
+        ['Reservas caídas', formatNumber(summary.reservations_dropped)],
+        ['Ventas válidas', formatNumber(summary.sales)],
+        ['Ventas caídas', formatNumber(summary.sales_dropped)],
         ['Cumplimiento', formatPercent(summary.fulfillment_pct)],
         ['Margen total', formatCurrency(summary.margin_total)],
     ];
@@ -364,10 +387,10 @@ function renderPerformanceRows(rows) {
         <td class="num" data-column="ranking">${escapeHtml(row.ranking ?? '-')}</td>
         <td data-column="traffic_light">${performanceLight(row.traffic_light)}</td>
         <td data-column="commercial"><strong>${escapeHtml(row.commercial || '-')}</strong></td><td data-column="delegation">${escapeHtml(row.delegation || '-')}</td><td data-column="zone">${escapeHtml(row.zone || '-')}</td>
-        <td class="num" data-column="leads">${formatNumber(row.leads)}</td><td class="num" data-column="opportunities">${formatNumber(row.opportunities)}</td><td class="num" data-column="reservations_total">${formatNumber(row.reservations_total)}</td><td class="num" data-column="team_average_reservations">${formatTeamNumber(row.team_average_reservations)}</td><td class="num" data-column="team_reservations_deviation">${formatReservationsDeviation(row.team_reservations_deviation, row.team_reservations_deviation_pct)}</td><td class="num" data-column="reservations_active">${formatNumber(row.reservations_active)}</td>
+        <td class="num" data-column="leads">${formatNumber(row.leads)}</td><td class="num" data-column="opportunities">${formatNumber(row.opportunities)}</td><td class="num" data-column="reservations_total">${formatNumber(row.reservations_total)}</td><td class="num" data-column="team_average_reservations">${formatTeamNumber(row.team_average_reservations)}</td><td class="num" data-column="team_reservations_deviation">${formatReservationsDeviation(row.team_reservations_deviation, row.team_reservations_deviation_pct)}</td><td class="num" data-column="reservations_active">${formatNumber(row.reservations_active)}</td><td class="num" data-column="reservations_dropped">${formatNumber(row.reservations_dropped)}</td>
         <td class="num" data-column="objective">${formatNumber(row.objective)}</td><td class="num" data-column="fulfillment_pct">${formatPercent(row.fulfillment_pct)}</td>
-        <td class="num" data-column="lead_to_reservation_pct">${formatPercent(row.lead_to_reservation_pct)}</td><td class="num" data-column="lead_to_reservation_vs_team">${formatTeamRatioComparison(row.team_lead_to_reservation_pct, row.lead_to_reservation_vs_team_pp)}</td><td class="num" data-column="opportunity_to_reservation_pct">${formatPercent(row.opportunity_to_reservation_pct)}</td><td class="num" data-column="opportunity_to_reservation_vs_team">${formatTeamRatioComparison(row.team_opportunity_to_reservation_pct, row.opportunity_to_reservation_vs_team_pp)}</td>
-        <td class="num" data-column="sales">${formatNumber(row.sales)}</td><td class="num" data-column="reservation_to_sale_pct">${formatPercent(row.reservation_to_sale_pct)}</td><td class="num" data-column="reservation_to_sale_vs_team">${formatTeamRatioComparison(row.team_reservation_to_sale_pct, row.reservation_to_sale_vs_team_pp)}</td>
+        <td class="num" data-column="lead_to_reservation_pct">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="num" data-column="lead_to_reservation_vs_team">${formatTeamRatioComparison(row.team_lead_to_reservation_pct, row.lead_to_reservation_vs_team_pp)}</td><td class="num" data-column="opportunity_to_reservation_pct">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td><td class="num" data-column="opportunity_to_reservation_vs_team">${formatTeamRatioComparison(row.team_opportunity_to_reservation_pct, row.opportunity_to_reservation_vs_team_pp)}</td>
+        <td class="num" data-column="sales">${formatNumber(row.sales)}</td><td class="num" data-column="sales_dropped">${formatNumber(row.sales_dropped)}</td><td class="num" data-column="reservation_to_sale_pct">${formatAvailablePercent(row.reservation_to_sale_pct)}</td><td class="num" data-column="reservation_drop_pct">${formatAvailablePercent(row.reservation_drop_pct)}</td><td class="num" data-column="sale_drop_pct">${formatAvailablePercent(row.sale_drop_pct)}</td><td class="num" data-column="reservation_to_sale_vs_team">${formatTeamRatioComparison(row.team_reservation_to_sale_pct, row.reservation_to_sale_vs_team_pp)}</td>
         <td class="num" data-column="cancellations">${formatAvailableNumber(row.cancellations)}</td><td class="num" data-column="cancellation_pct">${formatAvailablePercent(row.cancellation_pct)}</td>
         <td class="num" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">${formatCurrency(row.margin_total)}</td>
         <td class="num" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">${formatCurrency(row.average_margin_per_sale)}</td>
@@ -379,9 +402,9 @@ function renderPerformanceEvolution(rows) {
     const root = document.getElementById('performanceEvolutionRows');
     root.innerHTML = rows.map((row) => `<tr>
         <td title="${escapeHtml(formatPerformanceMonth(row.month, true))}"><strong>${escapeHtml(formatPerformanceMonth(row.month))}</strong></td><td class="num">${formatNumber(row.leads)}</td><td class="num">${formatNumber(row.opportunities)}</td>
-        <td class="num">${formatNumber(row.reservations_total)}</td><td class="num">${formatNumber(row.reservations_active)}</td><td class="num">${formatNumber(row.sales)}</td><td class="num">${formatAvailableNumber(row.cancellations)}</td>
-        <td class="num">${formatPercent(row.fulfillment_pct)}</td><td class="num">${formatPercent(row.lead_to_reservation_pct)}</td><td class="num">${formatPercent(row.opportunity_to_reservation_pct)}</td>
-        <td class="num">${formatPercent(row.reservation_to_sale_pct)}</td><td class="num">${formatAvailablePercent(row.cancellation_pct)}</td><td class="num">${formatCurrency(row.margin_total)}</td><td class="num">${formatCurrency(row.average_margin_per_sale)}</td>
+        <td class="num">${formatNumber(row.reservations_total)}</td><td class="num">${formatNumber(row.reservations_active)}</td><td class="num">${formatNumber(row.reservations_dropped)}</td><td class="num">${formatNumber(row.sales)}</td><td class="num">${formatNumber(row.sales_dropped)}</td><td class="num">${formatAvailableNumber(row.cancellations)}</td>
+        <td class="num">${formatPercent(row.fulfillment_pct)}</td><td class="num">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="num">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td>
+        <td class="num">${formatAvailablePercent(row.reservation_to_sale_pct)}</td><td class="num">${formatAvailablePercent(row.reservation_drop_pct)}</td><td class="num">${formatAvailablePercent(row.sale_drop_pct)}</td><td class="num">${formatAvailablePercent(row.cancellation_pct)}</td><td class="num">${formatCurrency(row.margin_total)}</td><td class="num">${formatCurrency(row.average_margin_per_sale)}</td>
     </tr>`).join('');
 }
 

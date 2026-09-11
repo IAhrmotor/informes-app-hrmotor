@@ -284,7 +284,12 @@ class CommercialPerformanceDatasetService
     ): void {
         $reservationGroups = [];
         $activeReservationGroups = [];
+        $validReservationGroups = [];
+        $droppedReservationGroups = [];
         $saleGroups = [];
+        $droppedSaleGroups = [];
+        $signedSaleReferenceGroups = [];
+        $saleClassificationGroups = [];
 
         SalesforceOpportunity::query()
             ->whereIn('record_type_name', ['Venta', 'Cambio'])
@@ -307,7 +312,9 @@ class CommercialPerformanceDatasetService
             ])
             ->orderBy('id')
             ->chunkById(1000, function ($opportunities) use (
-                &$buckets, &$quality, &$reservationGroups, &$activeReservationGroups, &$saleGroups, $start, $end, $rosterContext
+                &$buckets, &$quality, &$reservationGroups, &$activeReservationGroups, &$validReservationGroups,
+                &$droppedReservationGroups, &$saleGroups, &$droppedSaleGroups, &$signedSaleReferenceGroups, &$saleClassificationGroups,
+                $start, $end, $rosterContext
             ): void {
                 foreach ($opportunities as $opportunity) {
                     if ($this->inRange($opportunity->created_date, $start, $end)) {
@@ -325,26 +332,103 @@ class CommercialPerformanceDatasetService
                         $event = $this->opportunityEvent($opportunity, $opportunity->reservation_date, $rosterContext, $quality);
                         $key = $this->eventKey($opportunity, $opportunity->reservation_date);
                         $reservationGroups[$key][] = $event;
-                        if (! $opportunity->cv_signed && strcasecmp((string) $opportunity->stage_name, 'Cerrada Perdida') !== 0) {
+                        if (! $this->isLost($opportunity)) {
+                            $validReservationGroups[$key][] = $event;
+                        }
+                        if (! $opportunity->cv_signed && ! $this->isLost($opportunity)) {
                             $activeReservationGroups[$key][] = $event;
+                        }
+                        if (! $opportunity->cv_signed && $this->isLost($opportunity)) {
+                            $droppedReservationGroups[$key][] = $event;
+                        }
+                        if ($opportunity->cv_signed && filled($opportunity->cv_signed_date)) {
+                            $saleClassificationGroups[$this->saleClassificationKey($opportunity)]['reservation_keys'][$key] = true;
                         }
                     }
 
+                    if ($opportunity->cv_signed && filled($opportunity->cv_signed_date)) {
+                        $classificationKey = $this->saleClassificationKey($opportunity);
+                        $saleClassificationGroups[$classificationKey][$this->isLost($opportunity) ? 'has_dropped_sale' : 'has_valid_sale'] = true;
+                    }
+
                     if ($opportunity->cv_signed
-                        && strcasecmp((string) $opportunity->stage_name, 'Cerrada Perdida') !== 0
+                        && ! $this->isLost($opportunity)
                         && $this->inRange($opportunity->cv_signed_date, $start, $end)) {
                         $event = $this->opportunityEvent($opportunity, $opportunity->cv_signed_date, $rosterContext, $quality);
                         $event['margin'] = $opportunity->informe_rentabilidad === null
                             ? null
                             : (float) $opportunity->informe_rentabilidad;
-                        $saleGroups[$this->eventKey($opportunity, $opportunity->cv_signed_date)][] = $event;
+                        $saleKey = $this->eventKey($opportunity, $opportunity->cv_signed_date);
+                        $saleGroups[$saleKey][] = $event;
+                        $saleClassificationGroups[$this->saleClassificationKey($opportunity)]['sale_keys'][$saleKey] = true;
+                    }
+
+                    if (! $opportunity->cv_signed) {
+                        continue;
+                    }
+
+                    $saleReferenceDate = $this->saleReferenceDate($opportunity);
+                    if ($saleReferenceDate === null || ! $this->inRange($saleReferenceDate, $start, $end)) {
+                        continue;
+                    }
+
+                    $event = $this->opportunityEvent($opportunity, $saleReferenceDate, $rosterContext, $quality, false);
+                    $key = $this->eventKey($opportunity, $saleReferenceDate);
+                    $signedSaleReferenceGroups[$key][] = $event;
+                    if (filled($opportunity->cv_signed_date)) {
+                        $saleClassificationGroups[$this->saleClassificationKey($opportunity)]['references'][$key] = true;
+                    }
+                    if ($this->isLost($opportunity)) {
+                        $droppedSaleGroups[$key][] = $this->opportunityEvent($opportunity, $saleReferenceDate, $rosterContext, $quality);
+                        if (filled($opportunity->cv_signed_date)) {
+                            $saleClassificationGroups[$this->saleClassificationKey($opportunity)]['dropped_sale_keys'][$key] = true;
+                        }
                     }
                 }
             });
 
+        foreach (array_keys($reservationGroups) as $key) {
+            $hasActive = isset($activeReservationGroups[$key]);
+            $hasDropped = isset($droppedReservationGroups[$key]);
+            $hasValid = isset($validReservationGroups[$key]);
+
+            if (($hasActive && $hasDropped) || ($hasValid && $hasDropped)) {
+                unset($activeReservationGroups[$key], $droppedReservationGroups[$key], $validReservationGroups[$key]);
+                $reservationGroups[$key] = $this->markClassificationConflict($reservationGroups[$key]);
+            }
+        }
+
+        foreach ($saleClassificationGroups as $classificationGroup) {
+            if (! isset($classificationGroup['has_valid_sale'], $classificationGroup['has_dropped_sale'])) {
+                continue;
+            }
+
+            foreach (array_keys($classificationGroup['sale_keys'] ?? []) as $key) {
+                unset($saleGroups[$key]);
+            }
+            foreach (array_keys($classificationGroup['dropped_sale_keys'] ?? []) as $key) {
+                unset($droppedSaleGroups[$key]);
+            }
+            $hasDemonstratedReservation = isset($classificationGroup['reservation_keys']);
+            foreach (array_keys($classificationGroup['reservation_keys'] ?? []) as $key) {
+                unset($activeReservationGroups[$key], $droppedReservationGroups[$key], $validReservationGroups[$key]);
+                $reservationGroups[$key] = $this->markClassificationConflict($reservationGroups[$key]);
+            }
+            foreach (array_keys($classificationGroup['references'] ?? []) as $key) {
+                $signedSaleReferenceGroups[$key] = $this->markClassificationConflict(
+                    $signedSaleReferenceGroups[$key],
+                    ! $hasDemonstratedReservation,
+                );
+            }
+        }
+
         $this->applyDeduplicatedGroups($buckets, $quality, $reservationGroups, 'reservations_total');
         $this->applyDeduplicatedGroups($buckets, $quality, $activeReservationGroups, 'reservations_active');
+        $this->applyDeduplicatedGroups($buckets, $quality, $validReservationGroups, 'reservations_valid_for_objective', false);
+        $this->applyDeduplicatedGroups($buckets, $quality, $droppedReservationGroups, 'reservations_dropped', false);
         $this->applyDeduplicatedGroups($buckets, $quality, $saleGroups, 'sales');
+        $this->applyDeduplicatedGroups($buckets, $quality, $droppedSaleGroups, 'sales_dropped');
+        $this->applyDeduplicatedGroups($buckets, $quality, $signedSaleReferenceGroups, 'sales_signed_reference', false);
     }
 
     private function aggregateCancellations(
@@ -405,7 +489,18 @@ class CommercialPerformanceDatasetService
         mixed $date,
         array $rosterContext,
         array &$quality,
+        bool $countQuality = true,
     ): array {
+        $ignoredQuality = [
+            'unresolved_attribution_events' => 0,
+            'uncertified_historical_events' => 0,
+        ];
+        if ($countQuality) {
+            $eventQuality = &$quality;
+        } else {
+            $eventQuality = &$ignoredQuality;
+        }
+
         return [
             'month' => $this->monthKey($date),
             'attribution' => $this->attribution(
@@ -413,7 +508,7 @@ class CommercialPerformanceDatasetService
                 $opportunity->owner_name,
                 $date,
                 $rosterContext,
-                $quality,
+                $eventQuality,
             ),
         ];
     }
@@ -423,16 +518,19 @@ class CommercialPerformanceDatasetService
         array &$quality,
         array $groups,
         string $metric,
+        bool $reportAttributionConflict = true,
     ): void {
         foreach ($groups as $events) {
             $month = (string) data_get($events, '0.month');
             $attributions = collect($events)->pluck('attribution');
             $signatures = $attributions->map(fn (array $item): string => $this->attributionSignature($item))->unique();
-            $attribution = $signatures->count() === 1
+            $classificationConflict = collect($events)->contains(fn (array $event): bool => (bool) ($event['classification_conflict'] ?? false));
+            $reportClassificationConflict = collect($events)->contains(fn (array $event): bool => (bool) ($event['report_classification_conflict'] ?? false));
+            $attribution = ! $classificationConflict && $signatures->count() === 1
                 ? $attributions->first()
                 : $this->monthlyRoster->incidentAttribution();
 
-            if ($signatures->count() !== 1 && $metric !== 'reservations_active') {
+            if ((($reportAttributionConflict && $signatures->count() !== 1) || $reportClassificationConflict) && $metric !== 'reservations_active') {
                 $quality['duplicate_conflict_groups']++;
             }
 
@@ -453,6 +551,16 @@ class CommercialPerformanceDatasetService
                 }
             }
         }
+    }
+
+    private function markClassificationConflict(array $events, bool $reportConflict = true): array
+    {
+        return array_map(function (array $event) use ($reportConflict): array {
+            $event['classification_conflict'] = true;
+            $event['report_classification_conflict'] = $reportConflict;
+
+            return $event;
+        }, $events);
     }
 
     private function attribution(
@@ -511,7 +619,11 @@ class CommercialPerformanceDatasetService
             'opportunities' => 0,
             'reservations_total' => 0,
             'reservations_active' => 0,
+            'reservations_valid_for_objective' => 0,
+            'reservations_dropped' => 0,
             'sales' => 0,
+            'sales_dropped' => 0,
+            'sales_signed_reference' => 0,
             'cancellations' => 0,
             'margin_total' => 0.0,
             'sales_with_margin' => 0,
@@ -523,7 +635,7 @@ class CommercialPerformanceDatasetService
     {
         $isCommercial = filled($bucket['commercial_id']);
         $objective = $isCommercial ? $target : null;
-        $fulfillment = $isCommercial ? $this->percentage($bucket['reservations_total'], $target) : null;
+        $fulfillment = $isCommercial ? $this->percentage($bucket['reservations_valid_for_objective'], $target) : null;
 
         return array_merge($bucket, [
             'cancellations' => $cancellationsAvailable ? $bucket['cancellations'] : null,
@@ -533,6 +645,8 @@ class CommercialPerformanceDatasetService
             'lead_to_reservation_pct' => $this->percentage($bucket['reservations_total'], $bucket['leads']),
             'opportunity_to_reservation_pct' => $this->percentage($bucket['reservations_total'], $bucket['opportunities']),
             'reservation_to_sale_pct' => $this->percentage($bucket['sales'], $bucket['reservations_total']),
+            'reservation_drop_pct' => $this->percentage($bucket['reservations_dropped'], $bucket['reservations_total']),
+            'sale_drop_pct' => $this->percentage($bucket['sales_dropped'], $bucket['sales_signed_reference']),
             'cancellation_pct' => $cancellationsAvailable
                 ? $this->percentage($bucket['cancellations'], $bucket['reservations_total'])
                 : null,
@@ -654,6 +768,7 @@ class CommercialPerformanceDatasetService
     private function evolutionRow(string $month, Collection $rows, bool $cancellationsAvailable): array
     {
         $reservations = (int) $rows->sum('reservations_total');
+        $validReservations = (int) $rows->sum('reservations_valid_for_objective');
         $objective = (int) $rows->sum(fn (array $row): int => is_numeric($row['objective']) ? (int) $row['objective'] : 0);
         $leads = (int) $rows->sum('leads');
         $opportunities = (int) $rows->sum('opportunities');
@@ -668,13 +783,19 @@ class CommercialPerformanceDatasetService
             'opportunities' => $opportunities,
             'reservations_total' => $reservations,
             'reservations_active' => (int) $rows->sum('reservations_active'),
+            'reservations_valid_for_objective' => $validReservations,
+            'reservations_dropped' => (int) $rows->sum('reservations_dropped'),
             'sales' => $sales,
+            'sales_dropped' => (int) $rows->sum('sales_dropped'),
+            'sales_signed_reference' => (int) $rows->sum('sales_signed_reference'),
             'cancellations' => $cancellations,
             'objective' => $objective,
-            'fulfillment_pct' => $this->percentage($reservations, $objective),
+            'fulfillment_pct' => $this->percentage($validReservations, $objective),
             'lead_to_reservation_pct' => $this->percentage($reservations, $leads),
             'opportunity_to_reservation_pct' => $this->percentage($reservations, $opportunities),
             'reservation_to_sale_pct' => $this->percentage($sales, $reservations),
+            'reservation_drop_pct' => $this->percentage((int) $rows->sum('reservations_dropped'), $reservations),
+            'sale_drop_pct' => $this->percentage((int) $rows->sum('sales_dropped'), (int) $rows->sum('sales_signed_reference')),
             'cancellation_pct' => $cancellationsAvailable
                 ? $this->percentage($cancellations, $reservations)
                 : null,
@@ -887,6 +1008,24 @@ class CommercialPerformanceDatasetService
     {
         return ($this->vehicleIdentity($opportunity) ?: 'opportunity:'.$opportunity?->salesforce_id)
             .'|'.CarbonImmutable::parse($date)->toDateString();
+    }
+
+    private function isLost(SalesforceOpportunity $opportunity): bool
+    {
+        return strcasecmp(trim((string) $opportunity->stage_name), 'Cerrada Perdida') === 0;
+    }
+
+    private function saleReferenceDate(SalesforceOpportunity $opportunity): mixed
+    {
+        return filled($opportunity->reservation_date)
+            ? $opportunity->reservation_date
+            : (filled($opportunity->cv_signed_date) ? $opportunity->cv_signed_date : null);
+    }
+
+    private function saleClassificationKey(SalesforceOpportunity $opportunity): string
+    {
+        return ($this->vehicleIdentity($opportunity) ?: 'opportunity:'.$opportunity->salesforce_id)
+            .'|'.CarbonImmutable::parse($opportunity->cv_signed_date)->toDateString();
     }
 
     private function vehicleIdentity(?SalesforceOpportunity $opportunity): ?string
