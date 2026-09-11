@@ -1,5 +1,42 @@
 # Handoff para agentes
 
+## Semántica de funnel en Rendimiento comercial (2026-09-10)
+
+- Se distinguen Reservas totales, Reservas vivas, Ventas válidas, Reservas
+  caídas y Ventas caídas. La caída depende del snapshot actual de Opportunity,
+  es excluyente (Venta caída prevalece) y conserva deduplicación por
+  vehículo+fecha y la exclusión lifecycle de Opportunities eliminadas.
+- El cumplimiento y semáforo usan `reservations_valid_for_objective`: reservas
+  con fecha en el mes cuya Opportunity no está actualmente perdida. Las ventas
+  válidas siguen imputándose a su fecha de firma; por ello no se suman para
+  reconstruir cumplimiento.
+- Venta caída usa `reservation_date` como ancla y, si no existe, `cv_signed_date`.
+  La auditoría expone la clasificación, contribución a cumplimiento y el caso
+  `reservation_not_demonstrated`, sin consultar Salesforce ni crear tablas.
+- Validado finalmente: `ReservationsSalesCommercialPerformanceTest`, 57 passed
+  y 509 assertions; regresiones de rendimiento, presencia/reconciliación
+  lifecycle y CampaignCommands, 98 passed y 739 assertions. Pint focal sobre
+  `CommercialPerformanceDatasetService` y
+  `CommercialPerformanceAuditService`, correcto. `composer audit --locked
+  --no-dev` correcto y sin advisories. El build Vite final fue correcto. La suite completa sigue pendiente
+  de CI por el límite PHP local de 120 s dentro de Laravel/Composer antes de
+  emitir resultados; no se atribuye a una regresión funcional de esta rama.
+- Política final de duplicados: si un grupo lógico tiene clasificación de funnel
+  contradictoria se atribuye a Incidencia de datos; solo conserva la métrica
+  demostrable y no aplica precedencia arbitraria. Para firmas, el conflicto se
+  identifica por vehículo + `cv_signed_date`, mientras `sales_dropped` conserva
+  su imputación por `reservation_date` cuando existe. Las métricas derivadas,
+  como `sales_signed_reference`, no vuelven a incrementar incidencias ni conflictos.
+  Un conflicto firmado válido/perdido invalida también la reserva demostrada
+  para cumplimiento, incluso si `cv_signed_date` cae fuera del mes consultado.
+  La auditoría propaga esa misma identidad de firma a las filas emitidas por
+  reserva o por Venta caída, para no contar una caída cross-month que el dataset
+  ya excluyó por conflicto.
+- La clave de firma solo propaga el conflicto: no sustituye la deduplicación por
+  `event_type` y fecha. Las Opportunities conservan su propia contabilización,
+  las Reservas mantienen su representante demostrable y las categorías de venta
+  conflictivas quedan excluidas.
+
 ## Rendimiento de Rendimiento comercial (2026-09-08)
 
 - La base pesada de `CommercialPerformanceDatasetService` se cachea por mes y

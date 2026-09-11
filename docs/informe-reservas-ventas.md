@@ -191,19 +191,32 @@ Cada hito pertenece a su propio mes natural `Europe/Madrid`:
 | Leads | Venta, Venta con cambio, Lead y Ayvens; `fecha_asignacion` | recuento por comercial efectivo consolidado |
 | Oportunidades | `record_type_name IN (Venta, Cambio)`; `created_date` | recuento de Opportunity |
 | Reservas totales | reserva true; `reservation_date` | evento deduplicado por vehículo+fecha |
-| Reservas activas | reserva del mes, CV false y no Cerrada Perdida | evento deduplicado por vehículo+fecha |
-| Ventas | CV true, no Cerrada Perdida; `cv_signed_date` | evento deduplicado por vehículo+fecha |
+| Reservas vivas | reserva del mes, CV false y no Cerrada Perdida | evento deduplicado por vehículo+fecha |
+| Reservas caídas | reserva del mes, CV false y Cerrada Perdida | evento deduplicado por vehículo+fecha; se imputa a `reservation_date` |
+| Ventas válidas | CV true, no Cerrada Perdida; `cv_signed_date` | evento deduplicado por vehículo+fecha |
+| Ventas caídas | CV true y Cerrada Perdida | evento deduplicado por vehículo+fecha; se imputa a `reservation_date` o, si falta, a `cv_signed_date` |
 | Cancelaciones | reserva previa y transición demostrable a Cerrada Perdida | `salesforce_opportunity_stage_transitions.transitioned_at` |
 | Margen | ventas del mes; `informe_rentabilidad` | suma solo valores informados |
 
 - Lead → Reserva = reservas totales / leads asignados × 100.
 - Oportunidad → Reserva = reservas totales / oportunidades creadas × 100.
 - Reserva → Venta = ventas firmadas / reservas totales × 100.
+- % Reserva caída = reservas caídas / reservas totales × 100.
+- % Venta caída = ventas caídas / Opportunities con CV firmado, usando para ambos
+  `reservation_date` o, si falta, `cv_signed_date`.
 - Cancelación = transiciones verificadas / reservas totales × 100.
-- Cumplimiento = reservas totales / objetivo mensual × 100.
+- Cumplimiento = reservas válidas para objetivo / objetivo mensual × 100. Una
+  reserva válida para objetivo es una reserva del mes que no está actualmente
+  en `Cerrada Perdida`; se clasifica sobre la Opportunity original, no sumando
+  reservas vivas y ventas de meses distintos.
 - Margen medio = margen informado / ventas con margen informado.
 
-Un denominador cero devuelve `NULL`/N/A, nunca infinito ni 0 % ficticio. Como
+Una Venta caída con reserva no demostrada se imputa a la fecha de CV si existe,
+no cuenta como reserva ni cumplimiento y queda identificada así en la auditoría.
+Si no existe ninguna de las fechas de anclaje, no se inventa un mes. Las
+cancelaciones continúan siendo transiciones históricas y no sustituyen ninguna
+de las métricas de caída. Backend: null. Frontend de Rendimiento comercial:
+N/D. Un denominador cero nunca produce infinito ni 0 % ficticio. Como
 son ratios de actividad y no de cohorte, pueden superar el 100 %. El objetivo
 default inicial es 18; cada mes consultado se materializa inmediatamente en
 `commercial_performance_monthly_targets`, aunque no haya sido editado, para que

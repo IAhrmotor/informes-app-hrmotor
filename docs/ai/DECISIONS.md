@@ -1,5 +1,21 @@
 # Decisiones técnicas
 
+## 2026-09-10 - Semántica de funnel en Rendimiento comercial
+
+- Las caídas de Reserva/Venta se derivan del estado actual local de la
+  Opportunity (`Cerrada Perdida`), no de OpportunityHistory. Reserva caída se
+  ancla a `reservation_date`; Venta caída se ancla a esa fecha o, si no existe,
+  a `cv_signed_date`.
+- El cumplimiento usa solo reservas del mes cuya Opportunity no está perdida.
+  Se conserva el cálculo a nivel de reserva original para no mezclar ventas
+  firmadas de otros meses. Las cancelaciones históricas siguen separadas para
+  cobertura y auditoría.
+- Ante duplicados con clasificación contradictoria no existe precedencia por
+  estado ni por orden de llegada: el grupo se atribuye a Incidencia de datos y
+  solo conserva el hecho demostrable. El conflicto de firma usa vehículo +
+  `cv_signed_date`; no altera la imputación de Venta caída por
+  `reservation_date`. Las métricas derivadas no duplican incidencias.
+
 ## 2026-09-08 - Base cacheada para Rendimiento comercial
 
 La construcción de cuatro meses de Rendimiento comercial se separa de los

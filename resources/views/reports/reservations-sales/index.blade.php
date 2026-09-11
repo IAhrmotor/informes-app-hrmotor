@@ -311,10 +311,10 @@
                     <table class="performance-table" id="performanceTable">
                         <thead><tr>
                             <th data-column="ranking">Ranking</th><th data-column="traffic_light">Semáforo</th><th data-column="commercial">Comercial</th><th data-column="delegation">Delegación</th><th data-column="zone">Zona</th>
-                            <th class="num" data-column="leads">Leads</th><th class="num" data-column="opportunities">Oportunidades</th><th class="num" data-column="reservations_total">Reservas</th><th class="num" data-column="team_average_reservations">Media equipo</th><th class="num" data-column="team_reservations_deviation">Desviación reservas</th><th class="num" data-column="reservations_active">Activas</th>
+                            <th class="num" data-column="leads">Leads</th><th class="num" data-column="opportunities">Oportunidades</th><th class="num" data-column="reservations_total">Reservas totales</th><th class="num" data-column="team_average_reservations">Media equipo</th><th class="num" data-column="team_reservations_deviation">Desviación reservas</th><th class="num" data-column="reservations_active">Reservas vivas</th><th class="num" data-column="reservations_dropped">Reservas caídas</th>
                             <th class="num" data-column="objective">Objetivo</th><th class="num" data-column="fulfillment_pct">Cumplimiento</th>
                             <th class="num" data-column="lead_to_reservation_pct">Lead → Reserva</th><th class="num" data-column="lead_to_reservation_vs_team">Lead → Reserva vs equipo</th><th class="num" data-column="opportunity_to_reservation_pct">Oportunidad → Reserva</th><th class="num" data-column="opportunity_to_reservation_vs_team">Oportunidad → Reserva vs equipo</th>
-                            <th class="num" data-column="sales">Ventas</th><th class="num" data-column="reservation_to_sale_pct">Reserva → Venta</th><th class="num" data-column="reservation_to_sale_vs_team">Reserva → Venta vs equipo</th>
+                            <th class="num" data-column="sales">Ventas válidas</th><th class="num" data-column="sales_dropped">Ventas caídas</th><th class="num" data-column="reservation_to_sale_pct">Reserva → Venta</th><th class="num" data-column="reservation_drop_pct">% Reserva caída</th><th class="num" data-column="sale_drop_pct">% Venta caída</th><th class="num" data-column="reservation_to_sale_vs_team">Reserva → Venta vs equipo</th>
                             <th class="num" data-column="cancellations">Cancelaciones</th><th class="num" data-column="cancellation_pct">% cancelación</th>
                             <th class="num" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">Margen total</th>
                             <th class="num" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">Margen medio</th>
@@ -333,10 +333,10 @@
                 <div class="table-wrap" id="performanceEvolutionWrap">
                     <table class="performance-evolution-table">
                         <thead><tr>
-                            <th>Mes</th><th class="num">Leads</th><th class="num">Oportunidades</th><th class="num">Reservas</th>
-                            <th class="num">Activas</th><th class="num">Ventas</th><th class="num">Cancelaciones</th><th class="num">Cumplimiento</th>
+                            <th>Mes</th><th class="num">Leads</th><th class="num">Oportunidades</th><th class="num">Reservas totales</th>
+                            <th class="num">Reservas vivas</th><th class="num">Reservas caídas</th><th class="num">Ventas válidas</th><th class="num">Ventas caídas</th><th class="num">Cancelaciones</th><th class="num">Cumplimiento</th>
                             <th class="num">Lead → Reserva</th><th class="num">Oport. → Reserva</th><th class="num">Reserva → Venta</th>
-                            <th class="num">% cancelación</th><th class="num">Margen total</th><th class="num">Margen medio</th>
+                            <th class="num">% Reserva caída</th><th class="num">% Venta caída</th><th class="num">% cancelación</th><th class="num">Margen total</th><th class="num">Margen medio</th>
                         </tr></thead>
                         <tbody id="performanceEvolutionRows"></tbody>
                     </table>
