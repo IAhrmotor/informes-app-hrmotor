@@ -1,5 +1,17 @@
 # Decisiones técnicas
 
+## 2026-09-14 - Último mes cerrado por defecto en Rendimiento comercial
+
+La pestaña usa el mes natural anterior de `Europe/Madrid` como valor inicial y
+de reset, calculado una sola vez en Blade. El mes actual se expone al JavaScript
+como metadata descriptiva del servidor, para no depender de la zona horaria del
+navegador. Cuando el payload corresponde a ese mes se muestra el aviso de
+resultado provisional; loading/error lo limpian.
+
+No se modifica ninguna fórmula: objetivos individuales/globales siguen siendo
+mensuales completos y los umbrales del semáforo, cumplimiento, ranking y equipo
+usan actividad acumulada sin prorrateo ni proyección.
+
 ## 2026-09-14 - Caché V4 serializable y calidad mensual de Rendimiento comercial
 
 La base cacheada de Rendimiento comercial guarda exclusivamente arrays y

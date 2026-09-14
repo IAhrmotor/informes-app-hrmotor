@@ -203,6 +203,20 @@ existe al cambiar de universo, se limpia y se repite una sola carga consistente.
 Limpiar Rendimiento restablece mes y filtros organizativos, pero nunca modifica
 el objetivo persistido.
 
+### Último mes cerrado y mes en curso
+
+El selector de Rendimiento comercial abre en el mes natural anterior de
+`Europe/Madrid`, calculado en servidor; no representa una ventana de 30 días.
+Por tanto, el primer día de enero selecciona diciembre del año anterior. El mes
+actual continúa disponible para selección manual.
+
+Al consultar el mes actual se muestra **Mes en curso · Resultado provisional**.
+La actividad es la acumulada hasta el momento, pero el objetivo mensual completo
+no se prorratea: cumplimiento, semáforo, ranking y comparativas mantienen las
+fórmulas aprobadas y se interpretan como provisionales. Los meses anteriores no
+muestran ese aviso. Durante loading o error el aviso previo se oculta junto con
+los datos de la carga anterior.
+
 ### Resiliencia de filtros y auditoría
 
 La base de Rendimiento comercial se cachea con el namespace

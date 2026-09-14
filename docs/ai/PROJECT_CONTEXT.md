@@ -39,6 +39,11 @@ Actualizado: 2026-09-11.
   tras Zona/Delegación y antes de Comercial; Comercial solo limita las filas
   visibles. El cumplimiento global se expone en `universe`, separado de
   `summary`, e Incidencia de datos no se renderiza como comercial.
+- El selector de Rendimiento comercial abre en el último mes natural cerrado de
+  `Europe/Madrid`; el mes actual sigue seleccionable y se identifica en la UI
+  como resultado provisional. Esta distinción es solo de presentación: objetivo
+  completo, cumplimiento, semáforo, ranking y comparativas no se prorratean ni
+  proyectan.
 - La base cacheada usa `reservas-ventas-commercial-performance-base-v4` y no
   persiste objetos: `rowsByMonth` y calidad son arrays de escalares. Las
   Collections se reconstruyen en presentación, manteniendo

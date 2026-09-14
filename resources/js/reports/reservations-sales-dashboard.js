@@ -182,7 +182,7 @@ function clearPerformancePresentation() {
         const element = document.getElementById(id);
         if (element) element.innerHTML = '';
     });
-    ['performanceUniverse', 'performanceDataIncident', 'performanceQualityWarning'].forEach((id) => {
+    ['performanceUniverse', 'performanceDataIncident', 'performanceQualityWarning', 'performanceCurrentMonthNotice'].forEach((id) => {
         const element = document.getElementById(id);
         if (!element) return;
         element.textContent = '';
@@ -244,6 +244,7 @@ async function saveCommercialPerformanceTarget() {
 
 function renderCommercialPerformance(data) {
     setPerformanceTargetState('available', data.objective?.reservations_target);
+    renderPerformanceCurrentMonthNotice(data.month);
     renderPerformanceUniverse(data.universe || {});
     renderPerformanceDataIncident(data.data_incident);
     renderPerformanceKpis(data.summary || {}, data.universe || {});
@@ -275,6 +276,17 @@ function renderCommercialPerformance(data) {
     if (conflicts > 0) messages.push(`${formatNumber(conflicts)} incidencias de atribución permanecen fuera del ranking individual.`);
     warning.textContent = messages.join(' ');
     warning.classList.toggle('is-hidden', messages.length === 0);
+}
+
+function renderPerformanceCurrentMonthNotice(month) {
+    const notice = document.getElementById('performanceCurrentMonthNotice');
+    if (!notice) return;
+
+    const isCurrentMonth = month === window.commercialPerformanceCurrentMonth;
+    notice.textContent = isCurrentMonth
+        ? 'Mes en curso · Resultado provisional. Los datos muestran la actividad acumulada hasta el momento. El objetivo mensual no se prorratea; el cumplimiento y el semáforo comparan el avance actual con el objetivo completo del mes.'
+        : '';
+    notice.classList.toggle('is-hidden', !isCurrentMonth);
 }
 
 async function reloadCommercialPerformanceAudit() {
