@@ -38,9 +38,10 @@ class CommercialPerformanceAuditService
         $this->applyDeduplication($rows, $saleClassificationStates);
         $this->appendMonthlyEvaluation($rows, $this->targetForMonth($month));
 
-        if (filled($filters['commercial'] ?? null)) {
-            $rows = $rows->where('commercial_id', $filters['commercial']);
-        }
+        $rows = $rows
+            ->when(filled($filters['zone'] ?? null), fn (Collection $items) => $items->where('zone', $filters['zone']))
+            ->when(filled($filters['delegation'] ?? null), fn (Collection $items) => $items->where('delegation', $filters['delegation']))
+            ->when(filled($filters['commercial'] ?? null), fn (Collection $items) => $items->where('commercial_id', $filters['commercial']));
 
         $rows = $rows->sortBy([['event_at', 'desc'], ['event_type', 'asc'], ['source_id', 'asc']])->values();
         $page = max((int) ($filters['page'] ?? 1), 1);

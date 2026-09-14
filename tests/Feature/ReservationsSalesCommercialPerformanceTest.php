@@ -17,6 +17,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -86,6 +87,93 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         } finally {
             CarbonImmutable::setTestNow();
         }
+    }
+
+    public function test_cache_persistente_recupera_la_base_serializada_sin_objetos_ni_error_con_filtro_comercial(): void
+    {
+        $store = 'commercial-performance-serializing-test';
+        $path = storage_path('framework/cache/'.$store.'-'.bin2hex(random_bytes(6)));
+        $originalDefault = config('cache.default');
+        $originalStore = config("cache.stores.{$store}");
+        config()->set("cache.stores.{$store}", [
+            'driver' => 'file',
+            'path' => $path,
+            'lock_path' => $path,
+        ]);
+        config()->set('cache.default', $store);
+
+        try {
+            $this->assertFalse((bool) config('cache.serializable_classes'));
+            $this->commercial('005-serializing-cache', 'Comercial cache serializante');
+            $this->snapshot('005-serializing-cache', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+            $this->seedPerformanceMetrics('005-serializing-cache', 'Comercial cache serializante', 1, 1, 1, 0);
+            $sourceQueries = 0;
+            DB::listen(function ($query) use (&$sourceQueries): void {
+                if (str_contains($query->sql, 'salesforce_leads')
+                    || str_contains($query->sql, 'salesforce_opportunities')
+                    || str_contains($query->sql, 'commercial_delegation_snapshots')) {
+                    $sourceQueries++;
+                }
+            });
+
+            $first = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+                ->assertOk()
+                ->json();
+            $queriesAfterMiss = $sourceQueries;
+            $second = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08&commercial=005-serializing-cache')
+                ->assertOk()
+                ->json();
+
+            $this->assertGreaterThan(0, $queriesAfterMiss);
+            $this->assertSame($queriesAfterMiss, $sourceQueries);
+            $this->assertSame(
+                collect($first['items'])->firstWhere('commercial_id', '005-serializing-cache'),
+                $second['items'][0],
+            );
+
+            $method = new \ReflectionMethod(CommercialPerformanceDatasetService::class, 'basePayload');
+            $method->setAccessible(true);
+            $base = $method->invoke(app(CommercialPerformanceDatasetService::class), '2026-08');
+            array_walk_recursive($base, function (mixed $value): void {
+                $this->assertFalse(is_object($value));
+            });
+        } finally {
+            Cache::store($store)->flush();
+            File::deleteDirectory($path);
+            config()->set('cache.default', $originalDefault);
+            config()->set("cache.stores.{$store}", $originalStore);
+        }
+    }
+
+    public function test_data_quality_esta_segmentada_por_mes_seleccionado(): void
+    {
+        Cache::flush();
+        $this->commercial('005-quality-history', 'Histórico no certificable');
+        foreach (['2026-07-02', '2026-08-02', '2026-08-03'] as $index => $assignedAt) {
+            SalesforceLead::query()->create([
+                'salesforce_id' => '00Q-quality-history-'.$index,
+                'name' => 'Lead histórico '.$index,
+                'created_date' => $assignedAt,
+                'fecha_asignacion' => $assignedAt,
+                'status' => 'Potencial',
+                'record_type_name' => 'Venta',
+                'record_type_normalized' => 'venta',
+                'owner_id' => '005-quality-history',
+                'owner_name' => 'Histórico no certificable',
+                'is_deleted' => false,
+            ]);
+        }
+
+        $august = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->json();
+        $july = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-07')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(2, $august['data_quality']['uncertified_historical_events']);
+        $this->assertSame(1, $july['data_quality']['uncertified_historical_events']);
+        $this->assertSame(0, $august['data_quality']['unresolved_attribution_events']);
     }
 
     public function test_leads_materializados_agrupados_mantienen_el_numero_de_incidencias_por_evento(): void
@@ -1257,6 +1345,48 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertJsonPath('items.0.delegation_status', 'observed')
             ->assertJsonPath('items.0.delegation_issue', null);
         $this->assertStringNotContainsString('PII que no debe salir', $response->getContent());
+    }
+
+    public function test_auditoria_aplica_zona_delegacion_y_comercial_antes_de_paginar(): void
+    {
+        foreach ([
+            ['005-audit-alicante', 'Audit Alicante', 'Alicante', 'Zona Mediterraneo'],
+            ['005-audit-murcia', 'Audit Murcia', 'Murcia', 'Zona Levante'],
+        ] as [$id, $name, $delegation, $zone]) {
+            $this->commercial($id, $name);
+            $this->snapshot($id, $delegation, $zone, '2026-05-01');
+        }
+        foreach ([
+            ['00Q-audit-alicante-1', '005-audit-alicante', 'Audit Alicante'],
+            ['00Q-audit-alicante-2', '005-audit-alicante', 'Audit Alicante'],
+            ['00Q-audit-murcia', '005-audit-murcia', 'Audit Murcia'],
+            ['00Q-audit-incident', '005-missing-audit', 'No resoluble'],
+        ] as [$id, $ownerId, $ownerName]) {
+            SalesforceLead::query()->create([
+                'salesforce_id' => $id, 'name' => 'Lead '.$id,
+                'created_date' => '2026-08-01', 'fecha_asignacion' => '2026-08-05',
+                'status' => 'Potencial', 'record_type_name' => 'Venta', 'record_type_normalized' => 'venta',
+                'owner_id' => $ownerId, 'owner_name' => $ownerName, 'is_deleted' => false,
+            ]);
+        }
+
+        $zone = $this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08&zone=Zona%20Mediterraneo&per_page=1')
+            ->assertOk()
+            ->json();
+        $delegation = $this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08&delegation=Murcia')
+            ->assertOk()
+            ->json();
+        $all = $this->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08&zone=Zona%20Mediterraneo&delegation=Alicante&commercial=005-audit-alicante')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(2, $zone['pagination']['total']);
+        $this->assertCount(1, $zone['items']);
+        $this->assertTrue(collect($zone['items'])->every(fn (array $row): bool => $row['zone'] === 'Zona Mediterraneo'));
+        $this->assertSame(1, $delegation['pagination']['total']);
+        $this->assertSame('005-audit-murcia', $delegation['items'][0]['commercial_id']);
+        $this->assertSame(2, $all['pagination']['total']);
+        $this->assertTrue(collect($all['items'])->every(fn (array $row): bool => $row['commercial_id'] === '005-audit-alicante'));
     }
 
     public function test_auditoria_distingue_observacion_bootstrap_y_no_certificable(): void

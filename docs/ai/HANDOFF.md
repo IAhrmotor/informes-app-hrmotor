@@ -1,5 +1,36 @@
 # Handoff para agentes
 
+## Tarea 3 - Resiliencia de filtros y auditoría de Rendimiento comercial (2026-09-14)
+
+- La base de `CommercialPerformanceDatasetService` pasa a
+  `reservas-ventas-commercial-performance-base-v4`. Solo persiste arrays y
+  escalares; `rowsByMonth` ya no contiene Collections y presentación las crea
+  después del cache hit. Se conserva `cache.serializable_classes=false`, TTL de
+  10 minutos, lock y versionadores. Las entradas V3 no se borran: expiran de
+  forma natural.
+- `data_quality` se acumula por mes: atribución no resuelta, conflictos
+  duplicados y de margen, histórico no certificable, cronología inválida de
+  cancelación, cambios organizativos y conteos observed/bootstrap. El payload
+  publica solo el mes seleccionado; `data_incident` permanece separado y
+  reconciliable.
+- Auditoría acepta Zona, Delegación y Comercial, filtra la atribución resuelta
+  en ese orden antes de sort/paginación, y conserva incidencias sin comercial
+  cuando no hay filtro organizativo. La UI envía los tres filtros. Durante la
+  carga borra la presentación anterior; ante fallo muestra un mensaje seguro y
+  permite reintentar con los filtros actuales. El texto de auditoría ya no
+  afirma erróneamente que los nombres de responsables no sean PII.
+- Validación real: `ReservationsSalesCommercialPerformanceTest` y
+  `CommercialPerformanceMonthlyRosterServiceTest`, 68/68 pruebas, 766
+  aserciones; Pint focal de dataset, auditoría, request de auditoría y test,
+  correcto; `node --check resources/js/reports/reservations-sales-dashboard.js`,
+  correcto; `npm run build`, correcto; `composer audit --locked --no-dev`, sin
+  advisories. Vite volvió a generar el hash global de `app.css` a causa del
+  entorno local; se restauró exclusivamente `app-DzLCIK8P.css` y solo se
+  conserva el bundle nuevo de Rendimiento comercial. `git diff --check`,
+  correcto.
+- Las cifras productivas de Incidencia de datos (por ejemplo Leads/Opportunities
+  no atribuibles) no se verificaron ni se reasignaron desde tests locales.
+
 ## Universo evaluable de Rendimiento comercial (2026-09-11)
 
 - Tarea 2: la evaluabilidad final se calcula tras agregar contadores. Requiere

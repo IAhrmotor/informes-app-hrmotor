@@ -1,5 +1,20 @@
 # Decisiones técnicas
 
+## 2026-09-14 - Caché V4 serializable y calidad mensual de Rendimiento comercial
+
+La base cacheada de Rendimiento comercial guarda exclusivamente arrays y
+escalares bajo `reservas-ventas-commercial-performance-base-v4`; las
+`Collection` quedan fuera de la frontera de caché y se reconstruyen solo para
+presentar. Se mantiene `cache.serializable_classes=false`, por lo que un store
+persistente no puede convertir clases de Laravel en `__PHP_Incomplete_Class`.
+No se limpian entradas V3: expiran con su TTL normal.
+
+Los contadores de calidad se acumulan por mes de hito/grupo y el payload expone
+solo el bloque del mes seleccionado. Esta separación evita mezclar cuatro meses
+en la UI sin cambiar funnel, deduplicación, incidencia de datos, universo,
+objetivo o ranking. La auditoría aplica filtros organizativos sobre atribución
+resuelta antes de la paginación.
+
 ## 2026-09-11 - Universo evaluable posterior a la agregación en Rendimiento comercial
 
 La certificación histórica de delegación sigue resolviéndose en el roster, pero

@@ -39,6 +39,13 @@ Actualizado: 2026-09-11.
   tras Zona/Delegación y antes de Comercial; Comercial solo limita las filas
   visibles. El cumplimiento global se expone en `universe`, separado de
   `summary`, e Incidencia de datos no se renderiza como comercial.
+- La base cacheada usa `reservas-ventas-commercial-performance-base-v4` y no
+  persiste objetos: `rowsByMonth` y calidad son arrays de escalares. Las
+  Collections se reconstruyen en presentación, manteniendo
+  `cache.serializable_classes=false` también con stores persistentes. La calidad
+  se conserva por mes de hito/grupo y el payload público expone solo el mes
+  seleccionado. Auditoría recibe Zona, Delegación y Comercial y los aplica en
+  memoria tras atribución, antes de ordenar/paginar.
 - `salesforce_opportunities` conserva lifecycle mediante `is_deleted`,
   `salesforce_deleted_at` y `deletion_detection_source`. El modelo aplica scope
   activo por defecto solo para `query_all_deleted`; una ausencia conciliada no

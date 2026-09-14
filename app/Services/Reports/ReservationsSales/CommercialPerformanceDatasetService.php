@@ -54,7 +54,7 @@ class CommercialPerformanceDatasetService
     private function basePayload(string $month): array
     {
         $version = $this->cacheVersion();
-        $key = 'reservas-ventas-commercial-performance-base-v3:'.hash('sha256', json_encode([
+        $key = 'reservas-ventas-commercial-performance-base-v4:'.hash('sha256', json_encode([
             'month' => $month,
             'version' => $version,
         ]));
@@ -88,27 +88,32 @@ class CommercialPerformanceDatasetService
         $rosterContext = $this->monthlyRoster->context($months);
         $historyCoverage = $this->historyCoverage($months);
         $buckets = array_fill_keys($monthKeys, []);
-        $quality = [
+        $qualityByMonth = array_fill_keys($monthKeys, [
             'unresolved_attribution_events' => 0,
             'duplicate_conflict_groups' => 0,
             'uncertified_historical_events' => 0,
             'margin_conflict_groups' => 0,
             'invalid_cancellation_chronology' => 0,
-            'organisation_changes_within_month' => collect($rosterContext['assessments'][$month] ?? [])
+            'organisation_changes_within_month' => 0,
+            'bootstrap_approved_assignments' => 0,
+            'observed_assignments' => 0,
+        ]);
+        foreach ($monthKeys as $monthKey) {
+            $qualityByMonth[$monthKey]['organisation_changes_within_month'] = collect($rosterContext['assessments'][$monthKey] ?? [])
                 ->where('reason', 'organisation_change_within_month')
-                ->count(),
-            'bootstrap_approved_assignments' => collect($rosterContext['assignments'][$month] ?? [])
+                ->count();
+            $qualityByMonth[$monthKey]['bootstrap_approved_assignments'] = collect($rosterContext['assignments'][$monthKey] ?? [])
                 ->where('delegation_status', 'bootstrap_approved')
-                ->count(),
-            'observed_assignments' => collect($rosterContext['assignments'][$month] ?? [])
+                ->count();
+            $qualityByMonth[$monthKey]['observed_assignments'] = collect($rosterContext['assignments'][$monthKey] ?? [])
                 ->where('delegation_status', 'observed')
-                ->count(),
-        ];
+                ->count();
+        }
 
         $this->seedCertifiedRoster($buckets, $monthKeys, $rosterContext);
-        $this->aggregateLeads($buckets, $quality, $start, $end, $rosterContext);
-        $this->aggregateOpportunities($buckets, $quality, $start, $end, $rosterContext);
-        $this->aggregateCancellations($buckets, $quality, $start, $end, $rosterContext);
+        $this->aggregateLeads($buckets, $qualityByMonth, $start, $end, $rosterContext);
+        $this->aggregateOpportunities($buckets, $qualityByMonth, $start, $end, $rosterContext);
+        $this->aggregateCancellations($buckets, $qualityByMonth, $start, $end, $rosterContext);
 
         $rowsByMonth = [];
         foreach ($monthKeys as $monthKey) {
@@ -118,7 +123,8 @@ class CommercialPerformanceDatasetService
                     $targets[$monthKey]['value'],
                     $historyCoverage[$monthKey]['status'] === 'covered',
                 ))
-                ->values();
+                ->values()
+                ->all();
         }
 
         $delegationHistory = [
@@ -137,7 +143,7 @@ class CommercialPerformanceDatasetService
         ];
         $generatedAt = now()->toIso8601String();
 
-        return compact('monthKeys', 'targets', 'historyCoverage', 'quality', 'rowsByMonth', 'delegationHistory', 'generatedAt');
+        return compact('monthKeys', 'targets', 'historyCoverage', 'qualityByMonth', 'rowsByMonth', 'delegationHistory', 'generatedAt');
     }
 
     private function present(array $base, array $filters): array
@@ -145,11 +151,11 @@ class CommercialPerformanceDatasetService
         $monthKeys = $base['monthKeys'];
         $targets = $base['targets'];
         $historyCoverage = $base['historyCoverage'];
-        $quality = $base['quality'];
+        $quality = $base['qualityByMonth'][$filters['month']] ?? [];
         $rowsByMonth = $base['rowsByMonth'];
         $delegationHistory = $base['delegationHistory'];
         $generatedAt = $base['generatedAt'];
-        $currentRows = $rowsByMonth[$filters['month']];
+        $currentRows = collect($rowsByMonth[$filters['month']] ?? []);
         $filterOptions = $this->filterOptions($currentRows, $filters);
         $rankUniverse = $this->applyOrganisationFilters($currentRows, $filters);
         $ranked = $this->applyTeamComparisonsAndRanking($rankUniverse);
@@ -164,7 +170,7 @@ class CommercialPerformanceDatasetService
         $dataIncident = $this->dataIncidentSummary($currentRows, $historyCoverage[$filters['month']]['status'] === 'covered');
 
         $evolution = collect($monthKeys)->map(function (string $monthKey) use ($rowsByMonth, $filters, $historyCoverage): array {
-            $rows = $this->applyOrganisationFilters($rowsByMonth[$monthKey], $filters);
+            $rows = $this->applyOrganisationFilters(collect($rowsByMonth[$monthKey] ?? []), $filters);
             if (filled($filters['commercial'])) {
                 $rows = $rows->where('commercial_id', $filters['commercial'])->values();
             }
@@ -479,7 +485,7 @@ class CommercialPerformanceDatasetService
             ];
         }
 
-        $quality['invalid_cancellation_chronology'] += SalesforceOpportunityStageTransition::query()
+        SalesforceOpportunityStageTransition::query()
             ->where('transitioned_at', '>=', $start->utc())
             ->where('transitioned_at', '<', $end->utc())
             ->where('quality_status', 'reservation_after_transition')
@@ -487,7 +493,12 @@ class CommercialPerformanceDatasetService
                 ->where('is_deleted', true)
                 ->where('deletion_detection_source', SalesforceOpportunity::DELETION_SOURCE_QUERY_ALL)
                 ->select('salesforce_id'))
-            ->count();
+            ->get(['transitioned_at'])
+            ->each(fn (SalesforceOpportunityStageTransition $transition) => $this->incrementQuality(
+                $quality,
+                $this->monthKey($transition->transitioned_at),
+                'invalid_cancellation_chronology',
+            ));
 
         $this->applyDeduplicatedGroups($buckets, $quality, $groups, 'cancellations');
     }
@@ -499,10 +510,7 @@ class CommercialPerformanceDatasetService
         array &$quality,
         bool $countQuality = true,
     ): array {
-        $ignoredQuality = [
-            'unresolved_attribution_events' => 0,
-            'uncertified_historical_events' => 0,
-        ];
+        $ignoredQuality = [];
         if ($countQuality) {
             $eventQuality = &$quality;
         } else {
@@ -539,7 +547,7 @@ class CommercialPerformanceDatasetService
                 : $this->monthlyRoster->incidentAttribution();
 
             if ((($reportAttributionConflict && $signatures->count() !== 1) || $reportClassificationConflict) && $metric !== 'reservations_active') {
-                $quality['duplicate_conflict_groups']++;
+                $this->incrementQuality($quality, $month, 'duplicate_conflict_groups');
             }
 
             $this->increment($buckets, $month, $attribution, $metric);
@@ -555,7 +563,7 @@ class CommercialPerformanceDatasetService
             } else {
                 $this->increment($buckets, $month, $attribution, 'sales_without_margin');
                 if ($margins->count() > 1) {
-                    $quality['margin_conflict_groups']++;
+                    $this->incrementQuality($quality, $month, 'margin_conflict_groups');
                 }
             }
         }
@@ -580,24 +588,34 @@ class CommercialPerformanceDatasetService
         int $eventCount = 1,
     ): array {
         $userId = trim((string) $userId);
+        $month = $this->monthKey($eventAt);
         if ($userId === '') {
-            $quality['unresolved_attribution_events'] += $eventCount;
+            $this->incrementQuality($quality, $month, 'unresolved_attribution_events', $eventCount);
 
             return $this->monthlyRoster->incidentAttribution();
         }
 
         if (! $rosterContext['users']->has($userId)) {
-            $quality['unresolved_attribution_events'] += $eventCount;
+            $this->incrementQuality($quality, $month, 'unresolved_attribution_events', $eventCount);
 
             return $this->monthlyRoster->incidentAttribution();
         }
 
         $attribution = $this->monthlyRoster->attribution($rosterContext, $userId, $userName, $eventAt);
         if (! $attribution['delegation_certified']) {
-            $quality['uncertified_historical_events'] += $eventCount;
+            $this->incrementQuality($quality, $month, 'uncertified_historical_events', $eventCount);
         }
 
         return $attribution;
+    }
+
+    private function incrementQuality(array &$qualityByMonth, string $month, string $metric, int $amount = 1): void
+    {
+        if (! isset($qualityByMonth[$month][$metric])) {
+            return;
+        }
+
+        $qualityByMonth[$month][$metric] += $amount;
     }
 
     private function increment(array &$buckets, string $month, array $attribution, string $metric, int|float $amount = 1): void
