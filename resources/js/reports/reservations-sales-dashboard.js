@@ -4,6 +4,7 @@ let reservationsReloadController = null;
 let latestReservationsReloadRequestId = 0;
 let performanceReloadController = null;
 let latestPerformanceReloadRequestId = 0;
+let performanceTargetAvailable = false;
 const performanceColumnsStorageKey = 'reservationsSalesCommercialPerformanceColumnsV3';
 const performanceColumnDefinitions = [
     { key: 'ranking', label: 'Ranking' },
@@ -146,6 +147,7 @@ async function reloadCommercialPerformance() {
     performanceReloadController = controller;
     const requestId = ++latestPerformanceReloadRequestId;
     invalidatePerformanceAudit();
+    setPerformanceTargetState('loading');
     clearPerformancePresentation();
     document.getElementById('performanceLoading')?.classList.remove('is-hidden');
     document.getElementById('performanceLoadError')?.classList.add('is-hidden');
@@ -190,10 +192,33 @@ function clearPerformancePresentation() {
     if (coverage) coverage.textContent = 'Cobertura de cancelaciones pendiente de cargar.';
 }
 
+function setPerformanceTargetState(state, value = null) {
+    const target = document.getElementById('performanceTarget');
+    const button = document.getElementById('savePerformanceTarget');
+    if (!target || !button) return;
+
+    const parsedValue = Number(value);
+    const available = state === 'available' && Number.isInteger(parsedValue) && parsedValue >= 1;
+    performanceTargetAvailable = available;
+    target.disabled = !available;
+    button.disabled = !available;
+    target.value = available ? String(parsedValue) : '';
+}
+
 async function saveCommercialPerformanceTarget() {
     const button = document.getElementById('savePerformanceTarget');
     const target = document.getElementById('performanceTarget');
+    if (!performanceTargetAvailable || button.disabled || target.disabled) return;
+
+    const value = Number(target.value);
+    if (!Number.isInteger(value) || value < 1) {
+        window.alert('El objetivo debe ser un entero mayor que cero.');
+        return;
+    }
+
+    const requestId = latestPerformanceReloadRequestId;
     button.disabled = true;
+    target.disabled = true;
 
     try {
         await fetchJson('/informes/reservas-ventas/data/commercial-performance/target', {
@@ -204,19 +229,21 @@ async function saveCommercialPerformanceTarget() {
             },
             body: JSON.stringify({
                 month: document.getElementById('performanceMonth').value,
-                reservations_target: Number(target.value),
+                reservations_target: value,
             }),
         });
         await reloadCommercialPerformance();
     } catch (error) {
         window.alert('No se pudo guardar el objetivo. Debe ser un entero mayor que cero.');
-    } finally {
-        button.disabled = false;
+        if (requestId === latestPerformanceReloadRequestId && performanceTargetAvailable) {
+            target.disabled = false;
+            button.disabled = false;
+        }
     }
 }
 
 function renderCommercialPerformance(data) {
-    document.getElementById('performanceTarget').value = data.objective?.reservations_target ?? 18;
+    setPerformanceTargetState('available', data.objective?.reservations_target);
     renderPerformanceUniverse(data.universe || {});
     renderPerformanceDataIncident(data.data_incident);
     renderPerformanceKpis(data.summary || {}, data.universe || {});

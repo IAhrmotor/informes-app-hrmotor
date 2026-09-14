@@ -72,8 +72,8 @@
         <div class="filter-group performance-filter-control performance-target-field is-hidden">
             <label for="performanceTarget">Objetivo reservas</label>
             <div class="performance-target-control">
-                <input id="performanceTarget" type="number" min="1" step="1" inputmode="numeric">
-                <button type="button" class="filter-reset" id="savePerformanceTarget">Guardar</button>
+                <input id="performanceTarget" type="number" min="1" step="1" inputmode="numeric" disabled>
+                <button type="button" class="filter-reset" id="savePerformanceTarget" disabled>Guardar</button>
             </div>
         </div>
         @endif

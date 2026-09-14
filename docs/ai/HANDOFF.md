@@ -30,6 +30,14 @@
   correcto.
 - Las cifras productivas de Incidencia de datos (por ejemplo Leads/Opportunities
   no atribuibles) no se verificaron ni se reasignaron desde tests locales.
+- Correctivo posterior de integridad: `performanceTarget` y Guardar arrancan y
+  permanecen deshabilitados durante carga/error; el valor se vacía y solo se
+  habilitan tras una respuesta válida con objetivo entero positivo. El guard de
+  guardado bloquea además controles deshabilitados o valores inválidos, evitando
+  que un objetivo visualmente antiguo se persista para otro mes. Validación:
+  69/69 pruebas focales, 774 aserciones; Pint del test, `node --check` y build
+  Vite correctos. El churn global de `app.css` del build se descartó de forma
+  específica.
 
 ## Universo evaluable de Rendimiento comercial (2026-09-11)
 

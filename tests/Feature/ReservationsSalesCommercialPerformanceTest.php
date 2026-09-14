@@ -704,6 +704,20 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringNotContainsString("document.getElementById('performanceTarget').value", $resetBlock);
     }
 
+    public function test_javascript_bloquea_objetivo_hasta_una_carga_de_rendimiento_valida(): void
+    {
+        $javascript = file_get_contents(resource_path('js/reports/reservations-sales-dashboard.js'));
+        $html = $this->get('/informes/reservas-ventas')->assertOk()->getContent();
+
+        $this->assertStringContainsString('function setPerformanceTargetState(state, value = null)', $javascript);
+        $this->assertStringContainsString("setPerformanceTargetState('loading');", $javascript);
+        $this->assertStringContainsString("setPerformanceTargetState('available', data.objective?.reservations_target);", $javascript);
+        $this->assertStringContainsString('if (!performanceTargetAvailable || button.disabled || target.disabled) return;', $javascript);
+        $this->assertStringNotContainsString('reservations_target ?? 18', $javascript);
+        $this->assertStringContainsString('id="performanceTarget" type="number" min="1" step="1" inputmode="numeric" disabled', $html);
+        $this->assertStringContainsString('id="savePerformanceTarget" disabled', $html);
+    }
+
     public function test_historico_sin_snapshot_no_inventa_delegacion_ni_ranking(): void
     {
         $this->commercial('005-historic', 'Histórico');
