@@ -2,6 +2,7 @@
 
 namespace App\Services\Reports\ReservationsSales;
 
+use App\Models\CommercialPerformanceMonthlyTarget;
 use App\Models\SalesforceLead;
 use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceOpportunityStageTransition;
@@ -35,6 +36,7 @@ class CommercialPerformanceAuditService
         $this->appendOpportunities($rows, $month, $end, $context, $saleClassificationStates);
         $this->appendTransitions($rows, $month, $end, $context, $coverage['status']);
         $this->applyDeduplication($rows, $saleClassificationStates);
+        $this->appendMonthlyEvaluation($rows, $this->targetForMonth($month));
 
         if (filled($filters['commercial'] ?? null)) {
             $rows = $rows->where('commercial_id', $filters['commercial']);
@@ -60,6 +62,60 @@ class CommercialPerformanceAuditService
             ],
             'pii_excluded' => true,
         ];
+    }
+
+    private function targetForMonth(CarbonImmutable $month): int
+    {
+        $now = now();
+        $monthDate = $month->toDateString();
+        CommercialPerformanceMonthlyTarget::query()->insertOrIgnore([[
+            'month' => $monthDate,
+            'reservations_target' => CommercialPerformanceMonthlyTarget::DEFAULT_RESERVATIONS_TARGET,
+            'is_explicit' => false,
+            'updated_by_report_user_id' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]]);
+
+        return (int) CommercialPerformanceMonthlyTarget::query()
+            ->whereDate('month', $monthDate)
+            ->value('reservations_target');
+    }
+
+    private function appendMonthlyEvaluation(Collection $rows, int $target): void
+    {
+        $activityByCommercial = $rows
+            ->filter(fn (array $row): bool => $row['counted_in_metric']
+                && $row['metric_attribution'] !== 'data_quality_incident'
+                && filled($row['commercial_id'])
+                && in_array($row['event_type'], ['lead', 'opportunity', 'reservation', 'sale', 'sale_dropped'], true))
+            ->groupBy('commercial_id');
+
+        foreach ($rows as $key => $row) {
+            $isIncident = blank($row['commercial_id']);
+            $hasRealActivity = $activityByCommercial->has($row['commercial_id']);
+            $evaluable = ! $isIncident
+                && $hasRealActivity
+                && $row['delegation_certified'];
+            $status = match (true) {
+                $isIncident => 'data_incident',
+                $evaluable => 'evaluable',
+                default => 'not_evaluable',
+            };
+            $reason = match ($status) {
+                'data_incident' => $row['delegation_issue'] ?? 'missing_commercial_identity',
+                'not_evaluable' => $row['delegation_issue'] ?? 'no_real_activity',
+                default => null,
+            };
+
+            $row['monthly_has_real_activity'] = $hasRealActivity;
+            $row['monthly_evaluable'] = $evaluable;
+            $row['monthly_evaluation_status'] = $status;
+            $row['monthly_evaluation_reason'] = $reason;
+            $row['objective_applies'] = $evaluable;
+            $row['monthly_objective'] = $evaluable ? $target : null;
+            $rows->put($key, $row);
+        }
     }
 
     private function appendLeads(Collection $rows, CarbonImmutable $start, CarbonImmutable $end, array $context): void

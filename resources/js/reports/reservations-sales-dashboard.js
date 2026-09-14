@@ -4,7 +4,7 @@ let reservationsReloadController = null;
 let latestReservationsReloadRequestId = 0;
 let performanceReloadController = null;
 let latestPerformanceReloadRequestId = 0;
-const performanceColumnsStorageKey = 'reservationsSalesCommercialPerformanceColumnsV2';
+const performanceColumnsStorageKey = 'reservationsSalesCommercialPerformanceColumnsV3';
 const performanceColumnDefinitions = [
     { key: 'ranking', label: 'Ranking' },
     { key: 'traffic_light', label: 'Semáforo', alwaysVisible: true },
@@ -14,22 +14,22 @@ const performanceColumnDefinitions = [
     { key: 'leads', label: 'Leads', defaultVisible: true },
     { key: 'opportunities', label: 'Oportunidades', defaultVisible: true },
     { key: 'reservations_total', label: 'Reservas totales', defaultVisible: true },
-    { key: 'team_average_reservations', label: 'Media equipo', defaultVisible: false },
-    { key: 'team_reservations_deviation', label: 'Desviación reservas', defaultVisible: false },
+    { key: 'team_average_reservations', label: 'Media equipo', defaultVisible: true },
+    { key: 'team_reservations_deviation', label: 'Desviación reservas', defaultVisible: true },
     { key: 'reservations_active', label: 'Reservas vivas', defaultVisible: true },
     { key: 'reservations_dropped', label: 'Reservas caídas', defaultVisible: true },
     { key: 'objective', label: 'Objetivo' },
     { key: 'fulfillment_pct', label: 'Cumplimiento', defaultVisible: true },
     { key: 'lead_to_reservation_pct', label: 'Lead → Reserva' },
-    { key: 'lead_to_reservation_vs_team', label: 'Lead → Reserva vs equipo', defaultVisible: false },
+    { key: 'lead_to_reservation_vs_team', label: 'Lead → Reserva vs equipo', defaultVisible: true },
     { key: 'opportunity_to_reservation_pct', label: 'Oportunidad → Reserva' },
-    { key: 'opportunity_to_reservation_vs_team', label: 'Oportunidad → Reserva vs equipo', defaultVisible: false },
+    { key: 'opportunity_to_reservation_vs_team', label: 'Oportunidad → Reserva vs equipo', defaultVisible: true },
     { key: 'sales', label: 'Ventas válidas', defaultVisible: true },
     { key: 'sales_dropped', label: 'Ventas caídas', defaultVisible: true },
     { key: 'reservation_to_sale_pct', label: 'Reserva → Venta' },
     { key: 'reservation_drop_pct', label: '% Reserva caída' },
     { key: 'sale_drop_pct', label: '% Venta caída' },
-    { key: 'reservation_to_sale_vs_team', label: 'Reserva → Venta vs equipo', defaultVisible: false },
+    { key: 'reservation_to_sale_vs_team', label: 'Reserva → Venta vs equipo', defaultVisible: true },
     { key: 'cancellations', label: 'Cancelaciones' },
     { key: 'cancellation_pct', label: '% cancelación' },
     { key: 'margin_total', label: 'Margen total', defaultVisible: true },
@@ -200,7 +200,9 @@ async function saveCommercialPerformanceTarget() {
 
 function renderCommercialPerformance(data) {
     document.getElementById('performanceTarget').value = data.objective?.reservations_target ?? 18;
-    renderPerformanceKpis(data.summary || {});
+    renderPerformanceUniverse(data.universe || {});
+    renderPerformanceDataIncident(data.data_incident);
+    renderPerformanceKpis(data.summary || {}, data.universe || {});
     renderPerformanceRows(data.items || []);
     renderPerformanceEvolution(data.evolution || []);
     applyPerformanceColumnVisibility();
@@ -266,7 +268,7 @@ function renderCommercialPerformanceAudit(data) {
             <table class="performance-audit-table">
                 <thead><tr>
                     <th>Evento</th><th>Fecha</th><th>ID Lead</th><th>ID oportunidad</th>
-                    <th>Responsable</th><th>Delegación / cobertura</th><th>Funnel / cumplimiento</th><th>Contado</th><th>Incidencia / exclusión</th>
+                    <th>Responsable</th><th>Delegación / cobertura</th><th>Universo mensual</th><th>Funnel / cumplimiento</th><th>Contado</th><th>Incidencia / exclusión</th>
                 </tr></thead>
                 <tbody id="performanceAuditRows"></tbody>
             </table>
@@ -275,7 +277,7 @@ function renderCommercialPerformanceAudit(data) {
     const root = document.getElementById('performanceAuditRows');
     const rows = data.items || [];
     if (!rows.length) {
-        root.innerHTML = '<tr><td colspan="9">No hay eventos auditables para el filtro.</td></tr>';
+        root.innerHTML = '<tr><td colspan="10">No hay eventos auditables para el filtro.</td></tr>';
         initPerformanceScrolls();
         refreshPerformanceScrolls();
         return;
@@ -286,6 +288,7 @@ function renderCommercialPerformanceAudit(data) {
         <td>${escapeHtml(row.lead_id || '-')}</td><td>${escapeHtml(row.opportunity_id || '-')}</td>
         <td><strong>${escapeHtml(row.commercial || '-')}</strong><br><small>${escapeHtml(row.commercial_id || '-')}</small></td>
         <td>${escapeHtml(row.delegation || '-')}<br><small>${escapeHtml(formatDelegationStatus(row.delegation_status, row.delegation_issue))}</small></td>
+        <td>${escapeHtml(formatEvaluationStatus(row.monthly_evaluation_status, row.monthly_evaluation_reason))}<br><small>${row.objective_applies ? `Objetivo ${escapeHtml(formatNumber(row.monthly_objective))}` : 'Sin objetivo mensual'}</small></td>
         <td>${escapeHtml(formatFunnelAudit(row.funnel))}</td>
         <td>${row.counted_in_metric ? 'Sí' : 'No'}</td><td>${escapeHtml(row.exclusion_reason || row.deduplication_status || '-')}<br><small>${escapeHtml(row.metric_attribution || '-')}</small></td>
     </tr>`).join('');
@@ -359,7 +362,26 @@ function fillPerformanceSelect(id, values, mapper, allLabel) {
     return selected !== '' && !selectionIsValid;
 }
 
-function renderPerformanceKpis(summary) {
+function renderPerformanceUniverse(universe) {
+    const note = document.getElementById('performanceUniverse');
+    if (!note) return;
+    note.textContent = `${formatNumber(universe.evaluable_commercials || 0)} comerciales evaluables · ${formatNumber(universe.active_not_evaluable_commercials || 0)} con actividad no evaluable · ${formatNumber(universe.excluded_no_activity_commercials || 0)} excluidos sin actividad · objetivo individual ${formatNumber(universe.individual_target || 0)} · objetivo global ${formatNumber(universe.global_target || 0)} · cumplimiento global ${formatAvailablePercent(universe.global_fulfillment_pct)}. El filtro Comercial solo limita las filas mostradas; no recalcula el universo, ranking ni equipo.`;
+    note.classList.remove('is-hidden');
+}
+
+function renderPerformanceDataIncident(incident) {
+    const note = document.getElementById('performanceDataIncident');
+    if (!note) return;
+    if (!incident) {
+        note.textContent = '';
+        note.classList.add('is-hidden');
+        return;
+    }
+    note.textContent = `Incidencia de datos (fuera del universo evaluable): ${formatNumber(incident.leads)} leads · ${formatNumber(incident.opportunities)} oportunidades · ${formatNumber(incident.reservations_total)} reservas totales · ${formatNumber(incident.reservations_active)} reservas vivas · ${formatNumber(incident.reservations_dropped)} reservas caídas · ${formatNumber(incident.sales)} ventas válidas · ${formatNumber(incident.sales_dropped)} ventas caídas · ${formatAvailableNumber(incident.cancellations)} cancelaciones · ${formatCurrency(incident.margin_total)} margen total. No recibe objetivo, ranking ni comparativa de equipo.`;
+    note.classList.remove('is-hidden');
+}
+
+function renderPerformanceKpis(summary, universe) {
     const cards = [
         ['Leads', formatNumber(summary.leads)],
         ['Oportunidades', formatNumber(summary.opportunities)],
@@ -368,7 +390,7 @@ function renderPerformanceKpis(summary) {
         ['Reservas caídas', formatNumber(summary.reservations_dropped)],
         ['Ventas válidas', formatNumber(summary.sales)],
         ['Ventas caídas', formatNumber(summary.sales_dropped)],
-        ['Cumplimiento', formatPercent(summary.fulfillment_pct)],
+        ['Cumplimiento global', formatAvailablePercent(universe.global_fulfillment_pct)],
         ['Margen total', formatCurrency(summary.margin_total)],
     ];
     document.getElementById('performanceKpis').innerHTML = cards.map(([label, value]) => `
@@ -386,7 +408,7 @@ function renderPerformanceRows(rows) {
     root.innerHTML = rows.map((row) => `<tr>
         <td class="num" data-column="ranking">${escapeHtml(row.ranking ?? '-')}</td>
         <td data-column="traffic_light">${performanceLight(row.traffic_light)}</td>
-        <td data-column="commercial"><strong>${escapeHtml(row.commercial || '-')}</strong></td><td data-column="delegation">${escapeHtml(row.delegation || '-')}</td><td data-column="zone">${escapeHtml(row.zone || '-')}</td>
+        <td data-column="commercial"><strong>${escapeHtml(row.commercial || '-')}</strong>${row.evaluable ? '' : `<br><small>${escapeHtml(formatEvaluationStatus(row.evaluation_status, row.evaluation_reason))}</small>`}</td><td data-column="delegation">${escapeHtml(row.delegation || '-')}</td><td data-column="zone">${escapeHtml(row.zone || '-')}</td>
         <td class="num" data-column="leads">${formatNumber(row.leads)}</td><td class="num" data-column="opportunities">${formatNumber(row.opportunities)}</td><td class="num" data-column="reservations_total">${formatNumber(row.reservations_total)}</td><td class="num" data-column="team_average_reservations">${formatTeamNumber(row.team_average_reservations)}</td><td class="num" data-column="team_reservations_deviation">${formatReservationsDeviation(row.team_reservations_deviation, row.team_reservations_deviation_pct)}</td><td class="num" data-column="reservations_active">${formatNumber(row.reservations_active)}</td><td class="num" data-column="reservations_dropped">${formatNumber(row.reservations_dropped)}</td>
         <td class="num" data-column="objective">${formatNumber(row.objective)}</td><td class="num" data-column="fulfillment_pct">${formatPercent(row.fulfillment_pct)}</td>
         <td class="num" data-column="lead_to_reservation_pct">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="num" data-column="lead_to_reservation_vs_team">${formatTeamRatioComparison(row.team_lead_to_reservation_pct, row.lead_to_reservation_vs_team_pp)}</td><td class="num" data-column="opportunity_to_reservation_pct">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td><td class="num" data-column="opportunity_to_reservation_vs_team">${formatTeamRatioComparison(row.team_opportunity_to_reservation_pct, row.opportunity_to_reservation_vs_team_pp)}</td>
@@ -396,6 +418,26 @@ function renderPerformanceRows(rows) {
         <td class="num" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">${formatCurrency(row.average_margin_per_sale)}</td>
         <td class="num" data-column="margin_coverage_pct">${formatPercent(row.margin_coverage_pct)}</td>
     </tr>`).join('');
+}
+
+function formatEvaluationStatus(status, reason) {
+    const labels = {
+        evaluable: 'Evaluable',
+        not_evaluable: 'No evaluable',
+        excluded_no_activity: 'Sin actividad real',
+        data_incident: 'Incidencia de datos',
+        excluded_by_business_rule: 'Excluido por regla de negocio',
+    };
+    const reasons = {
+        incomplete_history: 'Cobertura histórica incompleta',
+        organisation_change_within_month: 'Cambio organizativo intramensual',
+        missing_commercial_identity: 'Identidad comercial no disponible',
+        no_real_activity: 'Sin actividad real',
+        data_quality_incident: 'Conflicto de atribución',
+    };
+    const label = labels[status] || 'No evaluable';
+    const detail = reasons[reason];
+    return detail && detail !== label ? `${label} · ${detail}` : label;
 }
 
 function renderPerformanceEvolution(rows) {
