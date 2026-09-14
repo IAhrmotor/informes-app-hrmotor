@@ -1,5 +1,24 @@
 # Handoff para agentes
 
+## Tarea 4 - Último mes cerrado y resultado provisional (2026-09-14)
+
+- Rendimiento comercial calcula una sola vez en Blade el mes actual y el último
+  mes natural cerrado de `Europe/Madrid`. El segundo es valor inicial y de
+  reset; el primero se entrega como metadata descriptiva al JavaScript, sin
+  consultar el reloj del navegador ni añadir endpoints.
+- El mes actual sigue seleccionable. Tras una respuesta correcta para ese mes,
+  la UI muestra `Mes en curso · Resultado provisional` y explica que actividad
+  acumulada, objetivo mensual completo, cumplimiento y semáforo no se
+  prorratean. El aviso se limpia durante loading/error y no aparece para meses
+  cerrados. No cambian cache V4, filtros, auditoría, funnel, universo, calidad,
+  ranking, equipo, objetivos ni umbrales.
+- Pruebas temporales congelan septiembre de 2026, el primer día de octubre y el
+  cambio de año de enero de 2027; además prueban 9/18 = 50 % y semáforo rojo en
+  mes actual sin prorrateo. Validación final real: suite focal 72/72 pruebas,
+  798 aserciones; Pint del test, `node --check`, `npm run build` y `composer
+  audit --locked --no-dev` correctos/sin advisories. El churn de `app.css` del
+  build se descartó específicamente tras comprobar que su fuente no cambió.
+
 ## Tarea 3 - Resiliencia de filtros y auditoría de Rendimiento comercial (2026-09-14)
 
 - La base de `CommercialPerformanceDatasetService` pasa a

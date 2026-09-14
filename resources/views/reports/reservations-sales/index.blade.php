@@ -1,3 +1,9 @@
+@php
+    $performanceNow = now('Europe/Madrid');
+    $performanceCurrentMonth = $performanceNow->format('Y-m');
+    $performanceDefaultMonth = $performanceNow->subMonthNoOverflow()->format('Y-m');
+@endphp
+
 <x-reports.app-shell title="Reservas / Ventas" current-report="reservations-sales" :updated-badge-text="'Cargando fotograf'.mb_chr(237).'a local...'">
     <x-slot:head>
         @vite([
@@ -10,6 +16,7 @@
     <script>
         window.reportUserCanExport = @json($reportUserCanExport ?? false);
         window.reportUserCanViewCommercialPerformance = @json($reportUserCanViewCommercialPerformance ?? false);
+        window.commercialPerformanceCurrentMonth = @json($performanceCurrentMonth);
         window.reportCsrfToken = @json(csrf_token());
     </script>
     <section class="filters card report-filters" id="reportFilters" data-mode="legacy">
@@ -44,7 +51,7 @@
         @if ($reportUserCanViewCommercialPerformance ?? false)
         <div class="filter-group performance-filter-control performance-month-control is-hidden">
             <label for="performanceMonth">Mes natural</label>
-            <input id="performanceMonth" type="month" value="{{ now('Europe/Madrid')->format('Y-m') }}" data-default-month="{{ now('Europe/Madrid')->format('Y-m') }}">
+            <input id="performanceMonth" type="month" value="{{ $performanceDefaultMonth }}" data-default-month="{{ $performanceDefaultMonth }}">
         </div>
         @endif
 
@@ -290,6 +297,7 @@
             <div class="performance-note performance-note--info" id="performanceSemantics">
                 Actividad mensual, no cohorte. Cada hito se asigna al mes en que ocurre; por ello, algunos ratios pueden superar el 100 %.
             </div>
+            <div class="performance-note performance-note--quality is-hidden" id="performanceCurrentMonthNotice"></div>
             <div class="performance-note performance-note--info is-hidden" id="performanceUniverse"></div>
             <div class="performance-note performance-note--info" id="performanceCancellationCoverage">Cobertura de cancelaciones pendiente de cargar.</div>
             <div class="performance-note performance-note--quality is-hidden" id="performanceDataIncident"></div>

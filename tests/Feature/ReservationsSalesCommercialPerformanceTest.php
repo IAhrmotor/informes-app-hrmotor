@@ -718,6 +718,78 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString('id="savePerformanceTarget" disabled', $html);
     }
 
+    public function test_rendimiento_comercial_usa_el_ultimo_mes_cerrado_en_europe_madrid_por_defecto(): void
+    {
+        $director = $this->reportUser(ReportUser::ROLE_DIRECTOR, 'director-closed-month@example.test');
+
+        foreach ([
+            ['2026-09-14 12:00:00', '2026-09', '2026-08'],
+            ['2026-10-01 00:00:00', '2026-10', '2026-09'],
+            ['2027-01-01 00:00:00', '2027-01', '2026-12'],
+        ] as [$now, $currentMonth, $defaultMonth]) {
+            CarbonImmutable::setTestNow(CarbonImmutable::parse($now, 'Europe/Madrid'));
+
+            try {
+                $html = $this->withSession($this->sessionFor($director))
+                    ->get('/informes/reservas-ventas')
+                    ->assertOk()
+                    ->getContent();
+
+                $this->assertStringContainsString(
+                    "id=\"performanceMonth\" type=\"month\" value=\"{$defaultMonth}\" data-default-month=\"{$defaultMonth}\"",
+                    $html,
+                );
+                $this->assertStringContainsString("window.commercialPerformanceCurrentMonth = \"{$currentMonth}\";", $html);
+            } finally {
+                CarbonImmutable::setTestNow();
+            }
+        }
+    }
+
+    public function test_mes_actual_mantiene_objetivo_completo_y_semaforo_sin_prorrateo(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-14 12:00:00', 'Europe/Madrid'));
+
+        try {
+            $this->commercial('005-current-month', 'Comercial mes actual');
+            $this->snapshot('005-current-month', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+            for ($index = 1; $index <= 9; $index++) {
+                $this->opportunity('006-current-month-'.$index, [
+                    'owner_id' => '005-current-month',
+                    'owner_name' => 'Comercial mes actual',
+                    'created_date' => '2026-09-05 10:00:00',
+                    'reservation' => true,
+                    'reservation_date' => '2026-09-05',
+                ]);
+            }
+
+            $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-09')
+                ->assertOk()
+                ->assertJsonPath('objective.reservations_target', 18)
+                ->assertJsonPath('items.0.objective', 18)
+                ->assertJsonPath('items.0.fulfillment_pct', 50)
+                ->assertJsonPath('items.0.traffic_light', 'red')
+                ->assertJsonPath('universe.global_target', 18)
+                ->assertJsonPath('universe.global_fulfillment_pct', 50);
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
+    public function test_javascript_identifica_solo_el_mes_actual_como_provisional(): void
+    {
+        $javascript = file_get_contents(resource_path('js/reports/reservations-sales-dashboard.js'));
+        $html = $this->get('/informes/reservas-ventas')->assertOk()->getContent();
+
+        $this->assertStringContainsString('id="performanceCurrentMonthNotice"', $html);
+        $this->assertStringContainsString('function renderPerformanceCurrentMonthNotice(month)', $javascript);
+        $this->assertStringContainsString('month === window.commercialPerformanceCurrentMonth', $javascript);
+        $this->assertStringContainsString('Mes en curso · Resultado provisional.', $javascript);
+        $this->assertStringContainsString('El objetivo mensual no se prorratea', $javascript);
+        $this->assertStringContainsString('renderPerformanceCurrentMonthNotice(data.month);', $javascript);
+        $this->assertStringContainsString("'performanceCurrentMonthNotice'", $javascript);
+    }
+
     public function test_historico_sin_snapshot_no_inventa_delegacion_ni_ranking(): void
     {
         $this->commercial('005-historic', 'Histórico');
