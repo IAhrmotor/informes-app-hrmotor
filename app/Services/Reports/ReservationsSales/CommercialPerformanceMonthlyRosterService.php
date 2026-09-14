@@ -53,7 +53,7 @@ class CommercialPerformanceMonthlyRosterService
                     'zone' => $assessment['zone'],
                     'delegation_certified' => true,
                     'delegation_status' => $assessment['status'],
-                    'ranking_eligible' => true,
+                    'assignment_evaluable' => true,
                 ];
             }
         }
@@ -90,7 +90,7 @@ class CommercialPerformanceMonthlyRosterService
             'delegation_certified' => false,
             'delegation_status' => 'not_certifiable',
             'delegation_issue' => $context['assessments'][$month][$userId]['reason'] ?? 'incomplete_history',
-            'ranking_eligible' => false,
+            'assignment_evaluable' => false,
         ];
     }
 
@@ -104,7 +104,7 @@ class CommercialPerformanceMonthlyRosterService
             'delegation_certified' => false,
             'delegation_status' => 'not_certifiable',
             'delegation_issue' => 'missing_commercial_identity',
-            'ranking_eligible' => false,
+            'assignment_evaluable' => false,
         ];
     }
 

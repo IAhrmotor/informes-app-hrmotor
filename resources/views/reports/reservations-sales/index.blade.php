@@ -290,7 +290,9 @@
             <div class="performance-note performance-note--info" id="performanceSemantics">
                 Actividad mensual, no cohorte. Cada hito se asigna al mes en que ocurre; por ello, algunos ratios pueden superar el 100 %.
             </div>
+            <div class="performance-note performance-note--info is-hidden" id="performanceUniverse"></div>
             <div class="performance-note performance-note--info" id="performanceCancellationCoverage">Cobertura de cancelaciones pendiente de cargar.</div>
+            <div class="performance-note performance-note--quality is-hidden" id="performanceDataIncident"></div>
             <div class="performance-note performance-note--quality is-hidden" id="performanceQualityWarning"></div>
             <div class="performance-note performance-note--error is-hidden" id="performanceLoadError"></div>
             <section class="kpis dashboard-kpis" id="performanceKpis"></section>
@@ -299,7 +301,7 @@
                 <div class="panel-title">
                     <div>
                         <h2>Rendimiento por comercial</h2>
-                        <div class="small">Ranking exclusivo por cumplimiento para asignaciones observadas o con bootstrap aprobado.</div>
+                        <div class="small">Ranking y referencias de equipo exclusivos de comerciales con actividad real y asignación mensual certificable. Las filas no evaluables se conservan sin objetivo, ranking ni comparación.</div>
                     </div>
                     <div class="columns-menu">
                         <button type="button" class="filter-reset" id="performanceColumnsButton" aria-expanded="false" aria-controls="performanceColumnsPopover">Añadir o quitar columnas</button>

@@ -54,7 +54,7 @@ class CommercialPerformanceDatasetService
     private function basePayload(string $month): array
     {
         $version = $this->cacheVersion();
-        $key = 'reservas-ventas-commercial-performance-base-v2:'.hash('sha256', json_encode([
+        $key = 'reservas-ventas-commercial-performance-base-v3:'.hash('sha256', json_encode([
             'month' => $month,
             'version' => $version,
         ]));
@@ -153,9 +153,15 @@ class CommercialPerformanceDatasetService
         $filterOptions = $this->filterOptions($currentRows, $filters);
         $rankUniverse = $this->applyOrganisationFilters($currentRows, $filters);
         $ranked = $this->applyTeamComparisonsAndRanking($rankUniverse);
+        $commercialRows = $ranked
+            ->filter(fn (array $row): bool => filled($row['commercial_id']) && $row['has_real_activity'])
+            ->values();
         $displayRows = filled($filters['commercial'])
-            ? $ranked->where('commercial_id', $filters['commercial'])->values()
-            : $ranked->values();
+            ? $commercialRows->where('commercial_id', $filters['commercial'])->values()
+            : $commercialRows;
+        $summaryRows = filled($filters['commercial']) ? $displayRows : $rankUniverse;
+        $universe = $this->universeMetadata($rankUniverse, $targets[$filters['month']]['value']);
+        $dataIncident = $this->dataIncidentSummary($currentRows, $historyCoverage[$filters['month']]['status'] === 'covered');
 
         $evolution = collect($monthKeys)->map(function (string $monthKey) use ($rowsByMonth, $filters, $historyCoverage): array {
             $rows = $this->applyOrganisationFilters($rowsByMonth[$monthKey], $filters);
@@ -179,11 +185,13 @@ class CommercialPerformanceDatasetService
                 'default' => CommercialPerformanceMonthlyTarget::DEFAULT_RESERVATIONS_TARGET,
             ],
             'items' => $displayRows->all(),
+            'universe' => $universe,
+            'data_incident' => $dataIncident,
             'evolution' => $evolution,
             'filters' => $filterOptions,
             'summary' => $this->evolutionRow(
                 $filters['month'],
-                $displayRows,
+                $summaryRows,
                 $historyCoverage[$filters['month']]['status'] === 'covered',
             ),
             'data_quality' => $quality + [
@@ -633,12 +641,31 @@ class CommercialPerformanceDatasetService
 
     private function finalizeRow(array $bucket, int $target, bool $cancellationsAvailable): array
     {
-        $isCommercial = filled($bucket['commercial_id']);
-        $objective = $isCommercial ? $target : null;
-        $fulfillment = $isCommercial ? $this->percentage($bucket['reservations_valid_for_objective'], $target) : null;
+        $hasRealActivity = $this->hasRealActivity($bucket);
+        $isDataIncident = blank($bucket['commercial_id']);
+        $isEvaluable = ! $isDataIncident && $hasRealActivity && $bucket['delegation_certified'];
+        $objective = $isEvaluable ? $target : null;
+        $fulfillment = $isEvaluable ? $this->percentage($bucket['reservations_valid_for_objective'], $target) : null;
+        $evaluationStatus = match (true) {
+            $isDataIncident => 'data_incident',
+            $isEvaluable => 'evaluable',
+            ! $hasRealActivity => 'excluded_no_activity',
+            default => 'not_evaluable',
+        };
+        $evaluationReason = match ($evaluationStatus) {
+            'excluded_no_activity' => 'no_real_activity',
+            'not_evaluable' => $bucket['delegation_issue'] ?? 'not_certifiable',
+            'data_incident' => $bucket['delegation_issue'] ?? 'missing_commercial_identity',
+            default => null,
+        };
 
         return array_merge($bucket, [
             'cancellations' => $cancellationsAvailable ? $bucket['cancellations'] : null,
+            'has_real_activity' => $hasRealActivity,
+            'evaluable' => $isEvaluable,
+            'evaluation_status' => $evaluationStatus,
+            'evaluation_reason' => $evaluationReason,
+            'ranking_eligible' => $isEvaluable,
             'objective' => $objective,
             'fulfillment_pct' => $fulfillment,
             'traffic_light' => $fulfillment === null ? null : $this->trafficLight((float) $fulfillment),
@@ -660,8 +687,10 @@ class CommercialPerformanceDatasetService
 
     private function applyTeamComparisonsAndRanking(Collection $rows): Collection
     {
-        $delegationStats = $rows
-            ->filter(fn (array $row): bool => $row['delegation_certified'] && $row['commercial_id'] !== null)
+        $teamPopulation = $rows
+            ->filter(fn (array $row): bool => $row['evaluable'])
+            ->values();
+        $delegationStats = $teamPopulation
             ->groupBy('delegation')
             ->map(function (Collection $team): array {
                 $salesWithMargin = (int) $team->sum('sales_with_margin');
@@ -682,19 +711,6 @@ class CommercialPerformanceDatasetService
                 ];
             });
 
-        $teamPopulation = $rows
-            ->filter(fn (array $row): bool => $row['ranking_eligible'])
-            ->values();
-        $teamCount = $teamPopulation->count();
-        $teamReservations = (int) $teamPopulation->sum('reservations_total');
-        $teamLeads = (int) $teamPopulation->sum('leads');
-        $teamOpportunities = (int) $teamPopulation->sum('opportunities');
-        $teamSales = (int) $teamPopulation->sum('sales');
-        $teamAverageReservations = $teamCount > 0 ? $teamReservations / $teamCount : null;
-        $teamLeadToReservation = $this->rawPercentage($teamReservations, $teamLeads);
-        $teamOpportunityToReservation = $this->rawPercentage($teamReservations, $teamOpportunities);
-        $teamReservationToSale = $this->rawPercentage($teamSales, $teamReservations);
-
         $eligible = $teamPopulation
             ->sortBy([['fulfillment_pct', 'desc'], ['commercial', 'asc']]);
         $ranks = [];
@@ -712,17 +728,17 @@ class CommercialPerformanceDatasetService
         return $rows->map(function (array $row) use (
             $delegationStats,
             $ranks,
-            $teamAverageReservations,
-            $teamLeadToReservation,
-            $teamOpportunityToReservation,
-            $teamReservationToSale,
         ): array {
-            $delegation = $row['delegation_certified'] ? $delegationStats->get($row['delegation']) : null;
-            $isEligible = (bool) $row['ranking_eligible'];
+            $delegation = $row['evaluable'] ? $delegationStats->get($row['delegation']) : null;
+            $isEligible = (bool) $row['evaluable'];
+            $teamAverageReservations = data_get($delegation, 'average_reservations');
+            $teamLeadToReservation = data_get($delegation, 'lead_to_reservation_pct');
+            $teamOpportunityToReservation = data_get($delegation, 'opportunity_to_reservation_pct');
+            $teamReservationToSale = data_get($delegation, 'reservation_to_sale_pct');
             $individualLeadToReservation = $this->rawPercentage($row['reservations_total'], $row['leads']);
             $individualOpportunityToReservation = $this->rawPercentage($row['reservations_total'], $row['opportunities']);
             $individualReservationToSale = $this->rawPercentage($row['sales'], $row['reservations_total']);
-            $teamDeviation = $teamAverageReservations === null || $teamAverageReservations <= 0
+            $teamDeviation = $teamAverageReservations === null
                 ? null
                 : $row['reservations_total'] - $teamAverageReservations;
 
@@ -733,7 +749,7 @@ class CommercialPerformanceDatasetService
                 'team_reservations_deviation' => $isEligible && $teamDeviation !== null
                     ? round($teamDeviation, 2)
                     : null,
-                'team_reservations_deviation_pct' => $isEligible && $teamDeviation !== null
+                'team_reservations_deviation_pct' => $isEligible && $teamDeviation !== null && $teamAverageReservations > 0
                     ? round(($teamDeviation / $teamAverageReservations) * 100, 2)
                     : null,
                 'team_lead_to_reservation_pct' => $isEligible && $teamLeadToReservation !== null
@@ -765,11 +781,64 @@ class CommercialPerformanceDatasetService
         ])->values();
     }
 
+    private function hasRealActivity(array $row): bool
+    {
+        return collect([
+            'leads',
+            'opportunities',
+            'reservations_total',
+            'sales',
+            'sales_dropped',
+        ])->sum(fn (string $metric): int => (int) ($row[$metric] ?? 0)) > 0;
+    }
+
+    private function universeMetadata(Collection $rows, int $individualTarget): array
+    {
+        $evaluable = $rows->where('evaluable', true)->values();
+        $activeNotEvaluable = $rows
+            ->filter(fn (array $row): bool => filled($row['commercial_id'])
+                && $row['has_real_activity']
+                && ! $row['evaluable'])
+            ->values();
+        $excludedNoActivity = $rows
+            ->filter(fn (array $row): bool => filled($row['commercial_id']) && ! $row['has_real_activity'])
+            ->values();
+        $globalTarget = (int) $evaluable->sum('objective');
+        $globalReservations = (int) $evaluable->sum('reservations_valid_for_objective');
+
+        return [
+            'evaluable_commercials' => $evaluable->count(),
+            'active_not_evaluable_commercials' => $activeNotEvaluable->count(),
+            'excluded_no_activity_commercials' => $excludedNoActivity->count(),
+            'individual_target' => $individualTarget,
+            'global_target' => $globalTarget,
+            'global_reservations_valid_for_objective' => $globalReservations,
+            'global_fulfillment_pct' => $this->percentage($globalReservations, $globalTarget),
+            'commercial_filter_affects_global_universe' => false,
+        ];
+    }
+
+    private function dataIncidentSummary(Collection $rows, bool $cancellationsAvailable): ?array
+    {
+        $incidents = $rows->whereNull('commercial_id')->values();
+
+        if ($incidents->isEmpty()) {
+            return null;
+        }
+
+        return array_merge(
+            $this->evolutionRow('incident', $incidents, $cancellationsAvailable),
+            ['objective' => null, 'fulfillment_pct' => null],
+        );
+    }
+
     private function evolutionRow(string $month, Collection $rows, bool $cancellationsAvailable): array
     {
         $reservations = (int) $rows->sum('reservations_total');
         $validReservations = (int) $rows->sum('reservations_valid_for_objective');
-        $objective = (int) $rows->sum(fn (array $row): int => is_numeric($row['objective']) ? (int) $row['objective'] : 0);
+        $evaluable = $rows->where('evaluable', true);
+        $objectiveReservations = (int) $evaluable->sum('reservations_valid_for_objective');
+        $objective = (int) $evaluable->sum(fn (array $row): int => is_numeric($row['objective']) ? (int) $row['objective'] : 0);
         $leads = (int) $rows->sum('leads');
         $opportunities = (int) $rows->sum('opportunities');
         $sales = (int) $rows->sum('sales');
@@ -784,13 +853,14 @@ class CommercialPerformanceDatasetService
             'reservations_total' => $reservations,
             'reservations_active' => (int) $rows->sum('reservations_active'),
             'reservations_valid_for_objective' => $validReservations,
+            'evaluable_reservations_valid_for_objective' => $objectiveReservations,
             'reservations_dropped' => (int) $rows->sum('reservations_dropped'),
             'sales' => $sales,
             'sales_dropped' => (int) $rows->sum('sales_dropped'),
             'sales_signed_reference' => (int) $rows->sum('sales_signed_reference'),
             'cancellations' => $cancellations,
             'objective' => $objective,
-            'fulfillment_pct' => $this->percentage($validReservations, $objective),
+            'fulfillment_pct' => $this->percentage($objectiveReservations, $objective),
             'lead_to_reservation_pct' => $this->percentage($reservations, $leads),
             'opportunity_to_reservation_pct' => $this->percentage($reservations, $opportunities),
             'reservation_to_sale_pct' => $this->percentage($sales, $reservations),
@@ -818,7 +888,7 @@ class CommercialPerformanceDatasetService
     {
         $evaluable = $rows->where('delegation_certified', true);
         $delegationRows = filled($filters['zone']) ? $evaluable->where('zone', $filters['zone']) : $evaluable;
-        $commercialRows = $rows->filter(fn (array $row): bool => filled($row['commercial_id']));
+        $commercialRows = $rows->filter(fn (array $row): bool => filled($row['commercial_id']) && $row['has_real_activity']);
         if (filled($filters['zone'])) {
             $commercialRows = $commercialRows
                 ->where('delegation_certified', true)

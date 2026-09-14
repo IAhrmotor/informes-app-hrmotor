@@ -1,5 +1,19 @@
 # Decisiones técnicas
 
+## 2026-09-11 - Universo evaluable posterior a la agregación en Rendimiento comercial
+
+La certificación histórica de delegación sigue resolviéndose en el roster, pero
+la evaluabilidad se decide únicamente tras agregar los hechos mensuales. Esto
+evita que un registro de roster sin actividad consuma objetivo o altere ranking
+y medias. La actividad real se limita a Leads, Opportunities, reservas totales,
+ventas válidas y ventas caídas; una cancelación aislada no basta.
+
+Los agregados de equipo se preagrupan en memoria por delegación y solo contienen
+filas evaluables. El payload expone un bloque `universe` separado de `summary`
+para que el cumplimiento global no mezcle actividad visible, incidencias ni el
+filtro Comercial. Las incidencias de datos se mantienen reconciliables en un
+bloque independiente, sin renderizarlas como comerciales.
+
 ## 2026-09-10 - Semántica de funnel en Rendimiento comercial
 
 - Las caídas de Reserva/Venta se derivan del estado actual local de la

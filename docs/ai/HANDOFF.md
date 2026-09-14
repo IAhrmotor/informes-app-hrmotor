@@ -1,5 +1,40 @@
 # Handoff para agentes
 
+## Universo evaluable de Rendimiento comercial (2026-09-11)
+
+- Tarea 2: la evaluabilidad final se calcula tras agregar contadores. Requiere
+  identidad, actividad real (Lead, Opportunity, reserva total, venta válida o
+  caída) y snapshot mensual `observed`/`bootstrap_approved`. Cancelación aislada,
+  margen y roster no activan objetivo ni ranking.
+- Los comerciales certificados sin actividad quedan fuera de tabla, filtro,
+  objetivo, ranking, equipo y cumplimiento global; las filas con actividad e
+  histórico no certificable siguen visibles como `No evaluable`. Incidencia de
+  datos se expone separada de la tabla y conserva sus métricas reconciliables.
+- Equipo y ranking se calculan en memoria después de Zona/Delegación y antes de
+  Comercial. El equipo se agrupa por delegación y contiene solo evaluables. El
+  bloque `universe` incluye tamaño, exclusiones, objetivo global y cumplimiento
+  global; Comercial no lo recalcula.
+- Auditoría: `monthly_evaluable`, estado y objetivo se derivan una vez del
+  comercial mensual, no de `counted_in_metric` de la fila. Por tanto, un evento
+  deduplicado puede conservar `counted_in_metric=false` y seguir siendo
+  evaluable; `data_incident` publica objetivo y cumplimiento como `null`.
+- Se versionó la base cacheada a
+  `reservas-ventas-commercial-performance-base-v3`; TTL, lock y versionadores
+  O(1) se mantienen. No hay migraciones, dependencias, llamadas Salesforce ni
+  cambios de rutas/controladores.
+- Archivos modificados: dataset, roster, auditoría, JS/Blade de Reservas/Ventas,
+  tests focales y documentación de Reservas/Ventas, decisiones, contexto y este
+  handoff. Validación final real: suite focal (`ReservationsSalesCommercialPerformanceTest`
+  y `CommercialPerformanceMonthlyRosterServiceTest`) 65/65 pruebas, 554
+  aserciones y 0 fallos; Pint focal sobre los cinco PHP modificado, correcto;
+  `git diff --check`, correcto y staging vacío antes del checkpoint. `node --check`
+  y el build Vite se ejecutaron correctamente durante el cierre. El audit de
+  Composer previo (`composer audit --locked --no-dev`) no informó advisories y
+  `composer.json`/`composer.lock` siguen sin cambios. El hash global de
+  `resources/css/app.css` generado por las vistas compiladas locales se descartó
+  específicamente: se restauró `app-DzLCIK8P.css` y el manifest conserva esa
+  referencia; solo cambia el bundle de Reservas/Ventas.
+
 ## Semántica de funnel en Rendimiento comercial (2026-09-10)
 
 - Se distinguen Reservas totales, Reservas vivas, Ventas válidas, Reservas

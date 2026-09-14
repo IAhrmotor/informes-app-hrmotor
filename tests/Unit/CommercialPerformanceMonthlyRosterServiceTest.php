@@ -37,7 +37,7 @@ class CommercialPerformanceMonthlyRosterServiceTest extends TestCase
 
         $this->assertSame('bootstrap_approved', $context['assignments']['2026-04']['005-roster']['delegation_status']);
         $this->assertSame('observed', $context['assignments']['2026-08']['005-roster']['delegation_status']);
-        $this->assertTrue($context['assignments']['2026-04']['005-roster']['ranking_eligible']);
+        $this->assertTrue($context['assignments']['2026-04']['005-roster']['assignment_evaluable']);
     }
 
     public function test_cambio_dentro_del_mes_y_hueco_quedan_no_certificables(): void

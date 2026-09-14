@@ -1,6 +1,6 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-09-08.
+Actualizado: 2026-09-11.
 
 ## Autoridad Salesforce y lifecycle vigente
 
@@ -31,10 +31,14 @@ Actualizado: 2026-09-08.
 - `CommercialPerformanceDatasetService` agrega cuatro meses de actividad local
   por fecha propia de Lead, Opportunity, reserva, firma y cancelación; la unidad
   es Salesforce User ID + mes, nunca delegación, y no altera la cohorte legacy.
-- La comparación de equipo reutiliza el mismo universo `ranking_eligible` del
-  ranking, después de Zona/Delegación y antes de Comercial. Sus agregados se
-  calculan una vez en memoria sobre el dataset local; Comercial solo limita las
-  filas visibles y las filas no evaluables no reciben comparación.
+- La evaluación mensual se resuelve después de agregar hechos: exige identidad,
+  actividad real (Lead, Opportunity, reserva total, venta válida o caída) y
+  asignación `observed` o `bootstrap_approved`. El roster sin actividad solo se
+  conserva como exclusión auditable. La comparación de equipo y ranking usan
+  exclusivamente esas filas evaluables, se preagrupan en memoria por delegación
+  tras Zona/Delegación y antes de Comercial; Comercial solo limita las filas
+  visibles. El cumplimiento global se expone en `universe`, separado de
+  `summary`, e Incidencia de datos no se renderiza como comercial.
 - `salesforce_opportunities` conserva lifecycle mediante `is_deleted`,
   `salesforce_deleted_at` y `deletion_detection_source`. El modelo aplica scope
   activo por defecto solo para `query_all_deleted`; una ausencia conciliada no
@@ -57,8 +61,9 @@ Actualizado: 2026-09-08.
   desde 2026-04-01 cuando la primera asignación fiable carece de contradicciones.
   Bootstrap y observación son evaluables; los períodos sin intervalo completo y
   estable quedan no certificables. Los cambios abren una alerta operacional y
-  nunca fuerzan una delegación mensual. El roster evaluable incluye comerciales
-  sin actividad. La captura periódica solo crea observaciones; el bootstrap se
+  nunca fuerzan una delegación mensual. El roster conserva comerciales sin
+  actividad únicamente para explicar su exclusión; no forman parte del universo
+  evaluable final. La captura periódica solo crea observaciones; el bootstrap se
   solicita una vez y de forma explícita con
   `--bootstrap-performance-history`. Auditoría y calidad distinguen
   `observed`, `bootstrap_approved` y `not_certifiable`, además de publicar por

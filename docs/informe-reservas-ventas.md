@@ -164,6 +164,27 @@ Archivos principales:
 
 ## Pestaña Rendimiento comercial
 
+### Universo evaluable mensual
+
+El roster histórico se conserva para explicar cobertura y exclusiones, pero no
+concede por sí mismo objetivo, ranking ni presencia en la tabla. Un comercial
+solo es evaluable si tiene identidad válida, al menos un Lead elegible,
+Opportunity elegible, reserva total, venta válida o venta caída imputados al
+mes, y una asignación mensual `observed` o `bootstrap_approved`. Las
+cancelaciones aisladas, margen y métricas derivadas no activan actividad real.
+
+Las filas con actividad y un histórico no certificable se muestran como **No
+evaluable**, sin objetivo, cumplimiento, semáforo, ranking ni referencia de
+equipo. Las filas certificadas sin actividad se excluyen de tabla y filtro
+Comercial, y se contabilizan en la metadata del universo. `Incidencia de datos`
+se publica en un bloque separado de calidad, fuera del universo evaluable.
+
+El ranking y las comparativas se calculan tras Zona/Delegación y antes de
+Comercial. Cada referencia de equipo incluye solo comerciales evaluables de la
+misma delegación; Comercial solo limita filas visibles. El cumplimiento global
+es exclusivamente `SUM(reservations_valid_for_objective) / SUM(objective)` del
+universo evaluable y devuelve `null` cuando no existe objetivo global.
+
 Esta pestaña es independiente de la cohorte de las tres pestañas legacy. Solo
 Administrador y Director/Dirección pueden ver la pestaña, consultar
 `GET /informes/reservas-ventas/data/commercial-performance`, consultar la
@@ -230,17 +251,19 @@ excederían el límite de 64 caracteres con la convención automática:
 `commercial_perf_target_updated_user_fk` y `sf_opp_stage_history_uq`. La FK
 conserva `ON DELETE SET NULL` y el ID de historial continúa siendo único.
 
-En resumen y evolución, el objetivo agregado es la suma de los objetivos de las
-personas comerciales incluidas tras aplicar los filtros. Una fila de incidencia
-puede conservar eventos operativos, pero no recibe objetivo, cumplimiento,
-semáforo ni ranking y no amplía el denominador agregado.
+El cumplimiento global se publica en `universe` y suma exclusivamente reservas
+válidas para objetivo y objetivos de comerciales evaluables dentro del scope de
+Zona/Delegación. El filtro Comercial no modifica ese universo. Una incidencia
+conserva eventos operativos en su bloque separado, pero no recibe objetivo,
+cumplimiento, semáforo ni ranking y no amplía el denominador global.
 
 Existe una sola fila y un solo objetivo por `commercial_id` y mes. La delegación
 solo habilita comparaciones: cualquier hueco o cambio de delegación dentro del
 mes mantiene la actividad individual agregada, pero la marca como `Histórico no
 certificable`, sin escoger equipo arbitrariamente. El roster inicial incluye a
 todo comercial cuyo único intervalo certificado cubre el mes completo —o el
-corte transcurrido del mes actual—, aunque tenga cero actividad.
+corte transcurrido del mes actual—, pero las filas sin actividad real se
+excluyen del universo final.
 
 El filtro Comercial incluye identidades comerciales válidas aunque su delegación
 mensual no sea certificable. Zona y Delegación solo ofrecen asignaciones
@@ -249,9 +272,9 @@ filtro Comercial; los empates exactos comparten posición y no usa margen,
 cancelación ni scoring compuesto.
 
 Las comparativas de equipo usan exactamente la misma población que el ranking:
-las filas `ranking_eligible=true` tras aplicar Zona y Delegación, pero antes de
-aplicar Comercial. Sin filtro organizativo el equipo incluye todos los
-comerciales evaluables del universo, sin agrupar por delegación. La media de
+filas evaluables con actividad real tras aplicar Zona y Delegación, pero antes
+de aplicar Comercial. Cada comercial se compara solo con los evaluables de su
+misma delegación, incluso si la zona contiene varias delegaciones. La media de
 reservas y los ratios Lead → Reserva, Oportunidad → Reserva y Reserva → Venta se
 calculan agregando sus contadores; las diferencias individuales se expresan en
 puntos porcentuales. Las filas no evaluables publican estos campos como `null`.
