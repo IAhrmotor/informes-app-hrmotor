@@ -1537,16 +1537,45 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
     public function test_ratios_del_funnel_devuelven_null_con_denominadores_cero(): void
     {
         Cache::flush();
-        $this->commercial('005-funnel-zero', 'Comercial sin actividad');
-        $this->snapshot('005-funnel-zero', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        $this->commercial('005-funnel-sale', 'Comercial solo venta');
+        $this->snapshot('005-funnel-sale', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        $this->opportunity('006-funnel-sale', [
+            'owner_id' => '005-funnel-sale',
+            'owner_name' => 'Comercial solo venta',
+            'created_date' => '2026-07-01 10:00:00',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-08-10',
+            'stage_name' => 'Contrato',
+        ]);
 
-        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+        $this->commercial('005-funnel-opportunity', 'Comercial solo oportunidad');
+        $this->snapshot('005-funnel-opportunity', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+        $this->opportunity('006-funnel-opportunity', [
+            'owner_id' => '005-funnel-opportunity',
+            'owner_name' => 'Comercial solo oportunidad',
+            'created_date' => '2026-08-10 10:00:00',
+        ]);
+
+        $items = collect($this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
             ->assertOk()
-            ->assertJsonPath('items.0.lead_to_reservation_pct', null)
-            ->assertJsonPath('items.0.opportunity_to_reservation_pct', null)
-            ->assertJsonPath('items.0.reservation_to_sale_pct', null)
-            ->assertJsonPath('items.0.reservation_drop_pct', null)
-            ->assertJsonPath('items.0.sale_drop_pct', null);
+            ->json('items'))
+            ->keyBy('commercial_id');
+
+        $saleOnly = $items->get('005-funnel-sale');
+        $this->assertNotNull($saleOnly);
+        $this->assertSame(0, $saleOnly['leads']);
+        $this->assertSame(0, $saleOnly['opportunities']);
+        $this->assertSame(0, $saleOnly['reservations_total']);
+        $this->assertSame(1, $saleOnly['sales']);
+        $this->assertNull($saleOnly['lead_to_reservation_pct']);
+        $this->assertNull($saleOnly['opportunity_to_reservation_pct']);
+        $this->assertNull($saleOnly['reservation_to_sale_pct']);
+        $this->assertNull($saleOnly['reservation_drop_pct']);
+
+        $opportunityOnly = $items->get('005-funnel-opportunity');
+        $this->assertNotNull($opportunityOnly);
+        $this->assertSame(0, $opportunityOnly['sales_signed_reference']);
+        $this->assertNull($opportunityOnly['sale_drop_pct']);
     }
 
     public function test_duplicado_reserva_viva_y_caida_excluye_clasificacion_ambigua(): void
