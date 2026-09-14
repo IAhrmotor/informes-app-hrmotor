@@ -72,8 +72,8 @@
         <div class="filter-group performance-filter-control performance-target-field is-hidden">
             <label for="performanceTarget">Objetivo reservas</label>
             <div class="performance-target-control">
-                <input id="performanceTarget" type="number" min="1" step="1" inputmode="numeric">
-                <button type="button" class="filter-reset" id="savePerformanceTarget">Guardar</button>
+                <input id="performanceTarget" type="number" min="1" step="1" inputmode="numeric" disabled>
+                <button type="button" class="filter-reset" id="savePerformanceTarget" disabled>Guardar</button>
             </div>
         </div>
         @endif
@@ -294,7 +294,10 @@
             <div class="performance-note performance-note--info" id="performanceCancellationCoverage">Cobertura de cancelaciones pendiente de cargar.</div>
             <div class="performance-note performance-note--quality is-hidden" id="performanceDataIncident"></div>
             <div class="performance-note performance-note--quality is-hidden" id="performanceQualityWarning"></div>
-            <div class="performance-note performance-note--error is-hidden" id="performanceLoadError"></div>
+            <div class="performance-note performance-note--error is-hidden" id="performanceLoadError" role="alert">
+                <span data-performance-load-error-message></span>
+                <button type="button" class="filter-reset" id="retryCommercialPerformance">Reintentar</button>
+            </div>
             <section class="kpis dashboard-kpis" id="performanceKpis"></section>
 
             <section class="card panel">
@@ -349,7 +352,7 @@
                 <div class="panel-title">
                     <div>
                         <h2 id="performanceAuditTitle">Auditoría de Rendimiento comercial</h2>
-                        <div class="small">Trazabilidad local sin PII: IDs, hitos, atribución, cobertura e incidencias.</div>
+                        <div class="small">Trazabilidad local de IDs, hitos, atribución, cobertura e incidencias.</div>
                     </div>
                     <button type="button" class="filter-reset" id="loadPerformanceAudit">Cargar auditoría</button>
                 </div>

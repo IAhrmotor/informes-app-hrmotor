@@ -203,6 +203,29 @@ existe al cambiar de universo, se limpia y se repite una sola carga consistente.
 Limpiar Rendimiento restablece mes y filtros organizativos, pero nunca modifica
 el objetivo persistido.
 
+### Resiliencia de filtros y auditoría
+
+La base de Rendimiento comercial se cachea con el namespace
+`reservas-ventas-commercial-performance-base-v4`. El valor cacheado contiene
+solo arrays y escalares; las `Collection` se crean únicamente al presentar las
+filas recuperadas. Esto mantiene `cache.serializable_classes=false` y permite
+usar stores persistentes sin deserializar clases PHP.
+
+Los contadores de `data_quality` se conservan por mes de hito antes de formar el
+payload. El bloque público contiene exclusivamente el mes seleccionado:
+atribución no resuelta, histórico no certificable, conflictos de grupo/margen,
+cronología de cancelación y estados de roster. `data_incident` sigue siendo el
+agregado reconciliable del mes seleccionado y no recibe objetivo.
+
+Los filtros de la pestaña son dependientes: Zona limita Delegación y ambas
+limitan Comercial. Comercial solo limita las filas visibles y no recalcula
+universo, ranking ni comparativas. Al recargar se retiran los datos anteriores;
+si falla la petición se informa el error sin exponer detalles internos y se
+ofrece `Reintentar` con los filtros actuales. La auditoría acepta los mismos
+filtros de Zona, Delegación y Comercial, los aplica tras resolver la atribución
+y antes de ordenar y paginar. Sus incidencias sin comercial se mantienen cuando
+no hay filtro organizativo que las excluya naturalmente.
+
 ### Actividad mensual y fórmulas
 
 Cada hito pertenece a su propio mes natural `Europe/Madrid`:
