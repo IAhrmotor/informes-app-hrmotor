@@ -322,4 +322,43 @@ class ReportAccessManagementTest extends TestCase
 
         $this->assertSame(['00Q-OWN'], collect($items)->pluck('salesforce_id')->all());
     }
+
+    public function test_stock_only_no_es_un_rol_minimo_configurable(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+        $admin = ReportUser::query()->create([
+            'email' => 'admin-minimum-roles@hrmotor.com',
+            'password' => 'synthetic-password-12',
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => true,
+        ]);
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $admin->id,
+            'report_user_role' => $admin->role,
+            'report_user_email' => $admin->email,
+        ];
+
+        $this->withSession($session)
+            ->get('/informes/permisos-informes')
+            ->assertOk()
+            ->assertDontSee('value="'.ReportUser::ROLE_STOCK_ONLY.'"', false);
+
+        $this->withSession($session)
+            ->put('/informes/permisos-informes', [
+                'minimum_roles' => [
+                    'leads' => ReportUser::ROLE_STOCK_ONLY,
+                    'reservations-sales' => ReportUser::ROLE_VIEWER,
+                    'calls' => ReportUser::ROLE_VIEWER,
+                    'campaigns' => ReportUser::ROLE_DIRECTOR,
+                    'commercial-commissions' => ReportUser::ROLE_DIRECTOR,
+                    'stock' => ReportUser::ROLE_ADMIN,
+                ],
+            ])
+            ->assertSessionHasErrors('minimum_roles.leads');
+
+        $this->assertDatabaseMissing('report_access_settings', [
+            'minimum_role' => ReportUser::ROLE_STOCK_ONLY,
+        ]);
+    }
 }

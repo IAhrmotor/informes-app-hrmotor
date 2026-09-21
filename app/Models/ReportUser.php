@@ -30,6 +30,8 @@ class ReportUser extends Model
 
     public const ROLE_COMMERCIAL = 'commercial';
 
+    public const ROLE_STOCK_ONLY = 'stock_only';
+
     public const ROLE_WEIGHTS = [
         self::ROLE_VIEWER => 10,
         self::ROLE_AREA_MANAGER => 20,
@@ -51,6 +53,7 @@ class ReportUser extends Model
         self::ROLE_MARKETING => 'Marketing',
         self::ROLE_FINANCIAL => 'Financiero',
         self::ROLE_COMMERCIAL => 'Comercial',
+        self::ROLE_STOCK_ONLY => 'Stock exclusivamente',
     ];
 
     public const AREA_ZONE_LABELS = [

@@ -1,5 +1,56 @@
 # Handoff para agentes
 
+## Rol funcional de acceso exclusivo a Stock (2026-09-21)
+
+- Rama inicial `feature/stock-only-access`, HEAD inicial
+  `487eb6b85316db155b1eaf44672772d4f722c951`, coincidente con `origin/main`
+  tras `git fetch` (0 commits delante y 0 detrás). El árbol ya contenía cambios
+  ajenos en `public/build/manifest.json` y dos artefactos CSS; se preservaron y
+  no forman parte de esta tarea.
+- Se añade `ReportUser::ROLE_STOCK_ONLY` (`stock_only`) con el label
+  `Stock exclusivamente`. El rol queda disponible en alta y edición mediante
+  las opciones centralizadas existentes. No se añade a `ROLE_WEIGHTS` ni se
+  convierte en un nivel de la jerarquía Viewer/Director/Admin.
+- `ReportUserAccess` trata el rol como funcional aislado: solo autoriza `stock`.
+  `accessibleReportKeys()` deja la navegación limitada a Stock y
+  `defaultAccessibleRouteName()`/`defaultOperationalRouteName()` dirigen login
+  y `/informes` a `/informes/stock`. El middleware existente mantiene
+  redirección para HTML y 403 para endpoints JSON/data/export no autorizados.
+- `reportMinimumRoleOptions()` excluye `stock_only`, igual que otros roles
+  funcionales aislados. La validación del controlador rechaza también un valor
+  manipulado. No cambian los mínimos existentes ni la configuración almacenada.
+- Stock conserva sus reglas: lectura y pestañas operativas disponibles;
+  Capacidades sigue siendo exclusiva de Admin tanto en UI como en POST/PUT; la
+  aprobación de alias conserva su permiso independiente. Usuarios, permisos,
+  coeficientes, penalizaciones y alertas siguen protegidos en servidor.
+- Archivos modificados por la tarea: `app/Models/ReportUser.php`,
+  `app/Support/ReportUserAccess.php`,
+  `tests/Feature/ReportUserManagementTest.php`,
+  `tests/Feature/ReportAccessManagementTest.php`,
+  `tests/Feature/StrategicReportNavigationTest.php`,
+  `tests/Feature/StockDashboardTest.php` y este handoff.
+- Base de datos/configuración: sin migraciones, cambios de entorno, usuarios
+  reales ni datos productivos. `report_users.role` ya es `VARCHAR(32)`. Al
+  crear o convertir un usuario a `stock_only`, zona, delegación y Salesforce
+  User ID quedan a `null` mediante el flujo existente.
+- Seguridad y rendimiento: autorización exclusivamente server-side y sin reglas
+  por email; no se añaden consultas, cargas de datasets, N+1, llamadas externas
+  ni accesos Salesforce. Admin, Director, Viewer y los demás roles funcionales
+  conservan la matriz previa.
+- Validación: `ReportUserManagementTest` 6/6 (46 aserciones),
+  `ReportAccessManagementTest` 9/9 (58), `StrategicReportNavigationTest` 7/7
+  (119), `StockDashboardTest` 12/12 (118) y suite completa 985/985 (7.288),
+  todas correctas. Pint focal sobre los seis PHP modificados y
+  `git diff --check`, correctos. El Pint global falla por infracciones
+  preexistentes en archivos ajenos al diff. `composer audit` informa cuatro
+  avisos de severidad alta ya presentes en `league/commonmark` (DoS/XSS;
+  corregidos en 2.9.1/2.10.0); no se actualizaron dependencias fuera de alcance.
+  No se ejecutó `npm run build` porque no cambió ninguna fuente frontend.
+- Acciones manuales: ninguna aparte del despliegue normal del código cuando sea
+  aprobado. Riesgo pendiente: planificar por separado la actualización segura
+  de `league/commonmark` y validar compatibilidad. No se hizo merge, push, PR,
+  despliegue, creación de usuario ni escritura Salesforce.
+
 ## Tarea 4 - Último mes cerrado y resultado provisional (2026-09-14)
 
 - Rendimiento comercial calcula una sola vez en Blade el mes actual y el último
