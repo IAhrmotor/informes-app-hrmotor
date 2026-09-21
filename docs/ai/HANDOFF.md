@@ -128,6 +128,268 @@
   de `league/commonmark` y validar compatibilidad. No se hizo merge, push, PR,
   despliegue, creación de usuario ni escritura Salesforce.
 
+## UX-1B - Autonomía CSS de Reservas / Ventas (2026-09-21)
+
+### Resumen y alcance
+
+- Reservas / Ventas deja de cargar
+  `resources/css/reports/leads-dashboard.css`. La vista queda sustentada por el
+  Design System, el Application Shell y
+  `resources/css/reports/reservations-sales-dashboard.css`.
+- No se modificó `leads-dashboard.css`, ningún controlador, servicio, modelo,
+  ruta, middleware, permiso, payload, endpoint, fórmula, filtro funcional,
+  caché ni integración Salesforce.
+- Archivos fuente modificados:
+  `resources/views/reports/reservations-sales/index.blade.php`,
+  `resources/js/reports/reservations-sales-dashboard.js`,
+  `resources/css/reports/reservations-sales-dashboard.css` y
+  `tests/Feature/ReservationsSalesCommercialPerformanceTest.php`. También se
+  actualizaron los dos bundles versionados de Reservas/Ventas,
+  `public/build/manifest.json` y este handoff.
+
+### Inventario legacy previo y decisión
+
+| Selector / grupo | Clasificación | Decisión UX-1B |
+|---|---|---|
+| `.wrap` | Utility compartida del Application Shell | Se conserva: `app-shell.css` la consume para el layout principal; no depende de la regla homónima de Leads. |
+| `.card` | Puramente visual | Retirada; `report-ui-card` o `report-ui-data-panel` cubren cada uso. |
+| `.filters`, `.compact-filters` | Puramente visual / layout | Retiradas; se consumen `report-ui-filter-bar` y una variante local semántica para la búsqueda de comerciales. |
+| `.filter-group` | Puramente visual | Retirada; `report-ui-field` cubre estructura y espaciado. |
+| `.filter-actions` | Puramente visual | Retirada; sustituida por `report-ui-filter-bar__actions`. |
+| `.filter-reset` | Puramente visual | Retirada; los botones usan únicamente las primitives `report-ui-button`. |
+| `.tabs-main` | Puramente visual | Retirada; `report-ui-tabs` cubre el patrón. |
+| `.main-tab` | Visual y hook JavaScript | Retirada; la presentación usa `report-ui-tab` y el hook es `data-report-tab`. |
+| `.tab-panel` | Comportamiento estructural y hook JavaScript | Retirada; `data-report-panel` controla el conjunto y el CSS local explícita ocultación/activación. |
+| `.kpis`, `.dashboard-kpis` | Puramente visual | Retiradas; `report-ui-kpi-strip` cubre el contenedor. |
+| `.kpi`, `.kpi-copy`, `.kpi-label`, `.kpi-value`, `.kpi-hint` | Puramente visual, incluidas plantillas JS | Retiradas; el HTML dinámico usa directamente las subclases de `report-ui-kpi-strip`. |
+| `.panel`, `.panel-title` | Puramente visual / estructura | Retiradas; `report-ui-data-panel` y sus subclases cubren el patrón. |
+| `.table-wrap` | Comportamiento estructural de scroll | Retirada; `report-ui-data-panel__scroll` conserva overflow, altura máxima y foco, con límites locales para las tablas de Rendimiento. |
+| `.num` | Utility visual | Retirada; sustituida en Blade y HTML dinámico por `report-ui-table__numeric`. |
+| `.notice` | Puramente visual | Retirada; loading/empty consumen `report-ui-card` y `report-ui-empty-state`, manteniendo `reservations-message` para espaciado propio. |
+| `.columns-menu` | Estructura y hook de click fuera | Renombrada a `.reservations-columns-menu`; el comportamiento usa `data-columns-menu`. |
+| `.columns-popover` | Estructura específica | Renombrada a `.reservations-columns-popover` y definida íntegramente en el CSS del informe. |
+| `.is-hidden` | Estado funcional compartido dentro del módulo | Se conserva y se define explícitamente bajo `.reservations-sales-report`, sin `!important`; se declara al final para vencer de forma determinista displays de variantes locales. |
+| `.active`, `.is-active` | Estado funcional / visual de tabs | Se conservan como exige el contrato aprobado; no se usan para localizar nodos. |
+| `.legacy-filter-control`, `.performance-filter-control` | Hooks JavaScript puros | Retirados; sustituidos por `data-filter-scope="standard"` y `data-filter-scope="performance"`. |
+| `.period-strip`, `.period-card`, `.universe-definition-card` | Presentación específica de Reservas/Ventas | Se conservan, pero todas sus reglas necesarias están ahora en el CSS local; ya no heredan de Leads. |
+| calidad, métricas, sorting y opciones de columnas | Presentación específica antes heredada parcialmente | Renombradas con prefijo `reservations-` y definidas localmente; sorting elimina su indicador mediante `data-sort-indicator`. |
+
+No se encontró ninguna dependencia legacy que impida retirar completamente el
+CSS de Leads. Las únicas coincidencias nominales restantes con selectores del
+archivo legacy son estados con consumidor real, las tres clases específicas de
+periodos y `.wrap`; todas tienen ahora un proveedor explícito en el Design
+System, Application Shell o CSS propio del informe.
+
+### Hooks y comportamiento preservado
+
+- Hooks migrados: `.main-tab` → `data-report-tab`, `data-panel` →
+  `data-report-panel-target`, `.tab-panel` → `data-report-panel`, controles de
+  modo → `data-filter-scope`, `data-mode` → `data-filter-mode`,
+  `.columns-menu` → `data-columns-menu` y `.sort-indicator` →
+  `data-sort-indicator`.
+- Las tabs siguen alternando `active` e `is-active`, conservan
+  `aria-controls` y no introducen roles de tablist, `aria-current` ni un widget
+  ARIA incompleto.
+- Se conservaron los 60 IDs del HTML. El diff JavaScript no toca `fetchJson`,
+  URLs, `URLSearchParams` ni `setParam`; no cambia el número ni contrato de las
+  requests.
+- Se mantienen scroll horizontal, altura máxima, cabeceras sticky mediante el
+  modificador oficial, scroll superior sincronizado, sorting, selector de
+  columnas, loading, empty, error, reintento y auditoría.
+
+### CSS específico que permanece
+
+- Layout raíz y panel activo del informe; mensajes, periodos y definición de
+  universo; calidad de datos; acciones de auditoría KPI; altura/overflow de
+  tablas; filtro compacto de comerciales; popovers de columnas; presentación
+  de valor/porcentaje y sorting; orden del modo Rendimiento; objetivo;
+  mensajes informativos/calidad/error; anchos de tablas, scroll superior,
+  semáforos y ajustes móviles.
+- Se eliminaron los overrides transitorios de UX-1A que neutralizaban inputs,
+  selects, botones, tabs, KPI, paneles y tablas de Leads. No se añadió
+  `!important`, selector global ni primitive duplicada.
+- Correctivo final: se retiró el `max-width: 1600px` inefectivo de la raíz del
+  informe. No se sustituyó por otra anchura; `.app-shell .wrap` continúa
+  determinando `max-width: none`, por lo que la anchura efectiva no cambia.
+
+### Seguridad, rendimiento y datos
+
+- Sin cambios en autenticación, autorización, CSRF, sesiones, cookies,
+  validación backend, permisos o exportaciones. La rama de permiso para
+  Rendimiento comercial permanece intacta.
+- El HTML dinámico existente mantiene `escapeHtml()`; no se añadió `innerHTML`
+  nuevo con datos sin escapar, dependencia, listener duplicado,
+  `MutationObserver`, polling, request, endpoint, consulta o llamada Salesforce.
+- La hoja específica compilada baja respecto a UX-1A y el informe deja de
+  solicitar el CSS legacy; no aumenta materialmente el coste frontend.
+- Sin migraciones, variables de entorno ni cambios de base de datos.
+
+### Validación ejecutada
+
+- Precondiciones Git: rama
+  `feature/ux-reservations-sales-remove-legacy`, worktree inicialmente limpio y
+  UX-1A local `c3b6c3d` como `HEAD`; no se trabajó desde `main`.
+- Baseline previo: el primer intento de la prueba focal no arrancó porque este
+  worktree carecía de `vendor/autoload.php`. Se regeneró únicamente el autoload
+  sobre el `vendor` ya presente con `composer dump-autoload --no-scripts`, sin
+  descargar ni instalar dependencias. El baseline aprobado de UX-1A documentado
+  en la sección anterior era 71 pruebas / 808 aserciones.
+- `php artisan test tests/Feature/ReservationsSalesCommercialPerformanceTest.php`:
+  71/71 pruebas y 814 aserciones, correcto.
+- `php artisan test`: 982/982 pruebas y 7.237 aserciones, correcto; 281.051 ms.
+- `vendor/bin/pint --test tests/Feature/ReservationsSalesCommercialPerformanceTest.php`:
+  correcto mediante el mismo binario invocado con PHP de Herd.
+- `composer validate --no-check-publish --strict`: correcto.
+- `composer audit --locked --no-dev`: correcto, sin advisories.
+- `node --check resources/js/reports/reservations-sales-dashboard.js`: correcto.
+- `npm run build`: correcto con Vite 8.0.12, 15 módulos transformados y build
+  final en 3,82 s. Se usó temporalmente un junction a las dependencias ya instaladas
+  del checkout principal y se retiró después; no se instalaron paquetes.
+- El build conserva los avisos ambientales conocidos de deprecación
+  `module.register()` e imagen `/images/login-bg.jpg` resuelta en runtime.
+- Bundles finales del módulo:
+  `reservations-sales-dashboard-BjVL1ck3.css` y
+  `reservations-sales-dashboard-DxqPdbxo.js`. Se retiraron sus dos versiones
+  anteriores. El churn global `app-DzLCIK8P.css` → `app-CN9O6aR-.css` se
+  descartó de forma específica y su manifest volvió a `HEAD`.
+- `git diff --check`: correcto. Comprobaciones estáticas: ningún
+  `!important`, selector global nuevo, clase legacy genérica en Blade/JS o
+  cambio de IDs/requests.
+
+### Acciones manuales y riesgos pendientes
+
+- No hay migraciones, configuración ni limpieza de caché obligatoria. En el
+  despliegue normal deben publicarse el manifest y los dos bundles nuevos.
+- Riesgo residual exclusivamente visual: falta una pasada manual en navegador
+  con datos representativos para usuario con/sin Rendimiento, cuatro tabs,
+  custom period, filtros vacíos/con valores, loading/empty/error/reintento,
+  objetivo disabled/habilitado/guardado, columnas, sorting, auditoría, mes
+  provisional/cerrado, textos largos, portátil y móvil. Tests, contrato DOM,
+  CSS compilado y scrolls están validados, pero no sustituyen esa inspección.
+- `PROJECT_CONTEXT.md` y `DECISIONS.md` no cambian: no hay arquitectura,
+  módulos, convenciones globales ni decisiones irreversibles nuevas.
+
+## UX-1A - Migración visual de Reservas / Ventas al Design System (2026-09-18)
+
+### Resumen y archivos
+
+- Se migró presentacionalmente Reservas / Ventas al lenguaje visual compartido
+  del Application Shell y SEO/Analytics. La vista adopta page header, tabs,
+  filter bars, fields, controles, botones, KPI strips, data panels, section
+  headers, tablas y empty/loading states del Design System existente.
+- Archivos modificados: `resources/views/reports/reservations-sales/index.blade.php`,
+  `resources/css/reports/reservations-sales-dashboard.css`,
+  `resources/js/reports/reservations-sales-dashboard.js`,
+  `tests/Feature/ReservationsSalesCommercialPerformanceTest.php`, los dos
+  bundles de Reservas/Ventas y `public/build/manifest.json`, además de este
+  handoff.
+- `resources/css/reports/leads-dashboard.css` continúa en el `@vite` del informe.
+  No se modificaron controladores, servicios, rutas, modelos, middleware,
+  permisos, contratos API, fórmulas ni sincronizadores.
+
+### Decisiones y contratos conservados
+
+- Las primitives adoptadas son `report-ui-page-header`, `report-ui-tabs`,
+  `report-ui-tab`, `report-ui-filter-bar`, `report-ui-field`, `report-ui-label`,
+  `report-ui-input`, `report-ui-select`, `report-ui-button`,
+  `report-ui-kpi-strip`, `report-ui-data-panel`, `report-ui-table`,
+  `report-ui-table__numeric`, `report-ui-card` y `report-ui-badge`; los títulos
+  de panel usan `<x-reports.ui.section-header>` y la cabecera usa
+  `<x-reports.ui.page-header>`.
+- Se conservaron sin renombrar todos los IDs. La comparación automatizada con
+  `487eb6b` obtuvo cero IDs añadidos o retirados. También se conservan los hooks
+  funcionales `.main-tab`, `.tab-panel`, `.legacy-filter-control`,
+  `.performance-filter-control` e `.is-hidden`, con el mismo número de
+  apariciones que en la base. La pestaña activa sincroniza ahora las clases
+  legacy `active` y DS `is-active`, sin usar `aria-current` ni introducir roles
+  o navegación de teclado nuevos. `aria-controls` conserva la asociación
+  descriptiva con cada panel, sin cambiar qué carga cada pestaña.
+- Los avisos de Rendimiento comercial conservan sus clases y significado. No se
+  reutiliza `<x-reports.ui.status>` como decoración porque sus semáforos y notas
+  no corresponden de forma directa a los cinco estados analíticos oficiales.
+  Las notas informativa, de calidad y de error mantienen paletas locales y no
+  consumen tokens `--report-ui-status-*`. Loading usa `report-ui-card`, mientras
+  que `report-ui-empty-state` queda reservado al estado realmente vacío.
+- Todas las cabeceras de las tablas que adoptan `report-ui-table`, incluida la
+  tabla de auditoría construida dinámicamente, declaran `scope="col"` sin
+  cambiar columnas, orden, textos, IDs o `data-column`.
+- Se añadió una regresión focal pequeña para el contrato de primitives y hooks;
+  no se introdujo un snapshot HTML.
+- `PROJECT_CONTEXT.md` y `DECISIONS.md` no cambian: no hay arquitectura, módulo,
+  convención transversal ni decisión irreversible nueva.
+
+### Seguridad, datos y rendimiento
+
+- No cambia autenticación, autorización, CSRF, sesiones, cookies, endpoints ni
+  el control de acceso de Rendimiento comercial. La rama de Blade que oculta la
+  pestaña y controles a usuarios sin permiso permanece intacta.
+- El HTML dinámico existente conserva `escapeHtml()` y no se añadieron nuevas
+  interpolaciones de datos sin escape. No se añadieron secretos, PII, llamadas
+  HTTP, consultas, listeners globales, dependencias, CDN ni scripts externos.
+- El diff JavaScript no modifica `fetchJson`, `URLSearchParams`, `setParam` ni
+  los listeners de filtros. Solo añade clases de presentación/ARIA al cambio de
+  pestaña y primitives al markup ya renderizado. No cambia caché, número de
+  peticiones ni renderizados de datos.
+- Las tablas anchas de Rendimiento, evolución y auditoría conservan sus anchos
+  mínimos, alturas máximas, scroll horizontal y sincronización de scroll
+  superior. Los contenedores de scroll reciben foco y nombre accesible.
+
+### Validación ejecutada
+
+- Verificación base previa: árbol limpio, rama
+  `feature/ux-reservations-sales-design-system`, `HEAD` en `487eb6b`.
+- `php artisan test tests/Feature/ReservationsSalesCommercialPerformanceTest.php`:
+  71/71 pruebas y 808 aserciones, correcto.
+- `php artisan test`: 982/982 pruebas y 7.231 aserciones, correcto; duración
+  reportada de 532.308 ms.
+- `php vendor/bin/pint --test tests/Feature/ReservationsSalesCommercialPerformanceTest.php`:
+  correcto. Se usó la invocación explícita de PHP porque el wrapper directo no
+  encontraba `php` en su `PATH`; el binario y modo de Pint son los mismos.
+- `composer validate --no-check-publish --strict`: correcto.
+- `composer audit --locked --no-dev`: correcto, sin advisories.
+- `npm run build`: correcto con Vite 8.0.12, 15 módulos transformados y build en
+  5,17 s. Conserva los avisos ambientales de deprecación `module.register()` e
+  imagen `/images/login-bg.jpg` resuelta en runtime.
+- Bundles finales: `reservations-sales-dashboard-D07LQtal.css` y
+  `reservations-sales-dashboard-kuug831T.js`. Los bundles anteriores
+  `reservations-sales-dashboard-DX5Bsl6G.css` y
+  `reservations-sales-dashboard-4W-i5lqI.js` se retiraron porque el manifest ya
+  no los referencia.
+- El churn ajeno `app-DzLCIK8P.css` → `app-CN9O6aR-.css` se descartó de forma
+  específica: el asset global y su entrada de manifest coinciden con `HEAD`.
+  No cambió ningún asset de otro módulo.
+- `node --check resources/js/reports/reservations-sales-dashboard.js`: correcto.
+- Comprobación estática CSS: 65 llaves de apertura/cierre, ningún `!important`,
+  token inexistente o selector global prohibido; correcto.
+- Comparación de IDs/hooks y revisión de URLs/parámetros de `fetch`: correcto.
+- Comprobación de cabeceras: ningún `<th>` de tablas DS sin `scope="col"`.
+- `git diff --check`: correcto tras el build y saneamiento de assets.
+
+### Acciones manuales y riesgos pendientes
+
+- Antes de integrar, completar la validación visual en navegador con usuario
+  sin/con permiso, cuatro pestañas,
+  mes cerrado/actual provisional, loading/error/reintento/empty, columnas,
+  filtros, objetivo disabled, viewport estrecho, scroll horizontal y consola
+  limpia. Las pruebas y el build están completos, pero esta revisión final no
+  sustituye esa inspección visual con datos representativos.
+- Riesgo visual residual: `leads-dashboard.css` conserva selectores legacy
+  genéricos. UX-1A los neutraliza de forma acotada bajo
+  `.reservations-sales-report`, pero la validación visual debe confirmar la
+  cascada real tras compilar assets.
+- Propuesta UX-1B basada en el inventario real: sustituir primero los hooks DOM
+  de `.main-tab`, `.tab-panel`, `.legacy-filter-control` y
+  `.performance-filter-control` por atributos `data-*` explícitos; después
+  retirar de este informe las clases visuales legacy `.wrap`, `.filters`,
+  `.card`, `.filter-group`, `.filter-actions`, `.filter-reset`, `.tabs-main`,
+  `.kpis`, `.dashboard-kpis`, `.kpi`, `.kpi-copy`, `.kpi-label`, `.kpi-value`,
+  `.kpi-hint`, `.panel`, `.panel-title`, `.table-wrap`, `.num`, `.notice` y
+  `.compact-filters`. Mantener `.is-hidden` hasta acordar una utility compartida
+  y conservar las clases específicas `performance-*`, `data-quality-*` y de
+  scroll/columnas mientras sigan aportando comportamiento o layout propio.
+  Solo tras esa caracterización y validación se debe retirar
+  `leads-dashboard.css` del `@vite` de Reservas/Ventas.
+
 ## Tarea 4 - Último mes cerrado y resultado provisional (2026-09-14)
 
 - Rendimiento comercial calcula una sola vez en Blade el mes actual y el último

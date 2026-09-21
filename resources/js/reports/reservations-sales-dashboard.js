@@ -73,14 +73,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function bindTabs() {
-    document.querySelectorAll('.main-tab').forEach((button) => {
+    document.querySelectorAll('[data-report-tab]').forEach((button) => {
         button.addEventListener('click', async () => {
-            const panelId = button.dataset.panel;
+            const panelId = button.dataset.reportPanelTarget;
 
-            document.querySelectorAll('.main-tab').forEach((item) => item.classList.remove('active'));
-            document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.remove('active'));
+            document.querySelectorAll('[data-report-tab]').forEach((item) => {
+                item.classList.remove('active', 'is-active');
+            });
+            document.querySelectorAll('[data-report-panel]').forEach((panel) => panel.classList.remove('active'));
 
-            button.classList.add('active');
+            button.classList.add('active', 'is-active');
             document.getElementById(panelId)?.classList.add('active');
             setFilterMode(panelId);
 
@@ -100,11 +102,11 @@ function setFilterMode(panelId) {
     const filters = document.getElementById('reportFilters');
     if (!filters) return;
 
-    filters.dataset.mode = performanceMode ? 'performance' : 'legacy';
-    filters.querySelectorAll('.legacy-filter-control').forEach((control) => {
+    filters.dataset.filterMode = performanceMode ? 'performance' : 'standard';
+    filters.querySelectorAll('[data-filter-scope="standard"]').forEach((control) => {
         control.classList.toggle('is-hidden', performanceMode);
     });
-    filters.querySelectorAll('.performance-filter-control').forEach((control) => {
+    filters.querySelectorAll('[data-filter-scope="performance"]').forEach((control) => {
         control.classList.toggle('is-hidden', !performanceMode);
     });
 
@@ -115,7 +117,7 @@ function setFilterMode(panelId) {
 }
 
 function isCommercialPerformanceMode() {
-    return document.getElementById('reportFilters')?.dataset.mode === 'performance';
+    return document.getElementById('reportFilters')?.dataset.filterMode === 'performance';
 }
 
 function bindCommercialPerformance() {
@@ -322,11 +324,11 @@ function renderCommercialPerformanceAudit(data) {
     const result = document.getElementById('performanceAuditResult');
     result.innerHTML = `
         <div class="table-scroll-top is-hidden" data-scroll-target="performanceAuditWrap" aria-hidden="true"><div></div></div>
-        <div class="table-wrap performance-audit-wrap" id="performanceAuditWrap">
-            <table class="performance-audit-table">
+        <div class="report-ui-data-panel__scroll performance-audit-wrap" id="performanceAuditWrap" tabindex="0" aria-label="Eventos de auditoría de rendimiento comercial">
+            <table class="performance-audit-table report-ui-table report-ui-table--sticky-header">
                 <thead><tr>
-                    <th>Evento</th><th>Fecha</th><th>ID Lead</th><th>ID oportunidad</th>
-                    <th>Responsable</th><th>Delegación / cobertura</th><th>Universo mensual</th><th>Funnel / cumplimiento</th><th>Contado</th><th>Incidencia / exclusión</th>
+                    <th scope="col">Evento</th><th scope="col">Fecha</th><th scope="col">ID Lead</th><th scope="col">ID oportunidad</th>
+                    <th scope="col">Responsable</th><th scope="col">Delegación / cobertura</th><th scope="col">Universo mensual</th><th scope="col">Funnel / cumplimiento</th><th scope="col">Contado</th><th scope="col">Incidencia / exclusión</th>
                 </tr></thead>
                 <tbody id="performanceAuditRows"></tbody>
             </table>
@@ -452,7 +454,7 @@ function renderPerformanceKpis(summary, universe) {
         ['Margen total', formatCurrency(summary.margin_total)],
     ];
     document.getElementById('performanceKpis').innerHTML = cards.map(([label, value]) => `
-        <div class="card kpi"><div class="kpi-copy"><div class="kpi-label">${escapeHtml(label)}</div><div class="kpi-value">${escapeHtml(value)}</div></div></div>
+        <div class="report-ui-kpi-strip__item"><div class="report-ui-kpi-strip__label">${escapeHtml(label)}</div><div class="report-ui-kpi-strip__value">${escapeHtml(value)}</div></div>
     `).join('');
 }
 
@@ -464,17 +466,17 @@ function renderPerformanceRows(rows) {
     }
 
     root.innerHTML = rows.map((row) => `<tr>
-        <td class="num" data-column="ranking">${escapeHtml(row.ranking ?? '-')}</td>
+        <td class="report-ui-table__numeric" data-column="ranking">${escapeHtml(row.ranking ?? '-')}</td>
         <td data-column="traffic_light">${performanceLight(row.traffic_light)}</td>
         <td data-column="commercial"><strong>${escapeHtml(row.commercial || '-')}</strong>${row.evaluable ? '' : `<br><small>${escapeHtml(formatEvaluationStatus(row.evaluation_status, row.evaluation_reason))}</small>`}</td><td data-column="delegation">${escapeHtml(row.delegation || '-')}</td><td data-column="zone">${escapeHtml(row.zone || '-')}</td>
-        <td class="num" data-column="leads">${formatNumber(row.leads)}</td><td class="num" data-column="opportunities">${formatNumber(row.opportunities)}</td><td class="num" data-column="reservations_total">${formatNumber(row.reservations_total)}</td><td class="num" data-column="team_average_reservations">${formatTeamNumber(row.team_average_reservations)}</td><td class="num" data-column="team_reservations_deviation">${formatReservationsDeviation(row.team_reservations_deviation, row.team_reservations_deviation_pct)}</td><td class="num" data-column="reservations_active">${formatNumber(row.reservations_active)}</td><td class="num" data-column="reservations_dropped">${formatNumber(row.reservations_dropped)}</td>
-        <td class="num" data-column="objective">${formatNumber(row.objective)}</td><td class="num" data-column="fulfillment_pct">${formatPercent(row.fulfillment_pct)}</td>
-        <td class="num" data-column="lead_to_reservation_pct">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="num" data-column="lead_to_reservation_vs_team">${formatTeamRatioComparison(row.team_lead_to_reservation_pct, row.lead_to_reservation_vs_team_pp)}</td><td class="num" data-column="opportunity_to_reservation_pct">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td><td class="num" data-column="opportunity_to_reservation_vs_team">${formatTeamRatioComparison(row.team_opportunity_to_reservation_pct, row.opportunity_to_reservation_vs_team_pp)}</td>
-        <td class="num" data-column="sales">${formatNumber(row.sales)}</td><td class="num" data-column="sales_dropped">${formatNumber(row.sales_dropped)}</td><td class="num" data-column="reservation_to_sale_pct">${formatAvailablePercent(row.reservation_to_sale_pct)}</td><td class="num" data-column="reservation_drop_pct">${formatAvailablePercent(row.reservation_drop_pct)}</td><td class="num" data-column="sale_drop_pct">${formatAvailablePercent(row.sale_drop_pct)}</td><td class="num" data-column="reservation_to_sale_vs_team">${formatTeamRatioComparison(row.team_reservation_to_sale_pct, row.reservation_to_sale_vs_team_pp)}</td>
-        <td class="num" data-column="cancellations">${formatAvailableNumber(row.cancellations)}</td><td class="num" data-column="cancellation_pct">${formatAvailablePercent(row.cancellation_pct)}</td>
-        <td class="num" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">${formatCurrency(row.margin_total)}</td>
-        <td class="num" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">${formatCurrency(row.average_margin_per_sale)}</td>
-        <td class="num" data-column="margin_coverage_pct">${formatPercent(row.margin_coverage_pct)}</td>
+        <td class="report-ui-table__numeric" data-column="leads">${formatNumber(row.leads)}</td><td class="report-ui-table__numeric" data-column="opportunities">${formatNumber(row.opportunities)}</td><td class="report-ui-table__numeric" data-column="reservations_total">${formatNumber(row.reservations_total)}</td><td class="report-ui-table__numeric" data-column="team_average_reservations">${formatTeamNumber(row.team_average_reservations)}</td><td class="report-ui-table__numeric" data-column="team_reservations_deviation">${formatReservationsDeviation(row.team_reservations_deviation, row.team_reservations_deviation_pct)}</td><td class="report-ui-table__numeric" data-column="reservations_active">${formatNumber(row.reservations_active)}</td><td class="report-ui-table__numeric" data-column="reservations_dropped">${formatNumber(row.reservations_dropped)}</td>
+        <td class="report-ui-table__numeric" data-column="objective">${formatNumber(row.objective)}</td><td class="report-ui-table__numeric" data-column="fulfillment_pct">${formatPercent(row.fulfillment_pct)}</td>
+        <td class="report-ui-table__numeric" data-column="lead_to_reservation_pct">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="report-ui-table__numeric" data-column="lead_to_reservation_vs_team">${formatTeamRatioComparison(row.team_lead_to_reservation_pct, row.lead_to_reservation_vs_team_pp)}</td><td class="report-ui-table__numeric" data-column="opportunity_to_reservation_pct">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td><td class="report-ui-table__numeric" data-column="opportunity_to_reservation_vs_team">${formatTeamRatioComparison(row.team_opportunity_to_reservation_pct, row.opportunity_to_reservation_vs_team_pp)}</td>
+        <td class="report-ui-table__numeric" data-column="sales">${formatNumber(row.sales)}</td><td class="report-ui-table__numeric" data-column="sales_dropped">${formatNumber(row.sales_dropped)}</td><td class="report-ui-table__numeric" data-column="reservation_to_sale_pct">${formatAvailablePercent(row.reservation_to_sale_pct)}</td><td class="report-ui-table__numeric" data-column="reservation_drop_pct">${formatAvailablePercent(row.reservation_drop_pct)}</td><td class="report-ui-table__numeric" data-column="sale_drop_pct">${formatAvailablePercent(row.sale_drop_pct)}</td><td class="report-ui-table__numeric" data-column="reservation_to_sale_vs_team">${formatTeamRatioComparison(row.team_reservation_to_sale_pct, row.reservation_to_sale_vs_team_pp)}</td>
+        <td class="report-ui-table__numeric" data-column="cancellations">${formatAvailableNumber(row.cancellations)}</td><td class="report-ui-table__numeric" data-column="cancellation_pct">${formatAvailablePercent(row.cancellation_pct)}</td>
+        <td class="report-ui-table__numeric" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">${formatCurrency(row.margin_total)}</td>
+        <td class="report-ui-table__numeric" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">${formatCurrency(row.average_margin_per_sale)}</td>
+        <td class="report-ui-table__numeric" data-column="margin_coverage_pct">${formatPercent(row.margin_coverage_pct)}</td>
     </tr>`).join('');
 }
 
@@ -501,10 +503,10 @@ function formatEvaluationStatus(status, reason) {
 function renderPerformanceEvolution(rows) {
     const root = document.getElementById('performanceEvolutionRows');
     root.innerHTML = rows.map((row) => `<tr>
-        <td title="${escapeHtml(formatPerformanceMonth(row.month, true))}"><strong>${escapeHtml(formatPerformanceMonth(row.month))}</strong></td><td class="num">${formatNumber(row.leads)}</td><td class="num">${formatNumber(row.opportunities)}</td>
-        <td class="num">${formatNumber(row.reservations_total)}</td><td class="num">${formatNumber(row.reservations_active)}</td><td class="num">${formatNumber(row.reservations_dropped)}</td><td class="num">${formatNumber(row.sales)}</td><td class="num">${formatNumber(row.sales_dropped)}</td><td class="num">${formatAvailableNumber(row.cancellations)}</td>
-        <td class="num">${formatPercent(row.fulfillment_pct)}</td><td class="num">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="num">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td>
-        <td class="num">${formatAvailablePercent(row.reservation_to_sale_pct)}</td><td class="num">${formatAvailablePercent(row.reservation_drop_pct)}</td><td class="num">${formatAvailablePercent(row.sale_drop_pct)}</td><td class="num">${formatAvailablePercent(row.cancellation_pct)}</td><td class="num">${formatCurrency(row.margin_total)}</td><td class="num">${formatCurrency(row.average_margin_per_sale)}</td>
+        <td title="${escapeHtml(formatPerformanceMonth(row.month, true))}"><strong>${escapeHtml(formatPerformanceMonth(row.month))}</strong></td><td class="report-ui-table__numeric">${formatNumber(row.leads)}</td><td class="report-ui-table__numeric">${formatNumber(row.opportunities)}</td>
+        <td class="report-ui-table__numeric">${formatNumber(row.reservations_total)}</td><td class="report-ui-table__numeric">${formatNumber(row.reservations_active)}</td><td class="report-ui-table__numeric">${formatNumber(row.reservations_dropped)}</td><td class="report-ui-table__numeric">${formatNumber(row.sales)}</td><td class="report-ui-table__numeric">${formatNumber(row.sales_dropped)}</td><td class="report-ui-table__numeric">${formatAvailableNumber(row.cancellations)}</td>
+        <td class="report-ui-table__numeric">${formatPercent(row.fulfillment_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td>
+        <td class="report-ui-table__numeric">${formatAvailablePercent(row.reservation_to_sale_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.reservation_drop_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.sale_drop_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.cancellation_pct)}</td><td class="report-ui-table__numeric">${formatCurrency(row.margin_total)}</td><td class="report-ui-table__numeric">${formatCurrency(row.average_margin_per_sale)}</td>
     </tr>`).join('');
 }
 
@@ -522,7 +524,7 @@ function initPerformanceColumns() {
     popover.innerHTML = performanceColumnDefinitions
         .filter((column) => !column.alwaysVisible)
         .map((column) => `
-            <label class="column-option switch-option">
+            <label class="reservations-column-option">
                 <input type="checkbox" data-performance-column-toggle="${escapeHtml(column.key)}" ${performanceVisibleColumns.includes(column.key) ? 'checked' : ''}>
                 <span>${escapeHtml(column.label)}</span>
             </label>`)
@@ -546,7 +548,7 @@ function initPerformanceColumns() {
         applyPerformanceColumnVisibility();
     });
     document.addEventListener('click', (event) => {
-        if (!event.target.closest('.columns-menu')) {
+        if (!event.target.closest('[data-columns-menu]')) {
             popover.classList.add('is-hidden');
             button.setAttribute('aria-expanded', 'false');
         }
@@ -743,7 +745,7 @@ function renderDataQuality(quality) {
     if (!root) return;
     document.getElementById('reservationsDataQualityCount').textContent = formatNumber(quality.duplicate_event_groups || incidents.length);
     root.innerHTML = incidents.map((incident) => `
-        <article class="data-quality-incident">
+        <article class="reservations-data-quality-incident">
             <div>
                 <strong>${incident.type === 'sale' ? 'Venta duplicada' : 'Reserva duplicada'} · ${escapeHtml(incident.vehicle_plate || incident.vehicle_id || 'Vehículo sin referencia visible')}</strong>
                 <span>${escapeHtml(incident.event_date || 'Sin fecha')} · ${formatNumber((incident.opportunity_ids || []).length)} oportunidades</span>
@@ -768,11 +770,11 @@ function renderKpis(kpis) {
 
     cards.forEach((card) => {
         root.insertAdjacentHTML('beforeend', `
-            <div class="card kpi">
-                <div class="kpi-copy">
-                    <div class="kpi-label">${escapeHtml(card.label)}</div>
-                    <div class="kpi-value">${escapeHtml(card.value)}</div>
-                    <div class="kpi-hint">${escapeHtml(card.hint)}</div>
+            <div class="report-ui-kpi-strip__item">
+                <div>
+                    <div class="report-ui-kpi-strip__label">${escapeHtml(card.label)}</div>
+                    <div class="report-ui-kpi-strip__value">${escapeHtml(card.value)}</div>
+                    <div class="report-ui-kpi-strip__meta">${escapeHtml(card.hint)}</div>
                     ${kpiAuditLinkHtml(card.metric, card.label)}
                 </div>
             </div>
@@ -793,9 +795,9 @@ function renderComparison(rows) {
         root.insertAdjacentHTML('beforeend', `
             <tr>
                 <td><strong>${escapeHtml(row.metrica)}</strong></td>
-                <td class="num" data-sort-value="${escapeHtml(row.periodo_actual ?? '')}">${formatComparisonValue(row, 'periodo_actual')}</td>
-                <td class="num" data-sort-value="${escapeHtml(row.periodo_comparado ?? '')}">${formatComparisonValue(row, 'periodo_comparado')}</td>
-                <td class="num" data-sort-value="${escapeHtml(row.diferencia ?? '')}">${formatComparisonDiff(row)}</td>
+                <td class="report-ui-table__numeric" data-sort-value="${escapeHtml(row.periodo_actual ?? '')}">${formatComparisonValue(row, 'periodo_actual')}</td>
+                <td class="report-ui-table__numeric" data-sort-value="${escapeHtml(row.periodo_comparado ?? '')}">${formatComparisonValue(row, 'periodo_comparado')}</td>
+                <td class="report-ui-table__numeric" data-sort-value="${escapeHtml(row.diferencia ?? '')}">${formatComparisonDiff(row)}</td>
             </tr>
         `);
     });
@@ -869,7 +871,7 @@ function renderRows(rootId, rows, columns, emptyMessage, rowMeta = null) {
     rows.forEach((row) => {
         const cells = columns.map(([formatter, numeric, sortFormatter, html, columnKey], index) => {
             const value = formatter(row) ?? '-';
-            const className = numeric ? ' class="num"' : '';
+            const className = numeric ? ' class="report-ui-table__numeric"' : '';
             const content = html ? value : (index === 0 ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value));
             const sortValue = sortFormatter ? ` data-sort-value="${escapeHtml(sortFormatter(row) ?? '')}"` : '';
             const columnAttr = columnKey ? ` data-column="${escapeHtml(columnKey)}"` : '';
@@ -932,7 +934,7 @@ function initReservationsCommercialColumns() {
     });
 
     document.addEventListener('click', (event) => {
-        if (!event.target.closest('.columns-menu')) {
+        if (!event.target.closest('[data-columns-menu]')) {
             popover.classList.add('is-hidden');
         }
     });
@@ -948,7 +950,7 @@ function renderReservationsCommercialColumnsPopover() {
     root.innerHTML = reservationsCommercialColumnDefinitions
         .filter((column) => !column.alwaysVisible)
         .map((column) => `
-            <label class="column-option switch-option">
+            <label class="reservations-column-option">
                 <input type="checkbox" data-column-toggle="${escapeHtml(column.key)}" ${reservationsCommercialVisibleColumns.includes(column.key) ? 'checked' : ''}>
                 <span>${escapeHtml(column.label)}</span>
             </label>
@@ -1073,10 +1075,10 @@ function parseSortableValue(value) {
 
 function updateSortIndicators(table, state) {
     table.querySelectorAll('thead th').forEach((header, index) => {
-        header.querySelector('.sort-indicator')?.remove();
+        header.querySelector('[data-sort-indicator]')?.remove();
 
         if (index === state.columnIndex) {
-            header.insertAdjacentHTML('beforeend', ` <span class="sort-indicator">${state.direction === 'asc' ? '▲' : '▼'}</span>`);
+            header.insertAdjacentHTML('beforeend', ` <span class="reservations-sort-indicator" data-sort-indicator>${state.direction === 'asc' ? '▲' : '▼'}</span>`);
         }
     });
 }
@@ -1148,7 +1150,7 @@ function kpiAuditLinkHtml(metric, label) {
         return '';
     }
 
-    return `<div class="kpi-actions"><a class="kpi-audit-link" href="${escapeHtml(buildKpiAuditUrl(metric))}" title="Auditar ${escapeHtml(label)}">Auditar KPI</a></div>`;
+    return `<div class="reservations-kpi-actions"><a class="reservations-kpi-audit-link report-ui-button report-ui-button--ghost" href="${escapeHtml(buildKpiAuditUrl(metric))}" title="Auditar ${escapeHtml(label)}">Auditar KPI</a></div>`;
 }
 
 function setLoadingState(isLoading) {
@@ -1317,13 +1319,13 @@ function formatSignedNumber(value) {
 }
 
 function formatCountPercent(count, percent) {
-    return `<span class="metric-value">${escapeHtml(formatNumber(count))}</span><span class="metric-percent">(${escapeHtml(formatPercent(percent))})</span>`;
+    return `<span class="reservations-metric-value">${escapeHtml(formatNumber(count))}</span><span class="reservations-metric-percent">(${escapeHtml(formatPercent(percent))})</span>`;
 }
 
 function formatCountConversionParticipation(count, ratioOverOpportunities, participation) {
-    return `<span class="metric-value">${escapeHtml(formatNumber(count))}</span>`
-        + `<span class="metric-percent">Sobre oportunidades ${escapeHtml(formatPercent(ratioOverOpportunities))}</span>`
-        + `<span class="metric-percent">Participación ${escapeHtml(formatPercent(participation))}</span>`;
+    return `<span class="reservations-metric-value">${escapeHtml(formatNumber(count))}</span>`
+        + `<span class="reservations-metric-percent">Sobre oportunidades ${escapeHtml(formatPercent(ratioOverOpportunities))}</span>`
+        + `<span class="reservations-metric-percent">Participación ${escapeHtml(formatPercent(participation))}</span>`;
 }
 
 function formatComparisonValue(row, key) {
@@ -1340,7 +1342,7 @@ function formatComparisonDiff(row) {
         return escapeHtml(count);
     }
 
-    return `<span class="metric-value">${escapeHtml(count)}</span><span class="metric-percent">(${escapeHtml(formatDiff(row.diferencia_pct_puntos, true))})</span>`;
+    return `<span class="reservations-metric-value">${escapeHtml(count)}</span><span class="reservations-metric-percent">(${escapeHtml(formatDiff(row.diferencia_pct_puntos, true))})</span>`;
 }
 
 function formatDiff(value, isPercentage) {
