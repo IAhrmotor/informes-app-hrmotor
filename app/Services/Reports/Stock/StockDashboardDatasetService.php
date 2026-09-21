@@ -410,8 +410,7 @@ class StockDashboardDatasetService
         Collection $delegations,
         CarbonImmutable $today,
         ?string $selectedDelegation = null,
-    ): Collection
-    {
+    ): Collection {
         return $delegations->map(function (StockDelegation $delegation) use ($stock, $sales, $today): array {
             $delegationStock = $stock->where('stock_delegation_id', $delegation->id);
             $delegationSales = $sales->where('stock_delegation_id', $delegation->id);
@@ -626,8 +625,7 @@ class StockDashboardDatasetService
         Collection $sameModelCounts,
         CarbonImmutable $today,
         bool $compactRecommendations = false,
-    ): array
-    {
+    ): array {
         $age = $this->age($vehicle, $today);
         $sameModel = (int) $sameModelCounts->get(
             $vehicle->stock_delegation_id.'|'.$this->recommendations->key($vehicle->model),

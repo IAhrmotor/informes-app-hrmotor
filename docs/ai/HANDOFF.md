@@ -62,6 +62,16 @@
   Validación: `StockDirectedTransferPlannerTest` 6/6 (37 aserciones),
   `StockDashboardTest` 14/14 (156), Pint del test y `git diff --check`, todos
   correctos.
+- Correctivo de CI posterior: Pint detectó deuda de estilo preexistente en
+  `StockDashboardDatasetService` y `StockRecommendationService`, pero ambos
+  archivos forman parte del PR y el workflow exige que queden completamente
+  conformes. Pint normalizó únicamente formato; no cambió consultas, scoring,
+  prioridad, capacidad ni comportamiento. Pasan Pint sobre los dos servicios y
+  sobre los 11 PHP/Blade modificados respecto a `origin/main`, además de
+  `StockRecommendationServiceTest` 2/2 (13 aserciones),
+  `StockDirectedTransferPlannerTest` 6/6 (37),
+  `StockRecommendationCandidatePaginationTest` 2/2 (13) y
+  `StockDashboardTest` 14/14 (156).
 - Cambios locales ajenos preservados y no incluidos: sustitución global
   `app-DzLCIK8P.css` → `app-CN9O6aR-.css` y su hunk en manifest, ya presentes
   antes de la tarea. Sin acciones manuales de base de datos/configuración. No se

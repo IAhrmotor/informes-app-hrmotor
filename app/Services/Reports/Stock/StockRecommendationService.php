@@ -328,6 +328,7 @@ class StockRecommendationService
         if ($days === null) {
             return 'Sin fecha';
         }
+
         return match (true) {
             $days < 30 => '0–30 días',
             $days < 60 => '30–60 días',
