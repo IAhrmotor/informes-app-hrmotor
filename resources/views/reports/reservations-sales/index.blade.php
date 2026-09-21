@@ -7,7 +7,6 @@
 <x-reports.app-shell title="Reservas / Ventas" current-report="reservations-sales" :updated-badge-text="'Cargando fotograf'.mb_chr(237).'a local...'">
     <x-slot:head>
         @vite([
-            'resources/css/reports/leads-dashboard.css',
             'resources/css/reports/reservations-sales-dashboard.css',
             'resources/js/reports/reservations-sales-dashboard.js'
         ])
@@ -21,18 +20,18 @@
     </script>
     <x-reports.ui.page-header title="Reservas / Ventas" />
 
-    <nav class="tabs-main report-ui-tabs" aria-label="Pestanas del informe">
-        <button type="button" class="main-tab report-ui-tab active is-active" data-panel="panel-resumen" aria-controls="panel-resumen">Resumen direccion</button>
-        <button type="button" class="main-tab report-ui-tab" data-panel="panel-comerciales" aria-controls="panel-comerciales">Comerciales / delegaciones / zonas</button>
-        <button type="button" class="main-tab report-ui-tab" data-panel="panel-portales" aria-controls="panel-portales">Portales / procedencia</button>
+    <nav class="report-ui-tabs" aria-label="Pestanas del informe">
+        <button type="button" class="report-ui-tab active is-active" data-report-tab data-report-panel-target="panel-resumen" aria-controls="panel-resumen">Resumen direccion</button>
+        <button type="button" class="report-ui-tab" data-report-tab data-report-panel-target="panel-comerciales" aria-controls="panel-comerciales">Comerciales / delegaciones / zonas</button>
+        <button type="button" class="report-ui-tab" data-report-tab data-report-panel-target="panel-portales" aria-controls="panel-portales">Portales / procedencia</button>
         @if ($reportUserCanViewCommercialPerformance ?? false)
-            <button type="button" class="main-tab report-ui-tab" data-panel="panel-rendimiento-comercial" aria-controls="panel-rendimiento-comercial">Rendimiento comercial</button>
+            <button type="button" class="report-ui-tab" data-report-tab data-report-panel-target="panel-rendimiento-comercial" aria-controls="panel-rendimiento-comercial">Rendimiento comercial</button>
         @endif
     </nav>
 
-    <section class="filters card report-filters report-ui-filter-bar" id="reportFilters" data-mode="legacy" aria-label="Filtros del informe">
+    <section class="report-filters report-ui-filter-bar" id="reportFilters" data-filter-mode="standard" aria-label="Filtros del informe">
         <div class="report-ui-filter-bar__fields">
-        <div class="filter-group report-ui-field legacy-filter-control">
+        <div class="report-ui-field" data-filter-scope="standard">
             <label class="report-ui-label" for="period">Periodo</label>
             <select class="report-ui-select" id="period">
                 <option value="last_30_days">Ultimos 30 dias</option>
@@ -42,7 +41,7 @@
             </select>
         </div>
 
-        <div class="filter-group report-ui-field legacy-filter-control">
+        <div class="report-ui-field" data-filter-scope="standard">
             <label class="report-ui-label" for="dateCriterion">Criterio de fecha</label>
             <select class="report-ui-select" id="dateCriterion">
                 <option value="created_date">Fecha de creacion</option>
@@ -51,7 +50,7 @@
             </select>
         </div>
 
-        <div class="filter-group report-ui-field legacy-filter-control">
+        <div class="report-ui-field" data-filter-scope="standard">
             <label class="report-ui-label" for="opportunityType">Tipo de oportunidad</label>
             <select class="report-ui-select" id="opportunityType">
                 <option value="all">Todos</option>
@@ -61,63 +60,63 @@
         </div>
 
         @if ($reportUserCanViewCommercialPerformance ?? false)
-        <div class="filter-group report-ui-field performance-filter-control performance-month-control is-hidden">
+        <div class="report-ui-field performance-month-control is-hidden" data-filter-scope="performance">
             <label class="report-ui-label" for="performanceMonth">Mes natural</label>
             <input class="report-ui-input" id="performanceMonth" type="month" value="{{ $performanceDefaultMonth }}" data-default-month="{{ $performanceDefaultMonth }}">
         </div>
         @endif
 
-        <div class="filter-group report-ui-field shared-delegation-control">
+        <div class="report-ui-field shared-delegation-control">
             <label class="report-ui-label" for="commercialDelegation" id="commercialDelegationLabel">Delegacion comercial</label>
             <select class="report-ui-select" id="commercialDelegation">
                 <option value="">Todas</option>
             </select>
         </div>
 
-        <div class="filter-group report-ui-field shared-zone-control">
+        <div class="report-ui-field shared-zone-control">
             <label class="report-ui-label" for="zone">Zona</label>
             <select class="report-ui-select" id="zone">
                 <option value="">Todas</option>
             </select>
         </div>
 
-        <div class="filter-group report-ui-field shared-commercial-control">
+        <div class="report-ui-field shared-commercial-control">
             <label class="report-ui-label" for="commercial">Comercial</label>
             <select class="report-ui-select" id="commercial">
                 <option value="">Todos</option>
             </select>
         </div>
         @if ($reportUserCanViewCommercialPerformance ?? false)
-        <div class="filter-group report-ui-field performance-filter-control performance-target-field is-hidden">
+        <div class="report-ui-field performance-target-field is-hidden" data-filter-scope="performance">
             <label class="report-ui-label" for="performanceTarget">Objetivo reservas</label>
             <div class="performance-target-control">
                 <input class="report-ui-input" id="performanceTarget" type="number" min="1" step="1" inputmode="numeric" disabled>
-                <button type="button" class="filter-reset report-ui-button" id="savePerformanceTarget" disabled>Guardar</button>
+                <button type="button" class="report-ui-button" id="savePerformanceTarget" disabled>Guardar</button>
             </div>
         </div>
         @endif
         </div>
 
-        <div class="filter-actions report-ui-filter-bar__actions shared-reset-control">
-            <button type="button" class="filter-reset report-ui-button report-ui-button--secondary" id="resetFilters">Limpiar filtros</button>
+        <div class="report-ui-filter-bar__actions shared-reset-control">
+            <button type="button" class="report-ui-button report-ui-button--secondary" id="resetFilters">Limpiar filtros</button>
         </div>
     </section>
 
-    <section class="filters card custom-periods report-ui-filter-bar is-hidden" id="customPeriods" aria-label="Periodos personalizados">
+    <section class="reservations-custom-periods report-ui-filter-bar is-hidden" id="customPeriods" aria-label="Periodos personalizados">
         <div class="report-ui-filter-bar__fields">
-        <div class="filter-group report-ui-field">
+        <div class="report-ui-field">
             <label class="report-ui-label" for="currentStart">Inicio actual</label>
             <input class="report-ui-input" type="date" id="currentStart">
         </div>
-        <div class="filter-group report-ui-field">
+        <div class="report-ui-field">
             <label class="report-ui-label" for="currentEnd">Fin actual</label>
             <input class="report-ui-input" type="date" id="currentEnd">
         </div>
-        <div class="filter-group report-ui-field">
+        <div class="report-ui-field">
             <label class="report-ui-label" for="comparisonStart">Inicio comparado</label>
             <input class="report-ui-input" type="date" id="comparisonStart">
         </div>
-        <div class="filter-group report-ui-field">
+        <div class="report-ui-field">
             <label class="report-ui-label" for="comparisonEnd">Fin comparado</label>
             <input class="report-ui-input" type="date" id="comparisonEnd">
         </div>
@@ -125,51 +124,51 @@
     </section>
 
     <main>
-        <section id="panel-resumen" class="tab-panel active">
-            <div class="notice report-ui-card reservations-message" id="loadingMessage" role="status">Cargando fotografía local...</div>
-            <div class="notice report-ui-card report-ui-empty-state reservations-message is-hidden" id="emptyMessage">No hay oportunidades sincronizadas para el periodo seleccionado.</div>
+        <section id="panel-resumen" class="active" data-report-panel>
+            <div class="report-ui-card reservations-message" id="loadingMessage" role="status">Cargando fotografía local...</div>
+            <div class="report-ui-card report-ui-empty-state reservations-message is-hidden" id="emptyMessage">No hay oportunidades sincronizadas para el periodo seleccionado.</div>
 
             <section class="period-strip">
-                <div class="card report-ui-card report-ui-card--muted period-card">
+                <div class="report-ui-card report-ui-card--muted period-card">
                     <span>Periodo actual</span>
                     <strong id="currentPeriodLabel">-</strong>
                 </div>
-                <div class="card report-ui-card report-ui-card--muted period-card">
+                <div class="report-ui-card report-ui-card--muted period-card">
                     <span>Periodo comparado</span>
                     <strong id="comparisonPeriodLabel">-</strong>
                 </div>
-                <div class="card report-ui-card report-ui-card--muted period-card universe-definition-card">
+                <div class="report-ui-card report-ui-card--muted period-card universe-definition-card">
                     <span>Fecha que define el universo</span>
                     <strong id="universeDateLabel">-</strong>
                     <small>Los resultados posteriores se miden sobre esta misma cohorte.</small>
                 </div>
             </section>
 
-            <section class="card panel report-ui-data-panel data-quality-panel is-hidden" id="reservationsDataQualityPanel">
-                <div class="panel-title report-ui-data-panel__header">
+            <section class="report-ui-data-panel reservations-data-quality-panel is-hidden" id="reservationsDataQualityPanel">
+                <div class="report-ui-data-panel__header">
                     <x-reports.ui.section-header title="Alertas de calidad del dato" description="Eventos repetidos por vehículo y fecha. Cada grupo cuenta una sola vez en el KPI.">
                         <x-slot:actions>
-                            <span class="quality-count report-ui-badge" id="reservationsDataQualityCount">0</span>
+                            <span class="reservations-quality-count report-ui-badge" id="reservationsDataQualityCount">0</span>
                         </x-slot:actions>
                     </x-reports.ui.section-header>
                 </div>
-                <div class="data-quality-incidents report-ui-data-panel__body" id="reservationsDataQualityIncidents"></div>
+                <div class="reservations-data-quality-incidents report-ui-data-panel__body" id="reservationsDataQualityIncidents"></div>
             </section>
 
-            <section class="kpis dashboard-kpis report-ui-kpi-strip" id="summaryKpis" aria-label="Indicadores principales"></section>
+            <section class="report-ui-kpi-strip" id="summaryKpis" aria-label="Indicadores principales"></section>
 
-            <section class="card panel report-ui-data-panel">
-                <div class="panel-title report-ui-data-panel__header">
+            <section class="report-ui-data-panel">
+                <div class="report-ui-data-panel__header">
                     <x-reports.ui.section-header title="Comparativa basica" description="Periodo actual frente al periodo comparado" />
                 </div>
-                <div class="table-wrap report-ui-data-panel__scroll" tabindex="0" aria-label="Comparativa del periodo actual y comparado">
-                    <table class="report-ui-table">
+                <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Comparativa del periodo actual y comparado">
+                    <table class="report-ui-table report-ui-table--sticky-header">
                         <thead>
                         <tr>
                             <th scope="col">Metrica</th>
-                            <th scope="col" class="num report-ui-table__numeric">Periodo actual</th>
-                            <th scope="col" class="num report-ui-table__numeric">Periodo comparado</th>
-                            <th scope="col" class="num report-ui-table__numeric">Diferencia</th>
+                            <th scope="col" class="report-ui-table__numeric">Periodo actual</th>
+                            <th scope="col" class="report-ui-table__numeric">Periodo comparado</th>
+                            <th scope="col" class="report-ui-table__numeric">Diferencia</th>
                         </tr>
                         </thead>
                         <tbody id="comparisonRows"></tbody>
@@ -179,20 +178,20 @@
 
         </section>
 
-        <section id="panel-comerciales" class="tab-panel">
-            <section class="card panel report-ui-data-panel">
-                <div class="panel-title report-ui-data-panel__header">
+        <section id="panel-comerciales" data-report-panel>
+            <section class="report-ui-data-panel">
+                <div class="report-ui-data-panel__header">
                     <x-reports.ui.section-header title="Zonas" description="Agrupado por zona comercial del owner" />
                 </div>
-                <div class="table-wrap report-ui-data-panel__scroll" tabindex="0" aria-label="Resultados por zona comercial">
-                    <table class="report-ui-table">
+                <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Resultados por zona comercial">
+                    <table class="report-ui-table report-ui-table--sticky-header">
                         <thead>
                         <tr>
                             <th scope="col">Zona</th>
-                            <th scope="col" class="num">Oportunidades totales</th>
-                            <th scope="col" class="num">Reservas vivas</th>
-                            <th scope="col" class="num">Oportunidades caidas</th>
-                            <th scope="col" class="num">Contratos CV firmados</th>
+                            <th scope="col" class="report-ui-table__numeric">Oportunidades totales</th>
+                            <th scope="col" class="report-ui-table__numeric">Reservas vivas</th>
+                            <th scope="col" class="report-ui-table__numeric">Oportunidades caidas</th>
+                            <th scope="col" class="report-ui-table__numeric">Contratos CV firmados</th>
                         </tr>
                         </thead>
                         <tbody id="commercialZoneRows"></tbody>
@@ -200,20 +199,20 @@
                 </div>
             </section>
 
-            <section class="card panel report-ui-data-panel">
-                <div class="panel-title report-ui-data-panel__header">
+            <section class="report-ui-data-panel">
+                <div class="report-ui-data-panel__header">
                     <x-reports.ui.section-header title="Delegaciones" description="Agrupado por delegacion comercial del owner" />
                 </div>
-                <div class="table-wrap report-ui-data-panel__scroll" tabindex="0" aria-label="Resultados por delegación comercial">
-                    <table class="report-ui-table">
+                <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Resultados por delegación comercial">
+                    <table class="report-ui-table report-ui-table--sticky-header">
                         <thead>
                         <tr>
                             <th scope="col">Delegacion comercial</th>
                             <th scope="col">Zona</th>
-                            <th scope="col" class="num">Oportunidades totales</th>
-                            <th scope="col" class="num">Reservas vivas</th>
-                            <th scope="col" class="num">Oportunidades caidas</th>
-                            <th scope="col" class="num">Contratos CV firmados</th>
+                            <th scope="col" class="report-ui-table__numeric">Oportunidades totales</th>
+                            <th scope="col" class="report-ui-table__numeric">Reservas vivas</th>
+                            <th scope="col" class="report-ui-table__numeric">Oportunidades caidas</th>
+                            <th scope="col" class="report-ui-table__numeric">Contratos CV firmados</th>
                         </tr>
                         </thead>
                         <tbody id="commercialDelegationRows"></tbody>
@@ -221,42 +220,42 @@
                 </div>
             </section>
 
-            <section class="card panel report-ui-data-panel">
-                <div class="panel-title report-ui-data-panel__header">
+            <section class="report-ui-data-panel">
+                <div class="report-ui-data-panel__header">
                     <x-reports.ui.section-header title="Comerciales" description="Agrupado por responsable de la oportunidad">
                         <x-slot:actions>
-                    <div class="columns-menu">
-                        <button type="button" class="filter-reset report-ui-button report-ui-button--secondary" id="reservationsCommercialColumnsButton">Columnas</button>
-                        <div class="columns-popover card report-ui-card is-hidden" id="reservationsCommercialColumnsPopover"></div>
+                    <div class="reservations-columns-menu" data-columns-menu>
+                        <button type="button" class="report-ui-button report-ui-button--secondary" id="reservationsCommercialColumnsButton">Columnas</button>
+                        <div class="reservations-columns-popover report-ui-card is-hidden" id="reservationsCommercialColumnsPopover"></div>
                     </div>
                         </x-slot:actions>
                     </x-reports.ui.section-header>
                 </div>
-                <div class="filters card compact-filters report-ui-filter-bar">
+                <div class="reservations-commercial-filter-bar report-ui-filter-bar">
                     <div class="report-ui-filter-bar__fields">
-                    <div class="filter-group report-ui-field">
+                    <div class="report-ui-field">
                         <label class="report-ui-label" for="reservationsCommercialSearch">Buscar comercial</label>
                         <input class="report-ui-input" id="reservationsCommercialSearch" type="search" placeholder="Filtrar por nombre o ID Salesforce">
                     </div>
                     </div>
                 </div>
-                <div class="table-wrap report-ui-data-panel__scroll" tabindex="0" aria-label="Resultados por comercial">
-                    <table class="report-ui-table" id="reservationsCommercialTable">
+                <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Resultados por comercial">
+                    <table class="report-ui-table report-ui-table--sticky-header" id="reservationsCommercialTable">
                         <thead>
                         <tr>
                             <th scope="col" data-column="comercial">Comercial</th>
                             <th scope="col" data-column="commercial_delegation">Delegacion comercial</th>
                             <th scope="col" data-column="zone">Zona</th>
-                            <th scope="col" class="num" data-column="oportunidades_totales">Oportunidades totales</th>
-                            <th scope="col" class="num" data-column="reservas_vivas">Reservas vivas</th>
-                            <th scope="col" class="num is-hidden" data-column="reservas_vivas_pct">% reservas vivas</th>
-                            <th scope="col" class="num is-hidden" data-column="reservas_vivas_participation_pct">% participacion reservas</th>
-                            <th scope="col" class="num" data-column="oportunidades_caidas">Oportunidades caidas</th>
-                            <th scope="col" class="num is-hidden" data-column="oportunidades_caidas_pct">% oportunidades caidas</th>
-                            <th scope="col" class="num is-hidden" data-column="oportunidades_caidas_participation_pct">% participacion caidas</th>
-                            <th scope="col" class="num" data-column="cv_firmados">Contratos CV firmados</th>
-                            <th scope="col" class="num is-hidden" data-column="cv_firmados_pct">% contratos CV firmados</th>
-                            <th scope="col" class="num is-hidden" data-column="cv_firmados_participation_pct">% participacion CV</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="oportunidades_totales">Oportunidades totales</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="reservas_vivas">Reservas vivas</th>
+                            <th scope="col" class="report-ui-table__numeric is-hidden" data-column="reservas_vivas_pct">% reservas vivas</th>
+                            <th scope="col" class="report-ui-table__numeric is-hidden" data-column="reservas_vivas_participation_pct">% participacion reservas</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="oportunidades_caidas">Oportunidades caidas</th>
+                            <th scope="col" class="report-ui-table__numeric is-hidden" data-column="oportunidades_caidas_pct">% oportunidades caidas</th>
+                            <th scope="col" class="report-ui-table__numeric is-hidden" data-column="oportunidades_caidas_participation_pct">% participacion caidas</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="cv_firmados">Contratos CV firmados</th>
+                            <th scope="col" class="report-ui-table__numeric is-hidden" data-column="cv_firmados_pct">% contratos CV firmados</th>
+                            <th scope="col" class="report-ui-table__numeric is-hidden" data-column="cv_firmados_participation_pct">% participacion CV</th>
                         </tr>
                         </thead>
                         <tbody id="commercialRows"></tbody>
@@ -265,20 +264,20 @@
             </section>
         </section>
 
-        <section id="panel-portales" class="tab-panel">
-            <section class="card panel report-ui-data-panel">
-                <div class="panel-title report-ui-data-panel__header">
+        <section id="panel-portales" data-report-panel>
+            <section class="report-ui-data-panel">
+                <div class="report-ui-data-panel__header">
                     <x-reports.ui.section-header title="Portales / Procedencia" description="Procedencia reconstruida desde oportunidad o lead relacionado" />
                 </div>
-                <div class="table-wrap report-ui-data-panel__scroll" tabindex="0" aria-label="Resultados por portal o procedencia">
-                    <table class="report-ui-table">
+                <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Resultados por portal o procedencia">
+                    <table class="report-ui-table report-ui-table--sticky-header">
                         <thead>
                         <tr>
                             <th scope="col">Portal / Procedencia</th>
-                            <th scope="col" class="num">Oportunidades totales</th>
-                            <th scope="col" class="num">Reservas vivas</th>
-                            <th scope="col" class="num">Oportunidades caidas</th>
-                            <th scope="col" class="num">Contratos CV firmados</th>
+                            <th scope="col" class="report-ui-table__numeric">Oportunidades totales</th>
+                            <th scope="col" class="report-ui-table__numeric">Reservas vivas</th>
+                            <th scope="col" class="report-ui-table__numeric">Oportunidades caidas</th>
+                            <th scope="col" class="report-ui-table__numeric">Contratos CV firmados</th>
                         </tr>
                         </thead>
                         <tbody id="portalRows"></tbody>
@@ -288,8 +287,8 @@
         </section>
 
         @if ($reportUserCanViewCommercialPerformance ?? false)
-        <section id="panel-rendimiento-comercial" class="tab-panel">
-            <div class="notice report-ui-card reservations-message is-hidden" id="performanceLoading" role="status">Cargando rendimiento comercial local...</div>
+        <section id="panel-rendimiento-comercial" data-report-panel>
+            <div class="report-ui-card reservations-message is-hidden" id="performanceLoading" role="status">Cargando rendimiento comercial local...</div>
             <div class="performance-note performance-note--info" id="performanceSemantics">
                 Actividad mensual, no cohorte. Cada hito se asigna al mes en que ocurre; por ello, algunos ratios pueden superar el 100 %.
             </div>
@@ -300,63 +299,63 @@
             <div class="performance-note performance-note--quality is-hidden" id="performanceQualityWarning"></div>
             <div class="performance-note performance-note--error is-hidden" id="performanceLoadError" role="alert">
                 <span data-performance-load-error-message></span>
-                <button type="button" class="filter-reset report-ui-button report-ui-button--secondary" id="retryCommercialPerformance">Reintentar</button>
+                <button type="button" class="report-ui-button report-ui-button--secondary" id="retryCommercialPerformance">Reintentar</button>
             </div>
-            <section class="kpis dashboard-kpis report-ui-kpi-strip" id="performanceKpis" aria-label="Indicadores de rendimiento comercial"></section>
+            <section class="report-ui-kpi-strip" id="performanceKpis" aria-label="Indicadores de rendimiento comercial"></section>
 
-            <section class="card panel report-ui-data-panel">
-                <div class="panel-title report-ui-data-panel__header">
+            <section class="report-ui-data-panel">
+                <div class="report-ui-data-panel__header">
                     <x-reports.ui.section-header title="Rendimiento por comercial" description="Ranking y referencias de equipo exclusivos de comerciales con actividad real y asignación mensual certificable. Las filas no evaluables se conservan sin objetivo, ranking ni comparación.">
                         <x-slot:actions>
-                    <div class="columns-menu">
-                        <button type="button" class="filter-reset report-ui-button report-ui-button--secondary" id="performanceColumnsButton" aria-expanded="false" aria-controls="performanceColumnsPopover">Añadir o quitar columnas</button>
-                        <div class="columns-popover card report-ui-card is-hidden" id="performanceColumnsPopover"></div>
+                    <div class="reservations-columns-menu" data-columns-menu>
+                        <button type="button" class="report-ui-button report-ui-button--secondary" id="performanceColumnsButton" aria-expanded="false" aria-controls="performanceColumnsPopover">Añadir o quitar columnas</button>
+                        <div class="reservations-columns-popover report-ui-card is-hidden" id="performanceColumnsPopover"></div>
                     </div>
                         </x-slot:actions>
                     </x-reports.ui.section-header>
                 </div>
                 <div class="table-scroll-top is-hidden" data-scroll-target="performanceTableWrap" aria-hidden="true"><div></div></div>
-                <div class="table-wrap report-ui-data-panel__scroll performance-table-wrap" id="performanceTableWrap" tabindex="0" aria-label="Rendimiento por comercial">
+                <div class="report-ui-data-panel__scroll performance-table-wrap" id="performanceTableWrap" tabindex="0" aria-label="Rendimiento por comercial">
                     <table class="performance-table report-ui-table report-ui-table--sticky-header" id="performanceTable">
                         <thead><tr>
                             <th scope="col" data-column="ranking">Ranking</th><th scope="col" data-column="traffic_light">Semáforo</th><th scope="col" data-column="commercial">Comercial</th><th scope="col" data-column="delegation">Delegación</th><th scope="col" data-column="zone">Zona</th>
-                            <th scope="col" class="num" data-column="leads">Leads</th><th scope="col" class="num" data-column="opportunities">Oportunidades</th><th scope="col" class="num" data-column="reservations_total">Reservas totales</th><th scope="col" class="num" data-column="team_average_reservations">Media equipo</th><th scope="col" class="num" data-column="team_reservations_deviation">Desviación reservas</th><th scope="col" class="num" data-column="reservations_active">Reservas vivas</th><th scope="col" class="num" data-column="reservations_dropped">Reservas caídas</th>
-                            <th scope="col" class="num" data-column="objective">Objetivo</th><th scope="col" class="num" data-column="fulfillment_pct">Cumplimiento</th>
-                            <th scope="col" class="num" data-column="lead_to_reservation_pct">Lead → Reserva</th><th scope="col" class="num" data-column="lead_to_reservation_vs_team">Lead → Reserva vs equipo</th><th scope="col" class="num" data-column="opportunity_to_reservation_pct">Oportunidad → Reserva</th><th scope="col" class="num" data-column="opportunity_to_reservation_vs_team">Oportunidad → Reserva vs equipo</th>
-                            <th scope="col" class="num" data-column="sales">Ventas válidas</th><th scope="col" class="num" data-column="sales_dropped">Ventas caídas</th><th scope="col" class="num" data-column="reservation_to_sale_pct">Reserva → Venta</th><th scope="col" class="num" data-column="reservation_drop_pct">% Reserva caída</th><th scope="col" class="num" data-column="sale_drop_pct">% Venta caída</th><th scope="col" class="num" data-column="reservation_to_sale_vs_team">Reserva → Venta vs equipo</th>
-                            <th scope="col" class="num" data-column="cancellations">Cancelaciones</th><th scope="col" class="num" data-column="cancellation_pct">% cancelación</th>
-                            <th scope="col" class="num" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">Margen total</th>
-                            <th scope="col" class="num" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">Margen medio</th>
-                            <th scope="col" class="num" data-column="margin_coverage_pct">Cobertura margen</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="leads">Leads</th><th scope="col" class="report-ui-table__numeric" data-column="opportunities">Oportunidades</th><th scope="col" class="report-ui-table__numeric" data-column="reservations_total">Reservas totales</th><th scope="col" class="report-ui-table__numeric" data-column="team_average_reservations">Media equipo</th><th scope="col" class="report-ui-table__numeric" data-column="team_reservations_deviation">Desviación reservas</th><th scope="col" class="report-ui-table__numeric" data-column="reservations_active">Reservas vivas</th><th scope="col" class="report-ui-table__numeric" data-column="reservations_dropped">Reservas caídas</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="objective">Objetivo</th><th scope="col" class="report-ui-table__numeric" data-column="fulfillment_pct">Cumplimiento</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="lead_to_reservation_pct">Lead → Reserva</th><th scope="col" class="report-ui-table__numeric" data-column="lead_to_reservation_vs_team">Lead → Reserva vs equipo</th><th scope="col" class="report-ui-table__numeric" data-column="opportunity_to_reservation_pct">Oportunidad → Reserva</th><th scope="col" class="report-ui-table__numeric" data-column="opportunity_to_reservation_vs_team">Oportunidad → Reserva vs equipo</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="sales">Ventas válidas</th><th scope="col" class="report-ui-table__numeric" data-column="sales_dropped">Ventas caídas</th><th scope="col" class="report-ui-table__numeric" data-column="reservation_to_sale_pct">Reserva → Venta</th><th scope="col" class="report-ui-table__numeric" data-column="reservation_drop_pct">% Reserva caída</th><th scope="col" class="report-ui-table__numeric" data-column="sale_drop_pct">% Venta caída</th><th scope="col" class="report-ui-table__numeric" data-column="reservation_to_sale_vs_team">Reserva → Venta vs equipo</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="cancellations">Cancelaciones</th><th scope="col" class="report-ui-table__numeric" data-column="cancellation_pct">% cancelación</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">Margen total</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">Margen medio</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="margin_coverage_pct">Cobertura margen</th>
                         </tr></thead>
                         <tbody id="performanceRows"></tbody>
                     </table>
                 </div>
             </section>
 
-            <section class="card panel report-ui-data-panel">
-                <div class="panel-title report-ui-data-panel__header">
+            <section class="report-ui-data-panel">
+                <div class="report-ui-data-panel__header">
                     <x-reports.ui.section-header title="Evolución mensual" description="Mes seleccionado y tres meses anteriores" />
                 </div>
                 <div class="table-scroll-top is-hidden" data-scroll-target="performanceEvolutionWrap" aria-hidden="true"><div></div></div>
-                <div class="table-wrap report-ui-data-panel__scroll" id="performanceEvolutionWrap" tabindex="0" aria-label="Evolución mensual del rendimiento comercial">
-                    <table class="performance-evolution-table report-ui-table">
+                <div class="report-ui-data-panel__scroll" id="performanceEvolutionWrap" tabindex="0" aria-label="Evolución mensual del rendimiento comercial">
+                    <table class="performance-evolution-table report-ui-table report-ui-table--sticky-header">
                         <thead><tr>
-                            <th scope="col">Mes</th><th scope="col" class="num">Leads</th><th scope="col" class="num">Oportunidades</th><th scope="col" class="num">Reservas totales</th>
-                            <th scope="col" class="num">Reservas vivas</th><th scope="col" class="num">Reservas caídas</th><th scope="col" class="num">Ventas válidas</th><th scope="col" class="num">Ventas caídas</th><th scope="col" class="num">Cancelaciones</th><th scope="col" class="num">Cumplimiento</th>
-                            <th scope="col" class="num">Lead → Reserva</th><th scope="col" class="num">Oport. → Reserva</th><th scope="col" class="num">Reserva → Venta</th>
-                            <th scope="col" class="num">% Reserva caída</th><th scope="col" class="num">% Venta caída</th><th scope="col" class="num">% cancelación</th><th scope="col" class="num">Margen total</th><th scope="col" class="num">Margen medio</th>
+                            <th scope="col">Mes</th><th scope="col" class="report-ui-table__numeric">Leads</th><th scope="col" class="report-ui-table__numeric">Oportunidades</th><th scope="col" class="report-ui-table__numeric">Reservas totales</th>
+                            <th scope="col" class="report-ui-table__numeric">Reservas vivas</th><th scope="col" class="report-ui-table__numeric">Reservas caídas</th><th scope="col" class="report-ui-table__numeric">Ventas válidas</th><th scope="col" class="report-ui-table__numeric">Ventas caídas</th><th scope="col" class="report-ui-table__numeric">Cancelaciones</th><th scope="col" class="report-ui-table__numeric">Cumplimiento</th>
+                            <th scope="col" class="report-ui-table__numeric">Lead → Reserva</th><th scope="col" class="report-ui-table__numeric">Oport. → Reserva</th><th scope="col" class="report-ui-table__numeric">Reserva → Venta</th>
+                            <th scope="col" class="report-ui-table__numeric">% Reserva caída</th><th scope="col" class="report-ui-table__numeric">% Venta caída</th><th scope="col" class="report-ui-table__numeric">% cancelación</th><th scope="col" class="report-ui-table__numeric">Margen total</th><th scope="col" class="report-ui-table__numeric">Margen medio</th>
                         </tr></thead>
                         <tbody id="performanceEvolutionRows"></tbody>
                     </table>
                 </div>
             </section>
 
-            <section class="card panel report-ui-data-panel" aria-labelledby="performanceAuditTitle">
-                <div class="panel-title report-ui-data-panel__header">
+            <section class="report-ui-data-panel" aria-labelledby="performanceAuditTitle">
+                <div class="report-ui-data-panel__header">
                     <x-reports.ui.section-header id="performanceAuditTitle" title="Auditoría de Rendimiento comercial" description="Trazabilidad local de IDs, hitos, atribución, cobertura e incidencias.">
                         <x-slot:actions>
-                            <button type="button" class="filter-reset report-ui-button report-ui-button--secondary" id="loadPerformanceAudit">Cargar auditoría</button>
+                            <button type="button" class="report-ui-button report-ui-button--secondary" id="loadPerformanceAudit">Cargar auditoría</button>
                         </x-slot:actions>
                     </x-reports.ui.section-header>
                 </div>

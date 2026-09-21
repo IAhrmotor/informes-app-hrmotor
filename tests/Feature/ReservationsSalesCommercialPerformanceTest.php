@@ -657,30 +657,37 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringNotContainsString('panel-rendimiento-comercial', $viewerHtml);
     }
 
-    public function test_dashboard_adopta_el_design_system_sin_retirar_hooks_funcionales(): void
+    public function test_dashboard_es_autonomo_del_css_legacy_y_conserva_primitives_y_hooks_semanticos(): void
     {
         $director = $this->reportUser(ReportUser::ROLE_DIRECTOR, 'director-design-system@example.test');
         $html = $this->withSession($this->sessionFor($director))
             ->get('/informes/reservas-ventas')
             ->assertOk()
             ->getContent();
+        $blade = file_get_contents(resource_path('views/reports/reservations-sales/index.blade.php'));
 
         $this->assertStringContainsString('class="report-ui-page-header"', $html);
-        $this->assertStringContainsString('class="tabs-main report-ui-tabs"', $html);
-        $this->assertStringContainsString('class="main-tab report-ui-tab active is-active"', $html);
-        $this->assertStringContainsString('class="filters card report-filters report-ui-filter-bar"', $html);
-        $this->assertStringContainsString('class="kpis dashboard-kpis report-ui-kpi-strip"', $html);
-        $this->assertStringContainsString('class="card panel report-ui-data-panel"', $html);
+        $this->assertStringContainsString('class="report-ui-tabs"', $html);
+        $this->assertStringContainsString('class="report-ui-tab active is-active" data-report-tab', $html);
+        $this->assertStringContainsString('class="report-filters report-ui-filter-bar"', $html);
+        $this->assertStringContainsString('class="report-ui-kpi-strip"', $html);
+        $this->assertStringContainsString('class="report-ui-data-panel"', $html);
         $this->assertStringContainsString('class="performance-table report-ui-table report-ui-table--sticky-header"', $html);
-        $this->assertStringContainsString('legacy-filter-control', $html);
-        $this->assertStringContainsString('performance-filter-control', $html);
-        $this->assertStringContainsString('tab-panel', $html);
+        $this->assertStringContainsString('data-filter-scope="standard"', $html);
+        $this->assertStringContainsString('data-filter-scope="performance"', $html);
+        $this->assertStringContainsString('data-report-panel', $html);
         $this->assertStringContainsString('is-hidden', $html);
+        $this->assertStringNotContainsString('resources/css/reports/leads-dashboard.css', $blade);
+        $this->assertStringContainsString('resources/css/reports/reservations-sales-dashboard.css', $blade);
 
         $javascript = file_get_contents(resource_path('js/reports/reservations-sales-dashboard.js'));
         $this->assertStringContainsString("item.classList.remove('active', 'is-active')", $javascript);
         $this->assertStringContainsString("button.classList.add('active', 'is-active')", $javascript);
-        $tabsStart = strpos($html, '<nav class="tabs-main report-ui-tabs"');
+        $this->assertStringContainsString("document.querySelectorAll('[data-report-tab]')", $javascript);
+        $this->assertStringContainsString("document.querySelectorAll('[data-report-panel]')", $javascript);
+        $this->assertStringNotContainsString("document.querySelectorAll('.main-tab')", $javascript);
+        $this->assertStringNotContainsString("document.querySelectorAll('.tab-panel')", $javascript);
+        $tabsStart = strpos($html, '<nav class="report-ui-tabs"');
         $tabsEnd = strpos($html, '</nav>', $tabsStart);
         $tabsHtml = substr($html, $tabsStart, $tabsEnd - $tabsStart);
         $this->assertStringNotContainsString('aria-current', $tabsHtml);
