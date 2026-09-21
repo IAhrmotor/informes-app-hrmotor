@@ -176,6 +176,166 @@ class StockDashboardTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_stock_only_puede_simular_traslado_y_ver_resultado_y_alertas_de_capacidad(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+        $stockOnly = $this->user(ReportUser::ROLE_STOCK_ONLY, 'stock-directed@hrmotor.com');
+        $origin = StockDelegation::query()->create([
+            'canonical_name' => 'Pamplona',
+            'normalized_key' => 'pamplona',
+            'capacity_total' => 20,
+            'is_commercial' => true,
+        ]);
+        $destinations = collect([
+            'Fontellas suficiente' => 10,
+            'Fontellas excedida' => 1,
+            'Fontellas exceso nuevo' => 3,
+            'Fontellas sin capacidad' => null,
+        ])->mapWithKeys(fn ($capacity, $name): array => [$name => StockDelegation::query()->create([
+            'canonical_name' => $name,
+            'normalized_key' => str($name)->lower()->ascii()->toString(),
+            'capacity_total' => $capacity,
+            'is_commercial' => true,
+        ])]);
+        foreach (range(1, 4) as $index) {
+            SalesforceVehicle::query()->create([
+                'salesforce_id' => '01t-directed-ui-'.$index,
+                'plate' => '100'.$index.'SIM',
+                'brand' => 'Peugeot',
+                'model' => '208',
+                'version' => 'GT',
+                'segment' => 'Utilitario',
+                'fuel' => 'Gasolina',
+                'state' => 'Disponible',
+                'stock_delegation_id' => $origin->id,
+                'entry_date' => now()->subDays(30 + $index)->toDateString(),
+                'is_in_stock' => true,
+            ]);
+        }
+        foreach ($destinations as $destination) {
+            foreach (['Reservado', 'Bloqueado'] as $index => $state) {
+                SalesforceVehicle::query()->create([
+                    'salesforce_id' => '01t-directed-destination-'.$destination->id.'-'.$index,
+                    'brand' => 'Ford',
+                    'model' => 'Focus',
+                    'state' => $state,
+                    'stock_delegation_id' => $destination->id,
+                    'is_in_stock' => true,
+                ]);
+            }
+        }
+
+        $baseQuery = [
+            'section' => 'recommendations',
+            'transfer_plan' => '1',
+            'transfer_origin_id' => $origin->id,
+        ];
+        $session = $this->sessionData($stockOnly);
+
+        $this->withSession($session)
+            ->get(route('reports.stock.index', [
+                ...$baseQuery,
+                'transfer_destination_id' => $destinations['Fontellas suficiente']->id,
+                'transfer_units' => 2,
+            ]))
+            ->assertOk()
+            ->assertSee('Planificador de traslado')
+            ->assertSee('name="transfer_origin_id"', false)
+            ->assertSee('name="transfer_destination_id"', false)
+            ->assertSee('name="transfer_units"', false)
+            ->assertSee('Calcular propuesta')
+            ->assertSee('Pamplona → Fontellas suficiente')
+            ->assertSee('La capacidad configurada admite los 2 vehículos propuestos.')
+            ->assertSee('Esta propuesta es una simulación y no realiza movimientos ni reservas en Salesforce.')
+            ->assertSee('1004SIM')
+            ->assertSee('Score destino')
+            ->assertSee('Prioritario')
+            ->assertDontSee('Prioridad 90')
+            ->assertDontSee('Vehículos propuestos para traslado')
+            ->assertSee('Volver al plan general')
+            ->assertDontSee('section=capacities', false)
+            ->assertDontSee('nav-administration', false);
+
+        $this->withSession($session)
+            ->get(route('reports.stock.index', [
+                ...$baseQuery,
+                'transfer_destination_id' => $destinations['Fontellas excedida']->id,
+                'transfer_units' => 2,
+            ]))
+            ->assertOk()
+            ->assertSee('El destino ya supera su capacidad en 1 plaza.')
+            ->assertSee('el exceso previsto sería de 3 plazas.');
+
+        $this->withSession($session)
+            ->get(route('reports.stock.index', [
+                ...$baseQuery,
+                'transfer_destination_id' => $destinations['Fontellas exceso nuevo']->id,
+                'transfer_units' => 2,
+            ]))
+            ->assertOk()
+            ->assertSee('La propuesta excedería la capacidad del destino en 1 plaza.');
+
+        $this->withSession($session)
+            ->get(route('reports.stock.index', [
+                ...$baseQuery,
+                'transfer_destination_id' => $destinations['Fontellas sin capacidad']->id,
+                'transfer_units' => 7,
+            ]))
+            ->assertOk()
+            ->assertSee('Solo hay 4 candidatos válidos para 7 plazas; faltan 3 vehículos.')
+            ->assertSee('Capacidad')
+            ->assertSee('No configurada')
+            ->assertSee('Stock previsto')
+            ->assertSee('6')
+            ->assertSee('no puede validarse su ocupación ni sobrecapacidad.');
+    }
+
+    public function test_simulador_valida_origen_destino_y_respeta_autorizacion_stock(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+        $stockOnly = $this->user(ReportUser::ROLE_STOCK_ONLY, 'stock-directed-validation@hrmotor.com');
+        $viewer = $this->user(ReportUser::ROLE_VIEWER, 'viewer-directed-validation@hrmotor.com');
+        $delegation = StockDelegation::query()->create([
+            'canonical_name' => 'Mismo origen destino',
+            'normalized_key' => 'mismo origen destino',
+            'capacity_total' => 10,
+            'is_commercial' => true,
+        ]);
+        $excludedDestination = StockDelegation::query()->create([
+            'canonical_name' => 'Dos Hermanas',
+            'normalized_key' => 'dos hermanas',
+            'capacity_total' => 10,
+            'is_commercial' => true,
+        ]);
+        $url = route('reports.stock.index', [
+            'section' => 'recommendations',
+            'transfer_plan' => '1',
+            'transfer_origin_id' => $delegation->id,
+            'transfer_destination_id' => $delegation->id,
+            'transfer_units' => 1,
+        ]);
+
+        $this->withSession($this->sessionData($stockOnly))
+            ->get($url)
+            ->assertRedirect()
+            ->assertSessionHasErrors('transfer_destination_id');
+
+        $this->withSession($this->sessionData($stockOnly))
+            ->get(route('reports.stock.index', [
+                'section' => 'recommendations',
+                'transfer_plan' => '1',
+                'transfer_origin_id' => $delegation->id,
+                'transfer_destination_id' => $excludedDestination->id,
+                'transfer_units' => 151,
+            ]))
+            ->assertRedirect()
+            ->assertSessionHasErrors(['transfer_destination_id', 'transfer_units']);
+
+        $this->withSession($this->sessionData($viewer))
+            ->get($url)
+            ->assertRedirect('/informes/leads');
+    }
+
     public function test_admin_puede_editar_capacidades_manualmente(): void
     {
         config()->set('services.informes_auth.enabled', true);

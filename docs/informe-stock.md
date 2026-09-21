@@ -1,6 +1,6 @@
 # Informe de Stock
 
-Actualizado: 2026-08-06.
+Actualizado: 2026-09-21.
 
 ## Fuentes y fotografía local
 
@@ -106,6 +106,47 @@ La conciliación visual separa:
 - evaluación: disponibles evaluados, catálogo no operativo y sin alternativas;
 - plan: asignados y sin asignar por capacidad;
 - urgencia: normal, 60 días y 90 días.
+
+## Planificador de traslado dirigido
+
+La pestaña Recomendaciones incluye una simulación read-only en la que el usuario
+elige delegación de origen, delegación de destino y número de vehículos. No crea
+órdenes, reservas, movimientos, cambios de delegación ni escrituras en
+Salesforce; tampoco persiste la propuesta ni modifica capacidades.
+
+El universo dirigido se obtiene de la fotografía local completa, sin aplicar los
+filtros generales de la pantalla. Solo incluye vehículos `is_in_stock=true`, en
+estado `Disponible`, pertenecientes al origen seleccionado y operativos según
+`StockCatalogNormalizer`. Reservados, Bloqueados, otras delegaciones y valores
+de catálogo no operativos quedan excluidos.
+
+Cada candidato se evalúa directamente contra el único destino seleccionado. La
+evaluación reutiliza la misma implementación vehículo→delegación, estadísticas
+de 120 días, normalización, pesos y penalización por falta de histórico que el
+motor general; no recorre el resto de destinos ni replica la fórmula. La
+ordenación es determinista:
+
+1. score comercial descendente;
+2. prioridad de Stock descendente (`priority`, `review`, `normal`);
+3. días en stock descendentes;
+4. matrícula o, si falta, ID estable ascendente.
+
+La capacidad del destino es informativa. Se muestran stock actual, capacidad,
+plazas libres, unidades solicitadas y propuestas, stock y ocupación previstos y
+exceso actual/proyectado. Un destino lleno, sobreocupado o sin capacidad
+configurada sigue siendo evaluable y nunca recorta la lista; el stock previsto
+usa exclusivamente los vehículos realmente propuestos. Cada simulación queda
+limitada a 150 vehículos, el mismo máximo de renderizado soportado por la página,
+para acotar respuestas manipuladas.
+
+Este flujo no sustituye al plan general “Vehículos propuestos para traslado”. El
+plan general sigue buscando alternativas para cada vehículo y consumiendo
+capacidad virtual conjunta; el simulador dirigido fija un único destino y no usa
+la capacidad como criterio de ejecución. Ambos comparten exclusivamente el
+scoring y la clasificación de prioridad. Durante una petición de simulación no
+se calcula ni renderiza el plan general; un enlace permite volver a él. Así el
+cálculo dirigido escala con candidatos del origen × un destino, sin pagar el
+recorrido por todas las delegaciones.
 
 ## Capacidad, ratios y calidad
 

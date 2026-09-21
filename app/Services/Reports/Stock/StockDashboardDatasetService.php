@@ -16,6 +16,7 @@ class StockDashboardDatasetService
 
     public function __construct(
         private readonly StockRecommendationService $recommendations,
+        private readonly StockDirectedTransferPlanner $directedTransferPlanner,
         private readonly StockDelegationNormalizer $delegationNormalizer,
         private readonly StockCatalogNormalizer $catalogNormalizer,
     ) {}
@@ -101,6 +102,7 @@ class StockDashboardDatasetService
             'unallocated_by_capacity' => 0,
         ];
         $newVehicleRecommendations = null;
+        $directedTransferPlan = null;
         if (in_array($section, ['recommendations', 'vehicles'], true)) {
             $recommendationSales = SalesforceSaleSnapshot::query()
                 ->select([
@@ -126,7 +128,20 @@ class StockDashboardDatasetService
                     ->values();
             }
             if ($section === 'recommendations') {
-                $availableStock = $stock->where('state', 'Disponible')->values();
+                if (($input['transfer_plan'] ?? null) === '1') {
+                    $directedTransferPlan = $this->directedTransferPlanner->plan(
+                        $allStock,
+                        $recommendationContext,
+                        (int) ($input['transfer_origin_id'] ?? 0),
+                        (int) ($input['transfer_destination_id'] ?? 0),
+                        (int) ($input['transfer_units'] ?? 0),
+                        $today,
+                        $sameModelCounts,
+                    );
+                }
+                $availableStock = ($input['transfer_plan'] ?? null) === '1'
+                    ? collect()
+                    : $stock->where('state', 'Disponible')->values();
                 $evaluatedRows = $availableStock
                     ->filter(fn (SalesforceVehicle $vehicle): bool => $this->catalogNormalizer->isOperationalVehicle($vehicle))
                     ->map(fn (SalesforceVehicle $vehicle) => $this->vehicleRow($vehicle, $recommendationContext, $sameModelCounts, $today, true))
@@ -261,6 +276,7 @@ class StockDashboardDatasetService
             'recommendationAvailableTotal' => $stock->where('state', 'Disponible')->count(),
             'recommendationReconciliation' => $recommendationReconciliation,
             'newVehicleRecommendations' => $newVehicleRecommendations,
+            'directedTransferPlan' => $directedTransferPlan,
         ];
     }
 
@@ -298,6 +314,7 @@ class StockDashboardDatasetService
                 'unallocated_by_capacity' => 0,
             ],
             'newVehicleRecommendations' => null,
+            'directedTransferPlan' => null,
         ];
     }
 
@@ -393,8 +410,7 @@ class StockDashboardDatasetService
         Collection $delegations,
         CarbonImmutable $today,
         ?string $selectedDelegation = null,
-    ): Collection
-    {
+    ): Collection {
         return $delegations->map(function (StockDelegation $delegation) use ($stock, $sales, $today): array {
             $delegationStock = $stock->where('stock_delegation_id', $delegation->id);
             $delegationSales = $sales->where('stock_delegation_id', $delegation->id);
@@ -609,32 +625,23 @@ class StockDashboardDatasetService
         Collection $sameModelCounts,
         CarbonImmutable $today,
         bool $compactRecommendations = false,
-    ): array
-    {
+    ): array {
         $age = $this->age($vehicle, $today);
         $sameModel = (int) $sameModelCounts->get(
             $vehicle->stock_delegation_id.'|'.$this->recommendations->key($vehicle->model),
             0,
         );
-        $reviewLevel = $age !== null && $age >= (int) config('stock.priority_days', 90)
-            ? 'priority'
-            : (($age !== null && $age >= (int) config('stock.review_days', 60)) ? 'review' : 'normal');
-        if ($sameModel >= (int) config('stock.duplicate_model_priority', 3)) {
-            $reviewLevel = 'priority';
-        }
         $isOperational = $this->catalogNormalizer->isOperationalVehicle($vehicle);
         $recommendations = $vehicle->state === 'Disponible' && $isOperational
             ? $this->recommendations->recommend($vehicle, $context, true, $compactRecommendations, $compactRecommendations ? null : 3)
             : [];
         $currentProfile = $this->recommendations->currentProfile($vehicle, $context, $compactRecommendations);
-        if (
-            $vehicle->state === 'Disponible'
-            && $currentProfile
-            && isset($recommendations[0])
-            && $recommendations[0]['score'] >= $currentProfile['score'] + (float) config('stock.clearly_better_score_delta', 40)
-        ) {
-            $reviewLevel = 'priority';
-        }
+        $reviewLevel = $this->recommendations->reviewLevel(
+            $age,
+            $sameModel,
+            $currentProfile,
+            $vehicle->state === 'Disponible' ? ($recommendations[0] ?? null) : null,
+        );
 
         return [
             ...($compactRecommendations ? ['_vehicle' => $vehicle] : []),
