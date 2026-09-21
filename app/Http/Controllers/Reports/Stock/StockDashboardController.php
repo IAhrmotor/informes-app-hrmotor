@@ -17,6 +17,7 @@ use App\Support\SimpleXlsxWorkbookWriter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class StockDashboardController extends Controller
@@ -50,6 +51,52 @@ class StockDashboardController extends Controller
             $allowedTabs[] = 'capacities';
         }
         $activeTab = in_array($activeTab, $allowedTabs, true) ? $activeTab : 'summary';
+        $transferOriginDelegations = $capacityDelegations
+            ->where('is_commercial', true)
+            ->values();
+        $excludedDestinationKeys = collect(config('stock.excluded_destination_keys', []))
+            ->map(fn ($value): string => $normalizer->key((string) $value))
+            ->all();
+        $transferDestinationDelegations = $transferOriginDelegations
+            ->reject(fn (StockDelegation $delegation): bool => in_array(
+                $normalizer->key($delegation->canonical_name),
+                $excludedDestinationKeys,
+                true,
+            ))
+            ->values();
+
+        if ($activeTab === 'recommendations' && $request->query('transfer_plan') === '1') {
+            $request->validate([
+                'transfer_origin_id' => [
+                    'required',
+                    'integer',
+                    Rule::in($transferOriginDelegations->pluck('id')->all()),
+                ],
+                'transfer_destination_id' => [
+                    'required',
+                    'integer',
+                    'different:transfer_origin_id',
+                    Rule::in($transferDestinationDelegations->pluck('id')->all()),
+                ],
+                'transfer_units' => [
+                    'required',
+                    'integer',
+                    'min:1',
+                    'max:'.max((int) config('stock.directed_transfer_max_units', 150), 1),
+                ],
+            ], [
+                'transfer_origin_id.required' => 'Selecciona una delegación de origen.',
+                'transfer_origin_id.in' => 'La delegación de origen no es válida para Stock.',
+                'transfer_destination_id.required' => 'Selecciona una delegación de destino.',
+                'transfer_destination_id.different' => 'La delegación de destino debe ser distinta del origen.',
+                'transfer_destination_id.in' => 'La delegación de destino no es válida para recomendaciones.',
+                'transfer_units.required' => 'Indica la capacidad del camión.',
+                'transfer_units.integer' => 'La capacidad del camión debe ser un número entero.',
+                'transfer_units.min' => 'La capacidad del camión debe ser mayor que cero.',
+                'transfer_units.max' => 'La capacidad del camión no puede superar :max vehículos por simulación.',
+            ]);
+        }
+
         $dataset = $datasetService->build($request->query(), $activeTab);
         $quality = $activeTab === 'summary' ? $this->qualityMetrics($catalogNormalizer) : [];
         $canApproveCatalogAliases = ReportUserAccess::canApproveStockCatalogAliases($request);
@@ -59,6 +106,8 @@ class StockDashboardController extends Controller
             'reportUserRole' => ReportUserAccess::role($request),
             'isAdmin' => ReportUserAccess::isAdmin($request),
             'capacityDelegations' => $capacityDelegations,
+            'transferOriginDelegations' => $transferOriginDelegations,
+            'transferDestinationDelegations' => $transferDestinationDelegations,
             'activeStockTab' => $activeTab,
             'latestSnapshotDate' => StockDailySnapshot::query()->max('snapshot_date'),
             'saleSnapshotsCount' => SalesforceSaleSnapshot::query()->count(),

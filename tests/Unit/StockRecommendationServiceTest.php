@@ -54,7 +54,31 @@ class StockRecommendationServiceTest extends TestCase
         $this->assertSame(10, $recommendations[0]['free_capacity']);
     }
 
-    private function delegation(string $name, int $capacity): StockDelegation
+    public function test_evaluacion_dirigida_admite_destino_sin_capacidad_sin_alterar_el_plan_general(): void
+    {
+        $origin = $this->delegation('Origen dirigido', 10);
+        $withoutCapacity = $this->delegation('Destino dirigido sin capacidad', 0);
+        $regularDestination = $this->delegation('Destino general', 10);
+        $vehicle = $this->vehicle('01t-directed', $origin, 'Peugeot', '208');
+        $service = app(StockRecommendationService::class);
+        $context = $service->prepare(
+            SalesforceVehicle::query()->where('is_in_stock', true)->get(),
+            SalesforceSaleSnapshot::all(),
+            StockDelegation::all(),
+        );
+
+        $directed = $service->evaluateDestination($vehicle, $withoutCapacity, $context);
+        $general = collect($service->recommend($vehicle, $context, limit: null));
+
+        $this->assertSame($withoutCapacity->id, $directed['delegation_id']);
+        $this->assertFalse($directed['is_executable']);
+        $this->assertTrue($context['directed_delegations']->has($withoutCapacity->id));
+        $this->assertFalse($context['ranking_delegations']->contains('id', $withoutCapacity->id));
+        $this->assertTrue($general->contains('delegation_id', $regularDestination->id));
+        $this->assertFalse($general->contains('delegation_id', $withoutCapacity->id));
+    }
+
+    private function delegation(string $name, ?int $capacity): StockDelegation
     {
         return StockDelegation::query()->create([
             'canonical_name' => $name,

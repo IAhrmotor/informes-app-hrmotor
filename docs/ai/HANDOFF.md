@@ -1,5 +1,64 @@
 # Handoff para agentes
 
+## Planificador de traslado dirigido de Stock (2026-09-21)
+
+- Rama inicial `feature/stock-transfer-simulator`, HEAD inicial
+  `7cdd2db178cb8a153b6aa04100db0dcfbc9b5c1a`, exactamente igual a
+  `origin/main` tras `git fetch origin --prune` (0 detrás, 0 delante). Es el
+  merge del PR #46 del rol `stock_only`.
+- Se añade en Stock > Recomendaciones un planificador GET/read-only con origen,
+  destino y unidades. El controlador valida IDs locales, delegaciones
+  comerciales, exclusiones existentes, origen distinto de destino y 1–150
+  unidades. No hay endpoint nuevo, sesión, persistencia, migración, orden,
+  reserva, cambio de vehículo/capacidad ni escritura Salesforce.
+- `StockRecommendationService::evaluateDestination()` reutiliza la única
+  implementación privada de perfil/scoring. La prioridad existente también se
+  centraliza en `reviewLevel()` y sigue usando edad, concentración del modelo y
+  mejora clara sobre el perfil actual. No cambian pesos, horizonte de 120 días,
+  normalización, penalización sin histórico ni configuración productiva.
+- `StockDirectedTransferPlanner` es un componente puro, sin queries. Recibe la
+  fotografía y el contexto ya cargados, filtra Disponible + `is_in_stock` +
+  origen + catálogo operativo, evalúa cada candidato solo contra el destino y
+  ordena por score, prioridad, días e identificador estable. La petición
+  dirigida omite el cálculo y render del plan general candidato×delegaciones;
+  el flujo normal conserva su plan conjunto y capacidad virtual.
+- El destino dirigido mantiene las exclusiones funcionales existentes, pero no
+  exige capacidad positiva. La capacidad es informativa: stock actual,
+  capacidad/plazas, solicitados/propuestos/faltantes, stock y ocupación
+  previstos y exceso actual/proyectado. Capacidad nula/cero, destino lleno o
+  sobreocupado nunca eliminan candidatos.
+- Seguridad: se conserva `report.access:stock`; `stock_only` puede simular y no
+  gana Capacidades, administración ni aprobación de alias. No se aceptan
+  nombres libres, `raw_payload`, mass assignment ni inputs no validados. Los
+  filtros generales del informe no reducen el universo dirigido.
+- Rendimiento: contexto y estadísticas se preparan una vez, relaciones se
+  eager-load, no hay N+1 ni consultas por vehículo y el scoring dirigido es
+  candidatos del origen × un destino (más el perfil actual necesario para la
+  prioridad existente). No se añadieron cachés globales ni llamadas externas.
+- Archivos productivos/documentales: controlador y dataset de Stock,
+  `StockRecommendationService`, nuevo `StockDirectedTransferPlanner`,
+  `config/stock.php`, índice/partial nuevo/partial de Recomendaciones, CSS de
+  Stock, `docs/informe-stock.md`, este handoff y artefactos compilados propios
+  de Stock (`stock-dashboard-B6I6fbqZ.css`, retirada de
+  `stock-dashboard-CG-hvHJu.css` y hunk de Stock del manifest). Pruebas:
+  `StockDirectedTransferPlannerTest`, `StockRecommendationServiceTest`,
+  `StockRecommendationCandidatePaginationTest` y `StockDashboardTest`.
+- Validación focal final: planificador 6/6 (37 aserciones), motor 2/2 (13),
+  paginación/benchmark 2/2 (13) y Stock feature 14/14 (154). Suite completa:
+  994/994 tests y 7.367 aserciones. `npm run build` y `git diff --check`,
+  correctos. Pint pasa sobre los seis PHP sin deuda previa; el barrido de todos
+  los PHP modificados conserva exclusivamente los mismos fixers preexistentes
+  de `StockDashboardDatasetService` y `StockRecommendationService` ya
+  registrados antes de esta rama, por lo que no se reformatearon masivamente.
+- `composer audit` informa los cuatro advisories altos preexistentes de
+  `league/commonmark` (DoS/XSS, corregidos según advisory en 2.9.1/2.10.0). La
+  actualización de dependencias queda fuera de alcance y debe abordarse por
+  separado con validación de compatibilidad.
+- Cambios locales ajenos preservados y no incluidos: sustitución global
+  `app-DzLCIK8P.css` → `app-CN9O6aR-.css` y su hunk en manifest, ya presentes
+  antes de la tarea. Sin acciones manuales de base de datos/configuración. No se
+  hizo push, PR, merge, despliegue ni operación Salesforce.
+
 ## Rol funcional de acceso exclusivo a Stock (2026-09-21)
 
 - Rama inicial `feature/stock-only-access`, HEAD inicial

@@ -17,6 +17,7 @@ return [
     'review_days' => 60,
     'priority_days' => 90,
     'recommendation_page_size' => 150,
+    'directed_transfer_max_units' => 150,
     'vehicle_detail_limit' => 250,
     'excluded_destination_keys' => [
         'dos hermanas',

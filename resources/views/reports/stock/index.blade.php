@@ -34,7 +34,13 @@
         </section>
 
         @php
-            $tabQuery = request()->except('section');
+            $tabQuery = request()->except([
+                'section',
+                'transfer_plan',
+                'transfer_origin_id',
+                'transfer_destination_id',
+                'transfer_units',
+            ]);
         @endphp
         <nav class="tabs-main stock-section-nav" aria-label="Secciones de stock">
             @foreach ([
