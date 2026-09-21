@@ -1,5 +1,84 @@
 # Handoff para agentes
 
+## Finalización de Rendimiento comercial de Reservas/Ventas (2026-09-21)
+
+### Resumen y archivos
+
+- Rama `fix/commercial-performance-final`, base
+  `b0596cfd7a82cdb8cbb86c865b7de12f1b4c46b3`. Se corrigió el KPI superior:
+  sin Comercial muestra `universe.global_fulfillment_pct`; con Comercial muestra
+  `summary.fulfillment_pct` bajo la etiqueta `Cumplimiento comercial`, incluido
+  `N/D` para una fila no evaluable. El universo global, ranking y referencias de
+  equipo continúan calculándose antes del filtro Comercial.
+- La nueva regresión de ranking reprodujo un defecto concreto en la ordenación
+  final: los puestos densos se asignaban correctamente, pero el `sortBy()` con
+  callback podía intercalar un puesto 2 entre dos puestos 1. Un comparador
+  explícito ordena ahora por ranking ascendente y después por el mismo nombre
+  comercial ascendente; se conserva `100 %, 100 %, 80 % → 1, 1, 2` y filtrar a
+  una persona no recalcula puesto ni medias.
+- La UI usa `reservationsSalesCommercialPerformanceColumnsV4` y muestra Ranking
+  por defecto sin migrar ni borrar V3. Añade búsqueda client-side O(n) por nombre
+  o Salesforce User ID, estado vacío propio y sin `fetch`; Semáforo y Comercial
+  quedan sticky solo dentro de `.performance-table`, con fondos opacos y niveles
+  de apilado compatibles con el header sticky.
+- `Zona Mediterraneo` permanece intacta como valor técnico y se presenta como
+  `Zona Mediterráneo` en opción y tabla. Los estados técnicos de cobertura se
+  traducen mediante un único formatter con fallback no afirmativo. Se muestra
+  `dataset_generated_at` como generación de la fotografía local y se conserva el
+  corte separado de OpportunityHistory.
+- Una regresión integrada parte de una reserva válida de agosto, sincroniza en
+  septiembre la misma Opportunity por `LastModifiedDate` como
+  `Cerrada Perdida`, incrementa solo la versión compartida del dashboard y
+  verifica: una fila local sin duplicado, `reservation_date` intacta, agosto con
+  total 1/válida 0/caída 1/cumplimiento 0 y cancelaciones 0, y septiembre con una
+  cancelación por `transitioned_at`. También congela que el comando no incremente
+  adicionalmente `commercial_performance_cache_version`.
+- Archivos fuente modificados:
+  `CommercialPerformanceDatasetService.php`,
+  `reservations-sales-dashboard.js`, `reservations-sales-dashboard.css`,
+  `reservations-sales/index.blade.php`,
+  `ReservationsSalesCommercialPerformanceTest.php` y
+  `docs/informe-reservas-ventas.md`. Este handoff queda actualizado. Assets:
+  entran `reservations-sales-dashboard-B1QzFSn3.js` y
+  `reservations-sales-dashboard-BC2I2FYg.css`; salen
+  `reservations-sales-dashboard-DxqPdbxo.js` y
+  `reservations-sales-dashboard-BjVL1ck3.css`; el manifest solo cambia esas dos
+  entradas.
+
+### Base de datos, seguridad y rendimiento
+
+- No hay migraciones, variables de entorno, dependencias, endpoints, permisos,
+  cambios de Salesforce, SOQL, universos, atribución, objetivos ni umbrales. No
+  se ejecutaron sincronizaciones reales, backfills, reprocesos ni escrituras
+  Salesforce. `Comerciales Partner Community` conserva la regla histórica y su
+  regresión permanece verde.
+- Nombre, ID y resto de valores visibles se escapan antes de insertarse en HTML.
+  La búsqueda opera solo sobre datos ya autorizados y renderizados. No se expone
+  `raw_payload` ni nueva PII, y no se modifica CSRF/autorización.
+- No se añaden consultas, N+1, llamadas HTTP al escribir, cachés ni
+  invalidaciones. Se conserva `buildBase()` cacheado diez minutos y la versión
+  compartida de Reservas/Ventas. El filtrado local recorre linealmente las filas
+  existentes.
+
+### Validación y operación
+
+- `php artisan test --filter=ReservationsSalesCommercialPerformanceTest`:
+  74/74, 866 aserciones.
+- `php artisan test --filter=SalesforceOpportunitySyncServiceTest`: 21/21,
+  151 aserciones. `SalesforceOpportunityHistorySyncServiceTest`: 5/5,
+  39 aserciones.
+- `php artisan test`: 998/998, 7.443 aserciones.
+- `php vendor/bin/pint --test` sobre los PHP/Blade modificados, `node --check`,
+  `composer validate --no-check-publish --strict`, `npm run build` y
+  `git diff --check`: correctos.
+- `composer audit --locked --no-dev`: sin advisories. `npm audit --omit=dev`:
+  0 vulnerabilidades. Vite conserva sus avisos informativos preexistentes sobre
+  `module.register()` y la resolución runtime de `/images/login-bg.jpg`; el build
+  termina correctamente.
+- No hay acciones manuales de base de datos o configuración. Riesgo residual:
+  validar visualmente el sticky en los navegadores corporativos soportados tras
+  el despliegue. Mensaje de commit: `fix(reservations-sales): finalize commercial performance`.
+
 ## Planificador de traslado dirigido de Stock (2026-09-21)
 
 - Rama inicial `feature/stock-transfer-simulator`, HEAD inicial

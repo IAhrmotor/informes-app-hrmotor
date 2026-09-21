@@ -793,10 +793,13 @@ class CommercialPerformanceDatasetService
                 'delegation_average_margin_per_sale' => data_get($delegation, 'average_margin_per_sale'),
                 'ranking' => $ranks[$this->attributionSignature($row)] ?? null,
             ]);
-        })->sortBy([
-            [fn (array $row): int => $row['ranking'] ?? PHP_INT_MAX, 'asc'],
-            ['commercial', 'asc'],
-        ])->values();
+        })->sort(function (array $left, array $right): int {
+            $rankComparison = ($left['ranking'] ?? PHP_INT_MAX) <=> ($right['ranking'] ?? PHP_INT_MAX);
+
+            return $rankComparison !== 0
+                ? $rankComparison
+                : strcmp((string) $left['commercial'], (string) $right['commercial']);
+        })->values();
     }
 
     private function hasRealActivity(array $row): bool

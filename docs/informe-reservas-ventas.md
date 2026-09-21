@@ -1,6 +1,6 @@
 # Informe de Reservas / Ventas
 
-Actualizado: 2026-09-08.
+Actualizado: 2026-09-21.
 
 ## Fuente y datos locales
 
@@ -181,9 +181,14 @@ se publica en un bloque separado de calidad, fuera del universo evaluable.
 
 El ranking y las comparativas se calculan tras Zona/Delegación y antes de
 Comercial. Cada referencia de equipo incluye solo comerciales evaluables de la
-misma delegación; Comercial solo limita filas visibles. El cumplimiento global
-es exclusivamente `SUM(reservations_valid_for_objective) / SUM(objective)` del
-universo evaluable y devuelve `null` cuando no existe objetivo global.
+misma delegación; Comercial solo limita filas visibles y conserva el puesto y
+las referencias calculadas sobre el universo anterior. Sin filtro Comercial, el
+KPI superior muestra el cumplimiento global. Con un comercial seleccionado,
+muestra `summary.fulfillment_pct` bajo la etiqueta **Cumplimiento comercial**;
+un comercial no evaluable permanece como `N/D`. El cumplimiento global sigue
+publicándose sin cambios en `universe` como
+`SUM(reservations_valid_for_objective) / SUM(objective)` del universo evaluable
+y devuelve `null` cuando no existe objetivo global.
 
 Esta pestaña es independiente de la cohorte de las tres pestañas legacy. Solo
 Administrador y Director/Dirección pueden ver la pestaña, consultar
@@ -233,12 +238,26 @@ agregado reconciliable del mes seleccionado y no recibe objetivo.
 
 Los filtros de la pestaña son dependientes: Zona limita Delegación y ambas
 limitan Comercial. Comercial solo limita las filas visibles y no recalcula
-universo, ranking ni comparativas. Al recargar se retiran los datos anteriores;
+universo, ranking ni comparativas. La tabla incluye un buscador local por nombre
+o Salesforce User ID que opera exclusivamente sobre las filas ya renderizadas,
+sin peticiones ni recálculos. Ranking es visible por defecto bajo la preferencia
+versionada `reservationsSalesCommercialPerformanceColumnsV4`; Semáforo y
+Comercial permanecen fijos durante el desplazamiento horizontal. Al recargar se
+retiran los datos anteriores;
 si falla la petición se informa el error sin exponer detalles internos y se
 ofrece `Reintentar` con los filtros actuales. La auditoría acepta los mismos
 filtros de Zona, Delegación y Comercial, los aplica tras resolver la atribución
 y antes de ordenar y paginar. Sus incidencias sin comercial se mantienen cuando
 no hay filtro organizativo que las excluya naturalmente.
+
+La dimensión técnica mantiene `Zona Mediterraneo` en filtros, payload, caché y
+agrupaciones; la interfaz la presenta como **Zona Mediterráneo**. Los estados
+`covered`, `partial` y `uncovered` permanecen en el contrato JSON, pero se
+traducen respectivamente como **Cobertura completa**, **Cobertura parcial** y
+**Sin cobertura certificada**; cualquier valor desconocido se presenta como
+**Cobertura no determinada**. La interfaz declara el origen local y muestra
+`dataset_generated_at` como fecha de generación de la fotografía, además del
+corte específico de OpportunityHistory.
 
 ### Actividad mensual y fórmulas
 
@@ -266,14 +285,19 @@ Cada hito pertenece a su propio mes natural `Europe/Madrid`:
 - Cumplimiento = reservas válidas para objetivo / objetivo mensual × 100. Una
   reserva válida para objetivo es una reserva del mes que no está actualmente
   en `Cerrada Perdida`; se clasifica sobre la Opportunity original, no sumando
-  reservas vivas y ventas de meses distintos.
+  reservas vivas y ventas de meses distintos. Si Salesforce marca en septiembre
+  como `Cerrada Perdida` una reserva fechada en agosto, la fotografía actual
+  reclasifica retrospectivamente agosto como reserva caída y deja de aportarla
+  al cumplimiento; no cambia `reservation_date` ni duplica la Opportunity.
 - Margen medio = margen informado / ventas con margen informado.
 
 Una Venta caída con reserva no demostrada se imputa a la fecha de CV si existe,
 no cuenta como reserva ni cumplimiento y queda identificada así en la auditoría.
 Si no existe ninguna de las fechas de anclaje, no se inventa un mes. Las
 cancelaciones continúan siendo transiciones históricas y no sustituyen ninguna
-de las métricas de caída. Backend: null. Frontend de Rendimiento comercial:
+de las métricas de caída: la reserva del ejemplo anterior cae en agosto por su
+estado actual, mientras la cancelación pertenece a septiembre por
+`transitioned_at`. Backend: null. Frontend de Rendimiento comercial:
 N/D. Un denominador cero nunca produce infinito ni 0 % ficticio. Como
 son ratios de actividad y no de cohorte, pueden superar el 100 %. El objetivo
 default inicial es 18; cada mes consultado se materializa inmediatamente en

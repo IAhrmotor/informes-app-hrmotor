@@ -120,7 +120,8 @@
     overflow: auto;
 }
 
-.reservations-sales-report .reservations-commercial-filter-bar {
+.reservations-sales-report .reservations-commercial-filter-bar,
+.reservations-sales-report .performance-commercial-filter-bar {
     background: var(--report-ui-surface-muted);
     border: 0;
     border-bottom: 1px solid var(--report-ui-border);
@@ -228,7 +229,38 @@
 }
 
 .reservations-sales-report .performance-table {
+    --performance-traffic-light-sticky-width: 8.75rem;
     min-width: 1900px;
+}
+
+.reservations-sales-report .performance-table [data-column="traffic_light"],
+.reservations-sales-report .performance-table [data-column="commercial"] {
+    background: var(--report-ui-surface);
+    position: sticky;
+    z-index: 2;
+}
+
+.reservations-sales-report .performance-table [data-column="traffic_light"] {
+    left: 0;
+    min-width: var(--performance-traffic-light-sticky-width);
+    width: var(--performance-traffic-light-sticky-width);
+}
+
+.reservations-sales-report .performance-table [data-column="commercial"] {
+    box-shadow: 1px 0 0 var(--report-ui-border);
+    left: var(--performance-traffic-light-sticky-width);
+    min-width: 14rem;
+}
+
+.reservations-sales-report .performance-table thead [data-column="traffic_light"],
+.reservations-sales-report .performance-table thead [data-column="commercial"] {
+    background: var(--report-ui-surface-muted);
+    z-index: 3;
+}
+
+.reservations-sales-report .performance-table tbody tr:hover > [data-column="traffic_light"],
+.reservations-sales-report .performance-table tbody tr:hover > [data-column="commercial"] {
+    background: var(--report-ui-surface-muted);
 }
 
 .reservations-sales-report .performance-evolution-table {

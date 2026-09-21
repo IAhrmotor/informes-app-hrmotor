@@ -5,9 +5,9 @@ let latestReservationsReloadRequestId = 0;
 let performanceReloadController = null;
 let latestPerformanceReloadRequestId = 0;
 let performanceTargetAvailable = false;
-const performanceColumnsStorageKey = 'reservationsSalesCommercialPerformanceColumnsV3';
+const performanceColumnsStorageKey = 'reservationsSalesCommercialPerformanceColumnsV4';
 const performanceColumnDefinitions = [
-    { key: 'ranking', label: 'Ranking' },
+    { key: 'ranking', label: 'Ranking', defaultVisible: true },
     { key: 'traffic_light', label: 'Semáforo', alwaysVisible: true },
     { key: 'commercial', label: 'Comercial', alwaysVisible: true },
     { key: 'delegation', label: 'Delegación', defaultVisible: true },
@@ -124,6 +124,7 @@ function bindCommercialPerformance() {
     if (!window.reportUserCanViewCommercialPerformance) return;
 
     initPerformanceColumns();
+    bindPerformanceSearch();
     initPerformanceScrolls();
     window.addEventListener('resize', refreshPerformanceScrolls);
     document.getElementById('performanceMonth')?.addEventListener('change', reloadCommercialPerformance);
@@ -184,7 +185,7 @@ function clearPerformancePresentation() {
         const element = document.getElementById(id);
         if (element) element.innerHTML = '';
     });
-    ['performanceUniverse', 'performanceDataIncident', 'performanceQualityWarning', 'performanceCurrentMonthNotice'].forEach((id) => {
+    ['performanceUniverse', 'performanceFreshness', 'performanceDataIncident', 'performanceQualityWarning', 'performanceCurrentMonthNotice'].forEach((id) => {
         const element = document.getElementById(id);
         if (!element) return;
         element.textContent = '';
@@ -245,11 +246,14 @@ async function saveCommercialPerformanceTarget() {
 }
 
 function renderCommercialPerformance(data) {
+    const commercialSelected = String(document.getElementById('commercial')?.value || '') !== '';
+
     setPerformanceTargetState('available', data.objective?.reservations_target);
     renderPerformanceCurrentMonthNotice(data.month);
-    renderPerformanceUniverse(data.universe || {});
+    renderPerformanceUniverse(data.universe || {}, commercialSelected);
+    renderPerformanceFreshness(data);
     renderPerformanceDataIncident(data.data_incident);
-    renderPerformanceKpis(data.summary || {}, data.universe || {});
+    renderPerformanceKpis(data.summary || {}, data.universe || {}, commercialSelected);
     renderPerformanceRows(data.items || []);
     renderPerformanceEvolution(data.evolution || []);
     applyPerformanceColumnVisibility();
@@ -259,10 +263,11 @@ function renderCommercialPerformance(data) {
     const coverageNotice = document.getElementById('performanceCancellationCoverage');
     const certifiedCutoff = quality.cancellation_certified_until;
     const sourceCutoff = quality.cancellation_source_cutoff_at;
+    const coverageStatus = formatCoverageStatus(quality.cancellation_coverage_status);
     if (quality.cancellations_available && certifiedCutoff) {
-        coverageNotice.textContent = `Cancelaciones disponibles hasta el corte certificado ${formatDateTime(certifiedCutoff)}. No se afirma cobertura posterior a ese instante.`;
+        coverageNotice.textContent = `${coverageStatus}. Cancelaciones disponibles hasta el corte certificado ${formatDateTime(certifiedCutoff)}. No se afirma cobertura posterior a ese instante.`;
     } else if (sourceCutoff) {
-        coverageNotice.textContent = `Cancelaciones no evaluables (${quality.cancellation_coverage_status || 'no certificada'}). Último corte consultado: ${formatDateTime(sourceCutoff)}${certifiedCutoff ? `; continuidad certificada hasta ${formatDateTime(certifiedCutoff)}` : ''}.`;
+        coverageNotice.textContent = `Cancelaciones no evaluables (${coverageStatus.toLocaleLowerCase('es')}). Último corte consultado: ${formatDateTime(sourceCutoff)}${certifiedCutoff ? `; continuidad certificada hasta ${formatDateTime(certifiedCutoff)}` : ''}.`;
     } else {
         coverageNotice.textContent = 'Cancelaciones no evaluables: no existe un corte OpportunityHistory certificado para el período.';
     }
@@ -270,7 +275,7 @@ function renderCommercialPerformance(data) {
     const uncertified = Number(quality.uncertified_historical_events || 0);
     const conflicts = Number(quality.duplicate_conflict_groups || 0) + Number(quality.unresolved_attribution_events || 0);
     const messages = [];
-    if (!quality.cancellations_available) messages.push(`Cancelaciones no evaluables: cobertura OpportunityHistory ${quality.cancellation_coverage_status || 'no certificada'}.`);
+    if (!quality.cancellations_available) messages.push(`Cancelaciones no evaluables: ${coverageStatus.toLocaleLowerCase('es')} en OpportunityHistory.`);
     if (Number(quality.cancellation_unresolved_dependencies || 0) > 0) messages.push(`${formatNumber(quality.cancellation_unresolved_dependencies)} dependencias de Opportunity no resueltas impiden certificar el KPI.`);
     if (Number(quality.invalid_cancellation_chronology || 0) > 0) messages.push(`${formatNumber(quality.invalid_cancellation_chronology)} transiciones tienen una reserva posterior y se excluyen como incidencia.`);
     if (uncertified > 0) messages.push(`${formatNumber(uncertified)} eventos sin asignación histórica evaluable; conservan su actividad individual y quedan fuera del ranking de equipo.`);
@@ -310,7 +315,7 @@ async function reloadCommercialPerformanceAudit() {
         setParam(params, 'commercial', document.getElementById('commercial').value);
         const data = await fetchJson(`/informes/reservas-ventas/data/commercial-performance/audit?${params}`);
         renderCommercialPerformanceAudit(data);
-        status.textContent = `${formatNumber(data.pagination?.total || 0)} eventos auditables. Cobertura cancelaciones: ${data.coverage_status || '-'}.`;
+        status.textContent = `${formatNumber(data.pagination?.total || 0)} eventos auditables. Cobertura de cancelaciones: ${formatCoverageStatus(data.coverage_status)}.`;
     } catch (error) {
         status.textContent = 'No se pudo cargar la auditoría con los filtros seleccionados.';
         status.classList.remove('performance-note--info');
@@ -400,7 +405,7 @@ function invalidatePerformanceAudit() {
 
 function renderPerformanceFilters(filters) {
     const changedSelections = [
-        fillPerformanceSelect('zone', filters.zones || [], (value) => ({ value, label: value }), 'Todas'),
+        fillPerformanceSelect('zone', filters.zones || [], (value) => ({ value, label: formatPerformanceZone(value) }), 'Todas'),
         fillPerformanceSelect('commercialDelegation', filters.delegations || [], (value) => ({ value, label: value }), 'Todas'),
         fillPerformanceSelect('commercial', filters.commercials || [], (value) => ({ value: value.id, label: value.name }), 'Todos'),
     ];
@@ -422,11 +427,26 @@ function fillPerformanceSelect(id, values, mapper, allLabel) {
     return selected !== '' && !selectionIsValid;
 }
 
-function renderPerformanceUniverse(universe) {
+function renderPerformanceUniverse(universe, commercialSelected) {
     const note = document.getElementById('performanceUniverse');
     if (!note) return;
-    note.textContent = `${formatNumber(universe.evaluable_commercials || 0)} comerciales evaluables · ${formatNumber(universe.active_not_evaluable_commercials || 0)} con actividad no evaluable · ${formatNumber(universe.excluded_no_activity_commercials || 0)} excluidos sin actividad · objetivo individual ${formatNumber(universe.individual_target || 0)} · objetivo global ${formatNumber(universe.global_target || 0)} · cumplimiento global ${formatAvailablePercent(universe.global_fulfillment_pct)}. El filtro Comercial solo limita las filas mostradas; no recalcula el universo, ranking ni equipo.`;
+    const commercialExplanation = commercialSelected
+        ? ' El KPI superior de cumplimiento muestra al comercial seleccionado; el universo, ranking y referencias de equipo no se recalculan.'
+        : ' El universo, ranking y referencias de equipo corresponden a los filtros de Zona y Delegación.';
+    note.textContent = `${formatNumber(universe.evaluable_commercials || 0)} comerciales evaluables · ${formatNumber(universe.active_not_evaluable_commercials || 0)} con actividad no evaluable · ${formatNumber(universe.excluded_no_activity_commercials || 0)} excluidos sin actividad · objetivo individual ${formatNumber(universe.individual_target || 0)} · objetivo global ${formatNumber(universe.global_target || 0)} · cumplimiento global ${formatAvailablePercent(universe.global_fulfillment_pct)}.${commercialExplanation}`;
     note.classList.remove('is-hidden');
+}
+
+function renderPerformanceFreshness(data) {
+    const note = document.getElementById('performanceFreshness');
+    if (!note) return;
+
+    const generatedAt = data.dataset_generated_at;
+    const source = data.dataset_source === 'local_snapshot' ? 'Fotografía local' : 'Fotografía de datos';
+    note.textContent = generatedAt
+        ? `${source} generada: ${formatDateTime(generatedAt)}.`
+        : '';
+    note.classList.toggle('is-hidden', !generatedAt);
 }
 
 function renderPerformanceDataIncident(incident) {
@@ -441,7 +461,10 @@ function renderPerformanceDataIncident(incident) {
     note.classList.remove('is-hidden');
 }
 
-function renderPerformanceKpis(summary, universe) {
+function renderPerformanceKpis(summary, universe, commercialSelected) {
+    const fulfillment = commercialSelected
+        ? ['Cumplimiento comercial', formatAvailablePercent(summary.fulfillment_pct)]
+        : ['Cumplimiento global', formatAvailablePercent(universe.global_fulfillment_pct)];
     const cards = [
         ['Leads', formatNumber(summary.leads)],
         ['Oportunidades', formatNumber(summary.opportunities)],
@@ -450,7 +473,7 @@ function renderPerformanceKpis(summary, universe) {
         ['Reservas caídas', formatNumber(summary.reservations_dropped)],
         ['Ventas válidas', formatNumber(summary.sales)],
         ['Ventas caídas', formatNumber(summary.sales_dropped)],
-        ['Cumplimiento global', formatAvailablePercent(universe.global_fulfillment_pct)],
+        fulfillment,
         ['Margen total', formatCurrency(summary.margin_total)],
     ];
     document.getElementById('performanceKpis').innerHTML = cards.map(([label, value]) => `
@@ -465,10 +488,10 @@ function renderPerformanceRows(rows) {
         return;
     }
 
-    root.innerHTML = rows.map((row) => `<tr>
+    root.innerHTML = rows.map((row) => `<tr data-search="${escapeHtml(`${row.commercial || ''} ${row.commercial_id || ''}`.trim())}">
         <td class="report-ui-table__numeric" data-column="ranking">${escapeHtml(row.ranking ?? '-')}</td>
         <td data-column="traffic_light">${performanceLight(row.traffic_light)}</td>
-        <td data-column="commercial"><strong>${escapeHtml(row.commercial || '-')}</strong>${row.evaluable ? '' : `<br><small>${escapeHtml(formatEvaluationStatus(row.evaluation_status, row.evaluation_reason))}</small>`}</td><td data-column="delegation">${escapeHtml(row.delegation || '-')}</td><td data-column="zone">${escapeHtml(row.zone || '-')}</td>
+        <td data-column="commercial"><strong>${escapeHtml(row.commercial || '-')}</strong><br><small>${escapeHtml(row.commercial_id || '-')}</small>${row.evaluable ? '' : `<br><small>${escapeHtml(formatEvaluationStatus(row.evaluation_status, row.evaluation_reason))}</small>`}</td><td data-column="delegation">${escapeHtml(row.delegation || '-')}</td><td data-column="zone">${escapeHtml(formatPerformanceZone(row.zone || '-'))}</td>
         <td class="report-ui-table__numeric" data-column="leads">${formatNumber(row.leads)}</td><td class="report-ui-table__numeric" data-column="opportunities">${formatNumber(row.opportunities)}</td><td class="report-ui-table__numeric" data-column="reservations_total">${formatNumber(row.reservations_total)}</td><td class="report-ui-table__numeric" data-column="team_average_reservations">${formatTeamNumber(row.team_average_reservations)}</td><td class="report-ui-table__numeric" data-column="team_reservations_deviation">${formatReservationsDeviation(row.team_reservations_deviation, row.team_reservations_deviation_pct)}</td><td class="report-ui-table__numeric" data-column="reservations_active">${formatNumber(row.reservations_active)}</td><td class="report-ui-table__numeric" data-column="reservations_dropped">${formatNumber(row.reservations_dropped)}</td>
         <td class="report-ui-table__numeric" data-column="objective">${formatNumber(row.objective)}</td><td class="report-ui-table__numeric" data-column="fulfillment_pct">${formatPercent(row.fulfillment_pct)}</td>
         <td class="report-ui-table__numeric" data-column="lead_to_reservation_pct">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="report-ui-table__numeric" data-column="lead_to_reservation_vs_team">${formatTeamRatioComparison(row.team_lead_to_reservation_pct, row.lead_to_reservation_vs_team_pp)}</td><td class="report-ui-table__numeric" data-column="opportunity_to_reservation_pct">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td><td class="report-ui-table__numeric" data-column="opportunity_to_reservation_vs_team">${formatTeamRatioComparison(row.team_opportunity_to_reservation_pct, row.opportunity_to_reservation_vs_team_pp)}</td>
@@ -477,7 +500,43 @@ function renderPerformanceRows(rows) {
         <td class="report-ui-table__numeric" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">${formatCurrency(row.margin_total)}</td>
         <td class="report-ui-table__numeric" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">${formatCurrency(row.average_margin_per_sale)}</td>
         <td class="report-ui-table__numeric" data-column="margin_coverage_pct">${formatPercent(row.margin_coverage_pct)}</td>
-    </tr>`).join('');
+    </tr>`).join('') + `<tr class="is-hidden" data-performance-search-empty><td colspan="${performanceVisibleColumns.length}">No hay comerciales que coincidan con la búsqueda.</td></tr>`;
+    applyPerformanceSearchFilter();
+}
+
+function bindPerformanceSearch() {
+    document.getElementById('performanceSearch')?.addEventListener('input', applyPerformanceSearchFilter);
+}
+
+function applyPerformanceSearchFilter() {
+    const term = String(document.getElementById('performanceSearch')?.value || '')
+        .trim()
+        .toLocaleLowerCase('es');
+    let matches = 0;
+
+    document.querySelectorAll('#performanceRows tr[data-search]').forEach((row) => {
+        const haystack = String(row.dataset.search || '').toLocaleLowerCase('es');
+        const visible = term === '' || haystack.includes(term);
+        row.classList.toggle('is-hidden', !visible);
+        if (visible) matches++;
+    });
+
+    document.querySelector('#performanceRows [data-performance-search-empty]')
+        ?.classList.toggle('is-hidden', term === '' || matches > 0);
+}
+
+function formatPerformanceZone(value) {
+    return value === 'Zona Mediterraneo' ? 'Zona Mediterráneo' : value;
+}
+
+function formatCoverageStatus(status) {
+    const labels = {
+        covered: 'Cobertura completa',
+        partial: 'Cobertura parcial',
+        uncovered: 'Sin cobertura certificada',
+    };
+
+    return labels[status] || 'Cobertura no determinada';
 }
 
 function formatEvaluationStatus(status, reason) {
@@ -559,6 +618,8 @@ function applyPerformanceColumnVisibility() {
     document.querySelectorAll('#performanceTable [data-column]').forEach((cell) => {
         cell.classList.toggle('is-hidden', !performanceVisibleColumns.includes(cell.dataset.column));
     });
+    document.querySelector('#performanceRows [data-performance-search-empty]')
+        ?.setAttribute('colspan', String(performanceVisibleColumns.length));
     refreshPerformanceScrolls();
 }
 
