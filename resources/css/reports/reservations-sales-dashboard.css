@@ -1,109 +1,328 @@
-.report-filters[data-mode="performance"] {
-    align-items: end;
+.reservations-sales-report {
+    display: grid;
+    gap: var(--report-ui-space-4);
+    max-width: 1600px;
 }
 
-.report-filters[data-mode="performance"] .performance-month-control { order: 1; }
-.report-filters[data-mode="performance"] .shared-zone-control { order: 2; }
-.report-filters[data-mode="performance"] .shared-delegation-control { order: 3; }
-.report-filters[data-mode="performance"] .shared-commercial-control { order: 4; }
-.report-filters[data-mode="performance"] .performance-target-field { order: 5; }
-.report-filters[data-mode="performance"] .shared-reset-control { order: 6; }
+.reservations-sales-report > .report-ui-page-header,
+.reservations-sales-report > .report-ui-tabs,
+.reservations-sales-report > .report-ui-filter-bar {
+    margin-bottom: 0;
+}
 
-.performance-target-control {
+.reservations-sales-report .report-ui-filter-bar {
     display: flex;
-    gap: .5rem;
+    padding: var(--report-ui-space-3);
 }
 
-.performance-target-control input {
+.reservations-sales-report .report-ui-filter-bar__fields {
+    display: grid;
+    flex: 1 1 auto;
+    gap: var(--report-ui-space-3);
+    grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+}
+
+.reservations-sales-report .report-ui-field {
+    gap: 6px;
+}
+
+.reservations-sales-report .report-ui-label {
+    color: var(--report-ui-text);
+    letter-spacing: .06em;
+}
+
+.reservations-sales-report .report-ui-input,
+.reservations-sales-report .report-ui-select {
+    border: 1px solid var(--report-ui-control-border);
+    border-radius: var(--report-ui-radius-control);
+    box-shadow: none;
+    color: var(--report-ui-text);
+    font-weight: 400;
+    min-height: var(--report-ui-control-height);
+    padding: 9px var(--report-ui-space-3);
+}
+
+.reservations-sales-report .filter-group .report-ui-input:focus,
+.reservations-sales-report .filter-group .report-ui-select:focus {
+    border-color: var(--report-ui-control-border);
+    box-shadow: none;
+}
+
+.reservations-sales-report .report-ui-button {
+    border-radius: var(--report-ui-radius-control);
+    min-height: var(--report-ui-control-height);
+    transform: none;
+    width: auto;
+}
+
+.reservations-sales-report .report-ui-button:hover:not(:disabled) {
+    box-shadow: none;
+    transform: none;
+}
+
+.reservations-sales-report .report-ui-tabs {
+    flex-wrap: nowrap;
+    gap: var(--report-ui-space-5);
+}
+
+.reservations-sales-report .report-ui-tab,
+.reservations-sales-report .report-ui-tab:hover,
+.reservations-sales-report .report-ui-tab.active {
+    border-left: 0;
+    border-radius: 0;
+    border-right: 0;
+    border-top: 0;
+    box-shadow: none;
+    transform: none;
+}
+
+.reservations-sales-report .report-ui-tab.active {
+    background: transparent;
+    border-bottom-color: var(--report-ui-accent);
+    color: var(--report-ui-text);
+}
+
+.reservations-sales-report .tab-panel.active {
+    display: grid;
+    gap: var(--report-ui-space-4);
+}
+
+.reservations-sales-report .reservations-message {
+    color: var(--report-ui-text-muted);
+    margin: 0;
+    padding: var(--report-ui-space-4);
+    text-align: left;
+}
+
+.reservations-sales-report .period-strip {
+    gap: var(--report-ui-space-3);
+    grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+    margin-bottom: 0;
+}
+
+.reservations-sales-report .period-card {
+    border-radius: var(--report-ui-radius-panel);
+    box-shadow: none;
+    padding: var(--report-ui-space-3) var(--report-ui-space-4);
+}
+
+.reservations-sales-report .period-card span {
+    color: var(--report-ui-text-muted);
+    letter-spacing: .06em;
+}
+
+.reservations-sales-report .period-card strong {
+    color: var(--report-ui-text);
+}
+
+.reservations-sales-report .report-ui-kpi-strip {
+    gap: 1px;
+    grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+    margin-bottom: 0;
+}
+
+.reservations-sales-report .report-ui-kpi-strip__item {
+    align-items: stretch;
+    background: var(--report-ui-surface);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    min-width: 0;
+    padding: var(--report-ui-space-4);
+}
+
+.reservations-sales-report .report-ui-kpi-strip__label,
+.reservations-sales-report .report-ui-kpi-strip__meta {
+    color: var(--report-ui-text-muted);
+}
+
+.reservations-sales-report .report-ui-kpi-strip__value {
+    color: var(--report-ui-text);
+    font-size: clamp(1.375rem, 2vw, 1.75rem);
+}
+
+.reservations-sales-report .kpi-actions {
+    margin-top: var(--report-ui-space-2);
+}
+
+.reservations-sales-report .kpi-audit-link.report-ui-button {
+    min-height: 32px;
+    padding: 6px var(--report-ui-space-2);
+}
+
+.reservations-sales-report .report-ui-data-panel.panel {
+    padding: 0;
+}
+
+.reservations-sales-report .report-ui-data-panel__header.panel-title {
+    margin-bottom: 0;
+}
+
+.reservations-sales-report .report-ui-data-panel__header.panel-title > .report-ui-section-header {
+    width: 100%;
+}
+
+.reservations-sales-report .report-ui-data-panel__scroll.table-wrap {
+    border: 0;
+    border-radius: 0;
+    max-height: 550px;
+}
+
+.reservations-sales-report .report-ui-table {
+    color: var(--report-ui-text);
+    font-size: .8125rem;
+}
+
+.reservations-sales-report .report-ui-table th,
+.reservations-sales-report .report-ui-table td {
+    background: transparent;
+    padding: 9px var(--report-ui-space-3);
+}
+
+.reservations-sales-report .report-ui-table th {
+    background: var(--report-ui-surface-muted);
+    color: var(--report-ui-text-muted);
+    letter-spacing: .04em;
+}
+
+.reservations-sales-report .report-ui-table .num {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.reservations-sales-report .compact-filters.report-ui-filter-bar {
+    background: var(--report-ui-surface-muted);
+    border: 0;
+    border-bottom: 1px solid var(--report-ui-border);
+    border-radius: 0;
+    margin: 0;
+}
+
+.reservations-sales-report .data-quality-incidents {
+    margin: 0;
+}
+
+.reservations-sales-report .columns-popover.report-ui-card {
+    border-radius: var(--report-ui-radius-panel);
+    box-shadow: var(--report-ui-shadow-panel);
+}
+
+.reservations-sales-report .report-filters[data-mode="performance"] .performance-month-control { order: 1; }
+.reservations-sales-report .report-filters[data-mode="performance"] .shared-zone-control { order: 2; }
+.reservations-sales-report .report-filters[data-mode="performance"] .shared-delegation-control { order: 3; }
+.reservations-sales-report .report-filters[data-mode="performance"] .shared-commercial-control { order: 4; }
+.reservations-sales-report .report-filters[data-mode="performance"] .performance-target-field { order: 5; }
+
+.reservations-sales-report .performance-target-control {
+    display: flex;
+    gap: var(--report-ui-space-2);
+}
+
+.reservations-sales-report .performance-target-control .report-ui-input {
     min-width: 7rem;
 }
 
-.performance-note {
-    margin-bottom: 1rem;
+.reservations-sales-report .performance-note {
     border: 1px solid transparent;
-    border-radius: .65rem;
-    padding: .7rem .9rem;
-    font-size: .9rem;
+    border-radius: var(--report-ui-radius-panel);
+    font-size: var(--report-ui-font-sm);
     line-height: 1.45;
+    margin: 0;
+    padding: var(--report-ui-space-3) var(--report-ui-space-4);
 }
 
-.performance-note--info {
-    border-color: #bfdbfe;
+.reservations-sales-report .performance-note--info {
     background: #eff6ff;
+    border-color: #bfdbfe;
     color: #1e3a5f;
 }
 
-.performance-note--quality {
-    border-color: #fde68a;
+.reservations-sales-report .performance-note--quality {
     background: #fffbeb;
+    border-color: #fde68a;
     color: #78350f;
 }
 
-.performance-note--error {
-    border-color: #fecaca;
+.reservations-sales-report .performance-note--error {
+    align-items: center;
     background: #fef2f2;
+    border-color: #fecaca;
     color: #991b1b;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--report-ui-space-3);
+    justify-content: space-between;
 }
 
-.performance-table-wrap {
+.reservations-sales-report .performance-table-wrap {
     max-height: 68vh;
 }
 
-.performance-table {
+.reservations-sales-report .performance-table {
     min-width: 1900px;
 }
 
-.performance-evolution-table {
+.reservations-sales-report .performance-evolution-table {
     min-width: 1350px;
 }
 
-.performance-audit-wrap {
+.reservations-sales-report .performance-audit-wrap {
     max-height: 34rem;
 }
 
-.performance-audit-table {
+.reservations-sales-report .performance-audit-table {
     min-width: 1200px;
 }
 
-.performance-table thead th {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-}
-
-.table-scroll-top {
+.reservations-sales-report .table-scroll-top {
+    height: 16px;
+    margin: var(--report-ui-space-2) var(--report-ui-space-3) 0;
     overflow-x: auto;
     overflow-y: hidden;
-    height: 16px;
-    margin-bottom: .35rem;
 }
 
-.table-scroll-top > div {
+.reservations-sales-report .table-scroll-top > div {
     height: 1px;
 }
 
-.performance-light {
-    display: inline-flex;
+.reservations-sales-report .performance-light {
     align-items: center;
-    gap: .4rem;
+    display: inline-flex;
+    gap: var(--report-ui-space-2);
     white-space: nowrap;
 }
 
-.performance-light::before {
-    width: .72rem;
-    height: .72rem;
+.reservations-sales-report .performance-light::before {
+    background: #94a3b8;
     border-radius: 50%;
     content: '';
-    background: #94a3b8;
+    height: .72rem;
+    width: .72rem;
 }
 
-.performance-light--green::before { background: #16a34a; }
-.performance-light--yellow::before { background: #eab308; }
-.performance-light--orange::before { background: #f97316; }
-.performance-light--red::before { background: #dc2626; }
+.reservations-sales-report .performance-light--green::before { background: #16a34a; }
+.reservations-sales-report .performance-light--yellow::before { background: #eab308; }
+.reservations-sales-report .performance-light--orange::before { background: #f97316; }
+.reservations-sales-report .performance-light--red::before { background: #dc2626; }
 
-@media (max-width: 760px) {
-    .performance-target-control {
+@media (max-width: 700px) {
+    .reservations-sales-report {
+        padding: var(--report-ui-space-3);
+    }
+
+    .reservations-sales-report .report-ui-filter-bar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .reservations-sales-report .report-ui-filter-bar__actions,
+    .reservations-sales-report .report-ui-filter-bar__actions .report-ui-button,
+    .reservations-sales-report .performance-target-control {
         width: 100%;
+    }
+
+    .reservations-sales-report .performance-target-control {
+        align-items: stretch;
+        flex-direction: column;
     }
 }

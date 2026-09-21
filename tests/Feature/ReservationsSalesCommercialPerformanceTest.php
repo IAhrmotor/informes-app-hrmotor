@@ -657,6 +657,36 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringNotContainsString('panel-rendimiento-comercial', $viewerHtml);
     }
 
+    public function test_dashboard_adopta_el_design_system_sin_retirar_hooks_funcionales(): void
+    {
+        $director = $this->reportUser(ReportUser::ROLE_DIRECTOR, 'director-design-system@example.test');
+        $html = $this->withSession($this->sessionFor($director))
+            ->get('/informes/reservas-ventas')
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('class="report-ui-page-header"', $html);
+        $this->assertStringContainsString('class="tabs-main report-ui-tabs"', $html);
+        $this->assertStringContainsString('class="main-tab report-ui-tab active is-active"', $html);
+        $this->assertStringContainsString('class="filters card report-filters report-ui-filter-bar"', $html);
+        $this->assertStringContainsString('class="kpis dashboard-kpis report-ui-kpi-strip"', $html);
+        $this->assertStringContainsString('class="card panel report-ui-data-panel"', $html);
+        $this->assertStringContainsString('class="performance-table report-ui-table report-ui-table--sticky-header"', $html);
+        $this->assertStringContainsString('legacy-filter-control', $html);
+        $this->assertStringContainsString('performance-filter-control', $html);
+        $this->assertStringContainsString('tab-panel', $html);
+        $this->assertStringContainsString('is-hidden', $html);
+
+        $javascript = file_get_contents(resource_path('js/reports/reservations-sales-dashboard.js'));
+        $this->assertStringContainsString("item.classList.remove('active', 'is-active')", $javascript);
+        $this->assertStringContainsString("button.classList.add('active', 'is-active')", $javascript);
+        $tabsStart = strpos($html, '<nav class="tabs-main report-ui-tabs"');
+        $tabsEnd = strpos($html, '</nav>', $tabsStart);
+        $tabsHtml = substr($html, $tabsStart, $tabsEnd - $tabsStart);
+        $this->assertStringNotContainsString('aria-current', $tabsHtml);
+        $this->assertStringNotContainsString('aria-current', $javascript);
+    }
+
     public function test_javascript_despacha_un_solo_dataset_segun_modo_y_preserva_objetivo_al_limpiar(): void
     {
         $javascript = file_get_contents(resource_path('js/reports/reservations-sales-dashboard.js'));

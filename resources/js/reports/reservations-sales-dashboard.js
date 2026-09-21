@@ -77,10 +77,12 @@ function bindTabs() {
         button.addEventListener('click', async () => {
             const panelId = button.dataset.panel;
 
-            document.querySelectorAll('.main-tab').forEach((item) => item.classList.remove('active'));
+            document.querySelectorAll('.main-tab').forEach((item) => {
+                item.classList.remove('active', 'is-active');
+            });
             document.querySelectorAll('.tab-panel').forEach((panel) => panel.classList.remove('active'));
 
-            button.classList.add('active');
+            button.classList.add('active', 'is-active');
             document.getElementById(panelId)?.classList.add('active');
             setFilterMode(panelId);
 
@@ -322,11 +324,11 @@ function renderCommercialPerformanceAudit(data) {
     const result = document.getElementById('performanceAuditResult');
     result.innerHTML = `
         <div class="table-scroll-top is-hidden" data-scroll-target="performanceAuditWrap" aria-hidden="true"><div></div></div>
-        <div class="table-wrap performance-audit-wrap" id="performanceAuditWrap">
-            <table class="performance-audit-table">
+        <div class="table-wrap report-ui-data-panel__scroll performance-audit-wrap" id="performanceAuditWrap" tabindex="0" aria-label="Eventos de auditoría de rendimiento comercial">
+            <table class="performance-audit-table report-ui-table report-ui-table--sticky-header">
                 <thead><tr>
-                    <th>Evento</th><th>Fecha</th><th>ID Lead</th><th>ID oportunidad</th>
-                    <th>Responsable</th><th>Delegación / cobertura</th><th>Universo mensual</th><th>Funnel / cumplimiento</th><th>Contado</th><th>Incidencia / exclusión</th>
+                    <th scope="col">Evento</th><th scope="col">Fecha</th><th scope="col">ID Lead</th><th scope="col">ID oportunidad</th>
+                    <th scope="col">Responsable</th><th scope="col">Delegación / cobertura</th><th scope="col">Universo mensual</th><th scope="col">Funnel / cumplimiento</th><th scope="col">Contado</th><th scope="col">Incidencia / exclusión</th>
                 </tr></thead>
                 <tbody id="performanceAuditRows"></tbody>
             </table>
@@ -452,7 +454,7 @@ function renderPerformanceKpis(summary, universe) {
         ['Margen total', formatCurrency(summary.margin_total)],
     ];
     document.getElementById('performanceKpis').innerHTML = cards.map(([label, value]) => `
-        <div class="card kpi"><div class="kpi-copy"><div class="kpi-label">${escapeHtml(label)}</div><div class="kpi-value">${escapeHtml(value)}</div></div></div>
+        <div class="card kpi report-ui-kpi-strip__item"><div class="kpi-copy"><div class="kpi-label report-ui-kpi-strip__label">${escapeHtml(label)}</div><div class="kpi-value report-ui-kpi-strip__value">${escapeHtml(value)}</div></div></div>
     `).join('');
 }
 
@@ -768,11 +770,11 @@ function renderKpis(kpis) {
 
     cards.forEach((card) => {
         root.insertAdjacentHTML('beforeend', `
-            <div class="card kpi">
+            <div class="card kpi report-ui-kpi-strip__item">
                 <div class="kpi-copy">
-                    <div class="kpi-label">${escapeHtml(card.label)}</div>
-                    <div class="kpi-value">${escapeHtml(card.value)}</div>
-                    <div class="kpi-hint">${escapeHtml(card.hint)}</div>
+                    <div class="kpi-label report-ui-kpi-strip__label">${escapeHtml(card.label)}</div>
+                    <div class="kpi-value report-ui-kpi-strip__value">${escapeHtml(card.value)}</div>
+                    <div class="kpi-hint report-ui-kpi-strip__meta">${escapeHtml(card.hint)}</div>
                     ${kpiAuditLinkHtml(card.metric, card.label)}
                 </div>
             </div>
@@ -869,7 +871,7 @@ function renderRows(rootId, rows, columns, emptyMessage, rowMeta = null) {
     rows.forEach((row) => {
         const cells = columns.map(([formatter, numeric, sortFormatter, html, columnKey], index) => {
             const value = formatter(row) ?? '-';
-            const className = numeric ? ' class="num"' : '';
+            const className = numeric ? ' class="num report-ui-table__numeric"' : '';
             const content = html ? value : (index === 0 ? `<strong>${escapeHtml(value)}</strong>` : escapeHtml(value));
             const sortValue = sortFormatter ? ` data-sort-value="${escapeHtml(sortFormatter(row) ?? '')}"` : '';
             const columnAttr = columnKey ? ` data-column="${escapeHtml(columnKey)}"` : '';
@@ -1148,7 +1150,7 @@ function kpiAuditLinkHtml(metric, label) {
         return '';
     }
 
-    return `<div class="kpi-actions"><a class="kpi-audit-link" href="${escapeHtml(buildKpiAuditUrl(metric))}" title="Auditar ${escapeHtml(label)}">Auditar KPI</a></div>`;
+    return `<div class="kpi-actions"><a class="kpi-audit-link report-ui-button report-ui-button--ghost" href="${escapeHtml(buildKpiAuditUrl(metric))}" title="Auditar ${escapeHtml(label)}">Auditar KPI</a></div>`;
 }
 
 function setLoadingState(isLoading) {
