@@ -1,4 +1,7 @@
 <section class="stock-section">
+    @include('reports.stock.partials.directed-transfer-planner')
+
+    @unless ($directedTransferPlan)
     <article class="card panel">
         <div class="panel-title">
             <div>
@@ -142,4 +145,5 @@
             </nav>
         @endif
     </article>
+    @endunless
 </section>

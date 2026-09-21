@@ -82,11 +82,9 @@ class StockRecommendationService
             fn ($value): string => $this->key($value),
             config('stock.excluded_destination_keys', []),
         );
-        $rankingDelegations = $delegations->filter(function (StockDelegation $delegation) use ($excludedDestinations): bool {
+        $directedDelegations = $delegations->filter(function (StockDelegation $delegation) use ($excludedDestinations): bool {
             if (
                 ! $delegation->is_commercial
-                || $delegation->capacity_total === null
-                || (int) $delegation->capacity_total <= 0
                 || in_array($this->key($delegation->canonical_name), $excludedDestinations, true)
             ) {
                 return false;
@@ -94,11 +92,16 @@ class StockRecommendationService
 
             return true;
         })->values();
+        $rankingDelegations = $directedDelegations
+            ->filter(fn (StockDelegation $delegation): bool => $delegation->capacity_total !== null
+                && (int) $delegation->capacity_total > 0)
+            ->values();
 
         return [
             'delegations' => $delegations->keyBy('id'),
             'ranking_delegations' => $rankingDelegations,
             'eligible_delegations' => $rankingDelegations,
+            'directed_delegations' => $directedDelegations->keyBy('id'),
             'stock' => $stockStats,
             'sales' => $saleStats,
             'weights' => config('stock.recommendation_weights'),
@@ -140,6 +143,40 @@ class StockRecommendationService
         $delegation = $context['delegations']->get($vehicle->stock_delegation_id);
 
         return $delegation ? $this->profile($this->vehicleKeys($vehicle), $delegation, $context, $compact) : null;
+    }
+
+    public function evaluateDestination(
+        SalesforceVehicle $vehicle,
+        StockDelegation $destination,
+        array $context,
+        bool $compact = false,
+    ): array {
+        return $this->profile($this->vehicleKeys($vehicle), $destination, $context, $compact);
+    }
+
+    public function reviewLevel(
+        ?int $age,
+        int $sameModelStock,
+        ?array $currentProfile,
+        ?array $destinationProfile,
+    ): string {
+        $reviewLevel = $age !== null && $age >= (int) config('stock.priority_days', 90)
+            ? 'priority'
+            : (($age !== null && $age >= (int) config('stock.review_days', 60)) ? 'review' : 'normal');
+
+        if ($sameModelStock >= (int) config('stock.duplicate_model_priority', 3)) {
+            $reviewLevel = 'priority';
+        }
+
+        if (
+            $currentProfile
+            && $destinationProfile
+            && $destinationProfile['score'] >= $currentProfile['score'] + (float) config('stock.clearly_better_score_delta', 40)
+        ) {
+            $reviewLevel = 'priority';
+        }
+
+        return $reviewLevel;
     }
 
     private function profile(array $vehicleKeys, StockDelegation $delegation, array $context, bool $compact = false): array
@@ -208,20 +245,27 @@ class StockRecommendationService
             ];
         }
 
-        $reasons = [];
-        $reasons[] = "{$modelSales} {$vehicleKeys['label']} vendidos en 120 días";
-        $reasons[] = $averageRotation !== null
+        $commercialReasons = [];
+        $commercialReasons[] = "{$modelSales} {$vehicleKeys['label']} vendidos en 120 días";
+        $commercialReasons[] = $averageRotation !== null
             ? "Rotación media del modelo: {$averageRotation} días"
             : 'Sin rotación histórica suficiente del modelo';
-        $reasons[] = "{$sameModelStock} unidades del mismo modelo actualmente";
+        $commercialReasons[] = "{$sameModelStock} unidades del mismo modelo actualmente";
+        $reasons = $commercialReasons;
         $reasons[] = "{$freeCapacity} plazas disponibles";
         if ($segmentSales > 0 || $bandSales > 0) {
-            $reasons[] = "{$segmentSales} ventas del segmento y {$bandSales} del tramo {$band}";
+            $reason = "{$segmentSales} ventas del segmento y {$bandSales} del tramo {$band}";
+            $commercialReasons[] = $reason;
+            $reasons[] = $reason;
         } elseif (! $hasHistory) {
-            $reasons[] = 'Alternativa penalizada por no tener histórico comparable';
+            $reason = 'Alternativa penalizada por no tener histórico comparable';
+            $commercialReasons[] = $reason;
+            $reasons[] = $reason;
         }
         if ($oldSameModelStock > 0) {
-            $reasons[] = "{$oldSameModelStock} unidades antiguas del mismo modelo penalizan el destino";
+            $reason = "{$oldSameModelStock} unidades antiguas del mismo modelo penalizan el destino";
+            $commercialReasons[] = $reason;
+            $reasons[] = $reason;
         }
 
         return [
@@ -244,6 +288,7 @@ class StockRecommendationService
             'capacity_excess' => max(((int) $stock['total'] + 1) - (int) $delegation->capacity_total, 0),
             'places_to_release' => max(((int) $stock['total'] + 1) - (int) $delegation->capacity_total, 0),
             'has_history' => $hasHistory,
+            'commercial_reasons' => $commercialReasons,
             'reasons' => $reasons,
         ];
     }
@@ -283,6 +328,7 @@ class StockRecommendationService
         if ($days === null) {
             return 'Sin fecha';
         }
+
         return match (true) {
             $days < 30 => '0–30 días',
             $days < 60 => '30–60 días',

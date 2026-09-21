@@ -752,6 +752,56 @@
     grid-template-columns: repeat(5, minmax(140px, 1fr)) auto;
 }
 
+.stock-transfer-form {
+    align-items: end;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(3, minmax(180px, 1fr)) auto;
+}
+
+.stock-field-error {
+    color: #b42318;
+    display: block;
+    font-weight: 700;
+    margin-top: 5px;
+}
+
+.stock-transfer-readonly,
+.stock-transfer-result,
+.stock-transfer-summary {
+    margin-top: 18px;
+}
+
+.stock-transfer-summary {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stock-transfer-warning {
+    background: #fffaf0;
+    border-color: rgba(217, 119, 6, .35);
+}
+
+.stock-transfer-danger {
+    background: #fff1f2;
+    border-color: rgba(190, 18, 60, .35);
+    color: #9f1239;
+    font-weight: 700;
+}
+
+.stock-transfer-table {
+    min-width: 1120px;
+}
+
+.stock-transfer-reasons {
+    color: #475569;
+    font-size: 11px;
+    line-height: 1.5;
+    margin: 0;
+    padding-left: 16px;
+}
+
 .stock-recommendation-cards {
     display: grid;
     gap: 12px;
@@ -1107,6 +1157,11 @@
     .stock-simulator {
         grid-template-columns: repeat(2, minmax(160px, 1fr));
     }
+
+    .stock-transfer-form,
+    .stock-transfer-summary {
+        grid-template-columns: repeat(2, minmax(160px, 1fr));
+    }
 }
 
 @media (max-width: 640px) {
@@ -1129,7 +1184,9 @@
     .stock-filters,
     .stock-distribution-tabs,
     .stock-distribution-grid,
-    .stock-simulator {
+    .stock-simulator,
+    .stock-transfer-form,
+    .stock-transfer-summary {
         grid-template-columns: 1fr;
     }
 
