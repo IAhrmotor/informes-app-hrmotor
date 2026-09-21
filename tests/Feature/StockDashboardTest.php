@@ -137,6 +137,45 @@ class StockDashboardTest extends TestCase
             ->assertRedirect('/informes/leads');
     }
 
+    public function test_stock_only_lee_stock_sin_privilegios_administrativos(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+        $stockOnly = $this->user(ReportUser::ROLE_STOCK_ONLY, 'stock-only@hrmotor.com');
+        $session = $this->sessionData($stockOnly);
+
+        $this->withSession($session)
+            ->get('/informes/stock')
+            ->assertOk()
+            ->assertSee('Análisis integral del stock')
+            ->assertDontSee('Capacidades')
+            ->assertDontSee('Importar capacidades')
+            ->assertDontSee('Edición manual de capacidades');
+
+        $this->withSession($session)
+            ->get('/informes/stock?section=delegations')
+            ->assertOk()
+            ->assertSee('Stock, capacidad y ventas por delegación');
+
+        $this->withSession($session)
+            ->get('/informes/stock?section=capacities')
+            ->assertOk()
+            ->assertSee('Análisis integral del stock')
+            ->assertDontSee('Importar capacidades')
+            ->assertDontSee('Edición manual de capacidades');
+
+        $this->withSession($session)
+            ->post('/informes/stock/capacidades/importar')
+            ->assertForbidden();
+
+        $this->withSession($session)
+            ->put('/informes/stock/capacidades', ['capacities' => []])
+            ->assertForbidden();
+
+        $this->withSession($session)
+            ->post('/informes/stock/catalogo/aliases/aprobar')
+            ->assertForbidden();
+    }
+
     public function test_admin_puede_editar_capacidades_manualmente(): void
     {
         config()->set('services.informes_auth.enabled', true);

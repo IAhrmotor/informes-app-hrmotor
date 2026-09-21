@@ -327,6 +327,10 @@ class ReportUserAccess
             return $reportKey === 'commercial-commissions';
         }
 
+        if ($currentRole === ReportUser::ROLE_STOCK_ONLY) {
+            return $reportKey === 'stock';
+        }
+
         if ($currentRole === ReportUser::ROLE_AREA_MANAGER) {
             return in_array($reportKey, [
                 'leads',
@@ -463,7 +467,10 @@ class ReportUserAccess
     {
         return array_filter(
             self::roleOptions(),
-            static fn (string $role): bool => $role !== ReportUser::ROLE_COMMISSION_AUDITOR,
+            static fn (string $role): bool => ! in_array($role, [
+                ReportUser::ROLE_COMMISSION_AUDITOR,
+                ReportUser::ROLE_STOCK_ONLY,
+            ], true),
             ARRAY_FILTER_USE_KEY,
         );
     }
@@ -480,6 +487,7 @@ class ReportUserAccess
             ReportUser::ROLE_MARKETING => ReportUser::ROLE_MARKETING,
             ReportUser::ROLE_FINANCIAL => ReportUser::ROLE_FINANCIAL,
             ReportUser::ROLE_COMMERCIAL => ReportUser::ROLE_COMMERCIAL,
+            ReportUser::ROLE_STOCK_ONLY => ReportUser::ROLE_STOCK_ONLY,
             default => null,
         };
     }

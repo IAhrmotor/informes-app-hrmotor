@@ -44,6 +44,7 @@ class StrategicReportNavigationTest extends TestCase
             ReportUser::ROLE_FINANCIAL => '/informes/comisiones-comerciales',
             ReportUser::ROLE_COMMISSION_AUDITOR => '/informes/comisiones-comerciales',
             ReportUser::ROLE_VIEWER => '/informes/leads',
+            ReportUser::ROLE_STOCK_ONLY => '/informes/stock',
         ] as $role => $destination) {
             $user = $this->createUser($role);
 
@@ -130,6 +131,62 @@ class StrategicReportNavigationTest extends TestCase
         $marketing = $this->createUser(ReportUser::ROLE_MARKETING, 'marketing-login@example.test');
         $this->post('/login', ['email' => $marketing->email, 'password' => 'secret12'])
             ->assertRedirect('/informes/leads');
+
+        $this->post('/logout');
+
+        $stockOnly = $this->createUser(ReportUser::ROLE_STOCK_ONLY, 'stock-only-login@example.test');
+        $this->post('/login', ['email' => $stockOnly->email, 'password' => 'secret12'])
+            ->assertRedirect('/informes/stock');
+    }
+
+    public function test_stock_only_solo_navega_y_accede_al_informe_stock(): void
+    {
+        $stockOnly = $this->createUser(ReportUser::ROLE_STOCK_ONLY);
+        $session = $this->sessionFor($stockOnly);
+
+        $this->withSession($session)
+            ->get('/informes')
+            ->assertRedirect('/informes/stock');
+
+        $stockResponse = $this->withSession($session)
+            ->get('/informes/stock')
+            ->assertOk()
+            ->assertSee('href="'.route('reports.stock.index').'"', false)
+            ->assertDontSee('href="'.route('reports.index').'"', false)
+            ->assertDontSee('href="'.route('reports.leads.index').'"', false)
+            ->assertDontSee('href="'.route('reports.reservations-sales.index').'"', false)
+            ->assertDontSee('href="'.route('reports.calls.index').'"', false)
+            ->assertDontSee('href="'.route('reports.campaigns.index').'"', false)
+            ->assertDontSee('href="'.route('reports.seo-analytics.index').'"', false)
+            ->assertDontSee('href="'.route('reports.commercial-commissions.index').'"', false)
+            ->assertDontSee('nav-administration', false);
+
+        $this->assertSame(1, substr_count($stockResponse->getContent(), '<span>Stock</span>'));
+
+        foreach ([
+            '/informes/seo-analytics',
+            '/informes/leads',
+            '/informes/reservas-ventas',
+            '/informes/llamadas',
+            '/informes/campanas',
+            '/informes/comisiones-comerciales',
+        ] as $url) {
+            $this->withSession($session)->get($url)->assertRedirect('/informes/stock');
+        }
+
+        $this->withSession($session)
+            ->getJson('/informes/leads/data/resumen')
+            ->assertForbidden();
+
+        foreach ([
+            '/informes/usuarios',
+            '/informes/permisos-informes',
+            '/informes/configuracion-comisiones',
+            '/informes/penalizaciones-financiacion',
+            '/informes/alertas-operativas',
+        ] as $url) {
+            $this->withSession($session)->get($url)->assertForbidden();
+        }
     }
 
     public function test_shell_assets_keep_sidebar_state_local_and_mobile_drawer_accessible(): void

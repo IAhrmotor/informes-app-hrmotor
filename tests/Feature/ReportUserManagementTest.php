@@ -204,4 +204,80 @@ class ReportUserManagementTest extends TestCase
             'master_delegation_id' => $delegation->id,
         ]);
     }
+
+    public function test_admin_puede_crear_y_editar_usuario_stock_only_sin_campos_de_ambito(): void
+    {
+        config()->set('services.informes_auth.enabled', true);
+        $admin = ReportUser::query()->create([
+            'email' => 'admin-stock-only@hrmotor.com',
+            'password' => 'synthetic-password-12',
+            'role' => ReportUser::ROLE_ADMIN,
+            'is_active' => true,
+        ]);
+        $session = [
+            'informes_authenticated' => true,
+            'report_user_id' => $admin->id,
+            'report_user_role' => $admin->role,
+            'report_user_email' => $admin->email,
+        ];
+
+        $this->withSession($session)
+            ->get('/informes/usuarios')
+            ->assertOk()
+            ->assertSee('value="'.ReportUser::ROLE_STOCK_ONLY.'"', false)
+            ->assertSee('Stock exclusivamente');
+
+        $this->withSession($session)
+            ->post('/informes/usuarios', [
+                'name' => 'Consulta Stock',
+                'email' => 'stock-only@hrmotor.com',
+                'password' => 'synthetic-password-12',
+                'role' => ReportUser::ROLE_STOCK_ONLY,
+                'is_active' => '1',
+            ])
+            ->assertRedirect('/informes/usuarios')
+            ->assertSessionDoesntHaveErrors();
+
+        $stockUser = ReportUser::query()->where('email', 'stock-only@hrmotor.com')->firstOrFail();
+        $this->assertSame(ReportUser::ROLE_STOCK_ONLY, $stockUser->role);
+        $this->assertNull($stockUser->area_zone);
+        $this->assertNull($stockUser->master_delegation_id);
+        $this->assertNull($stockUser->salesforce_user_id);
+
+        $delegation = MasterDelegation::query()->create([
+            'delegation_name' => 'Alcobendas',
+            'commercial_group' => 'Madrid',
+            'is_active' => true,
+        ]);
+        $scopedUser = ReportUser::query()->create([
+            'email' => 'scoped-to-stock@hrmotor.com',
+            'password' => 'synthetic-password-12',
+            'role' => ReportUser::ROLE_DELEGATION_MANAGER,
+            'area_zone' => 'north',
+            'master_delegation_id' => $delegation->id,
+            'salesforce_user_id' => '005-SCOPED',
+            'is_active' => true,
+        ]);
+
+        $this->withSession($session)
+            ->get('/informes/usuarios/'.$scopedUser->id.'/editar')
+            ->assertOk()
+            ->assertSee('value="'.ReportUser::ROLE_STOCK_ONLY.'"', false);
+
+        $this->withSession($session)
+            ->put('/informes/usuarios/'.$scopedUser->id, [
+                'email' => $scopedUser->email,
+                'password' => '',
+                'role' => ReportUser::ROLE_STOCK_ONLY,
+                'is_active' => '1',
+            ])
+            ->assertRedirect('/informes/usuarios')
+            ->assertSessionDoesntHaveErrors();
+
+        $scopedUser->refresh();
+        $this->assertSame(ReportUser::ROLE_STOCK_ONLY, $scopedUser->role);
+        $this->assertNull($scopedUser->area_zone);
+        $this->assertNull($scopedUser->master_delegation_id);
+        $this->assertNull($scopedUser->salesforce_user_id);
+    }
 }
