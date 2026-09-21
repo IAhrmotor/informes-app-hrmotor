@@ -289,19 +289,43 @@
         @if ($reportUserCanViewCommercialPerformance ?? false)
         <section id="panel-rendimiento-comercial" data-report-panel>
             <div class="report-ui-card reservations-message is-hidden" id="performanceLoading" role="status">Cargando rendimiento comercial local...</div>
-            <div class="performance-note performance-note--info" id="performanceSemantics">
-                Actividad mensual, no cohorte. Cada hito se asigna al mes en que ocurre; por ello, algunos ratios pueden superar el 100 %.
+            <div class="performance-note performance-note--quality performance-note--compact is-hidden" id="performanceCurrentMonthNotice"></div>
+            <div class="performance-note performance-note--quality performance-note--compact is-hidden" id="performanceLimitationNotice">
+                Existen limitaciones de calidad o cobertura. Consulta “Información y calidad de datos”.
             </div>
-            <div class="performance-note performance-note--quality is-hidden" id="performanceCurrentMonthNotice"></div>
-            <div class="performance-note performance-note--info is-hidden" id="performanceUniverse"></div>
-            <div class="performance-note performance-note--info is-hidden" id="performanceFreshness"></div>
-            <div class="performance-note performance-note--info" id="performanceCancellationCoverage">Cobertura de cancelaciones pendiente de cargar.</div>
-            <div class="performance-note performance-note--quality is-hidden" id="performanceDataIncident"></div>
-            <div class="performance-note performance-note--quality is-hidden" id="performanceQualityWarning"></div>
             <div class="performance-note performance-note--error is-hidden" id="performanceLoadError" role="alert">
                 <span data-performance-load-error-message></span>
                 <button type="button" class="report-ui-button report-ui-button--secondary" id="retryCommercialPerformance">Reintentar</button>
             </div>
+            <details class="performance-data-context" id="performanceDataContext">
+                <summary class="performance-data-context__summary">
+                    <span>Información y calidad de datos</span>
+                    <span class="performance-data-context__status is-hidden" id="performanceDataContextSummary"></span>
+                </summary>
+                <div class="performance-data-context__body">
+                    <section class="performance-data-context__section" aria-labelledby="performanceMethodologyTitle">
+                        <h3 id="performanceMethodologyTitle">Metodología</h3>
+                        <p id="performanceSemantics">Actividad mensual, no cohorte. Cada hito se asigna al mes en que ocurre; por ello, algunos ratios pueden superar el 100 %.</p>
+                    </section>
+                    <section class="performance-data-context__section" aria-labelledby="performanceUniverseTitle">
+                        <h3 id="performanceUniverseTitle">Universo</h3>
+                        <p class="is-hidden" id="performanceUniverse"></p>
+                    </section>
+                    <section class="performance-data-context__section" aria-labelledby="performanceFreshnessTitle">
+                        <h3 id="performanceFreshnessTitle">Actualización</h3>
+                        <p class="is-hidden" id="performanceFreshness"></p>
+                    </section>
+                    <section class="performance-data-context__section" aria-labelledby="performanceCancellationCoverageTitle">
+                        <h3 id="performanceCancellationCoverageTitle">Cobertura de cancelaciones</h3>
+                        <p class="is-hidden" id="performanceCancellationCoverage"></p>
+                    </section>
+                    <section class="performance-data-context__section" aria-labelledby="performanceDataQualityTitle">
+                        <h3 id="performanceDataQualityTitle">Calidad de datos</h3>
+                        <p class="is-hidden" id="performanceDataIncident"></p>
+                        <p class="is-hidden" id="performanceQualityWarning"></p>
+                    </section>
+                </div>
+            </details>
             <section class="report-ui-kpi-strip" id="performanceKpis" aria-label="Indicadores de rendimiento comercial"></section>
 
             <section class="report-ui-data-panel">
