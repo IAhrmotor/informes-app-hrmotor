@@ -10,8 +10,12 @@ use App\Models\SalesforceOpportunity;
 use App\Models\SalesforceOpportunityHistorySyncInterval;
 use App\Models\SalesforceOpportunityStageTransition;
 use App\Models\SalesforceUser;
+use App\Services\Reports\ReservasVentas\OpportunityPortalNormalizer;
 use App\Services\Reports\ReservationsSales\CommercialDelegationSnapshotService;
 use App\Services\Reports\ReservationsSales\CommercialPerformanceDatasetService;
+use App\Services\Reports\ReservationsSales\Sync\SalesforceOpportunitySyncService;
+use App\Services\Salesforce\SalesforceClient;
+use App\Services\Salesforce\SalesforceLeadFieldResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -87,6 +91,20 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         } finally {
             CarbonImmutable::setTestNow();
         }
+    }
+
+    public function test_sync_de_opportunities_invalida_la_version_compartida_sin_duplicar_la_especifica(): void
+    {
+        $dataset = file_get_contents(app_path('Services/Reports/ReservationsSales/CommercialPerformanceDatasetService.php'));
+        $command = file_get_contents(app_path('Console/Commands/SalesforceSyncOpportunitiesCommand.php'));
+        $invalidateStart = strpos($command, 'private function invalidateDashboardCache()');
+        $invalidateEnd = strpos($command, 'private function periodStart', $invalidateStart);
+        $invalidateBlock = substr($command, $invalidateStart, $invalidateEnd - $invalidateStart);
+
+        $this->assertStringContainsString("Cache::get('reservas_ventas_dashboard_cache_version', 1)", $invalidateBlock);
+        $this->assertStringNotContainsString('commercial_performance_cache_version', $invalidateBlock);
+        $this->assertStringContainsString("Cache::get('reservas_ventas_dashboard_cache_version', 1)", $dataset);
+        $this->assertStringContainsString("Cache::get('commercial_performance_cache_version', 1)", $dataset);
     }
 
     public function test_cache_persistente_recupera_la_base_serializada_sin_objetos_ni_error_con_filtro_comercial(): void
@@ -374,6 +392,120 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertSame(2, collect($response->json('evolution'))->firstWhere('month', '2026-07')['reservations_total']);
     }
 
+    public function test_cancelacion_tardia_reclasifica_agosto_sin_mover_el_evento_de_septiembre_ni_duplicar(): void
+    {
+        Cache::flush();
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-15 12:00:00', 'Europe/Madrid'));
+
+        try {
+            $this->commercial('005-late-cancel', 'Cancelación tardía');
+            $this->snapshot('005-late-cancel', 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+            $opportunity = $this->opportunity('006-late-cancel', [
+                'owner_id' => '005-late-cancel',
+                'owner_name' => 'Cancelación tardía',
+                'created_date' => '2026-08-05 10:00:00',
+                'salesforce_last_modified_at' => '2026-08-20 10:00:00',
+                'reservation' => true,
+                'reservation_date' => '2026-08-12',
+                'stage_name' => 'Reserva',
+            ]);
+            $this->coverHistoryMonth('2026-08');
+            $this->coverHistoryMonth('2026-09');
+            Cache::forever('reservas_ventas_dashboard_cache_version', 4);
+            Cache::forever('commercial_performance_cache_version', 9);
+
+            $dataset = app(CommercialPerformanceDatasetService::class);
+            $before = $dataset->payload(['month' => '2026-08']);
+            $beforeRow = collect($before['items'])->firstWhere('commercial_id', '005-late-cancel');
+
+            $this->assertSame(1, $beforeRow['reservations_total']);
+            $this->assertSame(1, $beforeRow['reservations_valid_for_objective']);
+            $this->assertSame(0, $beforeRow['reservations_dropped']);
+            $this->assertSame(5.56, $beforeRow['fulfillment_pct']);
+            $this->assertSame(0, $before['summary']['cancellations']);
+
+            $client = new class extends SalesforceClient
+            {
+                public string $opportunitySoql = '';
+
+                public function __construct() {}
+
+                public function queryAll(string $soql): array
+                {
+                    return [];
+                }
+
+                public function query(string $soql): array
+                {
+                    if (! str_contains($soql, 'FROM Opportunity')) {
+                        return [];
+                    }
+
+                    $this->opportunitySoql = $soql;
+
+                    return [[
+                        'Id' => '006-late-cancel',
+                        'Name' => '006-late-cancel',
+                        'CreatedDate' => '2026-08-05T10:00:00.000Z',
+                        'LastModifiedDate' => '2026-09-10T10:00:00.000Z',
+                        'StageName' => 'Cerrada Perdida',
+                        'RecordType' => ['Name' => 'Venta'],
+                        'OwnerId' => '005-late-cancel',
+                        'Owner' => ['Name' => 'Cancelación tardía', 'IsActive' => true, 'USR_SEL_Delegacion__c' => 'Alicante'],
+                        'Account' => [],
+                        'OPO_CAS_Reserva__c' => true,
+                        'OPO_FEC_Fecha_de_reserva__c' => '2026-08-12',
+                        'OPO_CAS_Contrato_CV_firmado__c' => false,
+                    ]];
+                }
+            };
+            $sync = new SalesforceOpportunitySyncService(
+                $client,
+                app(OpportunityPortalNormalizer::class),
+                app(SalesforceLeadFieldResolver::class),
+            );
+            $sync->sync(
+                CarbonImmutable::parse('2026-09-10 00:00:00', 'UTC'),
+                CarbonImmutable::parse('2026-09-11 00:00:00', 'UTC'),
+                true,
+            );
+            SalesforceOpportunityStageTransition::query()->create([
+                'salesforce_history_id' => '0Jh-late-cancel',
+                'opportunity_salesforce_id' => '006-late-cancel',
+                'previous_stage' => 'Reserva',
+                'new_stage' => 'Cerrada Perdida',
+                'transitioned_at' => '2026-09-10 10:00:00',
+                'reservation_date' => '2026-08-12',
+                'owner_id' => '005-late-cancel',
+                'owner_name' => 'Cancelación tardía',
+                'source' => 'OpportunityHistory',
+                'is_reservation_cancellation' => true,
+                'quality_status' => 'valid',
+                'synced_at' => now(),
+            ]);
+
+            Cache::forever('reservas_ventas_dashboard_cache_version', 5);
+            $after = $dataset->payload(['month' => '2026-08']);
+            $afterRow = collect($after['items'])->firstWhere('commercial_id', '005-late-cancel');
+            $september = $dataset->payload(['month' => '2026-09']);
+
+            $this->assertStringContainsString('LastModifiedDate >= 2026-09-10T00:00:00Z', $client->opportunitySoql);
+            $this->assertDatabaseCount('salesforce_opportunities', 1);
+            $this->assertSame($opportunity->id, SalesforceOpportunity::query()->sole()->id);
+            $this->assertSame('2026-08-12', SalesforceOpportunity::query()->sole()->reservation_date->toDateString());
+            $this->assertSame('2026-09-10 10:00:00', SalesforceOpportunity::query()->sole()->salesforce_last_modified_at->format('Y-m-d H:i:s'));
+            $this->assertSame(1, $afterRow['reservations_total']);
+            $this->assertSame(0, $afterRow['reservations_valid_for_objective']);
+            $this->assertSame(1, $afterRow['reservations_dropped']);
+            $this->assertSame(0.0, $afterRow['fulfillment_pct']);
+            $this->assertSame(0, $after['summary']['cancellations']);
+            $this->assertSame(1, $september['summary']['cancellations']);
+            $this->assertSame(9, Cache::get('commercial_performance_cache_version'));
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
+    }
+
     public function test_comparativas_equipo_usan_el_universo_evaluable_y_el_filtro_comercial_no_lo_recalcula(): void
     {
         foreach ([
@@ -436,6 +568,49 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertJsonPath('universe.global_fulfillment_pct', 35.19);
     }
 
+    public function test_ranking_denso_conserva_empates_orden_y_referencias_al_filtrar_comercial(): void
+    {
+        Cache::flush();
+        $dataset = app(CommercialPerformanceDatasetService::class);
+        $dataset->payload(['month' => '2026-08']);
+        $dataset->updateTarget('2026-08', 10, null);
+
+        foreach ([
+            ['005-rank-a', 'Ana ranking', 10],
+            ['005-rank-b', 'Bea ranking', 10],
+            ['005-rank-c', 'Cris ranking', 8],
+        ] as [$id, $name, $reservations]) {
+            $this->commercial($id, $name);
+            $this->snapshot($id, 'Alicante', 'Zona Mediterraneo', '2026-05-01');
+            $this->seedPerformanceMetrics($id, $name, 10, 10, $reservations, 0);
+        }
+
+        $unfiltered = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('objective.reservations_target', 10)
+            ->json('items');
+        $byId = collect($unfiltered)->keyBy('commercial_id');
+
+        $this->assertSame([
+            ['commercial_id' => '005-rank-a', 'ranking' => 1, 'fulfillment_pct' => 100],
+            ['commercial_id' => '005-rank-b', 'ranking' => 1, 'fulfillment_pct' => 100],
+            ['commercial_id' => '005-rank-c', 'ranking' => 2, 'fulfillment_pct' => 80],
+        ], collect($unfiltered)->map(fn (array $row): array => [
+            'commercial_id' => $row['commercial_id'],
+            'ranking' => $row['ranking'],
+            'fulfillment_pct' => $row['fulfillment_pct'],
+        ])->all());
+
+        $filtered = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08&commercial=005-rank-b')
+            ->assertOk()
+            ->assertJsonCount(1, 'items')
+            ->assertJsonPath('items.0.ranking', 1)
+            ->json('items.0');
+
+        $this->assertSame($byId['005-rank-b']['team_average_reservations'], $filtered['team_average_reservations']);
+        $this->assertSame($byId['005-rank-b']['team_lead_to_reservation_pct'], $filtered['team_lead_to_reservation_pct']);
+    }
+
     public function test_cumplimiento_agregado_suma_objetivos_individuales_en_resumen_evolucion_y_filtro(): void
     {
         foreach ([['005-target-a', 'Objetivo A'], ['005-target-b', 'Objetivo B']] as [$commercialId, $name]) {
@@ -450,7 +625,8 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
                 ]);
             }
 
-            foreach (range(1, 9) as $index) {
+            $augustReservations = $commercialId === '005-target-a' ? 9 : 18;
+            foreach (range(1, $augustReservations) as $index) {
                 $this->opportunity("006-august-{$commercialId}-{$index}", [
                     'owner_id' => $commercialId, 'owner_name' => $name,
                     'created_date' => '2026-08-05 10:00:00',
@@ -461,9 +637,10 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
 
         $response = $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
             ->assertOk()
-            ->assertJsonPath('summary.reservations_total', 18)
+            ->assertJsonPath('summary.reservations_total', 27)
             ->assertJsonPath('summary.objective', 36)
-            ->assertJsonPath('summary.fulfillment_pct', 50);
+            ->assertJsonPath('summary.fulfillment_pct', 75)
+            ->assertJsonPath('universe.global_fulfillment_pct', 75);
         $july = collect($response->json('evolution'))->firstWhere('month', '2026-07');
         $this->assertSame(36, $july['reservations_total']);
         $this->assertSame(36, $july['objective']);
@@ -483,7 +660,7 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertJsonPath('items.0.objective', 18)
             ->assertJsonPath('items.0.fulfillment_pct', 50)
             ->assertJsonPath('universe.global_target', 36)
-            ->assertJsonPath('universe.global_fulfillment_pct', 50);
+            ->assertJsonPath('universe.global_fulfillment_pct', 75);
     }
 
     public function test_margen_medio_usa_solo_ventas_con_margen_informado(): void
@@ -640,6 +817,8 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringNotContainsString('performanceDelegation', $html);
         $this->assertStringNotContainsString('performanceCommercial', $html);
         $this->assertStringContainsString('id="performanceColumnsButton"', $html);
+        $this->assertStringContainsString('id="performanceSearch"', $html);
+        $this->assertStringContainsString('id="performanceFreshness"', $html);
         $this->assertStringContainsString('Añadir o quitar columnas', $html);
         $this->assertStringNotContainsString('Media reservas deleg.', $html);
         $this->assertStringNotContainsString('Media deleg.', $html);
@@ -665,6 +844,7 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertOk()
             ->getContent();
         $blade = file_get_contents(resource_path('views/reports/reservations-sales/index.blade.php'));
+        $css = file_get_contents(resource_path('css/reports/reservations-sales-dashboard.css'));
 
         $this->assertStringContainsString('class="report-ui-page-header"', $html);
         $this->assertStringContainsString('class="report-ui-tabs"', $html);
@@ -679,6 +859,9 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString('is-hidden', $html);
         $this->assertStringNotContainsString('resources/css/reports/leads-dashboard.css', $blade);
         $this->assertStringContainsString('resources/css/reports/reservations-sales-dashboard.css', $blade);
+        $this->assertStringContainsString('.performance-table [data-column="traffic_light"]', $css);
+        $this->assertStringContainsString('.performance-table [data-column="commercial"]', $css);
+        $this->assertStringContainsString('position: sticky;', $css);
 
         $javascript = file_get_contents(resource_path('js/reports/reservations-sales-dashboard.js'));
         $this->assertStringContainsString("item.classList.remove('active', 'is-active')", $javascript);
@@ -706,7 +889,9 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString("setParam(params, 'commercial', document.getElementById('commercial').value)", $javascript);
         $this->assertStringContainsString('if (isCommercialPerformanceMode())', $javascript);
         $this->assertStringContainsString("isCommercialPerformanceMode() || document.getElementById('period')?.value !== 'custom'", $javascript);
-        $this->assertStringContainsString('reservationsSalesCommercialPerformanceColumnsV3', $javascript);
+        $this->assertStringContainsString('reservationsSalesCommercialPerformanceColumnsV4', $javascript);
+        $this->assertStringNotContainsString('reservationsSalesCommercialPerformanceColumnsV3', $javascript);
+        $this->assertStringContainsString("{ key: 'ranking', label: 'Ranking', defaultVisible: true }", $javascript);
         $this->assertStringContainsString("{ key: 'reservations_dropped', label: 'Reservas caídas', defaultVisible: true }", $javascript);
         $this->assertStringContainsString("{ key: 'sales_dropped', label: 'Ventas caídas', defaultVisible: true }", $javascript);
         $this->assertStringContainsString("{ key: 'team_average_reservations', label: 'Media equipo', defaultVisible: true }", $javascript);
@@ -721,6 +906,17 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString('Reserva no demostrada', $javascript);
         $this->assertStringContainsString('Datos insuficientes: sin fecha de reserva ni fecha de CV', $javascript);
         $this->assertStringContainsString("{ key: 'traffic_light', label: 'Semáforo', alwaysVisible: true }", $javascript);
+        $this->assertStringContainsString("['Cumplimiento comercial', formatAvailablePercent(summary.fulfillment_pct)]", $javascript);
+        $this->assertStringContainsString("['Cumplimiento global', formatAvailablePercent(universe.global_fulfillment_pct)]", $javascript);
+        $this->assertStringContainsString('function bindPerformanceSearch()', $javascript);
+        $this->assertStringContainsString("document.querySelectorAll('#performanceRows tr[data-search]')", $javascript);
+        $this->assertStringContainsString("return value === 'Zona Mediterraneo' ? 'Zona Mediterráneo' : value;", $javascript);
+        $this->assertStringContainsString("covered: 'Cobertura completa'", $javascript);
+        $this->assertStringContainsString("partial: 'Cobertura parcial'", $javascript);
+        $this->assertStringContainsString("uncovered: 'Sin cobertura certificada'", $javascript);
+        $this->assertStringContainsString("return labels[status] || 'Cobertura no determinada';", $javascript);
+        $this->assertStringContainsString("data.dataset_source === 'local_snapshot'", $javascript);
+        $this->assertStringContainsString("? 'Fotografía local'", $javascript);
         $this->assertStringContainsString('function formatPerformanceMonth', $javascript);
         $this->assertStringContainsString("return value === null || value === undefined ? 'N/D'", $javascript);
         $this->assertStringContainsString('function invalidatePerformanceAudit', $javascript);
@@ -739,6 +935,11 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
 
         $resetBlock = substr($javascript, strpos($javascript, 'function bindResetFilters()'), strpos($javascript, 'function bindFilters()') - strpos($javascript, 'function bindResetFilters()'));
         $this->assertStringNotContainsString("document.getElementById('performanceTarget').value", $resetBlock);
+
+        $searchStart = strpos($javascript, 'function applyPerformanceSearchFilter()');
+        $searchEnd = strpos($javascript, 'function formatPerformanceZone', $searchStart);
+        $searchBlock = substr($javascript, $searchStart, $searchEnd - $searchStart);
+        $this->assertStringNotContainsString('fetch(', $searchBlock);
     }
 
     public function test_javascript_bloquea_objetivo_hasta_una_carga_de_rendimiento_valida(): void
@@ -853,6 +1054,11 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertJsonPath('items.0.team_reservation_to_sale_pct', null)
             ->assertJsonPath('items.0.reservation_to_sale_vs_team_pp', null)
             ->assertJsonPath('filters.commercials.0.id', '005-historic');
+
+        $this->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08&commercial=005-historic')
+            ->assertOk()
+            ->assertJsonPath('summary.fulfillment_pct', null)
+            ->assertJsonPath('universe.global_fulfillment_pct', null);
     }
 
     public function test_bootstrap_aprobado_habilita_zona_delegacion_y_ranking_sin_llamarlo_observado(): void

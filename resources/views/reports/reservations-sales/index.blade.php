@@ -294,6 +294,7 @@
             </div>
             <div class="performance-note performance-note--quality is-hidden" id="performanceCurrentMonthNotice"></div>
             <div class="performance-note performance-note--info is-hidden" id="performanceUniverse"></div>
+            <div class="performance-note performance-note--info is-hidden" id="performanceFreshness"></div>
             <div class="performance-note performance-note--info" id="performanceCancellationCoverage">Cobertura de cancelaciones pendiente de cargar.</div>
             <div class="performance-note performance-note--quality is-hidden" id="performanceDataIncident"></div>
             <div class="performance-note performance-note--quality is-hidden" id="performanceQualityWarning"></div>
@@ -313,6 +314,14 @@
                     </div>
                         </x-slot:actions>
                     </x-reports.ui.section-header>
+                </div>
+                <div class="performance-commercial-filter-bar report-ui-filter-bar">
+                    <div class="report-ui-filter-bar__fields">
+                        <div class="report-ui-field">
+                            <label class="report-ui-label" for="performanceSearch">Buscar comercial</label>
+                            <input class="report-ui-input" id="performanceSearch" type="search" placeholder="Filtrar por nombre o ID Salesforce" autocomplete="off">
+                        </div>
+                    </div>
                 </div>
                 <div class="table-scroll-top is-hidden" data-scroll-target="performanceTableWrap" aria-hidden="true"><div></div></div>
                 <div class="report-ui-data-panel__scroll performance-table-wrap" id="performanceTableWrap" tabindex="0" aria-label="Rendimiento por comercial">
