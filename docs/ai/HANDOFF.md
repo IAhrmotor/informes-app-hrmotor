@@ -54,6 +54,14 @@
   `league/commonmark` (DoS/XSS, corregidos según advisory en 2.9.1/2.10.0). La
   actualización de dependencias queda fuera de alcance y debe abordarse por
   separado con validación de compatibilidad.
+- Correctivo semántico posterior: el plan dirigido muestra los niveles como
+  `Prioritario`, `Revisión` y `Normal`, igual que el plan general, sin atribuir
+  el nivel `priority` exclusivamente a 90 días. La prueba feature cubre un
+  vehículo joven elevado por concentración de modelo. Es un cambio solo de
+  Blade/prueba/documentación, sin alterar scoring, ranking, umbrales ni assets.
+  Validación: `StockDirectedTransferPlannerTest` 6/6 (37 aserciones),
+  `StockDashboardTest` 14/14 (156), Pint del test y `git diff --check`, todos
+  correctos.
 - Cambios locales ajenos preservados y no incluidos: sustitución global
   `app-DzLCIK8P.css` → `app-CN9O6aR-.css` y su hunk en manifest, ya presentes
   antes de la tarea. Sin acciones manuales de base de datos/configuración. No se

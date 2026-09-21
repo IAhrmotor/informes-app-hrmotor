@@ -249,6 +249,8 @@ class StockDashboardTest extends TestCase
             ->assertSee('Esta propuesta es una simulación y no realiza movimientos ni reservas en Salesforce.')
             ->assertSee('1004SIM')
             ->assertSee('Score destino')
+            ->assertSee('Prioritario')
+            ->assertDontSee('Prioridad 90')
             ->assertDontSee('Vehículos propuestos para traslado')
             ->assertSee('Volver al plan general')
             ->assertDontSee('section=capacities', false)

@@ -96,7 +96,7 @@
                             <td>{{ $row['vehicle'] ?: 'Sin descripción' }}</td>
                             <td>{{ $row['days'] ?? 'Sin fecha' }}</td>
                             <td>{{ $row['origin'] ?: $directedTransferPlan['origin']->canonical_name }}</td>
-                            <td><span @class(['stock-tag', 'danger' => $row['review_level'] === 'priority', 'warning' => $row['review_level'] === 'review'])>{{ $row['review_level'] === 'priority' ? 'Prioridad 90' : ($row['review_level'] === 'review' ? 'Prioridad 60' : 'Normal') }}</span></td>
+                            <td><span @class(['stock-tag', 'danger' => $row['review_level'] === 'priority', 'warning' => $row['review_level'] === 'review'])>{{ $row['review_level'] === 'priority' ? 'Prioritario' : ($row['review_level'] === 'review' ? 'Revisión' : 'Normal') }}</span></td>
                             <td><strong>{{ number_format($row['score'], 1, ',', '.') }}</strong></td>
                             <td><ul class="stock-transfer-reasons">@foreach ($row['reasons'] as $reason)<li>{{ $reason }}</li>@endforeach</ul></td>
                         </tr>
