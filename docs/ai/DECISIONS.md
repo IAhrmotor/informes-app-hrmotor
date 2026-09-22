@@ -1,5 +1,23 @@
 # Decisiones técnicas
 
+## 2026-09-22 - Permisos y cierre productivo de Rendimiento comercial
+
+Administrador mantiene lectura global, auditoría y edición del objetivo
+mensual. Director mantiene lectura global y auditoría, pero el objetivo es de
+solo lectura. Area Manager dispone de lectura y objetivo de solo lectura
+exclusivamente para su zona, con scope forzado en servidor, sin auditoría y con
+respuesta 403 si no tiene zona configurada. Los parámetros HTTP no amplían el
+ámbito y no se concede acceso a otros roles.
+
+El objetivo sigue siendo único por mes y se aplica individualmente a todos los
+comerciales evaluables, sin convertirse en objetivo por zona, delegación o
+comercial. La validación productiva de solo lectura, registrada sin PII,
+confirmó la retroactividad de las caídas: la Opportunity permanece única, la
+fecha original de reserva no cambia, el mes original se reclasifica y deja de
+aportar al cumplimiento, mientras la cancelación histórica permanece imputada
+al mes de `transitioned_at`. Esta evidencia valida la mecánica, no certifica
+todo el histórico ni modifica los estados de cobertura.
+
 ## 2026-09-14 - Último mes cerrado por defecto en Rendimiento comercial
 
 La pestaña usa el mes natural anterior de `Europe/Madrid` como valor inicial y

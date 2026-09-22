@@ -1,6 +1,6 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-09-11.
+Actualizado: 2026-09-22.
 
 ## Autoridad Salesforce y lifecycle vigente
 
@@ -27,6 +27,21 @@ Actualizado: 2026-09-11.
   su ejecución. Esa operación pendiente no reabre el refactor de código.
 
 ## Rendimiento comercial de Reservas / Ventas
+
+- Permisos vigentes: Administrador tiene lectura global, auditoría y edición del
+  objetivo; Director tiene lectura global y auditoría con objetivo de solo
+  lectura; Area Manager tiene lectura limitada en servidor a su zona, objetivo
+  de solo lectura y sin auditoría. Los parámetros HTTP no amplían su ámbito y,
+  sin zona configurada, recibe 403. No se amplía el acceso a otros roles.
+- El objetivo es un único valor por mes aplicado individualmente a todos los
+  comerciales evaluables; Zona, Delegación y Comercial no cambian el objetivo
+  almacenado y solo Administrador puede editarlo.
+- La mecánica retroactiva quedó validada satisfactoriamente en producción, en
+  solo lectura y sin PII: una Opportunity permanece única y conserva su fecha de
+  reserva original, el estado actual puede reclasificar el mes original como
+  caída y excluirlo del cumplimiento, y la cancelación histórica permanece en
+  el mes de `transitioned_at`. La comprobación valida la mecánica, no certifica
+  todo el histórico.
 
 - `CommercialPerformanceDatasetService` agrega cuatro meses de actividad local
   por fecha propia de Lead, Opportunity, reserva, firma y cancelación; la unidad

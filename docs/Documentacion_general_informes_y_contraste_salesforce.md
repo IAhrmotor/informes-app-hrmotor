@@ -441,11 +441,20 @@ Código fuente:
 ### 4.5 Rendimiento comercial mensual
 
 `Rendimiento comercial` no cambia las reglas anteriores: constituye un dataset
-local separado, autorizado únicamente a Administrador y Director. Usa Lead por
-`Fecha_Asignacion__c`, Opportunity por `CreatedDate`, reserva por fecha de
-reserva, venta por fecha de firma y cancelación por la transición persistida de
-`OpportunityHistory`. Los ratios son de actividad, admiten más del 100 % y
-devuelven N/A con denominador cero.
+local separado. Administrador dispone de lectura global, auditoría y edición del
+objetivo mensual; Director dispone de lectura global, auditoría y objetivo de
+solo lectura; Area Manager dispone de lectura exclusivamente de su zona y
+objetivo de solo lectura, sin auditoría. El scope de Area Manager se fuerza en
+servidor, los parámetros HTTP no pueden ampliarlo y la ausencia de una zona
+configurada devuelve 403. Delegation Manager, Viewer, Commercial, Marketing,
+Financial, Stock Only, Commission Auditor y los demás roles no obtienen acceso.
+
+El dataset usa Lead por `Fecha_Asignacion__c`, Opportunity por `CreatedDate`,
+reserva por fecha de reserva, venta por fecha de firma y cancelación por la
+transición persistida de `OpportunityHistory`. Los ratios son de actividad,
+admiten más del 100 % y devuelven N/A con denominador cero. El objetivo es único
+por mes y se aplica individualmente a todos los comerciales evaluables; solo
+Administrador puede modificarlo.
 
 La investigación Salesforce de solo lectura verificó que
 `Delegacion_del_propietario__c` es una fórmula de la delegación actual. Al no

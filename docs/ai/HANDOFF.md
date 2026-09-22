@@ -68,13 +68,14 @@
   intacta, agosto total 1/válida 0/caída 1/cumplimiento 0 y septiembre una
   cancelación histórica. Las regresiones de Partner Community y cobertura
   `covered`/`partial`/`uncovered` permanecen verdes.
-- Validación real pendiente y deliberadamente no ejecutada: localizar en
-  producción, en solo lectura y sin PII, una Opportunity con reserva de agosto,
-  estado Cerrada Perdida y modificación desde septiembre; verificar unicidad,
-  fecha original, reclasificación de agosto y transición/cancelación de
-  septiembre si fue capturada. Si existe un hueco real de septiembre, estudiar
-  el comando existente en modo `--modified` con aprobación; no ejecutar backfill
-  ni marcar `covered` sin intervalos certificados.
+- Validación real completada satisfactoriamente en producción, en modo de solo
+  lectura y sin registrar PII. Un caso real confirmó una única fila local, la
+  fecha original de reserva intacta, la reclasificación retroactiva del mes de
+  reserva como caída y su exclusión del cumplimiento. La transición histórica
+  continúa imputada al mes de `transitioned_at`; la cobertura observada fue
+  coherente con los intervalos almacenados. Esta evidencia valida la mecánica,
+  no certifica por sí sola todo el histórico. Cualquier hueco futuro debe seguir
+  el runbook y nunca marcarse `covered` sin intervalos certificados.
 
 ### Validación
 
