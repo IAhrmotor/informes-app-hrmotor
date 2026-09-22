@@ -175,12 +175,12 @@ cancelaciones aisladas, margen y métricas derivadas no activan actividad real.
 
 Las filas con actividad y un histórico no certificable se muestran como **No
 evaluable**, sin objetivo, cumplimiento, semáforo, ranking ni referencia de
-equipo. Las filas certificadas sin actividad se excluyen de tabla y filtro
+delegación. Las filas certificadas sin actividad se excluyen de tabla y filtro
 Comercial, y se contabilizan en la metadata del universo. `Incidencia de datos`
 se publica en un bloque separado de calidad, fuera del universo evaluable.
 
 El ranking y las comparativas se calculan tras Zona/Delegación y antes de
-Comercial. Cada referencia de equipo incluye solo comerciales evaluables de la
+Comercial. Cada referencia de delegación incluye solo comerciales evaluables de la
 misma delegación; Comercial solo limita filas visibles y conserva el puesto y
 las referencias calculadas sobre el universo anterior. Sin filtro Comercial, el
 KPI superior muestra el cumplimiento global. Con un comercial seleccionado,
@@ -190,19 +190,37 @@ publicándose sin cambios en `universe` como
 `SUM(reservations_valid_for_objective) / SUM(objective)` del universo evaluable
 y devuelve `null` cuando no existe objetivo global.
 
-Esta pestaña es independiente de la cohorte de las tres pestañas legacy. Solo
-Administrador y Director/Dirección pueden ver la pestaña, consultar
-`GET /informes/reservas-ventas/data/commercial-performance`, consultar la
-auditoría `GET /informes/reservas-ventas/data/commercial-performance/audit` o actualizar
-`PUT /informes/reservas-ventas/data/commercial-performance/target`. Ambos
-controles se aplican en servidor; el `PUT` conserva CSRF y valida mes `Y-m` y
-objetivo entero mayor que cero.
+Esta pestaña es independiente de la cohorte de las tres pestañas legacy. La
+política se separa por capacidad: Administrador puede ver todas las zonas,
+consultar auditoría y modificar el objetivo; Director/Dirección puede ver todas
+las zonas y consultar auditoría, pero el objetivo es de solo lectura; Area
+Manager puede ver el dashboard agregado y el objetivo en modo lectura, limitado
+en servidor a `ReportUserAccess::areaZoneLabel()` y sin acceso a la auditoría.
+Un Area Manager sin zona configurada recibe 403 y los parámetros HTTP nunca
+amplían su ámbito. No se concede acceso a Delegation Manager, Viewer ni otros
+roles. `PUT /informes/reservas-ventas/data/commercial-performance/target` queda
+restringido a Administrador, conserva CSRF y valida mes `Y-m` y objetivo entero
+mayor que cero.
+
+El aislamiento incluye `data_quality`. Los recuentos de asignaciones observadas
+y con bootstrap se recalculan desde las filas certificadas de la zona. Los
+contadores globales sin dimensión zonal fiable —atribución no resuelta,
+conflictos, histórico no certificable, cronología, cambios organizativos y
+dependencias de cancelación— conservan su clave con `null`, nunca con el total
+corporativo ni con un cero inventado. La interfaz omite el aviso cuantitativo en
+ese caso. Esta ocultación se aplica también a `unresolved_dependencies` dentro
+de cada entrada de `cancellation_coverage_by_month`; estados, rangos, cortes y
+fechas certificadas siguen siendo globales y conservadores.
 
 El informe mantiene un único bloque físico de filtros. Las tres pestañas legacy
 presentan período, criterio de fecha, tipo de oportunidad y los controles
 compartidos de delegación, zona y comercial. Al activar Rendimiento comercial,
-ese mismo bloque oculta los controles de cohorte y muestra mes natural y la
-edición del objetivo; zona, delegación y comercial conservan los mismos IDs DOM.
+ese mismo bloque oculta los controles de cohorte y muestra mes natural y el
+objetivo mensual por comercial; solo Administrador dispone de edición y botón
+Guardar. Es un único objetivo individual para todos los comerciales evaluables
+del mes: no pertenece a una zona, delegación o comercial concreto. Los filtros
+organizativos no cambian el valor almacenado y cada mes mantiene su propia fila;
+zona, delegación y comercial conservan los mismos IDs DOM.
 Cada cambio despacha únicamente el dataset del modo activo. Si una opción no
 existe al cambiar de universo, se limpia y se repite una sola carga consistente.
 Limpiar Rendimiento restablece mes y filtros organizativos, pero nunca modifica
@@ -253,11 +271,19 @@ no hay filtro organizativo que las excluya naturalmente.
 La dimensión técnica mantiene `Zona Mediterraneo` en filtros, payload, caché y
 agrupaciones; la interfaz la presenta como **Zona Mediterráneo**. Los estados
 `covered`, `partial` y `uncovered` permanecen en el contrato JSON, pero se
-traducen respectivamente como **Cobertura completa**, **Cobertura parcial** y
-**Sin cobertura certificada**; cualquier valor desconocido se presenta como
-**Cobertura no determinada**. La interfaz declara el origen local y muestra
-`dataset_generated_at` como fecha de generación de la fotografía, además del
-corte específico de OpportunityHistory.
+traducen respectivamente como **Histórico del período certificado**,
+**Histórico del período parcialmente certificado** y **Sin histórico
+certificado para todo el período**; cualquier valor desconocido se presenta
+como **Cobertura no determinada**. `covered` certifica la continuidad de las
+transiciones dentro del período evaluado, no congela sus KPI frente a cambios
+futuros. Una modificación posterior incorporada por la sincronización
+incremental puede reclasificar retroactivamente una reserva o venta.
+
+La interfaz distingue dos relojes: **Datos de Salesforce sincronizados** procede
+del máximo `updated_at` local de Opportunities y no se presenta como cutoff
+contractual de Salesforce; **Informe generado con la fotografía local** procede
+de `dataset_generated_at`. El corte certificado de OpportunityHistory se muestra
+aparte dentro de la cobertura de cancelaciones.
 
 La metodología, el universo, la fecha de la fotografía local, la cobertura de
 cancelaciones y las incidencias de calidad o atribución se conservan en la
@@ -344,13 +370,18 @@ observadas o con bootstrap aprobado. El ranking se construye antes de aplicar el
 filtro Comercial; los empates exactos comparten posición y no usa margen,
 cancelación ni scoring compuesto.
 
-Las comparativas de equipo usan exactamente la misma población que el ranking:
+Las comparativas de delegación usan exactamente la misma población que el ranking:
 filas evaluables con actividad real tras aplicar Zona y Delegación, pero antes
 de aplicar Comercial. Cada comercial se compara solo con los evaluables de su
 misma delegación, incluso si la zona contiene varias delegaciones. La media de
 reservas y los ratios Lead → Reserva, Oportunidad → Reserva y Reserva → Venta se
-calculan agregando sus contadores; las diferencias individuales se expresan en
-puntos porcentuales. Las filas no evaluables publican estos campos como `null`.
+calculan agregando sus contadores. Cada celda comparativa presenta primero el
+ratio del comercial, después la referencia de su delegación y finalmente una
+flecha con el valor absoluto y el texto por encima, por debajo o igual. Si falta
+un denominador o referencia se conserva `N/D` y no se inventa una flecha. Las
+claves técnicas `team_*` y `*_vs_team` se mantienen para no romper el contrato
+JSON ni las preferencias de columnas guardadas. Las filas no evaluables publican
+estos campos como `null`.
 
 ### Cancelaciones verificadas
 
@@ -390,6 +421,25 @@ nueva y no bloquea por sí sola.
 cancelación. `LastModifiedDate` se usa exclusivamente en la sincronización
 incremental para descubrir Opportunities antiguas modificadas.
 
+#### Validación real posterior de solo lectura
+
+Esta validación no se ejecuta desde el desarrollo. En producción, localizar sin
+exponer datos de cliente una Opportunity con `reservation_date` en agosto,
+`stage_name = Cerrada Perdida` y `salesforce_last_modified_at >= 2026-09-01`.
+Sobre su `salesforce_id`, verificar en modo de solo lectura que existe una única
+fila local, que la reserva conserva agosto y el estado actual es Cerrada
+Perdida. Después comprobar que agosto la clasifica como caída y no la suma al
+cumplimiento; si OpportunityHistory capturó la transición, confirmar que su
+`transitioned_at` está en septiembre y que la cancelación se contabiliza en ese
+mes. Si no existe candidato real, la validación queda pendiente; nunca se debe
+inventar evidencia ni incluir PII en el registro de comprobación.
+
+Si producción mantiene un hueco real de OpportunityHistory en septiembre, el
+intervalo debe continuar como `partial`. La corrección operativa se estudiará
+con el comando existente y su modo `--modified`, previa aprobación y revisión
+del rango; esta documentación no autoriza ni ejecuta sincronización o backfill,
+ni permite marcar el período como `covered` sin intervalos certificados.
+
 ### Delegación histórica
 
 La metadata Salesforce acreditó que `Delegacion_del_propietario__c` es una
@@ -425,6 +475,12 @@ devolvió cambios. Por ello:
   media de delegación ni ranking y sin aplicar la delegación actual hacia atrás;
 - los usuarios inactivos permanecen en el dataset si tienen actividad e
   intervalos históricos.
+
+El perfil `Comerciales Partner Community` forma parte expresamente del universo
+comercial: con actividad real y snapshot histórico válido sigue siendo
+evaluable, recibe el objetivo mensual y participa en ranking aunque el usuario
+esté actualmente inactivo. No se filtra por `is_active` ni por el perfil actual
+cuando el snapshot acredita el período.
 
 Todos los hitos usan el mismo universo de responsables. Un owner de API,
 Administración, Marketing, Area Manager u otro perfil no comercial sin snapshot

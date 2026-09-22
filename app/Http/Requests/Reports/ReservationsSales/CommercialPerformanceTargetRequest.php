@@ -9,7 +9,7 @@ class CommercialPerformanceTargetRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return ReportUserAccess::canViewCommercialPerformance($this);
+        return ReportUserAccess::canManageCommercialPerformanceTarget($this);
     }
 
     public function rules(): array

@@ -710,17 +710,58 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ->assertOk()
             ->assertJsonPath('objective.reservations_target', 23)
             ->assertJsonPath('objective.is_explicit', true);
+        foreach (['zone=Zona%20Norte', 'delegation=Bilbao', 'commercial=005-filter'] as $filter) {
+            $this->getJson("/informes/reservas-ventas/data/commercial-performance?month=2026-08&{$filter}")
+                ->assertOk()
+                ->assertJsonPath('objective.reservations_target', 20);
+        }
+        $this->assertDatabaseHas('commercial_performance_monthly_targets', [
+            'month' => '2026-08-01',
+            'reservations_target' => 20,
+        ]);
         $this->putJson('/informes/reservas-ventas/data/commercial-performance/target', [
             'month' => '2026-08', 'reservations_target' => 0,
         ])->assertUnprocessable();
     }
 
-    public function test_endpoints_solo_permiten_administrador_y_direccion(): void
+    public function test_permisos_separan_lectura_objetivo_y_auditoria_por_rol(): void
     {
+        $admin = $this->reportUser(ReportUser::ROLE_ADMIN, 'admin-performance@example.test');
+        $this->withSession($this->sessionFor($admin))
+            ->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk();
+        $this->withSession($this->sessionFor($admin))
+            ->putJson('/informes/reservas-ventas/data/commercial-performance/target', [
+                'month' => '2026-08', 'reservations_target' => 21,
+            ])->assertOk();
+
         $director = $this->reportUser(ReportUser::ROLE_DIRECTOR, 'director-performance@example.test');
         $this->withSession($this->sessionFor($director))
             ->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('objective.reservations_target', 21);
+        $this->withSession($this->sessionFor($director))
+            ->putJson('/informes/reservas-ventas/data/commercial-performance/target', [
+                'month' => '2026-08', 'reservations_target' => 30,
+            ])->assertForbidden();
+        $this->withSession($this->sessionFor($director))
+            ->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')
             ->assertOk();
+
+        $areaManager = $this->reportUser(ReportUser::ROLE_AREA_MANAGER, 'area-performance@example.test', [
+            'area_zone' => 'mediterranean',
+        ]);
+        $this->withSession($this->sessionFor($areaManager))
+            ->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('objective.reservations_target', 21);
+        $this->withSession($this->sessionFor($areaManager))
+            ->putJson('/informes/reservas-ventas/data/commercial-performance/target', [
+                'month' => '2026-08', 'reservations_target' => 30,
+            ])->assertForbidden();
+        $this->withSession($this->sessionFor($areaManager))
+            ->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')
+            ->assertForbidden();
 
         $viewer = $this->reportUser(ReportUser::ROLE_VIEWER, 'viewer-performance@example.test');
         $this->withSession($this->sessionFor($viewer))
@@ -732,6 +773,144 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
             ])->assertForbidden();
         $this->withSession($this->sessionFor($viewer))
             ->getJson('/informes/reservas-ventas/data/commercial-performance/audit?month=2026-08')
+            ->assertForbidden();
+
+        $delegationManager = $this->reportUser(ReportUser::ROLE_DELEGATION_MANAGER, 'delegation-performance@example.test');
+        $this->withSession($this->sessionFor($delegationManager))
+            ->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('commercial_performance_monthly_targets', [
+            'month' => '2026-08-01',
+            'reservations_target' => 21,
+            'updated_by_report_user_id' => $admin->id,
+        ]);
+    }
+
+    public function test_area_manager_queda_limitado_server_side_a_su_zona_y_sin_zona_falla_cerrado(): void
+    {
+        foreach ([
+            ['005-area-own', 'Comercial propio', 'Alicante', 'Zona Mediterraneo'],
+            ['005-area-other', 'Comercial ajeno', 'Bilbao', 'Zona Norte'],
+            ['005-area-other-2', 'Comercial ajeno 2', 'Bilbao', 'Zona Norte'],
+        ] as [$id, $name, $delegation, $zone]) {
+            $this->commercial($id, $name);
+            $this->snapshot($id, $delegation, $zone, '2026-05-01');
+            $this->seedPerformanceMetrics($id, $name, 2, 2, 1, 0);
+        }
+        foreach ([
+            ['006-area-quality-other', '005-area-other', 'Comercial ajeno'],
+            ['006-area-quality-other-2', '005-area-other-2', 'Comercial ajeno 2'],
+        ] as [$id, $ownerId, $ownerName]) {
+            $this->opportunity($id, [
+                'owner_id' => $ownerId,
+                'owner_name' => $ownerName,
+                'reservation' => true,
+                'reservation_date' => '2026-08-15',
+                'vehicle_interest_id' => '01t-area-quality-other-zone',
+            ]);
+        }
+        $coverageStart = CarbonImmutable::parse('2026-08-01', 'Europe/Madrid')->utc();
+        SalesforceOpportunityStageTransition::query()->create([
+            'salesforce_history_id' => '0Jh-area-quality-unresolved',
+            'opportunity_salesforce_id' => '006-area-quality-not-local',
+            'previous_stage' => 'Reserva',
+            'new_stage' => 'Cerrada Perdida',
+            'transitioned_at' => '2026-08-20 10:00:00',
+            'reservation_date' => null,
+            'owner_id' => '005-area-other',
+            'owner_name' => 'Comercial ajeno',
+            'source' => 'OpportunityHistory',
+            'is_reservation_cancellation' => false,
+            'quality_status' => 'opportunity_not_local',
+            'synced_at' => now(),
+        ]);
+        SalesforceOpportunityHistorySyncInterval::query()->create([
+            'range_start' => $coverageStart,
+            'range_end' => $coverageStart->addMonth(),
+            'completed_at' => now(),
+            'queried_rows' => 1,
+            'unresolved_dependencies' => 1,
+            'is_kpi_certified' => false,
+        ]);
+
+        $director = $this->reportUser(ReportUser::ROLE_DIRECTOR, 'director-area-quality@example.test');
+        $globalPayload = $this->withSession($this->sessionFor($director))
+            ->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonPath('data_quality.duplicate_conflict_groups', 1)
+            ->assertJsonPath('data_quality.observed_assignments', 3)
+            ->assertJsonPath('data_quality.cancellation_unresolved_dependencies', 1)
+            ->assertJsonPath('data_quality.cancellation_coverage_by_month.2026-08.unresolved_dependencies', 1)
+            ->json();
+        $this->assertSame(1, $globalPayload['data_incident']['reservations_total']);
+
+        $areaManager = $this->reportUser(ReportUser::ROLE_AREA_MANAGER, 'area-scope@example.test', [
+            'area_zone' => 'mediterranean',
+        ]);
+        $session = $this->sessionFor($areaManager);
+
+        $payload = $this->withSession($session)
+            ->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
+            ->assertOk()
+            ->assertJsonCount(1, 'items')
+            ->assertJsonPath('items.0.commercial_id', '005-area-own')
+            ->assertJsonPath('items.0.zone', 'Zona Mediterraneo')
+            ->assertJsonPath('filters.zones.0', 'Zona Mediterraneo')
+            ->assertJsonCount(1, 'filters.zones')
+            ->assertJsonCount(1, 'filters.delegations')
+            ->assertJsonCount(1, 'filters.commercials')
+            ->assertJsonPath('data_quality.unresolved_attribution_events', null)
+            ->assertJsonPath('data_quality.duplicate_conflict_groups', null)
+            ->assertJsonPath('data_quality.uncertified_historical_events', null)
+            ->assertJsonPath('data_quality.margin_conflict_groups', null)
+            ->assertJsonPath('data_quality.invalid_cancellation_chronology', null)
+            ->assertJsonPath('data_quality.organisation_changes_within_month', null)
+            ->assertJsonPath('data_quality.cancellation_unresolved_dependencies', null)
+            ->assertJsonPath('data_quality.cancellation_coverage_by_month.2026-08.unresolved_dependencies', null)
+            ->assertJsonPath('data_quality.bootstrap_approved_assignments', 0)
+            ->assertJsonPath('data_quality.observed_assignments', 1)
+            ->assertJsonPath('data_quality.cancellations_available', false)
+            ->assertJsonPath('data_incident', null)
+            ->assertJsonPath('summary.leads', 2)
+            ->assertJsonPath('summary.opportunities', 2)
+            ->assertJsonPath('summary.reservations_total', 1)
+            ->assertJsonPath('universe.evaluable_commercials', 1)
+            ->assertJsonPath('universe.global_target', 18)
+            ->json();
+        $this->assertStringNotContainsString('005-area-other', json_encode($payload, JSON_THROW_ON_ERROR));
+        $this->assertSame(18, $payload['objective']['reservations_target']);
+        $globalCoverage = $globalPayload['data_quality']['cancellation_coverage_by_month']['2026-08'];
+        $areaCoverage = $payload['data_quality']['cancellation_coverage_by_month']['2026-08'];
+        foreach (['status', 'range_start', 'range_end', 'source_cutoff_at', 'certified_until'] as $key) {
+            $this->assertArrayHasKey($key, $areaCoverage);
+            $this->assertSame($globalCoverage[$key], $areaCoverage[$key]);
+        }
+        $this->assertArrayHasKey('unresolved_dependencies', $areaCoverage);
+        $this->assertNull($areaCoverage['unresolved_dependencies']);
+        $augustEvolution = collect($payload['evolution'])->firstWhere('month', '2026-08');
+        $this->assertSame(2, $augustEvolution['leads']);
+        $this->assertSame(2, $augustEvolution['opportunities']);
+        $this->assertSame(1, $augustEvolution['reservations_total']);
+
+        $this->withSession($session)
+            ->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08&delegation=Alicante')
+            ->assertOk()
+            ->assertJsonCount(1, 'items')
+            ->assertJsonPath('items.0.commercial_id', '005-area-own');
+        $this->withSession($session)
+            ->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08&commercial=005-area-other')
+            ->assertOk()
+            ->assertJsonCount(0, 'items');
+        $this->withSession($session)
+            ->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08&zone=Zona%20Norte')
+            ->assertOk()
+            ->assertJsonCount(0, 'items')
+            ->assertJsonPath('filters.zones.0', 'Zona Mediterraneo');
+
+        $withoutZone = $this->reportUser(ReportUser::ROLE_AREA_MANAGER, 'area-without-zone@example.test');
+        $this->withSession($this->sessionFor($withoutZone))
+            ->getJson('/informes/reservas-ventas/data/commercial-performance?month=2026-08')
             ->assertForbidden();
     }
 
@@ -812,6 +991,11 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertSame(1, substr_count($html, 'id="resetFilters"'));
         $this->assertSame(1, substr_count($html, 'id="performanceMonth"'));
         $this->assertSame(1, substr_count($html, 'id="performanceTarget"'));
+        $this->assertStringContainsString('Objetivo mensual por comercial', $html);
+        $this->assertStringContainsString('independientemente de zona, delegación o comercial', $html);
+        $this->assertMatchesRegularExpression('/id="performanceTarget"[^>]+readonly/', $html);
+        $this->assertStringNotContainsString('id="savePerformanceTarget"', $html);
+        $this->assertStringContainsString('id="loadPerformanceAudit"', $html);
         $this->assertStringNotContainsString('performance-filters', $html);
         $this->assertStringNotContainsString('performanceZone', $html);
         $this->assertStringNotContainsString('performanceDelegation', $html);
@@ -825,6 +1009,26 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringNotContainsString('Carga bajo demanda.', $html);
         $this->assertStringNotContainsString('id="performanceAuditRows"', $html);
         $this->assertSame(2, substr_count($html, 'class="table-scroll-top is-hidden"'));
+
+        $admin = $this->reportUser(ReportUser::ROLE_ADMIN, 'admin-ui-performance@example.test');
+        $adminHtml = $this->withSession($this->sessionFor($admin))
+            ->get('/informes/reservas-ventas')
+            ->assertOk()
+            ->getContent();
+        $this->assertStringContainsString('id="savePerformanceTarget" disabled', $adminHtml);
+        $this->assertStringContainsString('id="loadPerformanceAudit"', $adminHtml);
+
+        $areaManager = $this->reportUser(ReportUser::ROLE_AREA_MANAGER, 'area-ui-performance@example.test', [
+            'area_zone' => 'mediterranean',
+        ]);
+        $areaHtml = $this->withSession($this->sessionFor($areaManager))
+            ->get('/informes/reservas-ventas')
+            ->assertOk()
+            ->getContent();
+        $this->assertStringContainsString('panel-rendimiento-comercial', $areaHtml);
+        $this->assertStringContainsString('id="performanceTarget"', $areaHtml);
+        $this->assertStringNotContainsString('id="savePerformanceTarget"', $areaHtml);
+        $this->assertStringNotContainsString('id="loadPerformanceAudit"', $areaHtml);
 
         $viewer = $this->reportUser(ReportUser::ROLE_VIEWER, 'viewer-ui-performance@example.test');
         $viewerHtml = $this->withSession($this->sessionFor($viewer))
@@ -967,11 +1171,11 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString("{ key: 'ranking', label: 'Ranking', defaultVisible: true }", $javascript);
         $this->assertStringContainsString("{ key: 'reservations_dropped', label: 'Reservas caídas', defaultVisible: true }", $javascript);
         $this->assertStringContainsString("{ key: 'sales_dropped', label: 'Ventas caídas', defaultVisible: true }", $javascript);
-        $this->assertStringContainsString("{ key: 'team_average_reservations', label: 'Media equipo', defaultVisible: true }", $javascript);
-        $this->assertStringContainsString("{ key: 'team_reservations_deviation', label: 'Desviación reservas', defaultVisible: true }", $javascript);
-        $this->assertStringContainsString("{ key: 'lead_to_reservation_vs_team', label: 'Lead → Reserva vs equipo', defaultVisible: true }", $javascript);
-        $this->assertStringContainsString("{ key: 'opportunity_to_reservation_vs_team', label: 'Oportunidad → Reserva vs equipo', defaultVisible: true }", $javascript);
-        $this->assertStringContainsString("{ key: 'reservation_to_sale_vs_team', label: 'Reserva → Venta vs equipo', defaultVisible: true }", $javascript);
+        $this->assertStringContainsString("{ key: 'team_average_reservations', label: 'Media delegación', defaultVisible: true }", $javascript);
+        $this->assertStringContainsString("{ key: 'team_reservations_deviation', label: 'Desviación vs delegación', defaultVisible: true }", $javascript);
+        $this->assertStringContainsString("{ key: 'lead_to_reservation_vs_team', label: 'Conversión Lead → Reserva · Comparativa con su delegación', defaultVisible: true }", $javascript);
+        $this->assertStringContainsString("{ key: 'opportunity_to_reservation_vs_team', label: 'Conversión Oportunidad → Reserva · Comparativa con su delegación', defaultVisible: true }", $javascript);
+        $this->assertStringContainsString("{ key: 'reservation_to_sale_vs_team', label: 'Conversión Reserva → Venta · Comparativa con su delegación', defaultVisible: true }", $javascript);
         $this->assertStringContainsString('formatAvailablePercent(row.sale_drop_pct)', $javascript);
         $this->assertStringContainsString('function formatFunnelAudit', $javascript);
         $this->assertStringContainsString('if (!applies) return \'-\';', $javascript);
@@ -984,12 +1188,13 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString('function bindPerformanceSearch()', $javascript);
         $this->assertStringContainsString("document.querySelectorAll('#performanceRows tr[data-search]')", $javascript);
         $this->assertStringContainsString("return value === 'Zona Mediterraneo' ? 'Zona Mediterráneo' : value;", $javascript);
-        $this->assertStringContainsString("covered: 'Cobertura completa'", $javascript);
-        $this->assertStringContainsString("partial: 'Cobertura parcial'", $javascript);
-        $this->assertStringContainsString("uncovered: 'Sin cobertura certificada'", $javascript);
+        $this->assertStringContainsString("covered: 'Histórico del período certificado'", $javascript);
+        $this->assertStringContainsString("partial: 'Histórico del período parcialmente certificado'", $javascript);
+        $this->assertStringContainsString("uncovered: 'Sin histórico certificado para todo el período'", $javascript);
         $this->assertStringContainsString("return labels[status] || 'Cobertura no determinada';", $javascript);
         $this->assertStringContainsString("data.dataset_source === 'local_snapshot'", $javascript);
-        $this->assertStringContainsString("? 'Fotografía local'", $javascript);
+        $this->assertStringContainsString("? 'Informe generado con la fotografía local'", $javascript);
+        $this->assertStringContainsString('Datos de Salesforce sincronizados:', $javascript);
         $this->assertStringContainsString('function formatPerformanceMonth', $javascript);
         $this->assertStringContainsString("return value === null || value === undefined ? 'N/D'", $javascript);
         $this->assertStringContainsString('function invalidatePerformanceAudit', $javascript);
@@ -999,12 +1204,13 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString("not_certifiable: 'No certificable'", $javascript);
         $this->assertStringNotContainsString('delegation_average_reservations', $javascript);
         $this->assertStringNotContainsString('delegation_lead_to_reservation_pct', $javascript);
-        $this->assertStringContainsString("{ key: 'team_average_reservations', label: 'Media equipo', defaultVisible: true }", $javascript);
-        $this->assertStringContainsString('function formatTeamRatioComparison', $javascript);
-        $this->assertStringContainsString(
-            "return `Equipo \${formatTeamNumber(teamRatio)} % · Δ \${formatSignedTeamNumber(difference, ' pp')}`;",
-            $javascript,
-        );
+        $this->assertStringContainsString('function formatDelegationRatioComparison(individualRatio, delegationRatio, difference)', $javascript);
+        $this->assertStringContainsString('Delegación: ${reference}', $javascript);
+        $this->assertStringContainsString('↑ ${absolute} puntos porcentuales por encima', $javascript);
+        $this->assertStringContainsString('↓ ${absolute} puntos porcentuales por debajo', $javascript);
+        $this->assertStringContainsString('→ Igual que su delegación', $javascript);
+        $this->assertStringContainsString('Comparativa no disponible', $javascript);
+        $this->assertStringNotContainsString('function formatTeamRatioComparison', $javascript);
 
         $resetBlock = substr($javascript, strpos($javascript, 'function bindResetFilters()'), strpos($javascript, 'function bindFilters()') - strpos($javascript, 'function bindResetFilters()'));
         $this->assertStringNotContainsString("document.getElementById('performanceTarget').value", $resetBlock);
@@ -1023,9 +1229,10 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringContainsString('function setPerformanceTargetState(state, value = null)', $javascript);
         $this->assertStringContainsString("setPerformanceTargetState('loading');", $javascript);
         $this->assertStringContainsString("setPerformanceTargetState('available', data.objective?.reservations_target);", $javascript);
-        $this->assertStringContainsString('if (!performanceTargetAvailable || button.disabled || target.disabled) return;', $javascript);
+        $this->assertStringContainsString('window.reportUserCanManageCommercialPerformanceTarget === true', $javascript);
+        $this->assertStringContainsString('if (!button || !target || !performanceTargetAvailable || button.disabled || target.disabled) return;', $javascript);
         $this->assertStringNotContainsString('reservations_target ?? 18', $javascript);
-        $this->assertStringContainsString('id="performanceTarget" type="number" min="1" step="1" inputmode="numeric" disabled', $html);
+        $this->assertMatchesRegularExpression('/id="performanceTarget"[^>]+disabled/', $html);
         $this->assertStringContainsString('id="savePerformanceTarget" disabled', $html);
     }
 
@@ -2458,15 +2665,15 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         ], $overrides));
     }
 
-    private function reportUser(string $role, string $email): ReportUser
+    private function reportUser(string $role, string $email, array $attributes = []): ReportUser
     {
-        return ReportUser::query()->create([
+        return ReportUser::query()->create(array_merge([
             'name' => $email,
             'email' => $email,
             'password' => Hash::make('password'),
             'role' => $role,
             'is_active' => true,
-        ]);
+        ], $attributes));
     }
 
     private function sessionFor(ReportUser $user): array

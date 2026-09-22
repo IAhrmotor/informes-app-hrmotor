@@ -15,22 +15,22 @@ const performanceColumnDefinitions = [
     { key: 'leads', label: 'Leads', defaultVisible: true },
     { key: 'opportunities', label: 'Oportunidades', defaultVisible: true },
     { key: 'reservations_total', label: 'Reservas totales', defaultVisible: true },
-    { key: 'team_average_reservations', label: 'Media equipo', defaultVisible: true },
-    { key: 'team_reservations_deviation', label: 'Desviación reservas', defaultVisible: true },
+    { key: 'team_average_reservations', label: 'Media delegación', defaultVisible: true },
+    { key: 'team_reservations_deviation', label: 'Desviación vs delegación', defaultVisible: true },
     { key: 'reservations_active', label: 'Reservas vivas', defaultVisible: true },
     { key: 'reservations_dropped', label: 'Reservas caídas', defaultVisible: true },
     { key: 'objective', label: 'Objetivo' },
     { key: 'fulfillment_pct', label: 'Cumplimiento', defaultVisible: true },
     { key: 'lead_to_reservation_pct', label: 'Lead → Reserva' },
-    { key: 'lead_to_reservation_vs_team', label: 'Lead → Reserva vs equipo', defaultVisible: true },
+    { key: 'lead_to_reservation_vs_team', label: 'Conversión Lead → Reserva · Comparativa con su delegación', defaultVisible: true },
     { key: 'opportunity_to_reservation_pct', label: 'Oportunidad → Reserva' },
-    { key: 'opportunity_to_reservation_vs_team', label: 'Oportunidad → Reserva vs equipo', defaultVisible: true },
+    { key: 'opportunity_to_reservation_vs_team', label: 'Conversión Oportunidad → Reserva · Comparativa con su delegación', defaultVisible: true },
     { key: 'sales', label: 'Ventas válidas', defaultVisible: true },
     { key: 'sales_dropped', label: 'Ventas caídas', defaultVisible: true },
     { key: 'reservation_to_sale_pct', label: 'Reserva → Venta' },
     { key: 'reservation_drop_pct', label: '% Reserva caída' },
     { key: 'sale_drop_pct', label: '% Venta caída' },
-    { key: 'reservation_to_sale_vs_team', label: 'Reserva → Venta vs equipo', defaultVisible: true },
+    { key: 'reservation_to_sale_vs_team', label: 'Conversión Reserva → Venta · Comparativa con su delegación', defaultVisible: true },
     { key: 'cancellations', label: 'Cancelaciones' },
     { key: 'cancellation_pct', label: '% cancelación' },
     { key: 'margin_total', label: 'Margen total', defaultVisible: true },
@@ -197,20 +197,22 @@ function clearPerformancePresentation() {
 function setPerformanceTargetState(state, value = null) {
     const target = document.getElementById('performanceTarget');
     const button = document.getElementById('savePerformanceTarget');
-    if (!target || !button) return;
+    if (!target) return;
 
     const parsedValue = Number(value);
     const available = state === 'available' && Number.isInteger(parsedValue) && parsedValue >= 1;
-    performanceTargetAvailable = available;
-    target.disabled = !available;
-    button.disabled = !available;
+    const canManage = window.reportUserCanManageCommercialPerformanceTarget === true;
+    performanceTargetAvailable = available && canManage;
+    target.disabled = canManage && !available;
+    target.readOnly = !canManage;
+    if (button) button.disabled = !performanceTargetAvailable;
     target.value = available ? String(parsedValue) : '';
 }
 
 async function saveCommercialPerformanceTarget() {
     const button = document.getElementById('savePerformanceTarget');
     const target = document.getElementById('performanceTarget');
-    if (!performanceTargetAvailable || button.disabled || target.disabled) return;
+    if (!button || !target || !performanceTargetAvailable || button.disabled || target.disabled) return;
 
     const value = Number(target.value);
     if (!Number.isInteger(value) || value < 1) {
@@ -264,11 +266,11 @@ function renderCommercialPerformance(data) {
     const sourceCutoff = quality.cancellation_source_cutoff_at;
     const coverageStatus = formatCoverageStatus(quality.cancellation_coverage_status);
     if (quality.cancellations_available && certifiedCutoff) {
-        coverageNotice.textContent = `${coverageStatus}. Cancelaciones disponibles hasta el corte certificado ${formatDateTime(certifiedCutoff)}. No se afirma cobertura posterior a ese instante.`;
+        coverageNotice.textContent = `${coverageStatus}. OpportunityHistory está cubierto hasta ${formatDateTime(certifiedCutoff)}. Este corte certifica las transiciones del período; los cambios de estado posteriores se incorporan mediante la sincronización incremental y pueden reclasificar retrospectivamente reservas o ventas del mes.`;
     } else if (sourceCutoff) {
-        coverageNotice.textContent = `Cancelaciones no evaluables (${coverageStatus.toLocaleLowerCase('es')}). Último corte consultado: ${formatDateTime(sourceCutoff)}${certifiedCutoff ? `; continuidad certificada hasta ${formatDateTime(certifiedCutoff)}` : ''}.`;
+        coverageNotice.textContent = `Cancelaciones no evaluables. ${coverageStatus}. Último corte consultado: ${formatDateTime(sourceCutoff)}${certifiedCutoff ? `; continuidad certificada hasta ${formatDateTime(certifiedCutoff)}` : ''}. Los cambios de estado posteriores pueden reclasificar retrospectivamente reservas o ventas del mes.`;
     } else {
-        coverageNotice.textContent = 'Cancelaciones no evaluables: no existe un corte OpportunityHistory certificado para el período.';
+        coverageNotice.textContent = `${coverageStatus}. Cancelaciones no evaluables: no existe un corte OpportunityHistory certificado para todo el período.`;
     }
     coverageNotice.classList.remove('is-hidden');
     const warning = document.getElementById('performanceQualityWarning');
@@ -278,7 +280,7 @@ function renderCommercialPerformance(data) {
     if (!quality.cancellations_available) messages.push(`Cancelaciones no evaluables: ${coverageStatus.toLocaleLowerCase('es')} en OpportunityHistory.`);
     if (Number(quality.cancellation_unresolved_dependencies || 0) > 0) messages.push(`${formatNumber(quality.cancellation_unresolved_dependencies)} dependencias de Opportunity no resueltas impiden certificar el KPI.`);
     if (Number(quality.invalid_cancellation_chronology || 0) > 0) messages.push(`${formatNumber(quality.invalid_cancellation_chronology)} transiciones tienen una reserva posterior y se excluyen como incidencia.`);
-    if (uncertified > 0) messages.push(`${formatNumber(uncertified)} eventos sin asignación histórica evaluable; conservan su actividad individual y quedan fuera del ranking de equipo.`);
+    if (uncertified > 0) messages.push(`${formatNumber(uncertified)} eventos sin asignación histórica evaluable; conservan su actividad individual y quedan fuera del ranking de delegación.`);
     if (Number(quality.organisation_changes_within_month || 0) > 0) messages.push(`${formatNumber(quality.organisation_changes_within_month)} comerciales cambiaron de delegación o zona durante el mes; no se ha elegido una asignación mensual arbitraria.`);
     if (conflicts > 0) messages.push(`${formatNumber(conflicts)} incidencias de atribución permanecen fuera del ranking individual.`);
     warning.textContent = messages.join(' ');
@@ -293,7 +295,7 @@ function renderPerformanceContextSummary(data, quality) {
     if (!summary) return;
 
     const parts = [formatCoverageStatus(quality.cancellation_coverage_status)];
-    if (data.dataset_generated_at) parts.push(`Fotografía ${formatDateTime(data.dataset_generated_at)}`);
+    if (data.dataset_generated_at) parts.push(`Informe generado ${formatDateTime(data.dataset_generated_at)}`);
     summary.textContent = parts.join(' · ');
     summary.classList.remove('is-hidden');
 }
@@ -451,8 +453,8 @@ function renderPerformanceUniverse(universe, commercialSelected) {
     const note = document.getElementById('performanceUniverse');
     if (!note) return;
     const commercialExplanation = commercialSelected
-        ? ' El KPI superior de cumplimiento muestra al comercial seleccionado; el universo, ranking y referencias de equipo no se recalculan.'
-        : ' El universo, ranking y referencias de equipo corresponden a los filtros de Zona y Delegación.';
+        ? ' El KPI superior de cumplimiento muestra al comercial seleccionado; el universo, ranking y referencias de delegación no se recalculan.'
+        : ' El universo, ranking y referencias de delegación corresponden a los filtros de Zona y Delegación.';
     note.textContent = `${formatNumber(universe.evaluable_commercials || 0)} comerciales evaluables · ${formatNumber(universe.active_not_evaluable_commercials || 0)} con actividad no evaluable · ${formatNumber(universe.excluded_no_activity_commercials || 0)} excluidos sin actividad · objetivo individual ${formatNumber(universe.individual_target || 0)} · objetivo global ${formatNumber(universe.global_target || 0)} · cumplimiento global ${formatAvailablePercent(universe.global_fulfillment_pct)}.${commercialExplanation}`;
     note.classList.remove('is-hidden');
 }
@@ -462,9 +464,9 @@ function renderPerformanceFreshness(data) {
     if (!note) return;
 
     const generatedAt = data.dataset_generated_at;
-    const source = data.dataset_source === 'local_snapshot' ? 'Fotografía local' : 'Fotografía de datos';
+    const source = data.dataset_source === 'local_snapshot' ? 'Informe generado con la fotografía local' : 'Informe generado';
     note.textContent = generatedAt
-        ? `${source} generada: ${formatDateTime(generatedAt)}.`
+        ? `${source}: ${formatDateTime(generatedAt)}.`
         : '';
     note.classList.toggle('is-hidden', !generatedAt);
 }
@@ -477,7 +479,7 @@ function renderPerformanceDataIncident(incident) {
         note.classList.add('is-hidden');
         return;
     }
-    note.textContent = `Incidencia de datos (fuera del universo evaluable): ${formatNumber(incident.leads)} leads · ${formatNumber(incident.opportunities)} oportunidades · ${formatNumber(incident.reservations_total)} reservas totales · ${formatNumber(incident.reservations_active)} reservas vivas · ${formatNumber(incident.reservations_dropped)} reservas caídas · ${formatNumber(incident.sales)} ventas válidas · ${formatNumber(incident.sales_dropped)} ventas caídas · ${formatAvailableNumber(incident.cancellations)} cancelaciones · ${formatCurrency(incident.margin_total)} margen total. No recibe objetivo, ranking ni comparativa de equipo.`;
+    note.textContent = `Incidencia de datos (fuera del universo evaluable): ${formatNumber(incident.leads)} leads · ${formatNumber(incident.opportunities)} oportunidades · ${formatNumber(incident.reservations_total)} reservas totales · ${formatNumber(incident.reservations_active)} reservas vivas · ${formatNumber(incident.reservations_dropped)} reservas caídas · ${formatNumber(incident.sales)} ventas válidas · ${formatNumber(incident.sales_dropped)} ventas caídas · ${formatAvailableNumber(incident.cancellations)} cancelaciones · ${formatCurrency(incident.margin_total)} margen total. No recibe objetivo, ranking ni comparativa de delegación.`;
     note.classList.remove('is-hidden');
 }
 
@@ -514,8 +516,8 @@ function renderPerformanceRows(rows) {
         <td data-column="commercial"><strong>${escapeHtml(row.commercial || '-')}</strong><br><small>${escapeHtml(row.commercial_id || '-')}</small>${row.evaluable ? '' : `<br><small>${escapeHtml(formatEvaluationStatus(row.evaluation_status, row.evaluation_reason))}</small>`}</td><td data-column="delegation">${escapeHtml(row.delegation || '-')}</td><td data-column="zone">${escapeHtml(formatPerformanceZone(row.zone || '-'))}</td>
         <td class="report-ui-table__numeric" data-column="leads">${formatNumber(row.leads)}</td><td class="report-ui-table__numeric" data-column="opportunities">${formatNumber(row.opportunities)}</td><td class="report-ui-table__numeric" data-column="reservations_total">${formatNumber(row.reservations_total)}</td><td class="report-ui-table__numeric" data-column="team_average_reservations">${formatTeamNumber(row.team_average_reservations)}</td><td class="report-ui-table__numeric" data-column="team_reservations_deviation">${formatReservationsDeviation(row.team_reservations_deviation, row.team_reservations_deviation_pct)}</td><td class="report-ui-table__numeric" data-column="reservations_active">${formatNumber(row.reservations_active)}</td><td class="report-ui-table__numeric" data-column="reservations_dropped">${formatNumber(row.reservations_dropped)}</td>
         <td class="report-ui-table__numeric" data-column="objective">${formatNumber(row.objective)}</td><td class="report-ui-table__numeric" data-column="fulfillment_pct">${formatPercent(row.fulfillment_pct)}</td>
-        <td class="report-ui-table__numeric" data-column="lead_to_reservation_pct">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="report-ui-table__numeric" data-column="lead_to_reservation_vs_team">${formatTeamRatioComparison(row.team_lead_to_reservation_pct, row.lead_to_reservation_vs_team_pp)}</td><td class="report-ui-table__numeric" data-column="opportunity_to_reservation_pct">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td><td class="report-ui-table__numeric" data-column="opportunity_to_reservation_vs_team">${formatTeamRatioComparison(row.team_opportunity_to_reservation_pct, row.opportunity_to_reservation_vs_team_pp)}</td>
-        <td class="report-ui-table__numeric" data-column="sales">${formatNumber(row.sales)}</td><td class="report-ui-table__numeric" data-column="sales_dropped">${formatNumber(row.sales_dropped)}</td><td class="report-ui-table__numeric" data-column="reservation_to_sale_pct">${formatAvailablePercent(row.reservation_to_sale_pct)}</td><td class="report-ui-table__numeric" data-column="reservation_drop_pct">${formatAvailablePercent(row.reservation_drop_pct)}</td><td class="report-ui-table__numeric" data-column="sale_drop_pct">${formatAvailablePercent(row.sale_drop_pct)}</td><td class="report-ui-table__numeric" data-column="reservation_to_sale_vs_team">${formatTeamRatioComparison(row.team_reservation_to_sale_pct, row.reservation_to_sale_vs_team_pp)}</td>
+        <td class="report-ui-table__numeric" data-column="lead_to_reservation_pct">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="report-ui-table__numeric" data-column="lead_to_reservation_vs_team">${formatDelegationRatioComparison(row.lead_to_reservation_pct, row.team_lead_to_reservation_pct, row.lead_to_reservation_vs_team_pp)}</td><td class="report-ui-table__numeric" data-column="opportunity_to_reservation_pct">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td><td class="report-ui-table__numeric" data-column="opportunity_to_reservation_vs_team">${formatDelegationRatioComparison(row.opportunity_to_reservation_pct, row.team_opportunity_to_reservation_pct, row.opportunity_to_reservation_vs_team_pp)}</td>
+        <td class="report-ui-table__numeric" data-column="sales">${formatNumber(row.sales)}</td><td class="report-ui-table__numeric" data-column="sales_dropped">${formatNumber(row.sales_dropped)}</td><td class="report-ui-table__numeric" data-column="reservation_to_sale_pct">${formatAvailablePercent(row.reservation_to_sale_pct)}</td><td class="report-ui-table__numeric" data-column="reservation_drop_pct">${formatAvailablePercent(row.reservation_drop_pct)}</td><td class="report-ui-table__numeric" data-column="sale_drop_pct">${formatAvailablePercent(row.sale_drop_pct)}</td><td class="report-ui-table__numeric" data-column="reservation_to_sale_vs_team">${formatDelegationRatioComparison(row.reservation_to_sale_pct, row.team_reservation_to_sale_pct, row.reservation_to_sale_vs_team_pp)}</td>
         <td class="report-ui-table__numeric" data-column="cancellations">${formatAvailableNumber(row.cancellations)}</td><td class="report-ui-table__numeric" data-column="cancellation_pct">${formatAvailablePercent(row.cancellation_pct)}</td>
         <td class="report-ui-table__numeric" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">${formatCurrency(row.margin_total)}</td>
         <td class="report-ui-table__numeric" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">${formatCurrency(row.average_margin_per_sale)}</td>
@@ -551,9 +553,9 @@ function formatPerformanceZone(value) {
 
 function formatCoverageStatus(status) {
     const labels = {
-        covered: 'Cobertura completa',
-        partial: 'Cobertura parcial',
-        uncovered: 'Sin cobertura certificada',
+        covered: 'Histórico del período certificado',
+        partial: 'Histórico del período parcialmente certificado',
+        uncovered: 'Sin histórico certificado para todo el período',
     };
 
     return labels[status] || 'Cobertura no determinada';
@@ -802,8 +804,8 @@ async function reloadAllData() {
 
 function renderSummary(data) {
     document.getElementById('updatedBadge').textContent = data.datos_actualizados
-        ? `Datos actualizados: ${formatDateTime(data.datos_actualizados)}`
-        : 'Datos actualizados: pendiente';
+        ? `Datos de Salesforce sincronizados: ${formatDateTime(data.datos_actualizados)}`
+        : 'Datos de Salesforce sincronizados: pendiente';
     document.getElementById('currentPeriodLabel').textContent = periodText(data.periodo_actual);
     document.getElementById('comparisonPeriodLabel').textContent = periodText(data.periodo_comparado);
     document.getElementById('universeDateLabel').textContent = data.universe_date_label || '-';
@@ -1376,10 +1378,32 @@ function formatReservationsDeviation(deviation, deviationPct) {
     return `${formatSignedTeamNumber(deviation)} (${formatSignedTeamNumber(deviationPct, ' %')})`;
 }
 
-function formatTeamRatioComparison(teamRatio, difference) {
-    if (teamRatio === null || teamRatio === undefined || difference === null || difference === undefined) return 'N/D';
+function formatDelegationRatioComparison(individualRatio, delegationRatio, difference) {
+    const individual = escapeHtml(formatAvailablePercent(individualRatio));
+    const reference = delegationRatio === null || delegationRatio === undefined
+        ? 'N/D'
+        : `${escapeHtml(formatTeamNumber(delegationRatio))} %`;
+    let state = 'unavailable';
+    let comparison = 'Comparativa no disponible';
 
-    return `Equipo ${formatTeamNumber(teamRatio)} % · Δ ${formatSignedTeamNumber(difference, ' pp')}`;
+    if (individualRatio !== null && individualRatio !== undefined
+        && delegationRatio !== null && delegationRatio !== undefined
+        && difference !== null && difference !== undefined) {
+        const rounded = Math.round(Number(difference) * 10) / 10;
+        const absolute = escapeHtml(formatTeamNumber(Math.abs(rounded)));
+        if (rounded > 0) {
+            state = 'above';
+            comparison = `↑ ${absolute} puntos porcentuales por encima`;
+        } else if (rounded < 0) {
+            state = 'below';
+            comparison = `↓ ${absolute} puntos porcentuales por debajo`;
+        } else {
+            state = 'equal';
+            comparison = '→ Igual que su delegación';
+        }
+    }
+
+    return `<span class="performance-comparison"><strong class="performance-comparison__commercial">${individual}</strong><span class="performance-comparison__reference">Delegación: ${reference}</span><span class="performance-comparison__delta performance-comparison__delta--${state}">${comparison}</span></span>`;
 }
 
 function formatCurrency(value) {

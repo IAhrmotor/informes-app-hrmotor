@@ -40,7 +40,14 @@ class ReservationsSalesDashboardDataController extends Controller
 
     public function commercialPerformance(CommercialPerformanceRequest $request): JsonResponse
     {
-        return response()->json($this->commercialPerformance->payload($request->validated()));
+        $filters = $request->validated();
+        if (ReportUserAccess::isAreaManager($request)) {
+            $accessZone = ReportUserAccess::areaZoneLabel($request);
+            abort_if($accessZone === null, 403, 'El usuario no tiene una zona configurada.');
+            $filters['access_zone'] = $accessZone;
+        }
+
+        return response()->json($this->commercialPerformance->payload($filters));
     }
 
     public function updateCommercialPerformanceTarget(CommercialPerformanceTargetRequest $request): JsonResponse

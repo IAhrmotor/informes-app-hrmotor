@@ -13,6 +13,8 @@ class ReservationsSalesDashboardController extends Controller
         return view('reports.reservations-sales.index', [
             'reportUserCanExport' => ReportUserAccess::canExport($request),
             'reportUserCanViewCommercialPerformance' => ReportUserAccess::canViewCommercialPerformance($request),
+            'reportUserCanManageCommercialPerformanceTarget' => ReportUserAccess::canManageCommercialPerformanceTarget($request),
+            'reportUserCanAuditCommercialPerformance' => ReportUserAccess::canAuditCommercialPerformance($request),
         ]);
     }
 }
