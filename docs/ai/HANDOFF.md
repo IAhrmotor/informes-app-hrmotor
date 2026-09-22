@@ -1,5 +1,55 @@
 # Handoff para agentes
 
+## Roadmap controlado y decisiones del Resumen Ejecutivo V1 (2026-09-22)
+
+### Resumen, decisiones y archivos
+
+- Se creó `docs/ai/ROADMAP.md` como fuente única de verdad del trabajo pendiente.
+  Distingue estados, dependencias, rama/SHA al activar, criterios de aceptación,
+  bloqueos y punto exacto de reanudación.
+- El roadmap registra como lote previo RV-3 (validación histórica), RV-1 (cierre
+  ejecutivo de Rendimiento comercial) y RV-2 (producción y períodos de Resumen
+  Dirección). El PR #53 permanece reconocido como fusionado y no se reabre.
+- Se registró la secuencia posterior: cierres operacionales Salesforce 7A/7B,
+  motor y datos ejecutivos, dashboard global, correo piloto, calibración,
+  correctivos transversales, UX por módulo, simplificación SEO, ampliación
+  analítica e iniciativas posteriores de IA y GEO/IA.
+- `docs/ai/DECISIONS.md` incorpora únicamente el contrato funcional aprobado del
+  Resumen Ejecutivo V1: acceso, referencias, evaluabilidad, umbrales,
+  priorización, acciones/causas, exclusiones y piloto de correo.
+- No se modificaron `PROJECT_CONTEXT.md`, `DESIGN_SYSTEM.md` ni
+  `docs/informe-reservas-ventas.md`: se revisaron como fuentes, pero esta tarea no
+  cambia arquitectura implementada, convenciones generales ni fórmulas actuales.
+- Archivos modificados: `docs/ai/ROADMAP.md`, `docs/ai/DECISIONS.md` y
+  `docs/ai/HANDOFF.md`.
+
+### Base de datos, seguridad, rendimiento y operación
+
+- No hay migraciones, cambios de esquema, variables de entorno, dependencias ni
+  configuración.
+- No se añadieron secretos, tokens, PII ni datos productivos. El único email
+  incorporado es el destinatario funcional aprobado del piloto ejecutivo.
+- No hubo conexiones a Salesforce, escrituras externas, operaciones sobre
+  producción, despliegue, PR ni merge.
+- No hay impacto de runtime o rendimiento: el cambio es exclusivamente
+  documental y no implementa ninguna tarea del roadmap.
+
+### Validación
+
+- Base verificada antes de editar: `main` limpio en
+  `0355dd688a352e9b5d3bc34e7ab98a308cec0498`, actualizado con
+  `git pull --ff-only origin main`.
+- Rama de trabajo: `docs/roadmap-executive-v1`.
+- Rutas y enlaces documentales comprobados: los seis archivos referenciados
+  existen. El diff contiene únicamente los tres archivos Markdown declarados y
+  `git diff --check` finaliza correctamente. No existe un lint documental barato
+  configurado en el repositorio.
+- Tras el commit se revisará que `git status` quede limpio antes del push y se
+  volverá a comprobar después de publicarlo.
+- No se requieren acciones manuales, migraciones ni limpieza de caché. El riesgo
+  pendiente está deliberadamente contenido en las fichas: ninguna rama futura,
+  contrato no aprobado u operación queda activada por este documento.
+
 ## Reservas totales del período en Resumen Dirección (2026-09-22)
 
 ### Resumen, decisiones y archivos
