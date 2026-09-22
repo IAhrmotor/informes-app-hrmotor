@@ -2972,3 +2972,42 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   contractual de borrado.
 - Fase 7A y Fase 7B conservan infraestructura terminada, pero no existe evidencia
   de ejecución histórica; no se declaran completadas operacionalmente.
+
+## Jerarquía de avisos de Rendimiento comercial (2026-09-21)
+
+- Se redujo el ruido previo a los KPI de **Rendimiento comercial** sin eliminar
+  información. Metodología, universo, fotografía local, cobertura de
+  cancelaciones y calidad/atribución se agrupan en el `<details>` nativo
+  **Información y calidad de datos**, cerrado por defecto y organizado en cinco
+  subsecciones dentro de una única superficie secundaria.
+- Permanecen fuera del desplegable el error de carga con `Reintentar`, el aviso
+  compacto de mes en curso y un único aviso compacto de limitación. Este último
+  se muestra exclusivamente cuando `data_quality.cancellations_available ===
+  false`; `data_incident`, eventos históricos no certificados, incidencias de
+  atribución y filas fuera del universo no lo activan por sí solos.
+- El resumen presenta el formatter de cobertura existente y, si el dataset ya
+  se cargó, `dataset_generated_at` como fotografía. Durante una recarga se
+  limpian resumen, cobertura, universo, actualización y calidad anteriores sin
+  modificar el estado abierto/cerrado elegido por el usuario.
+- Correctivo previo a PR: la recarga oculta `performanceLimitationNotice` sin
+  vaciar su `textContent`. El mensaje estático definido en Blade se conserva y
+  vuelve a ser visible, con contenido, cuando las cancelaciones no son
+  evaluables.
+- No cambiaron backend, contrato JSON, cálculos, fórmulas, universos, ranking,
+  objetivos, atribución, consultas, cachés ni sincronizaciones. No hay
+  migraciones, dependencias, variables de entorno ni acciones manuales.
+- Seguridad: todos los valores dinámicos continúan asignándose con
+  `textContent`; no se añadió `innerHTML`, PII, payload bruto, endpoint, permiso
+  ni listener. Rendimiento: no se añadieron peticiones, consultas, recálculos ni
+  persistencia; el cambio opera únicamente sobre el dataset ya descargado.
+- Archivos fuente modificados: vista Blade, JS y CSS específicos de
+  Reservas/Ventas, prueba feature y documentación funcional. El build sustituye
+  únicamente los bundles CSS/JS versionados del dashboard y actualiza sus dos
+  entradas del manifest; el `app-*.css` regenerado por el entorno fue excluido.
+- Validación final tras el correctivo: focal `76` pruebas/`897` aserciones y
+  suite completa `1.000` pruebas/`7.474` aserciones, ambas verdes; Pint del
+  archivo PHP afectado, `node --check`, build Vite, Composer validate estricto,
+  Composer audit, `npm audit --omit=dev` y `git diff --check`, correctos.
+  Composer y npm no informaron advisories. Vite mantuvo el aviso no bloqueante
+  ya conocido de `/images/login-bg.jpg` resuelto en runtime y un aviso de
+  deprecación de Node; no se actualizaron dependencias.

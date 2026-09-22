@@ -259,6 +259,18 @@ traducen respectivamente como **Cobertura completa**, **Cobertura parcial** y
 `dataset_generated_at` como fecha de generación de la fotografía, además del
 corte específico de OpportunityHistory.
 
+La metodología, el universo, la fecha de la fotografía local, la cobertura de
+cancelaciones y las incidencias de calidad o atribución se conservan en la
+interfaz dentro del panel secundario plegable **Información y calidad de
+datos**, cerrado inicialmente. Su resumen muestra únicamente el estado de
+cobertura y, cuando está disponible, la fecha de la fotografía. Fuera del panel
+permanecen el error de carga con su reintento, el aviso compacto de mes en curso
+y un aviso compacto de limitación cuando `cancellations_available === false`.
+Los registros fuera del universo y los contadores de auditoría no activan por sí
+solos ese aviso exterior si los KPI siguen siendo evaluables. Una recarga limpia
+el contenido dinámico anterior sin forzar el estado abierto o cerrado elegido
+por el usuario.
+
 ### Actividad mensual y fórmulas
 
 Cada hito pertenece a su propio mes natural `Europe/Madrid`:

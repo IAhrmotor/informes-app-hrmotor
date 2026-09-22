@@ -836,6 +836,79 @@ class ReservationsSalesCommercialPerformanceTest extends TestCase
         $this->assertStringNotContainsString('panel-rendimiento-comercial', $viewerHtml);
     }
 
+    public function test_dashboard_agrupa_informacion_secundaria_y_deja_fuera_avisos_operativos(): void
+    {
+        $director = $this->reportUser(ReportUser::ROLE_DIRECTOR, 'director-performance-context@example.test');
+        $html = $this->withSession($this->sessionFor($director))
+            ->get('/informes/reservas-ventas')
+            ->assertOk()
+            ->getContent();
+
+        $detailsStart = strpos($html, '<details class="performance-data-context" id="performanceDataContext">');
+        $detailsEnd = strpos($html, '</details>', $detailsStart);
+        $this->assertNotFalse($detailsStart);
+        $this->assertNotFalse($detailsEnd);
+
+        $detailsHtml = substr($html, $detailsStart, $detailsEnd - $detailsStart);
+        $this->assertStringContainsString('<summary class="performance-data-context__summary">', $detailsHtml);
+        $this->assertStringContainsString('Información y calidad de datos', $detailsHtml);
+        $this->assertStringNotContainsString(' open', substr($html, $detailsStart, 100));
+
+        foreach ([
+            'performanceSemantics',
+            'performanceUniverse',
+            'performanceFreshness',
+            'performanceCancellationCoverage',
+            'performanceDataIncident',
+            'performanceQualityWarning',
+        ] as $id) {
+            $this->assertStringContainsString('id="'.$id.'"', $detailsHtml, $id);
+        }
+
+        $this->assertStringNotContainsString('id="performanceLoadError"', $detailsHtml);
+        $this->assertStringNotContainsString('id="performanceCurrentMonthNotice"', $detailsHtml);
+        $this->assertLessThan($detailsStart, strpos($html, 'id="performanceLoadError"'));
+        $this->assertLessThan($detailsStart, strpos($html, 'id="performanceCurrentMonthNotice"'));
+    }
+
+    public function test_aviso_compacto_solo_depende_de_cancelaciones_no_evaluables(): void
+    {
+        $javascript = file_get_contents(resource_path('js/reports/reservations-sales-dashboard.js'));
+        $blade = file_get_contents(resource_path('views/reports/reservations-sales/index.blade.php'));
+        $functionStart = strpos($javascript, 'function renderPerformanceLimitationNotice(quality)');
+        $functionEnd = strpos($javascript, "\n}", $functionStart);
+        $this->assertNotFalse($functionStart);
+        $this->assertNotFalse($functionEnd);
+
+        $function = substr($javascript, $functionStart, $functionEnd - $functionStart);
+        $this->assertStringContainsString('quality.cancellations_available !== false', $function);
+        $this->assertStringNotContainsString('data_incident', $function);
+        $this->assertStringNotContainsString('uncertified_historical_events', $function);
+        $this->assertStringNotContainsString('unresolved_attribution_events', $function);
+        $this->assertStringContainsString("'performanceLimitationNotice'", $javascript);
+        $this->assertStringContainsString("'performanceDataContextSummary'", $javascript);
+        $this->assertStringContainsString(
+            'Existen limitaciones de calidad o cobertura. Consulta “Información y calidad de datos”.',
+            $blade,
+        );
+
+        $clearStart = strpos($javascript, 'function clearPerformancePresentation()');
+        $clearEnd = strpos($javascript, 'function setPerformanceTargetState', $clearStart);
+        $clearFunction = substr($javascript, $clearStart, $clearEnd - $clearStart);
+        $clearableIdsStart = strpos($clearFunction, "['performanceUniverse'");
+        $clearableIdsEnd = strpos($clearFunction, '].forEach', $clearableIdsStart);
+        $clearableIds = substr($clearFunction, $clearableIdsStart, $clearableIdsEnd - $clearableIdsStart);
+        $this->assertStringContainsString("'performanceCancellationCoverage'", $clearFunction);
+        $this->assertStringContainsString("'performanceDataContextSummary'", $clearFunction);
+        $this->assertStringNotContainsString("'performanceLimitationNotice'", $clearableIds);
+        $this->assertStringContainsString(
+            "document.getElementById('performanceLimitationNotice')?.classList.add('is-hidden');",
+            $clearFunction,
+        );
+        $this->assertStringNotContainsString('performanceLimitationNotice.textContent', $clearFunction);
+        $this->assertStringNotContainsString('.open', $clearFunction);
+    }
+
     public function test_dashboard_es_autonomo_del_css_legacy_y_conserva_primitives_y_hooks_semanticos(): void
     {
         $director = $this->reportUser(ReportUser::ROLE_DIRECTOR, 'director-design-system@example.test');

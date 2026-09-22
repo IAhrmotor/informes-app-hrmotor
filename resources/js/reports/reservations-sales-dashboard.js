@@ -185,14 +185,13 @@ function clearPerformancePresentation() {
         const element = document.getElementById(id);
         if (element) element.innerHTML = '';
     });
-    ['performanceUniverse', 'performanceFreshness', 'performanceDataIncident', 'performanceQualityWarning', 'performanceCurrentMonthNotice'].forEach((id) => {
+    ['performanceUniverse', 'performanceFreshness', 'performanceCancellationCoverage', 'performanceDataIncident', 'performanceQualityWarning', 'performanceCurrentMonthNotice', 'performanceDataContextSummary'].forEach((id) => {
         const element = document.getElementById(id);
         if (!element) return;
         element.textContent = '';
         element.classList.add('is-hidden');
     });
-    const coverage = document.getElementById('performanceCancellationCoverage');
-    if (coverage) coverage.textContent = 'Cobertura de cancelaciones pendiente de cargar.';
+    document.getElementById('performanceLimitationNotice')?.classList.add('is-hidden');
 }
 
 function setPerformanceTargetState(state, value = null) {
@@ -271,6 +270,7 @@ function renderCommercialPerformance(data) {
     } else {
         coverageNotice.textContent = 'Cancelaciones no evaluables: no existe un corte OpportunityHistory certificado para el período.';
     }
+    coverageNotice.classList.remove('is-hidden');
     const warning = document.getElementById('performanceQualityWarning');
     const uncertified = Number(quality.uncertified_historical_events || 0);
     const conflicts = Number(quality.duplicate_conflict_groups || 0) + Number(quality.unresolved_attribution_events || 0);
@@ -283,6 +283,26 @@ function renderCommercialPerformance(data) {
     if (conflicts > 0) messages.push(`${formatNumber(conflicts)} incidencias de atribución permanecen fuera del ranking individual.`);
     warning.textContent = messages.join(' ');
     warning.classList.toggle('is-hidden', messages.length === 0);
+
+    renderPerformanceContextSummary(data, quality);
+    renderPerformanceLimitationNotice(quality);
+}
+
+function renderPerformanceContextSummary(data, quality) {
+    const summary = document.getElementById('performanceDataContextSummary');
+    if (!summary) return;
+
+    const parts = [formatCoverageStatus(quality.cancellation_coverage_status)];
+    if (data.dataset_generated_at) parts.push(`Fotografía ${formatDateTime(data.dataset_generated_at)}`);
+    summary.textContent = parts.join(' · ');
+    summary.classList.remove('is-hidden');
+}
+
+function renderPerformanceLimitationNotice(quality) {
+    const notice = document.getElementById('performanceLimitationNotice');
+    if (!notice) return;
+
+    notice.classList.toggle('is-hidden', quality.cancellations_available !== false);
 }
 
 function renderPerformanceCurrentMonthNotice(month) {
