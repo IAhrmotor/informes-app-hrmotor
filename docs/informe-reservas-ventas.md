@@ -1,6 +1,6 @@
 # Informe de Reservas / Ventas
 
-Actualizado: 2026-09-21.
+Actualizado: 2026-09-22.
 
 ## Fuente y datos locales
 
@@ -24,16 +24,21 @@ El selector de fecha define una única cohorte para todo el informe:
 | Fecha de reserva | `reservation_date` | `OPO_FEC_Fecha_de_reserva__c` |
 | Fecha de firma | `cv_signed_date` | `Fecha_firma_contrato__c` |
 
-Después de fijar la cohorte, todos los KPIs, porcentajes, comparativas, tablas y
-auditorías se calculan sobre esas mismas oportunidades. Una oportunidad creada
-en julio y firmada en agosto cuenta como firmada dentro de la cohorte de julio
-cuando el criterio es Fecha de creación. Una oportunidad creada en junio y
-firmada en julio queda fuera de esa cohorte.
+Después de fijar la cohorte, los KPI legacy, porcentajes, tablas y auditorías se
+calculan sobre esas mismas oportunidades. Una oportunidad creada en julio y
+firmada en agosto cuenta como firmada dentro de la cohorte de julio cuando el
+criterio es Fecha de creación. Una oportunidad creada en junio y firmada en
+julio queda fuera de esa cohorte. La excepción aditiva es **Reservas totales del
+período**, una métrica de evento que siempre se acota por `reservation_date`
+para responder cuántas reservas se realizaron realmente en cada período, sin
+alterar el universo de los demás KPI.
 
-El KPI y la auditoría CSV resuelven la cohorte mediante el mismo dataset base y
-los mismos filtros y ámbitos de servidor. La exportación decora ese conjunto sin
-aplicar exclusiones funcionales adicionales: para `Oportunidades totales`, el
-conjunto de Opportunity IDs del KPI y el del CSV debe ser idéntico.
+Los KPI anclados a la cohorte y su auditoría CSV resuelven el mismo dataset base
+con idénticos filtros y ámbitos de servidor. La exportación decora ese conjunto
+sin aplicar exclusiones funcionales adicionales: para `Oportunidades totales`,
+el conjunto de Opportunity IDs del KPI y el del CSV debe ser idéntico. Para
+`Reservas totales del período`, KPI y auditoría comparten en su lugar el mismo
+conjunto de eventos acotado por `reservation_date`.
 
 La pantalla muestra criterio, período, período comparado, actualización y corte
 de la fotografía local. Al cambiar filtros se cancela la petición anterior y se
@@ -44,10 +49,17 @@ ocultan los resultados obsoletos.
 - `Venta` = `RecordType.Name` Venta o Cambio.
 - Reserva viva = reserva true, contrato CV no firmado y etapa distinta de
   `Cerrada Perdida`.
+- `Reservas totales del período` = reserva true con `reservation_date` dentro
+  del período. Incluye el estado actual vivo, `Cerrada Perdida` y CV firmado;
+  excluye reservas sin fecha y no depende del criterio temporal de la cohorte.
+  Se deduplica con la regla común vehículo + fecha de reserva y fallback a la
+  Opportunity cuando no existe identidad de vehículo.
 - Caída = etapa `Cerrada Perdida`.
 - CV firmado = flag firmado true y etapa distinta de `Cerrada Perdida`.
-- `Reservas vivas actuales Salesforce` aplica la regla de reserva viva sin
-  filtro de fecha, manteniendo tipo y filtros operativos.
+- `Reservas vivas del universo seleccionado` es la reserva viva dentro de la
+  cohorte definida por el criterio y período elegidos.
+- `Reservas vivas actuales (todas las fechas)` aplica la regla de reserva viva
+  sin filtro temporal, manteniendo tipo y filtros operativos.
 - Los porcentajes de desglose se calculan como
   `métrica / oportunidades de la misma fila`; describen la proporción de la
   cohorte o fila, no una valoración de rendimiento.
@@ -82,6 +94,11 @@ reserva o firma:
 `counted_in_kpi` identifica técnicamente la fila que reconstruye el recuento
 global, pero no la convierte en atribución funcional cuando hay campos
 contradictorios.
+
+La auditoría JSON y CSV acepta `metric=reservas_totales`, consulta el período
+actual por `reservation_date`, conserva todas las filas de cada grupo duplicado
+y utiliza `counted_in_kpi` para reconstruir exactamente el total deduplicado.
+No se añaden campos personales al contrato de auditoría.
 
 ## Portal y agrupaciones
 

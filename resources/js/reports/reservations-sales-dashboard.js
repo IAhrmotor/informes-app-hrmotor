@@ -843,9 +843,10 @@ function renderKpis(kpis) {
     const root = document.getElementById('summaryKpis');
     const cards = [
         { label: 'Oportunidades totales', value: formatNumber(kpis.oportunidades_totales), hint: 'Muestra del periodo', metric: 'oportunidades_totales' },
-        { label: 'Reservas vivas', value: formatNumber(kpis.reservas_vivas), hint: `${formatPercent(kpis.reservas_vivas_pct)} sobre total`, metric: 'reservas_vivas' },
-        { label: 'Reservas vivas actuales Salesforce', value: formatNumber(kpis.reservas_vivas_actuales_salesforce), hint: 'Sin filtro de fecha', metric: 'reservas_vivas_actuales_salesforce' },
-        { label: 'Oportunidades caidas', value: formatNumber(kpis.oportunidades_caidas), hint: `${formatPercent(kpis.oportunidades_caidas_pct)} sobre total`, metric: 'oportunidades_caidas' },
+        { label: 'Reservas totales del período', value: formatNumber(kpis.reservas_totales), hint: 'Por fecha de reserva · incluye vivas, caídas y con CV', metric: 'reservas_totales' },
+        { label: 'Reservas vivas del universo seleccionado', value: formatNumber(kpis.reservas_vivas), hint: `Según el criterio de fecha y período seleccionados · ${formatPercent(kpis.reservas_vivas_pct)} sobre total`, metric: 'reservas_vivas' },
+        { label: 'Reservas vivas actuales (todas las fechas)', value: formatNumber(kpis.reservas_vivas_actuales_salesforce), hint: 'Estado actual sin filtro temporal', metric: 'reservas_vivas_actuales_salesforce' },
+        { label: 'Oportunidades caídas', value: formatNumber(kpis.oportunidades_caidas), hint: `${formatPercent(kpis.oportunidades_caidas_pct)} sobre total`, metric: 'oportunidades_caidas' },
         { label: 'Contratos CV firmados', value: formatNumber(kpis.cv_firmados), hint: `${formatPercent(kpis.cv_firmados_pct)} sobre total`, metric: 'cv_firmados' },
     ];
 

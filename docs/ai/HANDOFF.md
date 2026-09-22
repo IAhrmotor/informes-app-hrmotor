@@ -1,5 +1,75 @@
 # Handoff para agentes
 
+## Reservas totales del período en Resumen Dirección (2026-09-22)
+
+### Resumen, decisiones y archivos
+
+- El dashboard legacy de Reservas / Ventas incorpora
+  `kpis.reservas_totales`: reserva true con `reservation_date` dentro del rango,
+  independientemente de su estado actual vivo, `Cerrada Perdida` o CV firmado.
+  Las reservas sin fecha quedan fuera. La métrica siempre usa
+  `reservation_date`, aunque la cohorte legacy use creación o firma.
+- Se reutiliza `metricEventGroups(..., 'reservation_events')`: vehículo + fecha
+  de reserva, matrícula normalizada como fallback de vehículo y Opportunity
+  como fallback final. No cambian `reservas_vivas`,
+  `reservas_vivas_actuales_salesforce`, oportunidades, caídas ni CV firmados.
+- Resumen Dirección presenta seis KPI y distingue **Reservas totales del
+  período**, **Reservas vivas del universo seleccionado** y **Reservas vivas
+  actuales (todas las fechas)**. Comparativa básica añade la nueva métrica para
+  período actual/comparado y diferencia absoluta, sin porcentaje, y mantiene
+  las demás filas ancladas a la cohorte seleccionada.
+- La auditoría JSON y CSV acepta `metric=reservas_totales`, selecciona por
+  `reservation_date`, devuelve fecha métrica sin fallback y reconstruye el KPI
+  mediante los metadatos de grupo y `counted_in_kpi`. No se añadió PII.
+- Archivos modificados: servicio legacy del dataset, JS y Blade específicos de
+  Reservas / Ventas, nueva regresión feature, documentación funcional/general
+  y este handoff. Rendimiento comercial no cambia.
+
+### Base de datos, seguridad, rendimiento y operación
+
+- No hay migraciones, dependencias, configuración, SOQL, sincronizaciones ni
+  llamadas Salesforce nuevas. El global scope de Opportunities activas se
+  conserva.
+- Se añaden dos consultas locales por payload no cacheado: una para el período
+  actual y otra para el comparado. Ambas se acotan en SQL mediante
+  `reservation_date >= start AND reservation_date < end`, aprovechan el índice
+  existente, se procesan por lotes y reutilizan filtros de tipo, comercial,
+  delegación, zona y scopes de acceso. No hay consultas por fila ni N+1.
+- La versión de caché del payload pasa a `v6` para impedir que durante el TTL se
+  sirvan respuestas anteriores sin la nueva clave. TTL y estrategia no cambian.
+- Correctivo previo a PR: las filas autorizadas de eventos de reserva del
+  período alimentan también las opciones de Comercial y Delegación. Así, una
+  reserva realizada en el rango sigue siendo filtrable aunque su Opportunity
+  quede fuera de la cohorte legacy. Las opciones se recogen después de
+  `passesFilters()`, por lo que no amplían los scopes de comercial, delegación o
+  zona ni revelan nombres fuera del ámbito autorizado.
+- Los grupos de calidad de reserva unen por clave funcional los eventos de la
+  cohorte legacy y los eventos que forman `reservas_totales`. Dentro de cada
+  grupo, las filas se deduplican por Opportunity: un grupo presente en ambos
+  universos genera una sola incidencia, mientras permanecen visibles los
+  duplicados exclusivamente legacy y los exclusivos del período. La consulta
+  acotada ya existente se reutiliza para KPI, filtros y calidad; siguen siendo
+  dos consultas nuevas por payload no cacheado, una por período.
+- No hay acciones manuales, variables de entorno ni riesgos de compatibilidad
+  conocidos; consumidores de las claves existentes conservan sus contratos.
+
+### Validación
+
+- Regresión nueva tras el correctivo: 8/8 pruebas, 71 aserciones. Focales
+  legacy obligatorias del correctivo: 10/10 pruebas, 99 aserciones. Suite
+  completa final: 1.009/1.009 pruebas, 7.639 aserciones. El primer intento de
+  suite tuvo un único timeout ajeno en el benchmark de Stock (23,19 s frente a
+  20 s); el benchmark pasó aislado (2/2, 13 aserciones) y la repetición completa
+  quedó verde sin relajar umbrales. Pint sobre ambos PHP modificados,
+  `node --check`, Composer
+  validate estricto, Composer audit, npm audit y build Vite correctos; los
+  audits no informaron vulnerabilidades.
+- El build mantiene los avisos no bloqueantes ya conocidos de
+  `/images/login-bg.jpg` resuelto en runtime, deprecación `module.register()` y
+  tiempos del plugin Tailwind. Solo sustituye el bundle JS de Reservas / Ventas
+  y su entrada del manifest; el `app.css` rehashado sin cambio fuente fue
+  restaurado. `git diff --check` correcto.
+
 ## Revisión final para managers de Rendimiento comercial (2026-09-22)
 
 ### Resumen, decisiones y archivos

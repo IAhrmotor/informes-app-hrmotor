@@ -1,6 +1,6 @@
 # Documentación general de informes y contraste con Salesforce
 
-Versión: 2026-09-08
+Versión: 2026-09-22
 Proyecto: `informes-app-hrmotor`
 
 ## 1. Propósito y criterio de verdad
@@ -378,16 +378,23 @@ ORDER BY OPO_FEC_Fecha_de_reserva__c, Id
   - `reservation_date` → `OPO_FEC_Fecha_de_reserva__c`;
   - `cv_signed_date` → `Fecha_firma_contrato__c`.
 - El criterio seleccionado define una única cohorte. Los eventos posteriores de
-  esas Opportunities se miden sobre la misma cohorte; cada KPI no vuelve a
-  seleccionar su propio universo temporal.
+  esas Opportunities se miden sobre la misma cohorte. La única excepción
+  aditiva es `Reservas totales del período`, que representa eventos producidos
+  en cada rango y siempre usa `reservation_date`, sin cambiar el criterio
+  temporal de los KPI existentes.
 - Tipo `Venta` del dashboard = `RecordType.Name IN (Venta, Cambio)`.
 - Tipo `Tasación` acepta el valor local `Tasacion`.
 - `Oportunidades totales`: todas las filas del tipo y período seleccionados.
-- `Reserva viva del período`: reserva true, CV false y etapa distinta de
-  `Cerrada Perdida`, dentro del criterio temporal seleccionado.
-- `Reservas vivas actuales Salesforce`: la misma regla sin filtro temporal. Los
-  filtros de tipo siguen aplicando; los filtros de comercial/delegación/zona se
-  aplican después de decorar la fila.
+- `Reservas vivas del universo seleccionado`: reserva true, CV false y etapa
+  distinta de `Cerrada Perdida`, dentro del criterio temporal seleccionado.
+- `Reservas vivas actuales (todas las fechas)`: la misma regla de estado sin
+  filtro temporal. Los filtros de tipo siguen aplicando; los filtros de
+  comercial/delegación/zona se aplican después de decorar la fila.
+- `Reservas totales del período`: reserva true y fecha de reserva dentro del
+  rango, con independencia de que su estado actual sea vivo, `Cerrada Perdida`
+  o CV firmado. Excluye reservas sin fecha, usa la deduplicación común por
+  vehículo + `reservation_date` con fallback a Opportunity y se calcula por
+  separado para el período actual y el comparado.
 - `Caída`: etapa `Cerrada Perdida`.
 - `CV firmado`: flag true y etapa distinta de `Cerrada Perdida`.
 - Porcentajes del resumen: KPI / oportunidades totales.
@@ -398,6 +405,10 @@ ORDER BY OPO_FEC_Fecha_de_reserva__c, Id
   La identidad usa Product2 y fallback de matrícula. Los conflictos de owner,
   tienda, delegación, zona o portal se muestran como `Incidencia de datos` y no
   se adjudican arbitrariamente en los desgloses.
+- Resumen Dirección muestra las tres magnitudes con etiquetas diferenciadas y
+  Comparativa básica añade `Reservas totales del período` como valor absoluto,
+  sin porcentaje ficticio. Su auditoría JSON/CSV usa `reservation_date` y la
+  misma deduplicación del KPI.
 - Delegación y zona salen del owner y se normalizan con el mismo catálogo de Leads.
 - Resolución de portal, por prioridad:
   1. `Opportunity.Portal__c` si es concluyente;
