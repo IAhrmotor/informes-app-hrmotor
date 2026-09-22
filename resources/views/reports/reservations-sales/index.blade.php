@@ -15,6 +15,7 @@
     <script>
         window.reportUserCanExport = @json($reportUserCanExport ?? false);
         window.reportUserCanViewCommercialPerformance = @json($reportUserCanViewCommercialPerformance ?? false);
+        window.reportUserCanManageCommercialPerformanceTarget = @json($reportUserCanManageCommercialPerformanceTarget ?? false);
         window.commercialPerformanceCurrentMonth = @json($performanceCurrentMonth);
         window.reportCsrfToken = @json(csrf_token());
     </script>
@@ -88,11 +89,14 @@
         </div>
         @if ($reportUserCanViewCommercialPerformance ?? false)
         <div class="report-ui-field performance-target-field is-hidden" data-filter-scope="performance">
-            <label class="report-ui-label" for="performanceTarget">Objetivo reservas</label>
+            <label class="report-ui-label" for="performanceTarget">Objetivo mensual por comercial</label>
             <div class="performance-target-control">
-                <input class="report-ui-input" id="performanceTarget" type="number" min="1" step="1" inputmode="numeric" disabled>
-                <button type="button" class="report-ui-button" id="savePerformanceTarget" disabled>Guardar</button>
+                <input class="report-ui-input" id="performanceTarget" type="number" min="1" step="1" inputmode="numeric" @if ($reportUserCanManageCommercialPerformanceTarget ?? false) disabled @else readonly @endif>
+                @if ($reportUserCanManageCommercialPerformanceTarget ?? false)
+                    <button type="button" class="report-ui-button" id="savePerformanceTarget" disabled>Guardar</button>
+                @endif
             </div>
+            <small class="performance-target-help">Aplica a todos los comerciales evaluables del mes seleccionado, independientemente de zona, delegación o comercial.</small>
         </div>
         @endif
         </div>
@@ -330,7 +334,7 @@
 
             <section class="report-ui-data-panel">
                 <div class="report-ui-data-panel__header">
-                    <x-reports.ui.section-header title="Rendimiento por comercial" description="Ranking y referencias de equipo exclusivos de comerciales con actividad real y asignación mensual certificable. Las filas no evaluables se conservan sin objetivo, ranking ni comparación.">
+                    <x-reports.ui.section-header title="Rendimiento por comercial" description="Ranking y referencias de delegación exclusivos de comerciales con actividad real y asignación mensual certificable. Las filas no evaluables se conservan sin objetivo, ranking ni comparación.">
                         <x-slot:actions>
                     <div class="reservations-columns-menu" data-columns-menu>
                         <button type="button" class="report-ui-button report-ui-button--secondary" id="performanceColumnsButton" aria-expanded="false" aria-controls="performanceColumnsPopover">Añadir o quitar columnas</button>
@@ -352,10 +356,10 @@
                     <table class="performance-table report-ui-table report-ui-table--sticky-header" id="performanceTable">
                         <thead><tr>
                             <th scope="col" data-column="ranking">Ranking</th><th scope="col" data-column="traffic_light">Semáforo</th><th scope="col" data-column="commercial">Comercial</th><th scope="col" data-column="delegation">Delegación</th><th scope="col" data-column="zone">Zona</th>
-                            <th scope="col" class="report-ui-table__numeric" data-column="leads">Leads</th><th scope="col" class="report-ui-table__numeric" data-column="opportunities">Oportunidades</th><th scope="col" class="report-ui-table__numeric" data-column="reservations_total">Reservas totales</th><th scope="col" class="report-ui-table__numeric" data-column="team_average_reservations">Media equipo</th><th scope="col" class="report-ui-table__numeric" data-column="team_reservations_deviation">Desviación reservas</th><th scope="col" class="report-ui-table__numeric" data-column="reservations_active">Reservas vivas</th><th scope="col" class="report-ui-table__numeric" data-column="reservations_dropped">Reservas caídas</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="leads">Leads</th><th scope="col" class="report-ui-table__numeric" data-column="opportunities">Oportunidades</th><th scope="col" class="report-ui-table__numeric" data-column="reservations_total">Reservas totales</th><th scope="col" class="report-ui-table__numeric" data-column="team_average_reservations">Media delegación</th><th scope="col" class="report-ui-table__numeric" data-column="team_reservations_deviation">Desviación vs delegación</th><th scope="col" class="report-ui-table__numeric" data-column="reservations_active">Reservas vivas</th><th scope="col" class="report-ui-table__numeric" data-column="reservations_dropped">Reservas caídas</th>
                             <th scope="col" class="report-ui-table__numeric" data-column="objective">Objetivo</th><th scope="col" class="report-ui-table__numeric" data-column="fulfillment_pct">Cumplimiento</th>
-                            <th scope="col" class="report-ui-table__numeric" data-column="lead_to_reservation_pct">Lead → Reserva</th><th scope="col" class="report-ui-table__numeric" data-column="lead_to_reservation_vs_team">Lead → Reserva vs equipo</th><th scope="col" class="report-ui-table__numeric" data-column="opportunity_to_reservation_pct">Oportunidad → Reserva</th><th scope="col" class="report-ui-table__numeric" data-column="opportunity_to_reservation_vs_team">Oportunidad → Reserva vs equipo</th>
-                            <th scope="col" class="report-ui-table__numeric" data-column="sales">Ventas válidas</th><th scope="col" class="report-ui-table__numeric" data-column="sales_dropped">Ventas caídas</th><th scope="col" class="report-ui-table__numeric" data-column="reservation_to_sale_pct">Reserva → Venta</th><th scope="col" class="report-ui-table__numeric" data-column="reservation_drop_pct">% Reserva caída</th><th scope="col" class="report-ui-table__numeric" data-column="sale_drop_pct">% Venta caída</th><th scope="col" class="report-ui-table__numeric" data-column="reservation_to_sale_vs_team">Reserva → Venta vs equipo</th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="lead_to_reservation_pct">Lead → Reserva</th><th scope="col" class="report-ui-table__numeric" data-column="lead_to_reservation_vs_team"><span>Conversión Lead → Reserva</span><small>Comparativa con su delegación</small></th><th scope="col" class="report-ui-table__numeric" data-column="opportunity_to_reservation_pct">Oportunidad → Reserva</th><th scope="col" class="report-ui-table__numeric" data-column="opportunity_to_reservation_vs_team"><span>Conversión Oportunidad → Reserva</span><small>Comparativa con su delegación</small></th>
+                            <th scope="col" class="report-ui-table__numeric" data-column="sales">Ventas válidas</th><th scope="col" class="report-ui-table__numeric" data-column="sales_dropped">Ventas caídas</th><th scope="col" class="report-ui-table__numeric" data-column="reservation_to_sale_pct">Reserva → Venta</th><th scope="col" class="report-ui-table__numeric" data-column="reservation_drop_pct">% Reserva caída</th><th scope="col" class="report-ui-table__numeric" data-column="sale_drop_pct">% Venta caída</th><th scope="col" class="report-ui-table__numeric" data-column="reservation_to_sale_vs_team"><span>Conversión Reserva → Venta</span><small>Comparativa con su delegación</small></th>
                             <th scope="col" class="report-ui-table__numeric" data-column="cancellations">Cancelaciones</th><th scope="col" class="report-ui-table__numeric" data-column="cancellation_pct">% cancelación</th>
                             <th scope="col" class="report-ui-table__numeric" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">Margen total</th>
                             <th scope="col" class="report-ui-table__numeric" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">Margen medio</th>
@@ -384,6 +388,7 @@
                 </div>
             </section>
 
+            @if ($reportUserCanAuditCommercialPerformance ?? false)
             <section class="report-ui-data-panel" aria-labelledby="performanceAuditTitle">
                 <div class="report-ui-data-panel__header">
                     <x-reports.ui.section-header id="performanceAuditTitle" title="Auditoría de Rendimiento comercial" description="Trazabilidad local de IDs, hitos, atribución, cobertura e incidencias.">
@@ -395,6 +400,7 @@
                 <div class="performance-note performance-note--info is-hidden" id="performanceAuditStatus" role="status"></div>
                 <div id="performanceAuditResult" class="report-ui-data-panel__body is-hidden"></div>
             </section>
+            @endif
         </section>
         @endif
     </main>

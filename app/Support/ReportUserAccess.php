@@ -196,6 +196,16 @@ class ReportUserAccess
 
     public static function canViewCommercialPerformance(Request $request): bool
     {
+        return self::isAdmin($request) || self::isDirector($request) || self::isAreaManager($request);
+    }
+
+    public static function canManageCommercialPerformanceTarget(Request $request): bool
+    {
+        return self::isAdmin($request);
+    }
+
+    public static function canAuditCommercialPerformance(Request $request): bool
+    {
         return self::isAdmin($request) || self::isDirector($request);
     }
 

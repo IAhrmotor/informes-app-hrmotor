@@ -1,5 +1,95 @@
 # Handoff para agentes
 
+## Revisión final para managers de Rendimiento comercial (2026-09-22)
+
+### Resumen, decisiones y archivos
+
+- Rama `fix/commercial-performance-final-review`, base
+  `2e305f44f2f6c6263ae274d2a897ac0ac7080b75`. Se separan tres capacidades:
+  Admin ve, audita y modifica el objetivo; Director ve y audita con objetivo de
+  solo lectura; Area Manager ve únicamente el agregado de su zona y el objetivo
+  de solo lectura, sin auditoría. Delegation Manager, Viewer y el resto de roles
+  no reciben acceso nuevo.
+- El scope del Area Manager se deriva exclusivamente de
+  `ReportUserAccess::areaZoneLabel()` en servidor. Se aplica antes de opciones,
+  filtros, ranking, resumen y evolución; un parámetro HTTP de otra zona devuelve
+  cero filas ajenas y nunca amplía el ámbito. Sin zona configurada se responde
+  403. La base cacheada continúa siendo global e inmutable y el scope se aplica
+  al presentar, sin crear variantes de caché ni consultas adicionales.
+- Corrección de aislamiento posterior: `data_quality` ya no reutiliza para Area
+  Manager los agregados corporativos cacheados. `observed_assignments` y
+  `bootstrap_approved_assignments` se recalculan desde las filas ya limitadas a
+  la zona; los demás contadores de negocio y
+  `cancellation_unresolved_dependencies`, que no conservan una atribución zonal
+  fiable, mantienen la clave con `null`. La UI no los convierte en avisos de
+  cero. Cada mes de `cancellation_coverage_by_month` conserva su estructura,
+  estado y fechas, pero también publica `unresolved_dependencies: null` para
+  Area Manager. Estado, fuente y fechas técnicas de cobertura permanecen
+  globales.
+- El objetivo se presenta como **Objetivo mensual por comercial**: es un único
+  valor individual para todos los comerciales evaluables del mes, independiente
+  de Zona, Delegación o Comercial. Solo Admin obtiene campo editable y Guardar;
+  el `PUT` se autoriza de nuevo en backend con permiso específico.
+- Cobertura `covered` se presenta como histórico del período certificado, no
+  como garantía sobre cambios futuros. Se explica que el sync incremental puede
+  reclasificar retrospectivamente reservas/ventas. Caída sigue siendo la
+  clasificación actual imputada al mes original y cancelación sigue siendo la
+  transición histórica imputada a `transitioned_at`; no se fusionan métricas.
+- Se distinguen **Datos de Salesforce sincronizados** (máximo `updated_at` local)
+  e **Informe generado con la fotografía local** (`dataset_generated_at`). Las
+  comparativas muestran ratio del comercial, referencia de delegación y flecha
+  con texto por encima/por debajo/igual; `N/D` conserva null sin flecha. Las
+  claves JSON `team_*`/`*_vs_team` y localStorage no cambian.
+- `Comerciales Partner Community` conserva evaluación, objetivo y ranking con
+  actividad y snapshot histórico válido, incluso inactivo. No se cambiaron
+  fórmulas, ranking, semáforo, universo, payload, Salesforce, SOQL, scheduler ni
+  sincronizaciones.
+- Archivos fuente: `ReportUserAccess.php`, los requests de objetivo/auditoría,
+  ambos controladores de Reservas/Ventas, `CommercialPerformanceDatasetService.php`,
+  Blade/JS/CSS de Reservas/Ventas, la prueba feature y
+  `docs/informe-reservas-ventas.md`; este handoff queda actualizado. Assets:
+  salen `reservations-sales-dashboard-3boLO164.css` y
+  `reservations-sales-dashboard-Bcj2yumC.js`; entran
+  `reservations-sales-dashboard-CuCMlABp.css` y
+  `reservations-sales-dashboard-DB44sp4k.js`; el manifest cambia solo esas dos
+  entradas.
+
+### Base de datos, seguridad, rendimiento y operación
+
+- No hay migraciones, configuración, variables de entorno ni dependencias
+  nuevas. No se ejecutaron sync, backfill, reproceso, escritura Salesforce ni
+  cambio de datos. CSRF y escaping existentes se conservan; no se expone PII ni
+  `raw_payload`.
+- No se añaden fetch, consultas por fila, N+1 ni llamadas externas HTTP. La
+  autorización real no depende del flag JavaScript y auditoría conserva su
+  protección server-side.
+- La regresión integrada mantiene la reserva de agosto descubierta por
+  `LastModifiedDate` en septiembre, una única Opportunity, fecha original
+  intacta, agosto total 1/válida 0/caída 1/cumplimiento 0 y septiembre una
+  cancelación histórica. Las regresiones de Partner Community y cobertura
+  `covered`/`partial`/`uncovered` permanecen verdes.
+- Validación real pendiente y deliberadamente no ejecutada: localizar en
+  producción, en solo lectura y sin PII, una Opportunity con reserva de agosto,
+  estado Cerrada Perdida y modificación desde septiembre; verificar unicidad,
+  fecha original, reclasificación de agosto y transición/cancelación de
+  septiembre si fue capturada. Si existe un hueco real de septiembre, estudiar
+  el comando existente en modo `--modified` con aprobación; no ejecutar backfill
+  ni marcar `covered` sin intervalos certificados.
+
+### Validación
+
+- Rendimiento comercial: 77/77 pruebas, 991 aserciones. Opportunity sync: 21/21,
+  151 aserciones. OpportunityHistory sync: 5/5, 39 aserciones.
+- Suite completa: 1.001/1.001 pruebas, 7.568 aserciones. Pint sobre todos los PHP
+  modificados, `node --check`, `composer validate --no-check-publish --strict` y
+  `git diff --check`: correctos.
+- `composer audit --locked --no-dev`: sin advisories. `npm audit --omit=dev`:
+  0 vulnerabilidades. `npm run build`: correcto; conserva los avisos
+  informativos del entorno sobre `module.register()` y `/images/login-bg.jpg`.
+  La corrección de aislamiento no cambia fuentes ni assets frontend.
+- No hay acciones manuales de base de datos o configuración. Mensaje de commit:
+  `fix(reservations-sales): finalize performance manager review`.
+
 ## Finalización de Rendimiento comercial de Reservas/Ventas (2026-09-21)
 
 ### Resumen y archivos

@@ -151,11 +151,20 @@ class CommercialPerformanceDatasetService
         $monthKeys = $base['monthKeys'];
         $targets = $base['targets'];
         $historyCoverage = $base['historyCoverage'];
-        $quality = $base['qualityByMonth'][$filters['month']] ?? [];
         $rowsByMonth = $base['rowsByMonth'];
         $delegationHistory = $base['delegationHistory'];
         $generatedAt = $base['generatedAt'];
-        $currentRows = collect($rowsByMonth[$filters['month']] ?? []);
+        $currentRows = $this->applyAccessScope(collect($rowsByMonth[$filters['month']] ?? []), $filters);
+        $quality = $this->scopeDataQuality(
+            $base['qualityByMonth'][$filters['month']] ?? [],
+            $currentRows,
+            $filters,
+        );
+        $coverageByMonth = filled($filters['access_zone'])
+            ? collect($historyCoverage)
+                ->map(fn (array $coverage): array => array_replace($coverage, ['unresolved_dependencies' => null]))
+                ->all()
+            : $historyCoverage;
         $filterOptions = $this->filterOptions($currentRows, $filters);
         $rankUniverse = $this->applyOrganisationFilters($currentRows, $filters);
         $ranked = $this->applyTeamComparisonsAndRanking($rankUniverse);
@@ -170,7 +179,10 @@ class CommercialPerformanceDatasetService
         $dataIncident = $this->dataIncidentSummary($currentRows, $historyCoverage[$filters['month']]['status'] === 'covered');
 
         $evolution = collect($monthKeys)->map(function (string $monthKey) use ($rowsByMonth, $filters, $historyCoverage): array {
-            $rows = $this->applyOrganisationFilters(collect($rowsByMonth[$monthKey] ?? []), $filters);
+            $rows = $this->applyOrganisationFilters(
+                $this->applyAccessScope(collect($rowsByMonth[$monthKey] ?? []), $filters),
+                $filters,
+            );
             if (filled($filters['commercial'])) {
                 $rows = $rows->where('commercial_id', $filters['commercial'])->values();
             }
@@ -205,8 +217,10 @@ class CommercialPerformanceDatasetService
                 'cancellation_coverage_status' => $historyCoverage[$filters['month']]['status'],
                 'cancellation_source_cutoff_at' => $historyCoverage[$filters['month']]['source_cutoff_at'],
                 'cancellation_certified_until' => $historyCoverage[$filters['month']]['certified_until'],
-                'cancellation_unresolved_dependencies' => $historyCoverage[$filters['month']]['unresolved_dependencies'],
-                'cancellation_coverage_by_month' => $historyCoverage,
+                'cancellation_unresolved_dependencies' => filled($filters['access_zone'])
+                    ? null
+                    : $historyCoverage[$filters['month']]['unresolved_dependencies'],
+                'cancellation_coverage_by_month' => $coverageByMonth,
                 'cancellation_source' => 'OpportunityHistory',
                 ...$delegationHistory,
                 'delegation_history_limitation' => 'Desde 2026-04-01 se admite el bootstrap aprobado por negocio cuando la primera asignación fiable no tiene evidencias contradictorias; se distingue de la observación Salesforce.',
@@ -905,6 +919,28 @@ class CommercialPerformanceDatasetService
             ->values();
     }
 
+    private function applyAccessScope(Collection $rows, array $filters): Collection
+    {
+        return $rows
+            ->when(filled($filters['access_zone']), fn (Collection $items) => $items->where('zone', $filters['access_zone']))
+            ->values();
+    }
+
+    private function scopeDataQuality(array $quality, Collection $rows, array $filters): array
+    {
+        if (blank($filters['access_zone'])) {
+            return $quality;
+        }
+
+        return array_replace(
+            array_fill_keys(array_keys($quality), null),
+            [
+                'bootstrap_approved_assignments' => $rows->where('delegation_status', 'bootstrap_approved')->count(),
+                'observed_assignments' => $rows->where('delegation_status', 'observed')->count(),
+            ],
+        );
+    }
+
     private function filterOptions(Collection $rows, array $filters): array
     {
         $evaluable = $rows->where('delegation_certified', true);
@@ -1076,6 +1112,7 @@ class CommercialPerformanceDatasetService
             'zone' => trim((string) ($filters['zone'] ?? '')),
             'delegation' => trim((string) ($filters['delegation'] ?? '')),
             'commercial' => trim((string) ($filters['commercial'] ?? '')),
+            'access_zone' => trim((string) ($filters['access_zone'] ?? '')),
         ];
     }
 
