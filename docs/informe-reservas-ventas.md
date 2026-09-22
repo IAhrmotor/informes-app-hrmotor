@@ -421,9 +421,18 @@ nueva y no bloquea por sí sola.
 cancelación. `LastModifiedDate` se usa exclusivamente en la sincronización
 incremental para descubrir Opportunities antiguas modificadas.
 
-#### Validación real posterior de solo lectura
+#### Validación productiva y procedimiento reproducible de solo lectura
 
-Esta validación no se ejecuta desde el desarrollo. En producción, localizar sin
+**Validación realizada.** En producción se comprobó satisfactoriamente un caso
+real, sin registrar PII: existe una única fila local, `reservation_date`
+conserva el mes original y el estado actual Cerrada Perdida reclasifica ese mes
+como reserva caída y la excluye del cumplimiento. La transición capturada por
+OpportunityHistory continúa contabilizándose en el mes de `transitioned_at`.
+La cobertura diagnosticada fue coherente con los intervalos almacenados. Esta
+evidencia valida la mecánica retroactiva, pero no implica que se hayan
+inspeccionado o certificado todos los casos históricos.
+
+**Procedimiento reproducible.** Para futuras comprobaciones, localizar sin
 exponer datos de cliente una Opportunity con `reservation_date` en agosto,
 `stage_name = Cerrada Perdida` y `salesforce_last_modified_at >= 2026-09-01`.
 Sobre su `salesforce_id`, verificar en modo de solo lectura que existe una única
@@ -431,8 +440,8 @@ fila local, que la reserva conserva agosto y el estado actual es Cerrada
 Perdida. Después comprobar que agosto la clasifica como caída y no la suma al
 cumplimiento; si OpportunityHistory capturó la transición, confirmar que su
 `transitioned_at` está en septiembre y que la cancelación se contabiliza en ese
-mes. Si no existe candidato real, la validación queda pendiente; nunca se debe
-inventar evidencia ni incluir PII en el registro de comprobación.
+mes. Nunca se debe inventar evidencia ni incluir PII en el registro de
+comprobación.
 
 Si producción mantiene un hueco real de OpportunityHistory en septiembre, el
 intervalo debe continuar como `partial`. La corrección operativa se estudiará
