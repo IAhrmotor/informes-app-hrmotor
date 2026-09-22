@@ -163,7 +163,7 @@
 
             <section class="report-ui-data-panel">
                 <div class="report-ui-data-panel__header">
-                    <x-reports.ui.section-header title="Comparativa basica" description="Periodo actual frente al periodo comparado" />
+                    <x-reports.ui.section-header title="Comparativa basica" description="Los KPI del universo siguen el criterio seleccionado; Reservas totales se compara siempre por fecha de reserva." />
                 </div>
                 <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Comparativa del periodo actual y comparado">
                     <table class="report-ui-table report-ui-table--sticky-header">

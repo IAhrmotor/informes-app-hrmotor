@@ -84,7 +84,7 @@ class ReservationsSalesDashboardDatasetService
         $periods = $this->periods($filters);
 
         return Cache::remember(
-            'reservas-ventas-dashboard-v5:'.md5(json_encode([
+            'reservas-ventas-dashboard-v6:'.md5(json_encode([
                 'filters' => $filters,
                 'periods' => $this->periodPayloads($periods),
                 'version' => $this->dataVersion(),
@@ -105,9 +105,12 @@ class ReservationsSalesDashboardDatasetService
             'summary' => [
                 'ok' => $current['bucket']['oportunidades_totales'] > 0
                     || $previous['bucket']['oportunidades_totales'] > 0
+                    || $current['bucket']['reservas_totales'] > 0
+                    || $previous['bucket']['reservas_totales'] > 0
                     || $current['bucket']['reservas_vivas_actuales_salesforce'] > 0,
                 'message' => (
                     $current['bucket']['oportunidades_totales'] > 0
+                    || $current['bucket']['reservas_totales'] > 0
                     || $current['bucket']['reservas_vivas_actuales_salesforce'] > 0
                 ) ? null : 'No hay oportunidades sincronizadas para el periodo seleccionado.',
                 'periodo_actual' => $this->periodPayload($periods['current']),
@@ -136,9 +139,11 @@ class ReservationsSalesDashboardDatasetService
 
     private function buildAuditPayload(array $filters, array $period, string $metric): array
     {
-        $resolved = $metric === 'reservas_vivas_actuales_salesforce'
-            ? $this->resolvedGlobalLiveReservationsCohort($filters)
-            : $this->resolvedCohort($filters, $period);
+        $resolved = match ($metric) {
+            'reservas_totales' => $this->resolvedReservationEventsCohort($filters, $period),
+            'reservas_vivas_actuales_salesforce' => $this->resolvedGlobalLiveReservationsCohort($filters),
+            default => $this->resolvedCohort($filters, $period),
+        };
         $opportunities = $resolved
             ->filter(fn (array $item): bool => $this->matchesAuditMetric($item['row'], $metric))
             ->pluck('opportunity')
@@ -147,8 +152,12 @@ class ReservationsSalesDashboardDatasetService
 
         $qualityByOpportunity = [];
         $deduplicatedTotal = count($opportunities);
-        if (in_array($metric, ['reservas_vivas', 'reservas_vivas_actuales_salesforce', 'cv_firmados'], true)) {
-            $eventMetric = str_starts_with($metric, 'reservas_vivas') ? 'reservas_vivas' : 'cv_firmados';
+        if (in_array($metric, ['reservas_totales', 'reservas_vivas', 'reservas_vivas_actuales_salesforce', 'cv_firmados'], true)) {
+            $eventMetric = match ($metric) {
+                'reservas_totales' => 'reservation_events',
+                'cv_firmados' => 'cv_firmados',
+                default => 'reservas_vivas',
+            };
             $groups = $this->metricEventGroups(
                 array_map(fn (SalesforceOpportunity $opportunity) => $this->decorate($opportunity), $opportunities),
                 $eventMetric,
@@ -219,6 +228,14 @@ class ReservationsSalesDashboardDatasetService
             })
             ->values()
             ->all();
+        $reservationEvents = $this->resolvedReservationEventsCohort($filters, $period)
+            ->pluck('row')
+            ->map(function (array $row) use (&$filterOptions): array {
+                $this->collectFilterOptions($filterOptions, $row);
+
+                return $row;
+            })
+            ->all();
 
         foreach ($cohortRows as $row) {
             $baseRow = array_merge($row, ['is_reserva_viva' => false, 'is_cv_firmado' => false]);
@@ -233,8 +250,13 @@ class ReservationsSalesDashboardDatasetService
         }
 
         $reservationGroups = $this->metricEventGroups($cohortRows, 'reservas_vivas');
-        $reservationQualityGroups = $this->metricEventGroups($cohortRows, 'reservation_events');
+        $reservationPeriodGroups = $this->metricEventGroups($reservationEvents, 'reservation_events');
+        $reservationQualityGroups = $this->mergeMetricEventGroups(
+            $this->metricEventGroups($cohortRows, 'reservation_events'),
+            $reservationPeriodGroups,
+        );
         $signedGroups = $this->metricEventGroups($cohortRows, 'cv_firmados');
+        $bucket['reservas_totales'] = count($reservationPeriodGroups);
         $this->addDeduplicatedMetric($bucket, $zones, $delegations, $commercials, $portals, $reservationGroups, 'reservas_vivas');
         $this->addDeduplicatedMetric($bucket, $zones, $delegations, $commercials, $portals, $signedGroups, 'cv_firmados');
         $incidents = array_values(array_merge(
@@ -278,6 +300,11 @@ class ReservationsSalesDashboardDatasetService
         return $this->resolveQueryCohort($this->baseQuery($filters, $period), $filters);
     }
 
+    private function resolvedReservationEventsCohort(array $filters, array $period): Collection
+    {
+        return $this->resolveQueryCohort($this->reservationEventsQuery($filters, $period), $filters);
+    }
+
     private function resolvedGlobalLiveReservationsCohort(array $filters): Collection
     {
         return $this->resolveQueryCohort($this->globalLiveReservationsQuery($filters), $filters);
@@ -306,6 +333,7 @@ class ReservationsSalesDashboardDatasetService
     private function matchesAuditMetric(array $row, string $metric): bool
     {
         return match ($metric) {
+            'reservas_totales' => $row['has_reservation_event'],
             'reservas_vivas', 'reservas_vivas_actuales_salesforce' => $row['is_reserva_viva'],
             'oportunidades_caidas' => $row['is_caida'],
             'cv_firmados' => $row['is_cv_firmado'],
@@ -358,6 +386,24 @@ class ReservationsSalesDashboardDatasetService
             ->where('reservation', true)
             ->where('cv_signed', false)
             ->whereRaw("LOWER(COALESCE(stage_name, '')) <> 'cerrada perdida'");
+
+        $this->applyOpportunityTypeFilter($query, $filters['opportunity_type']);
+
+        if (filled($filters['access_commercial'])) {
+            $query->where('owner_id', $filters['access_commercial']);
+        }
+
+        return $query;
+    }
+
+    private function reservationEventsQuery(array $filters, array $period)
+    {
+        $query = SalesforceOpportunity::query()
+            ->select($this->cohortColumns())
+            ->where('reservation', true)
+            ->whereNotNull('reservation_date')
+            ->where('reservation_date', '>=', $period['start'])
+            ->where('reservation_date', '<', $period['end']);
 
         $this->applyOpportunityTypeFilter($query, $filters['opportunity_type']);
 
@@ -563,6 +609,24 @@ class ReservationsSalesDashboardDatasetService
         return $groups;
     }
 
+    private function mergeMetricEventGroups(array ...$groupSets): array
+    {
+        $merged = [];
+
+        foreach ($groupSets as $groups) {
+            foreach ($groups as $groupKey => $rows) {
+                foreach ($rows as $row) {
+                    $opportunityKey = filled($row['opportunity_id'] ?? null)
+                        ? 'opportunity:'.$row['opportunity_id']
+                        : 'row:'.md5(json_encode($row));
+                    $merged[$groupKey][$opportunityKey] = $row;
+                }
+            }
+        }
+
+        return array_map('array_values', $merged);
+    }
+
     private function addDeduplicatedMetric(
         array &$bucket,
         array &$zones,
@@ -718,7 +782,8 @@ class ReservationsSalesDashboardDatasetService
     {
         return collect([
             ['key' => 'oportunidades_totales', 'label' => 'Oportunidades totales'],
-            ['key' => 'reservas_vivas', 'label' => 'Reservas vivas', 'percent_key' => 'reservas_vivas_pct'],
+            ['key' => 'reservas_vivas', 'label' => 'Reservas vivas del universo seleccionado', 'percent_key' => 'reservas_vivas_pct'],
+            ['key' => 'reservas_totales', 'label' => 'Reservas totales del período'],
             ['key' => 'oportunidades_caidas', 'label' => 'Oportunidades caídas', 'percent_key' => 'oportunidades_caidas_pct'],
             ['key' => 'cv_firmados', 'label' => 'Contratos CV firmados', 'percent_key' => 'cv_firmados_pct'],
         ])->map(function (array $metric) use ($current, $previous) {
@@ -829,6 +894,7 @@ class ReservationsSalesDashboardDatasetService
 
         return in_array($metric, [
             'oportunidades_totales',
+            'reservas_totales',
             'reservas_vivas',
             'reservas_vivas_actuales_salesforce',
             'oportunidades_caidas',
@@ -839,8 +905,9 @@ class ReservationsSalesDashboardDatasetService
     private function auditMetricLabel(string $metric): string
     {
         return match ($metric) {
-            'reservas_vivas' => 'Reservas vivas',
-            'reservas_vivas_actuales_salesforce' => 'Reservas vivas actuales Salesforce',
+            'reservas_totales' => 'Reservas totales del período',
+            'reservas_vivas' => 'Reservas vivas del universo seleccionado',
+            'reservas_vivas_actuales_salesforce' => 'Reservas vivas actuales (todas las fechas)',
             'oportunidades_caidas' => 'Oportunidades caidas',
             'cv_firmados' => 'Contratos CV firmados',
             default => 'Oportunidades totales',
@@ -865,6 +932,7 @@ class ReservationsSalesDashboardDatasetService
         $criterionField = $this->dateField($dateCriterion);
 
         return match ($metric) {
+            'reservas_totales' => $this->auditDate($opportunity->reservation_date),
             'reservas_vivas', 'reservas_vivas_actuales_salesforce' => $this->auditDate($opportunity->reservation_date)
                 ?: $this->auditDate($opportunity->{$criterionField}),
             'oportunidades_caidas' => $this->auditDate($opportunity->close_date)
