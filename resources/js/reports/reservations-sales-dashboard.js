@@ -5,38 +5,52 @@ let latestReservationsReloadRequestId = 0;
 let performanceReloadController = null;
 let latestPerformanceReloadRequestId = 0;
 let performanceTargetAvailable = false;
-const performanceColumnsStorageKey = 'reservationsSalesCommercialPerformanceColumnsV4';
+const performanceColumnsStorageKey = 'reservationsSalesCommercialPerformanceColumnsV5';
 const performanceColumnDefinitions = [
-    { key: 'ranking', label: 'Ranking', defaultVisible: true },
-    { key: 'traffic_light', label: 'Semáforo', alwaysVisible: true },
+    { key: 'ranking', label: 'Ranking', alwaysVisible: true },
+    { key: 'traffic_light', label: 'Estado', alwaysVisible: true },
     { key: 'commercial', label: 'Comercial', alwaysVisible: true },
     { key: 'delegation', label: 'Delegación', defaultVisible: true },
     { key: 'zone', label: 'Zona' },
-    { key: 'leads', label: 'Leads', defaultVisible: true },
-    { key: 'opportunities', label: 'Oportunidades', defaultVisible: true },
+    { key: 'leads', label: 'Leads' },
+    { key: 'opportunities', label: 'Oportunidades' },
     { key: 'reservations_total', label: 'Reservas totales', defaultVisible: true },
-    { key: 'team_average_reservations', label: 'Media delegación', defaultVisible: true },
-    { key: 'team_reservations_deviation', label: 'Desviación vs delegación', defaultVisible: true },
+    { key: 'team_average_reservations', label: 'Media delegación' },
+    { key: 'team_reservations_deviation', label: 'Desviación vs delegación' },
     { key: 'reservations_active', label: 'Reservas vivas', defaultVisible: true },
     { key: 'reservations_dropped', label: 'Reservas caídas', defaultVisible: true },
     { key: 'objective', label: 'Objetivo' },
     { key: 'fulfillment_pct', label: 'Cumplimiento', defaultVisible: true },
     { key: 'lead_to_reservation_pct', label: 'Lead → Reserva' },
-    { key: 'lead_to_reservation_vs_team', label: 'Conversión Lead → Reserva · Comparativa con su delegación', defaultVisible: true },
+    { key: 'lead_to_reservation_vs_team', label: 'Ratio Lead → Reserva · Comparativa con su delegación' },
     { key: 'opportunity_to_reservation_pct', label: 'Oportunidad → Reserva' },
-    { key: 'opportunity_to_reservation_vs_team', label: 'Conversión Oportunidad → Reserva · Comparativa con su delegación', defaultVisible: true },
+    { key: 'opportunity_to_reservation_vs_team', label: 'Ratio Oportunidad → Reserva · Comparativa con su delegación' },
     { key: 'sales', label: 'Ventas válidas', defaultVisible: true },
     { key: 'sales_dropped', label: 'Ventas caídas', defaultVisible: true },
     { key: 'reservation_to_sale_pct', label: 'Reserva → Venta' },
     { key: 'reservation_drop_pct', label: '% Reserva caída' },
     { key: 'sale_drop_pct', label: '% Venta caída' },
-    { key: 'reservation_to_sale_vs_team', label: 'Conversión Reserva → Venta · Comparativa con su delegación', defaultVisible: true },
+    { key: 'reservation_to_sale_vs_team', label: 'Ratio Reserva → Venta · Comparativa con su delegación' },
     { key: 'cancellations', label: 'Cancelaciones' },
     { key: 'cancellation_pct', label: '% cancelación' },
     { key: 'margin_total', label: 'Margen total', defaultVisible: true },
     { key: 'average_margin_per_sale', label: 'Margen medio', defaultVisible: true },
     { key: 'margin_coverage_pct', label: 'Cobertura margen' },
 ];
+const performanceColumnPresets = {
+    summary: {
+        label: 'Resumen',
+        columns: ['ranking', 'traffic_light', 'commercial', 'delegation', 'reservations_total', 'reservations_active', 'reservations_dropped', 'sales', 'sales_dropped', 'fulfillment_pct', 'margin_total', 'average_margin_per_sale'],
+    },
+    activity: {
+        label: 'Actividad',
+        columns: ['ranking', 'traffic_light', 'commercial', 'delegation', 'leads', 'opportunities', 'reservations_total', 'reservations_active', 'reservations_dropped', 'sales', 'sales_dropped', 'lead_to_reservation_pct', 'opportunity_to_reservation_pct', 'reservation_to_sale_pct', 'reservation_drop_pct', 'sale_drop_pct', 'cancellations', 'cancellation_pct'],
+    },
+    profitability: {
+        label: 'Rentabilidad',
+        columns: ['ranking', 'traffic_light', 'commercial', 'delegation', 'sales', 'sales_dropped', 'fulfillment_pct', 'margin_total', 'average_margin_per_sale', 'margin_coverage_pct'],
+    },
+};
 let performanceVisibleColumns = loadVisibleColumns(performanceColumnsStorageKey, performanceColumnDefinitions);
 const reservationsCommercialColumnsStorageKey = 'reservationsCommercialColumns';
 const reservationsCommercialColumnDefinitions = [
@@ -256,7 +270,7 @@ function renderCommercialPerformance(data) {
     renderPerformanceDataIncident(data.data_incident);
     renderPerformanceKpis(data.summary || {}, data.universe || {}, commercialSelected);
     renderPerformanceRows(data.items || []);
-    renderPerformanceEvolution(data.evolution || []);
+    renderPerformanceEvolution(data.evolution || [], data.data_quality?.cancellation_coverage_by_month || {});
     applyPerformanceColumnVisibility();
     refreshPerformanceScrolls();
 
@@ -313,7 +327,7 @@ function renderPerformanceCurrentMonthNotice(month) {
 
     const isCurrentMonth = month === window.commercialPerformanceCurrentMonth;
     notice.textContent = isCurrentMonth
-        ? 'Mes en curso · Resultado provisional. Los datos muestran la actividad acumulada hasta el momento. El objetivo mensual no se prorratea; el cumplimiento y el semáforo comparan el avance actual con el objetivo completo del mes.'
+        ? 'Mes en curso · Resultado provisional. Los datos muestran la actividad acumulada hasta el momento. El objetivo mensual no se prorratea; el cumplimiento y el estado comparan el avance actual con el objetivo completo del mes.'
         : '';
     notice.classList.toggle('is-hidden', !isCurrentMonth);
 }
@@ -485,8 +499,9 @@ function renderPerformanceDataIncident(incident) {
 
 function renderPerformanceKpis(summary, universe, commercialSelected) {
     const fulfillment = commercialSelected
-        ? ['Cumplimiento comercial', formatAvailablePercent(summary.fulfillment_pct)]
-        : ['Cumplimiento global', formatAvailablePercent(universe.global_fulfillment_pct)];
+        ? ['Cumplimiento comercial', formatFulfillmentCalculation(summary.reservations_valid_for_objective, summary.objective, summary.fulfillment_pct)]
+        : ['Cumplimiento global', formatFulfillmentCalculation(universe.global_reservations_valid_for_objective, universe.global_target, universe.global_fulfillment_pct)];
+    const marginCoverage = formatSummaryMarginCoverage(summary);
     const cards = [
         ['Leads', formatNumber(summary.leads)],
         ['Oportunidades', formatNumber(summary.opportunities)],
@@ -496,11 +511,36 @@ function renderPerformanceKpis(summary, universe, commercialSelected) {
         ['Ventas válidas', formatNumber(summary.sales)],
         ['Ventas caídas', formatNumber(summary.sales_dropped)],
         fulfillment,
-        ['Margen total', formatCurrency(summary.margin_total)],
+        ['Margen total', formatCurrency(summary.margin_total), marginCoverage],
     ];
-    document.getElementById('performanceKpis').innerHTML = cards.map(([label, value]) => `
-        <div class="report-ui-kpi-strip__item"><div class="report-ui-kpi-strip__label">${escapeHtml(label)}</div><div class="report-ui-kpi-strip__value">${escapeHtml(value)}</div></div>
+    document.getElementById('performanceKpis').innerHTML = cards.map(([label, value, detail]) => `
+        <div class="report-ui-kpi-strip__item"><div class="report-ui-kpi-strip__label">${escapeHtml(label)}</div><div class="report-ui-kpi-strip__value">${escapeHtml(value)}</div>${detail ? `<div class="performance-kpi-detail">${escapeHtml(detail)}</div>` : ''}</div>
     `).join('');
+}
+
+function formatFulfillmentCalculation(reservations, target, fulfillmentPct) {
+    if (reservations === null || reservations === undefined
+        || target === null || target === undefined
+        || fulfillmentPct === null || fulfillmentPct === undefined) {
+        return 'N/D';
+    }
+
+    return `${formatNumber(reservations)} reservas computables / ${formatNumber(target)} de objetivo = ${formatPercent(fulfillmentPct)}`;
+}
+
+function formatSummaryMarginCoverage(summary) {
+    const sales = Number(summary.sales);
+    const salesWithMargin = Number(summary.sales_with_margin);
+    const salesWithoutMargin = Number(summary.sales_without_margin);
+
+    if (!Number.isFinite(sales) || sales <= 0
+        || !Number.isFinite(salesWithMargin)
+        || !Number.isFinite(salesWithoutMargin)
+        || salesWithoutMargin <= 0) {
+        return '';
+    }
+
+    return `Cobertura margen: ${formatPercent((salesWithMargin / sales) * 100)} · ${formatNumber(salesWithoutMargin)} ventas sin margen informado`;
 }
 
 function renderPerformanceRows(rows) {
@@ -513,15 +553,15 @@ function renderPerformanceRows(rows) {
     root.innerHTML = rows.map((row) => `<tr data-search="${escapeHtml(`${row.commercial || ''} ${row.commercial_id || ''}`.trim())}">
         <td class="report-ui-table__numeric" data-column="ranking">${escapeHtml(row.ranking ?? '-')}</td>
         <td data-column="traffic_light">${performanceLight(row.traffic_light)}</td>
-        <td data-column="commercial"><strong>${escapeHtml(row.commercial || '-')}</strong><br><small>${escapeHtml(row.commercial_id || '-')}</small>${row.evaluable ? '' : `<br><small>${escapeHtml(formatEvaluationStatus(row.evaluation_status, row.evaluation_reason))}</small>`}</td><td data-column="delegation">${escapeHtml(row.delegation || '-')}</td><td data-column="zone">${escapeHtml(formatPerformanceZone(row.zone || '-'))}</td>
+        <td data-column="commercial"><strong>${escapeHtml(row.commercial || '-')}</strong>${row.evaluable ? '' : `<br><small>${escapeHtml(formatEvaluationStatus(row.evaluation_status, row.evaluation_reason))}</small>`}</td><td data-column="delegation">${escapeHtml(row.delegation || '-')}</td><td data-column="zone">${escapeHtml(formatPerformanceZone(row.zone || '-'))}</td>
         <td class="report-ui-table__numeric" data-column="leads">${formatNumber(row.leads)}</td><td class="report-ui-table__numeric" data-column="opportunities">${formatNumber(row.opportunities)}</td><td class="report-ui-table__numeric" data-column="reservations_total">${formatNumber(row.reservations_total)}</td><td class="report-ui-table__numeric" data-column="team_average_reservations">${formatTeamNumber(row.team_average_reservations)}</td><td class="report-ui-table__numeric" data-column="team_reservations_deviation">${formatReservationsDeviation(row.team_reservations_deviation, row.team_reservations_deviation_pct)}</td><td class="report-ui-table__numeric" data-column="reservations_active">${formatNumber(row.reservations_active)}</td><td class="report-ui-table__numeric" data-column="reservations_dropped">${formatNumber(row.reservations_dropped)}</td>
-        <td class="report-ui-table__numeric" data-column="objective">${formatNumber(row.objective)}</td><td class="report-ui-table__numeric" data-column="fulfillment_pct">${formatPercent(row.fulfillment_pct)}</td>
+        <td class="report-ui-table__numeric" data-column="objective">${formatAvailableNumber(row.objective)}</td><td class="report-ui-table__numeric" data-column="fulfillment_pct">${formatAvailablePercent(row.fulfillment_pct)}</td>
         <td class="report-ui-table__numeric" data-column="lead_to_reservation_pct">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="report-ui-table__numeric" data-column="lead_to_reservation_vs_team">${formatDelegationRatioComparison(row.lead_to_reservation_pct, row.team_lead_to_reservation_pct, row.lead_to_reservation_vs_team_pp)}</td><td class="report-ui-table__numeric" data-column="opportunity_to_reservation_pct">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td><td class="report-ui-table__numeric" data-column="opportunity_to_reservation_vs_team">${formatDelegationRatioComparison(row.opportunity_to_reservation_pct, row.team_opportunity_to_reservation_pct, row.opportunity_to_reservation_vs_team_pp)}</td>
         <td class="report-ui-table__numeric" data-column="sales">${formatNumber(row.sales)}</td><td class="report-ui-table__numeric" data-column="sales_dropped">${formatNumber(row.sales_dropped)}</td><td class="report-ui-table__numeric" data-column="reservation_to_sale_pct">${formatAvailablePercent(row.reservation_to_sale_pct)}</td><td class="report-ui-table__numeric" data-column="reservation_drop_pct">${formatAvailablePercent(row.reservation_drop_pct)}</td><td class="report-ui-table__numeric" data-column="sale_drop_pct">${formatAvailablePercent(row.sale_drop_pct)}</td><td class="report-ui-table__numeric" data-column="reservation_to_sale_vs_team">${formatDelegationRatioComparison(row.reservation_to_sale_pct, row.team_reservation_to_sale_pct, row.reservation_to_sale_vs_team_pp)}</td>
         <td class="report-ui-table__numeric" data-column="cancellations">${formatAvailableNumber(row.cancellations)}</td><td class="report-ui-table__numeric" data-column="cancellation_pct">${formatAvailablePercent(row.cancellation_pct)}</td>
-        <td class="report-ui-table__numeric" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">${formatCurrency(row.margin_total)}</td>
-        <td class="report-ui-table__numeric" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">${formatCurrency(row.average_margin_per_sale)}</td>
-        <td class="report-ui-table__numeric" data-column="margin_coverage_pct">${formatPercent(row.margin_coverage_pct)}</td>
+        <td class="report-ui-table__numeric" data-column="margin_total" title="Rentabilidad acumulada de las ventas con margen informado.">${formatMarginWithCoverage(row.margin_total, row.margin_coverage_pct)}</td>
+        <td class="report-ui-table__numeric" data-column="average_margin_per_sale" title="Media calculada únicamente sobre ventas con margen informado.">${formatMarginWithCoverage(row.average_margin_per_sale, row.margin_coverage_pct)}</td>
+        <td class="report-ui-table__numeric" data-column="margin_coverage_pct">${formatAvailablePercent(row.margin_coverage_pct)}</td>
     </tr>`).join('') + `<tr class="is-hidden" data-performance-search-empty><td colspan="${performanceVisibleColumns.length}">No hay comerciales que coincidan con la búsqueda.</td></tr>`;
     applyPerformanceSearchFilter();
 }
@@ -581,14 +621,37 @@ function formatEvaluationStatus(status, reason) {
     return detail && detail !== label ? `${label} · ${detail}` : label;
 }
 
-function renderPerformanceEvolution(rows) {
+function renderPerformanceEvolution(rows, coverageByMonth) {
     const root = document.getElementById('performanceEvolutionRows');
     root.innerHTML = rows.map((row) => `<tr>
         <td title="${escapeHtml(formatPerformanceMonth(row.month, true))}"><strong>${escapeHtml(formatPerformanceMonth(row.month))}</strong></td><td class="report-ui-table__numeric">${formatNumber(row.leads)}</td><td class="report-ui-table__numeric">${formatNumber(row.opportunities)}</td>
-        <td class="report-ui-table__numeric">${formatNumber(row.reservations_total)}</td><td class="report-ui-table__numeric">${formatNumber(row.reservations_active)}</td><td class="report-ui-table__numeric">${formatNumber(row.reservations_dropped)}</td><td class="report-ui-table__numeric">${formatNumber(row.sales)}</td><td class="report-ui-table__numeric">${formatNumber(row.sales_dropped)}</td><td class="report-ui-table__numeric">${formatAvailableNumber(row.cancellations)}</td>
-        <td class="report-ui-table__numeric">${formatPercent(row.fulfillment_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td>
+        <td class="report-ui-table__numeric">${formatNumber(row.reservations_total)}</td><td class="report-ui-table__numeric">${formatNumber(row.reservations_active)}</td><td class="report-ui-table__numeric">${formatNumber(row.reservations_dropped)}</td><td class="report-ui-table__numeric">${formatNumber(row.sales)}</td><td class="report-ui-table__numeric">${formatNumber(row.sales_dropped)}</td><td class="report-ui-table__numeric">${formatEvolutionCancellations(row, coverageByMonth[row.month])}</td>
+        <td class="report-ui-table__numeric">${formatAvailablePercent(row.fulfillment_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.lead_to_reservation_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.opportunity_to_reservation_pct)}</td>
         <td class="report-ui-table__numeric">${formatAvailablePercent(row.reservation_to_sale_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.reservation_drop_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.sale_drop_pct)}</td><td class="report-ui-table__numeric">${formatAvailablePercent(row.cancellation_pct)}</td><td class="report-ui-table__numeric">${formatCurrency(row.margin_total)}</td><td class="report-ui-table__numeric">${formatCurrency(row.average_margin_per_sale)}</td>
     </tr>`).join('');
+}
+
+function formatEvolutionCancellations(row, coverage) {
+    if (row.cancellations !== null && row.cancellations !== undefined) {
+        return formatNumber(row.cancellations);
+    }
+
+    const status = formatCoverageStatus(coverage?.status);
+    const certifiedUntil = coverage?.certified_until
+        ? ` · Certificado hasta ${formatDateTime(coverage.certified_until)}`
+        : '';
+
+    return `<span class="performance-cancellation-unavailable"><strong>N/D</strong><small>${escapeHtml(status + certifiedUntil)}</small></span>`;
+}
+
+function formatMarginWithCoverage(value, coveragePct) {
+    const coverage = Number(coveragePct);
+    const detail = coveragePct !== null && coveragePct !== undefined
+        && Number.isFinite(coverage) && coverage < 100
+        ? `<small>Cobertura margen: ${escapeHtml(formatPercent(coverage))}</small>`
+        : '';
+
+    return `<span class="performance-margin-value">${escapeHtml(formatCurrency(value))}${detail}</span>`;
 }
 
 function performanceLight(value) {
@@ -602,7 +665,10 @@ function initPerformanceColumns() {
     const popover = document.getElementById('performanceColumnsPopover');
     if (!button || !popover) return;
 
-    popover.innerHTML = performanceColumnDefinitions
+    const presets = Object.entries(performanceColumnPresets)
+        .map(([key, preset]) => `<button type="button" class="report-ui-button report-ui-button--secondary reservations-column-preset" data-performance-column-preset="${escapeHtml(key)}">${escapeHtml(preset.label)}</button>`)
+        .join('');
+    const columns = performanceColumnDefinitions
         .filter((column) => !column.alwaysVisible)
         .map((column) => `
             <label class="reservations-column-option">
@@ -610,6 +676,7 @@ function initPerformanceColumns() {
                 <span>${escapeHtml(column.label)}</span>
             </label>`)
         .join('');
+    popover.innerHTML = `<fieldset class="reservations-column-presets"><legend>Vistas</legend><div>${presets}</div></fieldset><fieldset class="reservations-column-options"><legend>Columnas</legend>${columns}</fieldset>`;
     applyPerformanceColumnVisibility();
 
     button.addEventListener('click', () => {
@@ -622,11 +689,16 @@ function initPerformanceColumns() {
 
         const visible = new Set(performanceVisibleColumns);
         input.checked ? visible.add(input.dataset.performanceColumnToggle) : visible.delete(input.dataset.performanceColumnToggle);
-        performanceVisibleColumns = performanceColumnDefinitions
-            .filter((column) => column.alwaysVisible || visible.has(column.key))
-            .map((column) => column.key);
-        localStorage.setItem(performanceColumnsStorageKey, JSON.stringify(performanceVisibleColumns));
-        applyPerformanceColumnVisibility();
+        setPerformanceVisibleColumns([...visible]);
+    });
+    popover.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-performance-column-preset]');
+        if (!button) return;
+
+        const preset = performanceColumnPresets[button.dataset.performanceColumnPreset];
+        if (!preset) return;
+
+        setPerformanceVisibleColumns(preset.columns);
     });
     document.addEventListener('click', (event) => {
         if (!event.target.closest('[data-columns-menu]')) {
@@ -634,6 +706,18 @@ function initPerformanceColumns() {
             button.setAttribute('aria-expanded', 'false');
         }
     });
+}
+
+function setPerformanceVisibleColumns(columns) {
+    const visible = new Set(columns);
+    performanceVisibleColumns = performanceColumnDefinitions
+        .filter((column) => column.alwaysVisible || visible.has(column.key))
+        .map((column) => column.key);
+    localStorage.setItem(performanceColumnsStorageKey, JSON.stringify(performanceVisibleColumns));
+    document.querySelectorAll('[data-performance-column-toggle]').forEach((input) => {
+        input.checked = performanceVisibleColumns.includes(input.dataset.performanceColumnToggle);
+    });
+    applyPerformanceColumnVisibility();
 }
 
 function applyPerformanceColumnVisibility() {
@@ -1346,7 +1430,7 @@ function formatPercent(value) {
         return '-';
     }
 
-    return `${Number(value).toFixed(1)}%`;
+    return `${Number(value).toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`;
 }
 
 function formatAvailableNumber(value) {
@@ -1460,7 +1544,7 @@ function formatDiff(value, isPercentage) {
     const sign = number > 0 ? '+' : '';
 
     return isPercentage
-        ? `${sign}${number.toFixed(1)} pp`
+        ? `${sign}${number.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} pp`
         : `${sign}${fmt.format(number)}`;
 }
 

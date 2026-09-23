@@ -59,7 +59,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 ## Línea base y límites actuales
 
 - Rama base de este roadmap: `main`.
-- SHA actual de la rama base: `8acb8e461cc675b32162f174af771a5cbc15e8e8`.
+- SHA actual de la rama base: `6bebc0a1d9dc11ef9c5ebf62fcf7c16ea3c9e923`.
 - El PR #54 de preparación documental está cerrado y fusionado. La rama remota
   `docs/roadmap-executive-v1` se eliminó después de verificar que seguía
   apuntando al commit aprobado `22e2f6496dc376ad6236854e56434e8a8aa0f3cc`.
@@ -67,7 +67,10 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - El PR #55 de RV-3 está cerrado y fusionado en el SHA
   `8acb8e461cc675b32162f174af771a5cbc15e8e8`; su rama
   `audit/rv-3-historical-validation` fue eliminada después del merge.
-- Actualmente no existe ninguna rama funcional activa.
+- El PR #56 de cierre documental de RV-3 está cerrado y fusionado; el `main`
+  resultante es `6bebc0a1d9dc11ef9c5ebf62fcf7c16ea3c9e923`.
+- La única rama funcional activa es `feat/rv-1-commercial-performance-ux`,
+  creada desde ese `main` para RV-1.
 - Las fichas con rama o SHA `por asignar` no autorizan iniciar trabajo: deben
   completarse al activar formalmente la tarea.
 
@@ -76,7 +79,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 | Orden | ID | Lote | Prioridad | Estado | Predecesor planificado | Dependencia técnica real principal |
 |---:|---|---|---|---|---|---|
 | 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `cerrada` | Ninguno | Evidencia cerrada disponible para RV-1 |
-| 2 | RV-1 | Cierre ejecutivo de Rendimiento comercial | P0 | `pendiente` | RV-3 | Evidencia de RV-3 para cancelaciones `N/D` y cero de ventas caídas |
+| 2 | RV-1 | Cierre ejecutivo de Rendimiento comercial | P0 | `aprobada` | RV-3 | Evidencia de RV-3 para cancelaciones `N/D` y cero de ventas caídas |
 | 3 | RV-2 | Producción y períodos de Resumen Dirección | P0 | `pendiente` | RV-1 | Contratos temporales, reglas y universos existentes; no depende técnicamente de RV-1 |
 | 4 | SF-7A-OPS | Cierre operacional Salesforce Fase 7A | P0 | `pendiente` | RV-2 | Herramienta, migración, runbook y autorización propios; no depende de la UX de RV |
 | 5 | SF-7B-OPS | Cierre operacional Salesforce Fase 7B | P0 | `pendiente` | SF-7A-OPS | Herramienta, fechas locales, runbook y autorización propios; no depende de RV ni de 7A |
@@ -106,8 +109,8 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
   por la ausencia total de candidatos brutos. No se demostró ninguna
   discrepancia ni se realizaron cambios runtime.
 - **Dependencia para RV-1:** representar el motivo de `N/D` mediante la cobertura
-  real y conservar el cero demostrado, sin cambiar fórmulas. RV-1 permanece
-  `pendiente` y sin rama o SHA de activación.
+  real y conservar el cero demostrado, sin cambiar fórmulas. Esta dependencia
+  quedó aplicada en la rama activa de RV-1.
 - **Detalle auditable:** evidencia, seguridad y trazabilidad completa en
   [`HANDOFF.md`](HANDOFF.md).
 
@@ -115,18 +118,31 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 
 - **Fase/lote:** cierre definitivo de Reservas/Ventas.
 - **Prioridad:** P0.
-- **Estado:** `pendiente`.
+- **Estado:** `aprobada` desde el 2026-09-23; todavía no `cerrada`.
 - **Predecesor planificado:** RV-3.
 - **Dependencias técnicas reales:** evidencia cerrada de RV-3 para representar
   cancelaciones `N/D` y verificar el cero de ventas caídas.
-- **Rama prevista o activa:** por asignar al activar; ninguna rama activa.
-- **SHA base al activar:** por registrar desde `main` actualizado.
+- **Rama prevista o activa:** `feat/rv-1-commercial-performance-ux`.
+- **SHA base al activar:** `6bebc0a1d9dc11ef9c5ebf62fcf7c16ea3c9e923`.
+- **HEAD funcional validado:**
+  `521310b1730b68f0579b0f734101904f65955018`.
+- **Aprobación sénior:** rama aprobada para PR el 2026-09-23 sobre el SHA
+  revisado `7c4cb00d42b841ac2fe27ce3b0d52a91e077f3f7`.
 - **Bloqueos/decisiones de negocio:** no redefinir fórmulas ni extrapolar margen
   desconocido; los presets de columnas son condicionales a que no introduzcan
   complejidad estructural.
-- **Punto exacto de reanudación:** revisar el contrato y la UI actuales de
-  Rendimiento comercial contra los diez criterios siguientes, empezando por el
-  cálculo visible de cumplimiento y la terminología.
+- **Resultado del checkpoint:** los diez criterios se implementaron en frontend
+  y documentación sin cambios backend, fórmulas, universos, ranking,
+  deduplicación, endpoints, permisos ni consultas. La preferencia V5, los
+  presets y el formato operan exclusivamente en cliente sobre el payload actual.
+- **Validación:** feature de Rendimiento comercial `77` pruebas/`1.020`
+  aserciones; unit de KPI `1`/`6`; build Vite correcto. La suite completa obtuvo
+  `1.008` de `1.009` pruebas y `7.668` aserciones: solo excedió por `0,1037 s` el
+  umbral temporal de Stock; su repetición aislada fue correcta (`2`/`13`).
+- **Punto exacto de reanudación:** abrir PR contra `main`, esperar CI
+  completamente verde, realizar la revisión final del PR y fusionar únicamente
+  tras autorización expresa. No activar RV-2 ni cambiar RV-1 a `cerrada` antes
+  de completar ese flujo.
 - **Criterios de aceptación:**
   1. Mostrar `X reservas computables / Y de objetivo = Z %` usando, sin
      redefinir la fórmula, `global_reservations_valid_for_objective`,
