@@ -66,6 +66,28 @@ class OpportunityDashboardEndpointTest extends TestCase
                     'opportunity_types',
                 ],
             ])
+            ->assertJsonStructure([
+                'periodo_actual' => ['inicio', 'fin', 'technical' => ['start_inclusive', 'end_exclusive', 'semantics', 'timezone']],
+                'periodo_comparado' => ['inicio', 'fin', 'technical' => ['start_inclusive', 'end_exclusive', 'semantics', 'timezone']],
+                'produccion_periodo' => [
+                    'periodo_actual' => ['reservas', 'ventas'],
+                    'periodo_comparado' => ['reservas', 'ventas'],
+                    'comparativa',
+                    'date_fields' => ['reservas', 'ventas'],
+                    'interval_semantics',
+                ],
+                'cohorte_creacion' => [
+                    'date_criterion',
+                    'date_label',
+                    'periodo_actual' => ['oportunidades_totales', 'reservas_vivas', 'oportunidades_caidas', 'cv_firmados'],
+                    'periodo_comparado',
+                    'comparativa',
+                ],
+            ])
+            ->assertJsonPath('produccion_periodo.date_fields.reservas', 'reservation_date')
+            ->assertJsonPath('produccion_periodo.date_fields.ventas', 'cv_signed_date')
+            ->assertJsonPath('produccion_periodo.interval_semantics', '[start,end)')
+            ->assertJsonPath('cohorte_creacion.date_criterion', 'created_date')
             ->assertJsonStructure(['executive_insights', 'executive_insights_source']);
 
         $this->getJson('/informes/reservas-ventas/data/commercials?'.http_build_query($query))

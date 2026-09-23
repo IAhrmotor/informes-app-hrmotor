@@ -42,7 +42,7 @@
             </select>
         </div>
 
-        <div class="report-ui-field" data-filter-scope="standard">
+        <div class="report-ui-field" data-filter-scope="legacy-date-criterion">
             <label class="report-ui-label" for="dateCriterion">Criterio de fecha</label>
             <select class="report-ui-select" id="dateCriterion">
                 <option value="created_date">Fecha de creacion</option>
@@ -136,15 +136,12 @@
                 <div class="report-ui-card report-ui-card--muted period-card">
                     <span>Periodo actual</span>
                     <strong id="currentPeriodLabel">-</strong>
+                    <small id="currentPeriodTechnical">Inicio incluido · fin excluido</small>
                 </div>
                 <div class="report-ui-card report-ui-card--muted period-card">
                     <span>Periodo comparado</span>
                     <strong id="comparisonPeriodLabel">-</strong>
-                </div>
-                <div class="report-ui-card report-ui-card--muted period-card universe-definition-card">
-                    <span>Fecha que define el universo</span>
-                    <strong id="universeDateLabel">-</strong>
-                    <small>Los resultados posteriores se miden sobre esta misma cohorte.</small>
+                    <small id="comparisonPeriodTechnical">Inicio incluido · fin excluido</small>
                 </div>
             </section>
 
@@ -159,23 +156,56 @@
                 <div class="reservations-data-quality-incidents report-ui-data-panel__body" id="reservationsDataQualityIncidents"></div>
             </section>
 
-            <section class="report-ui-kpi-strip" id="summaryKpis" aria-label="Indicadores principales"></section>
-
-            <section class="report-ui-data-panel">
+            <section class="report-ui-data-panel reservations-production-panel">
                 <div class="report-ui-data-panel__header">
-                    <x-reports.ui.section-header title="Comparativa basica" description="Los KPI del universo siguen el criterio seleccionado; Reservas totales se compara siempre por fecha de reserva." />
+                    <x-reports.ui.section-header title="Producción del período" description="Reservas por fecha de reserva y Ventas por fecha de firma CV. Cada hito usa [inicio incluido, fin excluido)." />
                 </div>
-                <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Comparativa del periodo actual y comparado">
+                <div class="report-ui-kpi-strip" id="productionKpis" aria-label="Indicadores de producción del período"></div>
+                <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Comparativa de producción del período actual y comparado">
                     <table class="report-ui-table report-ui-table--sticky-header">
                         <thead>
                         <tr>
-                            <th scope="col">Metrica</th>
-                            <th scope="col" class="report-ui-table__numeric">Periodo actual</th>
-                            <th scope="col" class="report-ui-table__numeric">Periodo comparado</th>
+                            <th scope="col">Métrica de producción</th>
+                            <th scope="col" class="report-ui-table__numeric">Período actual</th>
+                            <th scope="col" class="report-ui-table__numeric">Período comparado</th>
                             <th scope="col" class="report-ui-table__numeric">Diferencia</th>
                         </tr>
                         </thead>
-                        <tbody id="comparisonRows"></tbody>
+                        <tbody id="productionComparisonRows"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="report-ui-card report-ui-card--muted reservations-current-state" aria-label="Estado actual de reservas">
+                <div>
+                    <span>Estado actual</span>
+                    <strong>Reservas vivas actuales (todas las fechas)</strong>
+                    <small>No forma parte de Producción ni de la Cohorte.</small>
+                </div>
+                <div class="reservations-current-state__value" id="currentLiveReservations">-</div>
+                <div id="currentLiveReservationsAudit"></div>
+            </section>
+
+            <section class="report-ui-data-panel reservations-cohort-panel">
+                <div class="report-ui-data-panel__header">
+                    <x-reports.ui.section-header title="Cohorte de oportunidades creadas en el período" description="La cohorte se define por CreatedDate. Sus reservas, caídas y firmas describen el estado/resultados actuales de esas oportunidades y pueden ocurrir después del período de creación." />
+                </div>
+                <div class="reservations-cohort-contract">
+                    <span>Fecha que define la cohorte</span>
+                    <strong id="universeDateLabel">Fecha de creación</strong>
+                </div>
+                <div class="report-ui-kpi-strip" id="cohortKpis" aria-label="Resultados actuales de la cohorte de creación"></div>
+                <div class="report-ui-data-panel__scroll" tabindex="0" aria-label="Comparativa de la cohorte actual y comparada">
+                    <table class="report-ui-table report-ui-table--sticky-header">
+                        <thead>
+                        <tr>
+                            <th scope="col">Resultado actual de la cohorte</th>
+                            <th scope="col" class="report-ui-table__numeric">Período actual</th>
+                            <th scope="col" class="report-ui-table__numeric">Período comparado</th>
+                            <th scope="col" class="report-ui-table__numeric">Diferencia</th>
+                        </tr>
+                        </thead>
+                        <tbody id="cohortComparisonRows"></tbody>
                     </table>
                 </div>
             </section>

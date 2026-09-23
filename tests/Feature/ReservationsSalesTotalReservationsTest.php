@@ -70,6 +70,8 @@ class ReservationsSalesTotalReservationsTest extends TestCase
             ->json();
 
         $this->assertSame(3, data_get($payload, 'kpis.reservas_totales'));
+        $this->assertSame(3, data_get($payload, 'produccion_periodo.periodo_actual.reservas'));
+        $this->assertSame(1, data_get($payload, 'produccion_periodo.periodo_comparado.reservas'));
         $this->assertSame(2, data_get($payload, 'kpis.oportunidades_totales'));
         $this->assertSame(2, data_get($payload, 'kpis.reservas_vivas'));
         $this->assertSame(0, data_get($payload, 'kpis.cv_firmados'));
@@ -87,6 +89,11 @@ class ReservationsSalesTotalReservationsTest extends TestCase
         $this->assertSame(2, $comparison['reservas_totales']['diferencia']);
         $this->assertNull($comparison['reservas_totales']['periodo_actual_pct']);
         $this->assertNull($comparison['reservas_totales']['diferencia_pct_puntos']);
+
+        $productionComparison = collect(data_get($payload, 'produccion_periodo.comparativa'))->keyBy('key');
+        $this->assertSame(3, $productionComparison['reservas']['periodo_actual']);
+        $this->assertSame(1, $productionComparison['reservas']['periodo_comparado']);
+        $this->assertSame(2, $productionComparison['reservas']['diferencia']);
     }
 
     public function test_reservas_totales_reutiliza_identidad_de_vehiculo_fecha_y_fallback_a_opportunity(): void
@@ -206,14 +213,35 @@ class ReservationsSalesTotalReservationsTest extends TestCase
             'owner_delegation' => 'Alcobendas',
             'vehicle_interest_id' => '01t-event-option-other',
         ]);
+        $this->opportunityRow('006-sale-option-own', [
+            'created_date' => '2026-04-12 10:00:00',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-12',
+            'stage_name' => 'Contrato',
+            'owner_id' => '005-sale-option-own',
+            'owner_name' => 'Comercial Venta Evento',
+            'owner_delegation' => 'Alicante',
+            'vehicle_interest_id' => '01t-sale-option-own',
+        ]);
+        $this->opportunityRow('006-sale-option-other', [
+            'created_date' => '2026-04-13 10:00:00',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-05-13',
+            'stage_name' => 'Contrato',
+            'owner_id' => '005-sale-option-other',
+            'owner_name' => 'Comercial Venta Ajena',
+            'owner_delegation' => 'Alcobendas',
+            'vehicle_interest_id' => '01t-sale-option-other',
+        ]);
 
         $global = $this->getJson('/informes/reservas-ventas/data/summary?'.http_build_query($this->filters()))
             ->assertOk()
             ->assertJsonPath('kpis.reservas_totales', 2)
+            ->assertJsonPath('produccion_periodo.periodo_actual.ventas', 2)
             ->json();
 
         $this->assertEqualsCanonicalizing(
-            ['005-event-option-own', '005-event-option-other'],
+            ['005-event-option-own', '005-event-option-other', '005-sale-option-own', '005-sale-option-other'],
             collect(data_get($global, 'filters.commercials'))->pluck('id')->all(),
         );
         $this->assertEqualsCanonicalizing(
@@ -233,9 +261,13 @@ class ReservationsSalesTotalReservationsTest extends TestCase
             ->getJson('/informes/reservas-ventas/data/summary?'.http_build_query($this->filters()))
             ->assertOk()
             ->assertJsonPath('kpis.reservas_totales', 1)
+            ->assertJsonPath('produccion_periodo.periodo_actual.ventas', 1)
             ->json();
 
-        $this->assertSame(['005-event-option-own'], collect(data_get($scoped, 'filters.commercials'))->pluck('id')->all());
+        $this->assertEqualsCanonicalizing(
+            ['005-event-option-own', '005-sale-option-own'],
+            collect(data_get($scoped, 'filters.commercials'))->pluck('id')->all(),
+        );
         $this->assertSame(['Alicante'], data_get($scoped, 'filters.commercial_delegations'));
         $this->assertNotContains('Comercial Ajeno', collect(data_get($scoped, 'filters.commercials'))->pluck('name')->all());
         $this->assertNotContains('Alcobendas', data_get($scoped, 'filters.commercial_delegations'));
@@ -366,12 +398,24 @@ class ReservationsSalesTotalReservationsTest extends TestCase
         $javascript = file_get_contents(resource_path('js/reports/reservations-sales-dashboard.js'));
         $blade = file_get_contents(resource_path('views/reports/reservations-sales/index.blade.php'));
 
-        $this->assertStringContainsString("label: 'Reservas totales del período'", $javascript);
-        $this->assertStringContainsString("label: 'Reservas vivas del universo seleccionado'", $javascript);
-        $this->assertStringContainsString("label: 'Reservas vivas actuales (todas las fechas)'", $javascript);
-        $this->assertStringContainsString('Por fecha de reserva · incluye vivas, caídas y con CV', $javascript);
-        $this->assertStringContainsString('Estado actual sin filtro temporal', $javascript);
-        $this->assertStringContainsString('Reservas totales se compara siempre por fecha de reserva', $blade);
+        $this->assertStringContainsString("label: 'Reservas'", $javascript);
+        $this->assertStringContainsString("label: 'Ventas'", $javascript);
+        $this->assertStringContainsString('Por reservation_date · incluye vivas, caídas y firmadas', $javascript);
+        $this->assertStringContainsString('Por cv_signed_date · firmadas y no Cerrada Perdida', $javascript);
+        $this->assertStringContainsString('Producción del período', $blade);
+        $this->assertStringContainsString('Cohorte de oportunidades creadas en el período', $blade);
+        $this->assertStringContainsString('Reservas vivas actuales (todas las fechas)', $blade);
+        $this->assertMatchesRegularExpression('/data-filter-scope="standard"[^>]*>\s*<label[^>]*for="period"/s', $blade);
+        $this->assertMatchesRegularExpression('/data-filter-scope="legacy-date-criterion"[^>]*>\s*<label[^>]*for="dateCriterion"/s', $blade);
+        $this->assertStringContainsString('performanceMode || summaryMode', $javascript);
+        $this->assertStringContainsString("const dateCriterion = isSummaryMode()\n        ? 'created_date'", $javascript);
+        $setFilterModeSource = substr(
+            $javascript,
+            strpos($javascript, 'function setFilterMode('),
+            strpos($javascript, 'function isCommercialPerformanceMode(') - strpos($javascript, 'function setFilterMode('),
+        );
+        $this->assertStringNotContainsString("dateCriterion').value", $setFilterModeSource);
+        $this->assertStringNotContainsString('Comparativa basica', $blade);
     }
 
     private function reservation(string $id, string $reservationDate, array $overrides = []): void

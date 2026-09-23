@@ -1,6 +1,6 @@
 # Informe de Reservas / Ventas
 
-Actualizado: 2026-09-22.
+Actualizado: 2026-09-23.
 
 ## Fuente y datos locales
 
@@ -14,9 +14,52 @@ Actualizado: 2026-09-22.
 - Vehículo: `OPP_BUS_Vehiculo_de_interes__c` y matrícula de la relación ya
   sincronizada.
 
-## Cohorte temporal
+## Resumen Dirección: producción, cohorte y estado actual
 
-El selector de fecha define una única cohorte para todo el informe:
+Resumen Dirección separa tres conceptos que no deben sumarse ni interpretarse
+como un único embudo:
+
+- **Producción del período:** Reservas por `reservation_date` y Ventas por
+  `cv_signed_date`, ambas con límites `[inicio incluido, fin excluido)`.
+- **Cohorte de oportunidades creadas en el período:** pertenencia siempre por
+  `created_date`; las reservas, caídas y firmas mostradas son el estado o
+  resultado actual de esas oportunidades y pueden haber ocurrido después.
+- **Estado actual:** Reservas vivas actuales de todas las fechas, como contexto
+  independiente de Producción y Cohorte.
+
+El selector legacy de criterio de fecha se oculta únicamente en Resumen porque
+no redefine ninguna de esas tres lentes. Continúa visible y operativo en
+Comerciales/delegaciones/zonas y Portales/procedencia. Mientras Resumen está
+activo, la petición usa `created_date` sin modificar el valor conservado en el
+selector para las pestañas legacy. Las claves históricas
+`kpis`, `comparativa`, `universe_date_criterion`, `universe_date_label` y
+`periodo_actual`/`periodo_comparado` mantienen su significado;
+`produccion_periodo` y `cohorte_creacion` son contratos aditivos.
+
+La respuesta conserva `inicio` y `fin` como fechas visibles inclusivas y añade
+en cada período `technical.start_inclusive`, `technical.end_exclusive`,
+`technical.semantics = "[start,end)"` y `technical.timezone`. Así los presets,
+incluidos mes actual y mes anterior, se comparan sin aparentar solapamiento ni
+usar `23:59:59` como frontera técnica. En mes actual, el tramo equivalente del
+mes anterior se limita siempre al comienzo del mes actual para que un mes largo
+no desborde ni solape períodos.
+
+El catálogo de Delegación, Zona y Comercial se forma con la unión relevante de
+producción y cohorte de creación bajo el ámbito resuelto en servidor. Cambiar
+un filtro conserva las reglas temporales anteriores y no amplía permisos.
+
+Resumen conserva la timezone global `UTC`; Rendimiento comercial usa
+`Europe/Madrid`. Ambos imputan los hitos por su fecha propia, pero no deben
+compararse sin respetar esa diferencia y el roster/atribución mensual de
+Rendimiento. Comisiones también usa `cv_signed = true`, `cv_signed_date` y
+excluye `Cerrada Perdida`, aunque puede reducir su universo por owner activo,
+gestión de venta, elegibilidad, tipo y fórmulas económicas. RV-2 no importa
+esas reglas económicas ni exige igualdad ciega de totales.
+
+## Cohorte temporal legacy
+
+En las pestañas legacy, el selector de fecha continúa definiendo una única
+cohorte:
 
 | Criterio | Campo local | Campo Salesforce |
 |---|---|---|
@@ -28,17 +71,16 @@ Después de fijar la cohorte, los KPI legacy, porcentajes, tablas y auditorías 
 calculan sobre esas mismas oportunidades. Una oportunidad creada en julio y
 firmada en agosto cuenta como firmada dentro de la cohorte de julio cuando el
 criterio es Fecha de creación. Una oportunidad creada en junio y firmada en
-julio queda fuera de esa cohorte. La excepción aditiva es **Reservas totales del
-período**, una métrica de evento que siempre se acota por `reservation_date`
-para responder cuántas reservas se realizaron realmente en cada período, sin
-alterar el universo de los demás KPI.
+julio queda fuera de esa cohorte. Las excepciones aditivas son las métricas de
+Producción: Reservas se acota por `reservation_date` y Ventas por
+`cv_signed_date`, sin alterar el universo ni el significado de los KPI legacy.
 
 Los KPI anclados a la cohorte y su auditoría CSV resuelven el mismo dataset base
 con idénticos filtros y ámbitos de servidor. La exportación decora ese conjunto
 sin aplicar exclusiones funcionales adicionales: para `Oportunidades totales`,
 el conjunto de Opportunity IDs del KPI y el del CSV debe ser idéntico. Para
-`Reservas totales del período`, KPI y auditoría comparten en su lugar el mismo
-conjunto de eventos acotado por `reservation_date`.
+Reservas y Ventas de Producción, KPI y auditoría comparten en su lugar el mismo
+conjunto de eventos acotado por su fecha propia.
 
 La pantalla muestra criterio, período, período comparado, actualización y corte
 de la fotografía local. Al cambiar filtros se cancela la petición anterior y se
@@ -54,6 +96,14 @@ ocultan los resultados obsoletos.
   excluye reservas sin fecha y no depende del criterio temporal de la cohorte.
   Se deduplica con la regla común vehículo + fecha de reserva y fallback a la
   Opportunity cuando no existe identidad de vehículo.
+- `Ventas del período` = RecordType Venta o Cambio, CV firmado con
+  `cv_signed_date` dentro del período y etapa actual distinta de
+  `Cerrada Perdida`. Tasación, otros tipos y tipo ausente no cuentan como venta
+  producida, aunque los KPI legacy conserven su universo previo. Se deduplica
+  por vehículo + fecha de firma, con fallback a Opportunity sin identidad de
+  vehículo. Un grupo con estados de clasificación incompatibles no se resuelve
+  por orden técnico: se excluye del total y se publica como incidencia de
+  calidad.
 - Caída = etapa `Cerrada Perdida`.
 - CV firmado = flag firmado true y etapa distinta de `Cerrada Perdida`.
 - `Reservas vivas del universo seleccionado` es la reserva viva dentro de la
@@ -95,10 +145,11 @@ reserva o firma:
 global, pero no la convierte en atribución funcional cuando hay campos
 contradictorios.
 
-La auditoría JSON y CSV acepta `metric=reservas_totales`, consulta el período
-actual por `reservation_date`, conserva todas las filas de cada grupo duplicado
-y utiliza `counted_in_kpi` para reconstruir exactamente el total deduplicado.
-No se añaden campos personales al contrato de auditoría.
+La auditoría JSON y CSV acepta `metric=reservas_totales` y
+`metric=cv_firmados_periodo`. Cada métrica consulta el período actual por su
+fecha propia, conserva todas las filas relevantes de cada grupo duplicado y
+utiliza `counted_in_kpi` para reconstruir exactamente el total deduplicado. No
+se añaden campos personales al contrato de auditoría.
 
 ## Portal y agrupaciones
 
@@ -172,6 +223,12 @@ permite reanudar con `--after-id`, registra before/after y solo consulta Leads e
 Salesforce para el matching existente. No consulta ni escribe Opportunities en
 Salesforce. La herramienta está preparada, pero no se ha ejecutado el histórico
 ni un dry-run productivo.
+
+El dataset de Resumen usa el namespace de caché
+`reservas-ventas-dashboard-v7`; V6 queda intacto hasta expirar. Este cambio no
+afecta a la caché V4 independiente de Rendimiento comercial. La identidad V7
+usa fechas visibles/canónicas estables y excluye timestamps técnicos variables;
+el payload cacheado conserva los límites exactos del cálculo realmente servido.
 
 Archivos principales:
 

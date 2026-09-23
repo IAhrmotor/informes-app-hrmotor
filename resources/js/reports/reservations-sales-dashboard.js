@@ -113,12 +113,16 @@ function bindTabs() {
 
 function setFilterMode(panelId) {
     const performanceMode = panelId === 'panel-rendimiento-comercial';
+    const summaryMode = panelId === 'panel-resumen';
     const filters = document.getElementById('reportFilters');
     if (!filters) return;
 
-    filters.dataset.filterMode = performanceMode ? 'performance' : 'standard';
+    filters.dataset.filterMode = performanceMode ? 'performance' : (summaryMode ? 'summary' : 'standard');
     filters.querySelectorAll('[data-filter-scope="standard"]').forEach((control) => {
         control.classList.toggle('is-hidden', performanceMode);
+    });
+    filters.querySelectorAll('[data-filter-scope="legacy-date-criterion"]').forEach((control) => {
+        control.classList.toggle('is-hidden', performanceMode || summaryMode);
     });
     filters.querySelectorAll('[data-filter-scope="performance"]').forEach((control) => {
         control.classList.toggle('is-hidden', !performanceMode);
@@ -132,6 +136,10 @@ function setFilterMode(panelId) {
 
 function isCommercialPerformanceMode() {
     return document.getElementById('reportFilters')?.dataset.filterMode === 'performance';
+}
+
+function isSummaryMode() {
+    return document.getElementById('reportFilters')?.dataset.filterMode === 'summary';
 }
 
 function bindCommercialPerformance() {
@@ -892,14 +900,17 @@ function renderSummary(data) {
         : 'Datos de Salesforce sincronizados: pendiente';
     document.getElementById('currentPeriodLabel').textContent = periodText(data.periodo_actual);
     document.getElementById('comparisonPeriodLabel').textContent = periodText(data.periodo_comparado);
-    document.getElementById('universeDateLabel').textContent = data.universe_date_label || '-';
+    document.getElementById('currentPeriodTechnical').textContent = periodTechnicalText(data.periodo_actual);
+    document.getElementById('comparisonPeriodTechnical').textContent = periodTechnicalText(data.periodo_comparado);
+    document.getElementById('universeDateLabel').textContent = data.cohorte_creacion?.date_label || 'Fecha de creación';
 
     const empty = document.getElementById('emptyMessage');
     empty.classList.toggle('is-hidden', Boolean(data.ok));
     empty.textContent = data.message || 'No hay oportunidades sincronizadas para el periodo seleccionado.';
 
-    renderKpis(data.kpis || {});
-    renderComparison(data.comparativa || []);
+    renderProduction(data.produccion_periodo || {});
+    renderCreationCohort(data.cohorte_creacion || {});
+    renderCurrentLiveReservations(data.kpis || {});
     renderDataQuality(data.data_quality || {});
 }
 
@@ -923,16 +934,38 @@ function renderDataQuality(quality) {
     `).join('');
 }
 
-function renderKpis(kpis) {
-    const root = document.getElementById('summaryKpis');
+function renderProduction(production) {
+    const current = production.periodo_actual || {};
     const cards = [
-        { label: 'Oportunidades totales', value: formatNumber(kpis.oportunidades_totales), hint: 'Muestra del periodo', metric: 'oportunidades_totales' },
-        { label: 'Reservas totales del período', value: formatNumber(kpis.reservas_totales), hint: 'Por fecha de reserva · incluye vivas, caídas y con CV', metric: 'reservas_totales' },
-        { label: 'Reservas vivas del universo seleccionado', value: formatNumber(kpis.reservas_vivas), hint: `Según el criterio de fecha y período seleccionados · ${formatPercent(kpis.reservas_vivas_pct)} sobre total`, metric: 'reservas_vivas' },
-        { label: 'Reservas vivas actuales (todas las fechas)', value: formatNumber(kpis.reservas_vivas_actuales_salesforce), hint: 'Estado actual sin filtro temporal', metric: 'reservas_vivas_actuales_salesforce' },
-        { label: 'Oportunidades caídas', value: formatNumber(kpis.oportunidades_caidas), hint: `${formatPercent(kpis.oportunidades_caidas_pct)} sobre total`, metric: 'oportunidades_caidas' },
-        { label: 'Contratos CV firmados', value: formatNumber(kpis.cv_firmados), hint: `${formatPercent(kpis.cv_firmados_pct)} sobre total`, metric: 'cv_firmados' },
+        { label: 'Reservas', value: formatNumber(current.reservas), hint: 'Por reservation_date · incluye vivas, caídas y firmadas', metric: 'reservas_totales' },
+        { label: 'Ventas', value: formatNumber(current.ventas), hint: 'Por cv_signed_date · firmadas y no Cerrada Perdida', metric: 'cv_firmados_periodo' },
     ];
+
+    renderSummaryCards('productionKpis', cards);
+    renderComparison('productionComparisonRows', production.comparativa || []);
+}
+
+function renderCreationCohort(cohort) {
+    const current = cohort.periodo_actual || {};
+    renderSummaryCards('cohortKpis', [
+        { label: 'Oportunidades totales', value: formatNumber(current.oportunidades_totales), hint: 'Pertenencia por CreatedDate' },
+        { label: 'Reservas vivas', value: formatNumber(current.reservas_vivas), hint: `${formatPercent(current.reservas_vivas_pct)} sobre la cohorte` },
+        { label: 'Oportunidades caídas', value: formatNumber(current.oportunidades_caidas), hint: `${formatPercent(current.oportunidades_caidas_pct)} sobre la cohorte` },
+        { label: 'Contratos CV firmados', value: formatNumber(current.cv_firmados), hint: `${formatPercent(current.cv_firmados_pct)} sobre la cohorte` },
+    ]);
+    renderComparison('cohortComparisonRows', cohort.comparativa || []);
+}
+
+function renderCurrentLiveReservations(kpis) {
+    const value = document.getElementById('currentLiveReservations');
+    const audit = document.getElementById('currentLiveReservationsAudit');
+    if (value) value.textContent = formatNumber(kpis.reservas_vivas_actuales_salesforce);
+    if (audit) audit.innerHTML = kpiAuditLinkHtml('reservas_vivas_actuales_salesforce', 'Reservas vivas actuales');
+}
+
+function renderSummaryCards(rootId, cards) {
+    const root = document.getElementById(rootId);
+    if (!root) return;
 
     root.innerHTML = '';
 
@@ -950,8 +983,9 @@ function renderKpis(kpis) {
     });
 }
 
-function renderComparison(rows) {
-    const root = document.getElementById('comparisonRows');
+function renderComparison(rootId, rows) {
+    const root = document.getElementById(rootId);
+    if (!root) return;
     root.innerHTML = '';
 
     if (!rows.length) {
@@ -1253,9 +1287,12 @@ function updateSortIndicators(table, state) {
 
 function currentFilters() {
     const params = new URLSearchParams();
+    const dateCriterion = isSummaryMode()
+        ? 'created_date'
+        : document.getElementById('dateCriterion')?.value;
 
     setParam(params, 'period', document.getElementById('period')?.value);
-    setParam(params, 'date_criterion', document.getElementById('dateCriterion')?.value);
+    setParam(params, 'date_criterion', dateCriterion);
     setParam(params, 'opportunity_type', document.getElementById('opportunityType')?.value);
     setParam(params, 'commercial_delegation', document.getElementById('commercialDelegation')?.value);
     setParam(params, 'zone', document.getElementById('zone')?.value);
@@ -1330,8 +1367,12 @@ function setLoadingState(isLoading) {
         document.getElementById('updatedBadge').textContent = 'Cargando fotografía local...';
         document.getElementById('emptyMessage')?.classList.add('is-hidden');
         [
-            'summaryKpis',
-            'comparisonRows',
+            'productionKpis',
+            'productionComparisonRows',
+            'cohortKpis',
+            'cohortComparisonRows',
+            'currentLiveReservations',
+            'currentLiveReservationsAudit',
             'insights',
             'commercialZoneRows',
             'commercialDelegationRows',
@@ -1385,6 +1426,30 @@ function periodText(period) {
     }
 
     return `${formatDate(period.inicio) || '-'} a ${formatDate(period.fin) || '-'}`;
+}
+
+function periodTechnicalText(period) {
+    const technical = period?.technical;
+    if (!technical?.start_inclusive || !technical?.end_exclusive) {
+        return 'Inicio incluido · fin excluido';
+    }
+
+    const timezone = technical.timezone || 'UTC';
+    return `Inicio incluido: ${formatTechnicalDateTime(technical.start_inclusive, timezone)} · fin excluido: ${formatTechnicalDateTime(technical.end_exclusive, timezone)} · ${timezone}`;
+}
+
+function formatTechnicalDateTime(value, timeZone) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value || '-';
+
+    return new Intl.DateTimeFormat('es-ES', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone,
+    }).format(date);
 }
 
 function formatDate(value) {

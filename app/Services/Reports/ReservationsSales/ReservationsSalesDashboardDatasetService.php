@@ -84,9 +84,9 @@ class ReservationsSalesDashboardDatasetService
         $periods = $this->periods($filters);
 
         return Cache::remember(
-            'reservas-ventas-dashboard-v6:'.md5(json_encode([
+            'reservas-ventas-dashboard-v7:'.md5(json_encode([
                 'filters' => $filters,
-                'periods' => $this->periodPayloads($periods),
+                'periods' => $this->cachePeriodIdentity($periods),
                 'version' => $this->dataVersion(),
             ])),
             now()->addMinutes(self::CACHE_TTL_MINUTES),
@@ -100,6 +100,24 @@ class ReservationsSalesDashboardDatasetService
         $previous = $this->aggregate($filters, $periods['previous']);
         $current['bucket']['reservas_vivas_actuales_salesforce'] = $this->globalLiveReservations($filters);
         $comparison = $this->comparison($current['bucket'], $previous['bucket']);
+        $currentCreatedRows = $filters['date_criterion'] === 'created_date'
+            ? $current['cohort_rows']
+            : $this->resolvedCreatedCohort($filters, $periods['current'])->pluck('row')->values()->all();
+        $previousCreatedRows = $filters['date_criterion'] === 'created_date'
+            ? $previous['cohort_rows']
+            : $this->resolvedCreatedCohort($filters, $periods['previous'])->pluck('row')->values()->all();
+        $currentCreatedCohort = $this->executiveCohort($currentCreatedRows);
+        $previousCreatedCohort = $this->executiveCohort($previousCreatedRows);
+        $productionCurrent = [
+            'reservas' => $current['bucket']['reservas_totales'],
+            'ventas' => $current['production_sales'],
+        ];
+        $productionPrevious = [
+            'reservas' => $previous['bucket']['reservas_totales'],
+            'ventas' => $previous['production_sales'],
+        ];
+        $dataQuality = $this->mergeDataQuality($current['data_quality'], $currentCreatedCohort['data_quality']);
+        $filterOptions = $this->filterOptionsFromRows(array_merge($current['filter_rows'], $currentCreatedRows));
 
         return [
             'summary' => [
@@ -107,10 +125,16 @@ class ReservationsSalesDashboardDatasetService
                     || $previous['bucket']['oportunidades_totales'] > 0
                     || $current['bucket']['reservas_totales'] > 0
                     || $previous['bucket']['reservas_totales'] > 0
+                    || $current['production_sales'] > 0
+                    || $previous['production_sales'] > 0
+                    || $currentCreatedCohort['bucket']['oportunidades_totales'] > 0
+                    || $previousCreatedCohort['bucket']['oportunidades_totales'] > 0
                     || $current['bucket']['reservas_vivas_actuales_salesforce'] > 0,
                 'message' => (
                     $current['bucket']['oportunidades_totales'] > 0
                     || $current['bucket']['reservas_totales'] > 0
+                    || $current['production_sales'] > 0
+                    || $currentCreatedCohort['bucket']['oportunidades_totales'] > 0
                     || $current['bucket']['reservas_vivas_actuales_salesforce'] > 0
                 ) ? null : 'No hay oportunidades sincronizadas para el periodo seleccionado.',
                 'periodo_actual' => $this->periodPayload($periods['current']),
@@ -122,13 +146,42 @@ class ReservationsSalesDashboardDatasetService
                 'dataset_timezone' => config('app.timezone'),
                 'kpis' => $current['bucket'],
                 'comparativa' => $comparison,
+                'produccion_periodo' => [
+                    'periodo_actual' => $productionCurrent,
+                    'periodo_comparado' => $productionPrevious,
+                    'comparativa' => $this->simpleComparison($productionCurrent, $productionPrevious, [
+                        ['key' => 'reservas', 'label' => 'Reservas'],
+                        ['key' => 'ventas', 'label' => 'Ventas'],
+                    ]),
+                    'date_fields' => [
+                        'reservas' => 'reservation_date',
+                        'ventas' => 'cv_signed_date',
+                    ],
+                    'interval_semantics' => '[start,end)',
+                ],
+                'cohorte_creacion' => [
+                    'date_criterion' => 'created_date',
+                    'date_label' => 'Fecha de creación',
+                    'periodo_actual' => $currentCreatedCohort['bucket'],
+                    'periodo_comparado' => $previousCreatedCohort['bucket'],
+                    'comparativa' => $this->simpleComparison(
+                        $currentCreatedCohort['bucket'],
+                        $previousCreatedCohort['bucket'],
+                        [
+                            ['key' => 'oportunidades_totales', 'label' => 'Oportunidades totales'],
+                            ['key' => 'reservas_vivas', 'label' => 'Reservas vivas'],
+                            ['key' => 'oportunidades_caidas', 'label' => 'Oportunidades caídas'],
+                            ['key' => 'cv_firmados', 'label' => 'Contratos CV firmados'],
+                        ],
+                    ),
+                ],
                 'executive_insights' => [],
                 'executive_insights_source' => 'none',
                 'insights' => [],
-                'filters' => $current['filters'],
+                'filters' => $filterOptions,
                 'universe_date_criterion' => $filters['date_criterion'],
                 'universe_date_label' => $this->dateCriterionLabel($filters['date_criterion']),
-                'data_quality' => $current['data_quality'],
+                'data_quality' => $dataQuality,
             ],
             'commercial_zones' => $current['zones'],
             'commercial_delegations' => $current['delegations'],
@@ -141,44 +194,74 @@ class ReservationsSalesDashboardDatasetService
     {
         $resolved = match ($metric) {
             'reservas_totales' => $this->resolvedReservationEventsCohort($filters, $period),
+            'cv_firmados_periodo' => $this->resolvedProductionSalesCohort($filters, $period),
             'reservas_vivas_actuales_salesforce' => $this->resolvedGlobalLiveReservationsCohort($filters),
             default => $this->resolvedCohort($filters, $period),
         };
-        $opportunities = $resolved
-            ->filter(fn (array $item): bool => $this->matchesAuditMetric($item['row'], $metric))
-            ->pluck('opportunity')
-            ->values()
-            ->all();
+        $productionSaleResolution = null;
+        if ($metric === 'cv_firmados_periodo') {
+            $productionSaleResolution = $this->resolveProductionSaleGroups($resolved->pluck('row')->values()->all());
+            $auditableOpportunityIds = collect($productionSaleResolution['quality'])
+                ->flatten(1)
+                ->pluck('opportunity_id')
+                ->filter()
+                ->flip();
+            $opportunities = $resolved
+                ->filter(fn (array $item): bool => $auditableOpportunityIds->has($item['row']['opportunity_id']))
+                ->pluck('opportunity')
+                ->values()
+                ->all();
+        } else {
+            $opportunities = $resolved
+                ->filter(fn (array $item): bool => $this->matchesAuditMetric($item['row'], $metric))
+                ->pluck('opportunity')
+                ->values()
+                ->all();
+        }
 
         $qualityByOpportunity = [];
         $deduplicatedTotal = count($opportunities);
-        if (in_array($metric, ['reservas_totales', 'reservas_vivas', 'reservas_vivas_actuales_salesforce', 'cv_firmados'], true)) {
+        if (in_array($metric, ['reservas_totales', 'reservas_vivas', 'reservas_vivas_actuales_salesforce', 'cv_firmados', 'cv_firmados_periodo'], true)) {
             $eventMetric = match ($metric) {
                 'reservas_totales' => 'reservation_events',
-                'cv_firmados' => 'cv_firmados',
+                'cv_firmados', 'cv_firmados_periodo' => 'cv_firmados',
                 default => 'reservas_vivas',
             };
-            $groups = $this->metricEventGroups(
-                array_map(fn (SalesforceOpportunity $opportunity) => $this->decorate($opportunity), $opportunities),
-                $eventMetric,
-            );
-            $deduplicatedTotal = count($groups);
+            $groups = $metric === 'cv_firmados_periodo'
+                ? $productionSaleResolution['quality']
+                : $this->metricEventGroups(
+                    array_map(fn (SalesforceOpportunity $opportunity) => $this->decorate($opportunity), $opportunities),
+                    $eventMetric,
+                );
+            $countedGroups = $metric === 'cv_firmados_periodo'
+                ? $productionSaleResolution['counted']
+                : $groups;
+            $deduplicatedTotal = count($countedGroups);
             foreach ($groups as $groupKey => $groupRows) {
                 $opportunityIds = collect($groupRows)->pluck('opportunity_id')->filter()->sort()->values()->all();
-                $countedId = $opportunityIds[0] ?? null;
+                $countedId = isset($countedGroups[$groupKey]) ? ($opportunityIds[0] ?? null) : null;
                 $conflicts = collect(['owner_id', 'owner_name', 'commercial_delegation', 'delivery_store', 'zone', 'portal'])
                     ->filter(fn (string $field) => $this->hasConflictingValues($groupRows, $field))
                     ->values()
                     ->all();
+                $classificationConflict = $metric === 'cv_firmados_periodo'
+                    && $this->hasSaleClassificationConflict($groupRows);
+                if ($classificationConflict) {
+                    $conflicts[] = 'classification';
+                }
                 foreach ($groupRows as $groupRow) {
                     $qualityByOpportunity[$groupRow['opportunity_id']] = [
                         'duplicate_group_key' => $groupKey,
                         'duplicate_group_size' => count($groupRows),
                         'counted_in_kpi' => $groupRow['opportunity_id'] === $countedId,
-                        'quality_status' => count($groupRows) > 1 ? 'duplicate_event' : 'valid',
+                        'quality_status' => $classificationConflict
+                            ? 'classification_conflict'
+                            : (count($groupRows) > 1 ? 'duplicate_event' : 'valid'),
                         'affected_opportunity_ids' => $opportunityIds,
                         'conflicting_fields' => $conflicts,
-                        'breakdown_status' => $conflicts === [] ? 'common_attribution' : 'data_quality_incident',
+                        'breakdown_status' => $conflicts === [] && ! $classificationConflict
+                            ? 'common_attribution'
+                            : 'data_quality_incident',
                     ];
                 }
             }
@@ -236,6 +319,14 @@ class ReservationsSalesDashboardDatasetService
                 return $row;
             })
             ->all();
+        $productionSaleRows = $this->resolvedProductionSalesCohort($filters, $period)
+            ->pluck('row')
+            ->map(function (array $row) use (&$filterOptions): array {
+                $this->collectFilterOptions($filterOptions, $row);
+
+                return $row;
+            })
+            ->all();
 
         foreach ($cohortRows as $row) {
             $baseRow = array_merge($row, ['is_reserva_viva' => false, 'is_cv_firmado' => false]);
@@ -256,21 +347,28 @@ class ReservationsSalesDashboardDatasetService
             $reservationPeriodGroups,
         );
         $signedGroups = $this->metricEventGroups($cohortRows, 'cv_firmados');
+        $productionSaleResolution = $this->resolveProductionSaleGroups($productionSaleRows);
         $bucket['reservas_totales'] = count($reservationPeriodGroups);
         $this->addDeduplicatedMetric($bucket, $zones, $delegations, $commercials, $portals, $reservationGroups, 'reservas_vivas');
         $this->addDeduplicatedMetric($bucket, $zones, $delegations, $commercials, $portals, $signedGroups, 'cv_firmados');
         $incidents = array_values(array_merge(
             $this->duplicateIncidents($reservationQualityGroups, 'reservation'),
-            $this->duplicateIncidents($signedGroups, 'sale'),
+            $this->duplicateIncidents(
+                $this->mergeMetricEventGroups($signedGroups, $productionSaleResolution['quality']),
+                'sale',
+            ),
         ));
 
         return [
             'bucket' => $this->finalizeBucket($bucket),
+            'production_sales' => count($productionSaleResolution['counted']),
             'zones' => $this->finalizeGroups($zones, 'zone'),
             'delegations' => $this->finalizeGroups($delegations, 'commercial_delegation'),
             'commercials' => $this->finalizeGroups($commercials, 'comercial'),
             'portals' => $this->finalizeGroups($portals, 'portal'),
             'filters' => $this->filterOptionsFromAccumulator($filterOptions),
+            'cohort_rows' => $cohortRows,
+            'filter_rows' => array_merge($cohortRows, $reservationEvents, $productionSaleRows),
             'data_quality' => [
                 'duplicate_event_groups' => count($incidents),
                 'incidents' => $incidents,
@@ -305,6 +403,16 @@ class ReservationsSalesDashboardDatasetService
         return $this->resolveQueryCohort($this->reservationEventsQuery($filters, $period), $filters);
     }
 
+    private function resolvedProductionSalesCohort(array $filters, array $period): Collection
+    {
+        return $this->resolveQueryCohort($this->productionSalesQuery($filters, $period), $filters);
+    }
+
+    private function resolvedCreatedCohort(array $filters, array $period): Collection
+    {
+        return $this->resolvedCohort(array_merge($filters, ['date_criterion' => 'created_date']), $period);
+    }
+
     private function resolvedGlobalLiveReservationsCohort(array $filters): Collection
     {
         return $this->resolveQueryCohort($this->globalLiveReservationsQuery($filters), $filters);
@@ -337,6 +445,7 @@ class ReservationsSalesDashboardDatasetService
             'reservas_vivas', 'reservas_vivas_actuales_salesforce' => $row['is_reserva_viva'],
             'oportunidades_caidas' => $row['is_caida'],
             'cv_firmados' => $row['is_cv_firmado'],
+            'cv_firmados_periodo' => $row['is_cv_signed'],
             default => true,
         };
     }
@@ -414,6 +523,25 @@ class ReservationsSalesDashboardDatasetService
         return $query;
     }
 
+    private function productionSalesQuery(array $filters, array $period)
+    {
+        $query = SalesforceOpportunity::query()
+            ->select($this->cohortColumns())
+            ->whereIn('record_type_name', ['Venta', 'Cambio'])
+            ->where('cv_signed', true)
+            ->whereNotNull('cv_signed_date')
+            ->where('cv_signed_date', '>=', $period['start'])
+            ->where('cv_signed_date', '<', $period['end']);
+
+        $this->applyOpportunityTypeFilter($query, $filters['opportunity_type']);
+
+        if (filled($filters['access_commercial'])) {
+            $query->where('owner_id', $filters['access_commercial']);
+        }
+
+        return $query;
+    }
+
     private function decorate(SalesforceOpportunity $opportunity): array
     {
         $delegation = $this->normalizeCommercialDelegation($opportunity->owner_delegation);
@@ -436,6 +564,8 @@ class ReservationsSalesDashboardDatasetService
             'commercial_delegation' => $delegation['delegation'],
             'zone' => $delegation['zone'],
             'portal' => $portal['is_valid_final'] ? $portal['portal'] : OpportunityPortalNormalizer::UNCLASSIFIED,
+            'stage_name' => $stage,
+            'is_cv_signed' => $cvSigned,
             'is_reserva_viva' => $reservation && ! $cvSigned && ! $isClosedLost,
             'has_reservation_event' => $reservation && filled($opportunity->reservation_date),
             'is_caida' => $isClosedLost,
@@ -546,9 +676,12 @@ class ReservationsSalesDashboardDatasetService
 
         if ($filters['period'] === 'current_month') {
             $currentStart = $now->startOfMonth();
-            $currentEnd = $now;
+            $currentEnd = $now->addDay()->startOfDay();
             $previousStart = $currentStart->subMonthNoOverflow();
-            $previousEnd = $previousStart->addDays((int) floor($currentStart->diffInDays($currentEnd)))->endOfDay();
+            $previousEndCandidate = $previousStart->addDays((int) floor($currentStart->diffInDays($currentEnd)));
+            $previousEnd = $previousEndCandidate->greaterThan($currentStart)
+                ? $currentStart
+                : $previousEndCandidate;
 
             return [
                 'current' => ['start' => $currentStart, 'end' => $currentEnd],
@@ -592,6 +725,7 @@ class ReservationsSalesDashboardDatasetService
         $flag = match ($metric) {
             'reservas_vivas' => 'is_reserva_viva',
             'reservation_events' => 'has_reservation_event',
+            'sale_candidates' => 'is_cv_signed',
             default => 'is_cv_firmado',
         };
         $groups = [];
@@ -607,6 +741,42 @@ class ReservationsSalesDashboardDatasetService
         }
 
         return $groups;
+    }
+
+    private function resolveProductionSaleGroups(array $rows): array
+    {
+        $qualityGroups = [];
+        $countedGroups = [];
+
+        foreach ($this->metricEventGroups($rows, 'sale_candidates') as $groupKey => $groupRows) {
+            $hasValidSale = collect($groupRows)->contains(fn (array $row): bool => (bool) ($row['is_cv_firmado'] ?? false));
+            if (! $hasValidSale) {
+                continue;
+            }
+
+            $qualityGroups[$groupKey] = $groupRows;
+            if (! $this->hasSaleClassificationConflict($groupRows)) {
+                $countedGroups[$groupKey] = array_values(array_filter(
+                    $groupRows,
+                    fn (array $row): bool => (bool) ($row['is_cv_firmado'] ?? false),
+                ));
+            }
+        }
+
+        return [
+            'counted' => $countedGroups,
+            'quality' => $qualityGroups,
+        ];
+    }
+
+    private function hasSaleClassificationConflict(array $rows): bool
+    {
+        $hasValidSale = collect($rows)->contains(fn (array $row): bool => (bool) ($row['is_cv_firmado'] ?? false));
+        $hasDroppedSale = collect($rows)->contains(
+            fn (array $row): bool => (bool) ($row['is_cv_signed'] ?? false) && (bool) ($row['is_caida'] ?? false),
+        );
+
+        return $hasValidSale && $hasDroppedSale;
     }
 
     private function mergeMetricEventGroups(array ...$groupSets): array
@@ -704,6 +874,9 @@ class ReservationsSalesDashboardDatasetService
                 ->filter(fn (string $field) => $this->hasConflictingValues($rows, $field))
                 ->values()
                 ->all();
+            if ($eventType === 'sale' && $this->hasSaleClassificationConflict($rows)) {
+                $conflictingFields[] = 'classification';
+            }
             $first = $rows[0];
             $incidents[] = [
                 'type' => $eventType,
@@ -803,6 +976,60 @@ class ReservationsSalesDashboardDatasetService
         })->all();
     }
 
+    private function executiveCohort(array $rows): array
+    {
+        $bucket = $this->emptyBucket();
+
+        foreach ($rows as $row) {
+            $this->addToBucket($bucket, array_merge($row, [
+                'is_reserva_viva' => false,
+                'is_cv_firmado' => false,
+            ]));
+        }
+
+        $reservationGroups = $this->metricEventGroups($rows, 'reservas_vivas');
+        $signedGroups = $this->metricEventGroups($rows, 'cv_firmados');
+        $bucket['reservas_vivas'] = count($reservationGroups);
+        $bucket['cv_firmados'] = count($signedGroups);
+        $incidents = array_values(array_merge(
+            $this->duplicateIncidents($reservationGroups, 'reservation'),
+            $this->duplicateIncidents($signedGroups, 'sale'),
+        ));
+
+        return [
+            'bucket' => $this->finalizeBucket($bucket),
+            'data_quality' => [
+                'duplicate_event_groups' => count($incidents),
+                'incidents' => $incidents,
+            ],
+        ];
+    }
+
+    private function simpleComparison(array $current, array $previous, array $metrics): array
+    {
+        return array_map(fn (array $metric): array => [
+            'key' => $metric['key'],
+            'metrica' => $metric['label'],
+            'periodo_actual' => $current[$metric['key']] ?? null,
+            'periodo_comparado' => $previous[$metric['key']] ?? null,
+            'diferencia' => ($current[$metric['key']] ?? 0) - ($previous[$metric['key']] ?? 0),
+        ], $metrics);
+    }
+
+    private function mergeDataQuality(array ...$qualitySets): array
+    {
+        $incidents = collect($qualitySets)
+            ->flatMap(fn (array $quality): array => $quality['incidents'] ?? [])
+            ->keyBy(fn (array $incident): string => ($incident['type'] ?? 'unknown').'|'.($incident['group_key'] ?? md5(json_encode($incident))))
+            ->values()
+            ->all();
+
+        return [
+            'duplicate_event_groups' => count($incidents),
+            'incidents' => $incidents,
+        ];
+    }
+
     private function filterOptions(): array
     {
         return [
@@ -858,6 +1085,16 @@ class ReservationsSalesDashboardDatasetService
         ];
     }
 
+    private function filterOptionsFromRows(array $rows): array
+    {
+        $options = $this->emptyFilterOptionsAccumulator();
+        foreach ($rows as $row) {
+            $this->collectFilterOptions($options, $row);
+        }
+
+        return $this->filterOptionsFromAccumulator($options);
+    }
+
     private function dateField(string $criterion): string
     {
         return match ($criterion) {
@@ -899,6 +1136,7 @@ class ReservationsSalesDashboardDatasetService
             'reservas_vivas_actuales_salesforce',
             'oportunidades_caidas',
             'cv_firmados',
+            'cv_firmados_periodo',
         ], true) ? $metric : 'oportunidades_totales';
     }
 
@@ -910,6 +1148,7 @@ class ReservationsSalesDashboardDatasetService
             'reservas_vivas_actuales_salesforce' => 'Reservas vivas actuales (todas las fechas)',
             'oportunidades_caidas' => 'Oportunidades caidas',
             'cv_firmados' => 'Contratos CV firmados',
+            'cv_firmados_periodo' => 'Ventas producidas en el período',
             default => 'Oportunidades totales',
         };
     }
@@ -937,6 +1176,7 @@ class ReservationsSalesDashboardDatasetService
                 ?: $this->auditDate($opportunity->{$criterionField}),
             'oportunidades_caidas' => $this->auditDate($opportunity->close_date)
                 ?: $this->auditDate($opportunity->{$criterionField}),
+            'cv_firmados_periodo' => $this->auditDate($opportunity->cv_signed_date),
             'cv_firmados' => $this->auditDate($opportunity->cv_signed_date)
                 ?: $this->auditDate($opportunity->{$criterionField}),
             default => $this->auditDate($opportunity->{$criterionField}),
@@ -1003,6 +1243,12 @@ class ReservationsSalesDashboardDatasetService
         return [
             'inicio' => CarbonImmutable::parse($period['start'])->toDateString(),
             'fin' => $displayEnd->toDateString(),
+            'technical' => [
+                'start_inclusive' => CarbonImmutable::parse($period['start'])->toIso8601String(),
+                'end_exclusive' => $end->toIso8601String(),
+                'semantics' => '[start,end)',
+                'timezone' => (string) config('app.timezone'),
+            ],
         ];
     }
 
@@ -1012,6 +1258,16 @@ class ReservationsSalesDashboardDatasetService
             'current' => $this->periodPayload($periods['current']),
             'previous' => $this->periodPayload($periods['previous']),
         ];
+    }
+
+    private function cachePeriodIdentity(array $periods): array
+    {
+        return collect($this->periodPayloads($periods))
+            ->map(fn (array $period): array => [
+                'inicio' => $period['inicio'],
+                'fin' => $period['fin'],
+            ])
+            ->all();
     }
 
     private function lastUpdated(): ?CarbonImmutable

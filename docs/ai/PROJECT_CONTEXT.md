@@ -1,6 +1,6 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-09-22.
+Actualizado: 2026-09-23.
 
 ## Autoridad Salesforce y lifecycle vigente
 
@@ -25,6 +25,29 @@ Actualizado: 2026-09-22.
   semántica de `Opportunity.LastModifiedDate`.
 - Fase 7A y Fase 7B aportan herramientas históricas terminadas, pero no consta
   su ejecución. Esa operación pendiente no reabre el refactor de código.
+
+## Resumen Dirección de Reservas / Ventas
+
+- El Resumen separa Producción, Cohorte de creación y Estado actual. Producción
+  imputa reservas por `reservation_date` y ventas firmadas no perdidas de tipo
+  Venta/Cambio por `cv_signed_date`; la cohorte se fija siempre por
+  `created_date` y muestra los resultados actuales de esas oportunidades.
+  Tasación, otros tipos y tipo ausente no son venta producida, sin alterar el
+  KPI legacy. Reservas vivas actuales de todas las fechas es contexto
+  independiente.
+- Los períodos usan `[start,end)` y publican metadata técnica aditiva de inicio,
+  fin exclusivo y timezone, manteniendo las fechas visibles y las claves JSON
+  legacy. El criterio temporal legacy no gobierna el Resumen, pero sigue activo
+  en las pestañas de desglose.
+- La deduplicación conserva vehículo + fecha de hito y fallback a Opportunity.
+  Las clasificaciones contradictorias de una venta se excluyen y se auditan
+  como incidencia, sin elegir por orden técnico. La auditoría JSON/CSV admite
+  `cv_firmados_periodo` sin añadir PII.
+- El dataset usa `reservas-ventas-dashboard-v7`; el catálogo de filtros une las
+  dimensiones relevantes de Producción y Cohorte después de aplicar el scope
+  de servidor. La identidad de caché usa fechas canónicas estables y el payload
+  conserva sus límites técnicos exactos. No cambia la caché V4 de Rendimiento
+  comercial.
 
 ## Rendimiento comercial de Reservas / Ventas
 
@@ -273,7 +296,8 @@ Actualizado: 2026-09-22.
   no deben pasar arrays u objetos directamente a `fputcsv`.
 - Las exportaciones voluminosas deben escribir directamente al stream mediante
   cursor o lotes, con ámbitos resueltos en servidor antes de producir filas.
-- KPI, JSON de auditoría y CSV deben consumir la misma resolución de cohorte.
+- KPI, JSON de auditoría y CSV deben consumir la misma resolución de cohorte o
+  de evento, según la semántica temporal explícita de la métrica.
 - Los CSV estándar de auditoría no deben seleccionar datos personales que no
   sean imprescindibles para explicar la métrica.
 # Comisiones: cierres y responsables temporales
