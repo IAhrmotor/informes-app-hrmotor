@@ -1,5 +1,17 @@
 # Handoff para agentes
 
+## Aprobación sénior de RV-3 para PR (2026-09-23)
+
+- La revisión sénior aprobó RV-3 para abrir PR sobre el SHA revisado
+  `821870a0252093dd5c0d50e044878549e8f99589`; el estado pasa de `en_revision` a
+  `aprobada`, no a `cerrada`, porque todavía faltan PR, CI y merge.
+- No se detectaron cambios runtime, vulnerabilidades, regresiones ni
+  discrepancias funcionales. La evidencia productiva ya revisada permanece
+  intacta y no se añadieron datos productivos ni PII.
+- Punto de reanudación: abrir el PR contra `main`, esperar CI verde, hacer merge,
+  eliminar la rama y registrar entonces RV-3 como `cerrada` antes de activar
+  RV-1.
+
 ## Evidencia productiva y paso a revisión de RV-3 (2026-09-23)
 
 ### Resumen, evidencia y archivos

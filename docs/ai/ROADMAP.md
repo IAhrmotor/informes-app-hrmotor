@@ -73,7 +73,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 
 | Orden | ID | Lote | Prioridad | Estado | Predecesor planificado | Dependencia técnica real principal |
 |---:|---|---|---|---|---|---|
-| 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `en_revision` | Ninguno | Contratos, auditorías y datos locales existentes |
+| 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `aprobada` | Ninguno | Contratos, auditorías y datos locales existentes |
 | 2 | RV-1 | Cierre ejecutivo de Rendimiento comercial | P0 | `pendiente` | RV-3 | Evidencia de RV-3 para cancelaciones `N/D` y cero de ventas caídas |
 | 3 | RV-2 | Producción y períodos de Resumen Dirección | P0 | `pendiente` | RV-1 | Contratos temporales, reglas y universos existentes; no depende técnicamente de RV-1 |
 | 4 | SF-7A-OPS | Cierre operacional Salesforce Fase 7A | P0 | `pendiente` | RV-2 | Herramienta, migración, runbook y autorización propios; no depende de la UX de RV |
@@ -98,7 +98,8 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 
 - **Fase/lote:** cierre definitivo de Reservas/Ventas.
 - **Prioridad:** P0.
-- **Estado:** `en_revision` desde 2026-09-23.
+- **Estado:** `aprobada` desde 2026-09-23. La revisión sénior aprobó la rama
+  para PR sobre el SHA `821870a0252093dd5c0d50e044878549e8f99589`.
 - **Predecesor planificado:** ninguno; el PR #53 ya está fusionado.
 - **Dependencias técnicas reales:** contratos y auditorías locales existentes.
 - **Rama prevista o activa:** `audit/rv-3-historical-validation`.
@@ -106,9 +107,9 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - **Bloqueos/decisiones de negocio:** la investigación de solo lectura ha
   finalizado sin demostrar ninguna discrepancia que autorice modificar métricas.
   La dependencia histórica de julio no se resuelve dentro de RV-3.
-- **Punto exacto de reanudación:** investigación finalizada; pendiente
-  únicamente de revisión sénior de la rama antes del PR. No iniciar RV-1 hasta
-  que RV-3 complete el protocolo de revisión y cierre aplicable.
+- **Punto exacto de reanudación:** abrir el PR de RV-3, esperar CI verde, hacer
+  merge y eliminar la rama. Después del merge, registrar RV-3 como `cerrada`
+  antes de activar RV-1.
 - **Criterios de aceptación:**
   - explicar con evidencia por qué julio muestra cancelaciones `N/D`;
   - explicar con evidencia por qué agosto muestra cero ventas caídas;
