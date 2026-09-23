@@ -2,9 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Services\Reports\CommercialCommissions\CommercialCommissionDashboardService;
+use App\Services\Reports\ReservationsSales\CommercialPerformanceDatasetService;
 use App\Services\Reports\ReservationsSales\ReservationsSalesDashboardDatasetService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Tests\Feature\Concerns\CreatesOpportunityDashboardRows;
 use Tests\TestCase;
 
@@ -65,6 +69,162 @@ class ReservationsSalesCohortAndDuplicateQualityTest extends TestCase
             ->assertJsonPath('kpis.cv_firmados', 1);
     }
 
+    public function test_produccion_y_cohorte_separan_creacion_reserva_y_firma_por_sus_fechas_propias(): void
+    {
+        $this->opportunityRow('006-a', [
+            'created_date' => '2026-06-15 10:00:00',
+            'reservation' => true,
+            'reservation_date' => '2026-07-10',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-08-05',
+            'stage_name' => 'Contrato',
+            'vehicle_interest_id' => '01t-a',
+        ]);
+        $this->opportunityRow('006-b', [
+            'created_date' => '2026-07-15 10:00:00',
+            'reservation' => true,
+            'reservation_date' => '2026-07-20',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-08-06',
+            'stage_name' => 'Contrato',
+            'vehicle_interest_id' => '01t-b',
+        ]);
+
+        $july = $this->getJson('/informes/reservas-ventas/data/summary?'.http_build_query($this->julyFilters()))
+            ->assertOk()
+            ->assertJsonPath('kpis.oportunidades_totales', 1)
+            ->assertJsonPath('kpis.cv_firmados', 1)
+            ->assertJsonPath('produccion_periodo.periodo_actual.reservas', 2)
+            ->assertJsonPath('produccion_periodo.periodo_actual.ventas', 0)
+            ->assertJsonPath('cohorte_creacion.periodo_actual.oportunidades_totales', 1)
+            ->assertJsonPath('cohorte_creacion.periodo_actual.cv_firmados', 1)
+            ->json();
+        $this->assertSame('created_date', data_get($july, 'cohorte_creacion.date_criterion'));
+
+        $augustFilters = array_merge($this->julyFilters(), [
+            'current_start' => '2026-08-01',
+            'current_end' => '2026-08-31',
+            'comparison_start' => '2026-07-01',
+            'comparison_end' => '2026-07-31',
+        ]);
+        $this->getJson('/informes/reservas-ventas/data/summary?'.http_build_query($augustFilters))
+            ->assertOk()
+            ->assertJsonPath('kpis.oportunidades_totales', 0)
+            ->assertJsonPath('kpis.cv_firmados', 0)
+            ->assertJsonPath('produccion_periodo.periodo_actual.reservas', 0)
+            ->assertJsonPath('produccion_periodo.periodo_actual.ventas', 2)
+            ->assertJsonPath('cohorte_creacion.periodo_actual.oportunidades_totales', 0)
+            ->assertJsonPath('cohorte_creacion.periodo_comparado.oportunidades_totales', 1);
+    }
+
+    public function test_ventas_de_produccion_deduplican_y_excluyen_conflictos_de_clasificacion_sin_precedencia(): void
+    {
+        foreach ([
+            ['006-valid', 'Contrato'],
+            ['006-lost', 'Cerrada Perdida'],
+        ] as [$id, $stage]) {
+            $this->opportunityRow($id, [
+                'created_date' => '2026-07-10 10:00:00',
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-07-22',
+                'stage_name' => $stage,
+                'vehicle_interest_id' => '01t-classification-conflict',
+            ]);
+        }
+
+        $payload = $this->getJson('/informes/reservas-ventas/data/summary?'.http_build_query($this->julyFilters()))
+            ->assertOk()
+            ->assertJsonPath('kpis.cv_firmados', 1)
+            ->assertJsonPath('produccion_periodo.periodo_actual.ventas', 0)
+            ->json();
+
+        $incident = collect(data_get($payload, 'data_quality.incidents'))
+            ->first(fn (array $item): bool => $item['type'] === 'sale'
+                && in_array('classification', $item['conflicting_fields'], true));
+        $this->assertNotNull($incident);
+        $this->assertSame('data_quality_incident', $incident['breakdown_status']);
+
+        $audit = $this->getJson('/informes/reservas-ventas/data/kpi-audit?'.http_build_query(array_merge(
+            $this->julyFilters(),
+            ['metric' => 'cv_firmados_periodo'],
+        )))
+            ->assertOk()
+            ->assertJsonPath('metric', 'cv_firmados_periodo')
+            ->assertJsonPath('total', 0)
+            ->assertJsonPath('audit_rows', 2)
+            ->json();
+
+        $this->assertSame(0, collect($audit['items'])->where('counted_in_kpi', true)->count());
+        $this->assertSame(['classification_conflict'], collect($audit['items'])->pluck('quality_status')->unique()->values()->all());
+    }
+
+    public function test_produccion_simple_reconcilia_fechas_de_hito_con_rendimiento_comercial(): void
+    {
+        Cache::flush();
+        $this->opportunityRow('006-reconciliation', [
+            'created_date' => '2026-06-15 10:00:00',
+            'reservation' => true,
+            'reservation_date' => '2026-07-10',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-08-05',
+            'stage_name' => 'Contrato',
+            'vehicle_interest_id' => '01t-reconciliation',
+        ]);
+
+        $augustFilters = array_merge($this->julyFilters(), [
+            'current_start' => '2026-08-01',
+            'current_end' => '2026-08-31',
+            'comparison_start' => '2026-07-01',
+            'comparison_end' => '2026-07-31',
+        ]);
+        $summary = $this->getJson('/informes/reservas-ventas/data/summary?'.http_build_query($augustFilters))
+            ->assertOk()
+            ->assertJsonPath('produccion_periodo.periodo_actual.ventas', 1)
+            ->assertJsonPath('produccion_periodo.periodo_comparado.reservas', 1)
+            ->json();
+        $performance = app(CommercialPerformanceDatasetService::class)->payload(['month' => '2026-08']);
+
+        $this->assertSame(data_get($summary, 'produccion_periodo.periodo_actual.ventas'), data_get($performance, 'summary.sales'));
+        $this->assertSame(
+            data_get($summary, 'produccion_periodo.periodo_comparado.reservas'),
+            data_get(collect($performance['evolution'])->firstWhere('month', '2026-07'), 'reservations_total'),
+        );
+    }
+
+    public function test_venta_de_produccion_compatible_reconcilia_con_el_scope_temporal_basico_de_comisiones(): void
+    {
+        $this->opportunityRow('006-commission-compatible', [
+            'created_date' => '2026-06-15 10:00:00',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-08-05',
+            'stage_name' => 'Contrato',
+            'owner_is_active' => true,
+            'gestion_de_venta' => false,
+            'vehicle_interest_id' => '01t-commission-compatible',
+        ]);
+
+        $augustFilters = array_merge($this->julyFilters(), [
+            'current_start' => '2026-08-01',
+            'current_end' => '2026-08-31',
+            'comparison_start' => '2026-07-01',
+            'comparison_end' => '2026-07-31',
+        ]);
+        $summary = $this->getJson('/informes/reservas-ventas/data/summary?'.http_build_query($augustFilters))
+            ->assertOk()
+            ->assertJsonPath('produccion_periodo.periodo_actual.ventas', 1)
+            ->json();
+
+        $method = new \ReflectionMethod(CommercialCommissionDashboardService::class, 'monthlyOpportunities');
+        $commissionIds = $method->invoke(
+            app(CommercialCommissionDashboardService::class),
+            CarbonImmutable::parse('2026-08-01', config('app.timezone')),
+            CarbonImmutable::parse('2026-09-01', config('app.timezone')),
+        )->pluck('salesforce_id')->all();
+
+        $this->assertSame(1, data_get($summary, 'produccion_periodo.periodo_actual.ventas'));
+        $this->assertSame(['006-commission-compatible'], $commissionIds);
+    }
+
     public function test_ventas_y_reservas_duplicadas_cuentan_una_vez_y_exponen_la_incidencia(): void
     {
         foreach ([
@@ -99,6 +259,7 @@ class ReservationsSalesCohortAndDuplicateQualityTest extends TestCase
             ->assertJsonPath('kpis.oportunidades_totales', 4)
             ->assertJsonPath('kpis.cv_firmados', 1)
             ->assertJsonPath('kpis.reservas_vivas', 1)
+            ->assertJsonPath('produccion_periodo.periodo_actual.ventas', 1)
             ->assertJsonPath('data_quality.duplicate_event_groups', 2)
             ->json();
 
@@ -123,6 +284,15 @@ class ReservationsSalesCohortAndDuplicateQualityTest extends TestCase
             ->assertJsonPath('audit_rows', 2)
             ->assertJsonCount(2, 'items')
             ->assertJsonPath('items.0.quality_status', 'duplicate_event');
+
+        $this->getJson('/informes/reservas-ventas/data/kpi-audit?'.http_build_query(array_merge(
+            $this->julyFilters(),
+            ['metric' => 'cv_firmados_periodo'],
+        )))
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('audit_rows', 2)
+            ->assertJsonCount(2, 'items');
     }
 
     public function test_kpi_y_csv_comparten_ids_incluso_sin_relaciones_y_minimizan_datos_personales(): void
@@ -172,6 +342,26 @@ class ReservationsSalesCohortAndDuplicateQualityTest extends TestCase
         }
         foreach (array_merge(array_values($pii), ['PERSONA FICTICIA']) as $forbiddenValue) {
             $this->assertStringNotContainsString($forbiddenValue, $csv);
+        }
+
+        $this->opportunityRow('006-production-sale-private', array_merge($pii, [
+            'name' => 'VENTA PERSONA FICTICIA',
+            'created_date' => '2026-06-15 10:00:00',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-07-21',
+            'stage_name' => 'Contrato',
+            'vehicle_interest_id' => '01t-production-sale-private',
+        ]));
+        $productionSaleFilters = array_merge($this->julyFilters(), ['metric' => 'cv_firmados_periodo']);
+        $productionSaleCsv = $this->get('/informes/reservas-ventas/export/kpi-audit.csv?'.http_build_query($productionSaleFilters))
+            ->assertOk()
+            ->streamedContent();
+        [$productionSaleHeader] = $this->csvRecords($productionSaleCsv);
+        foreach (['Opportunity name', 'Account name', 'Account phone', 'Account person email', 'Account company email'] as $forbiddenColumn) {
+            $this->assertNotContains($forbiddenColumn, $productionSaleHeader);
+        }
+        foreach (array_merge(array_values($pii), ['PERSONA FICTICIA']) as $forbiddenValue) {
+            $this->assertStringNotContainsString($forbiddenValue, $productionSaleCsv);
         }
 
         $duplicateFilters = array_merge($this->julyFilters(), ['metric' => 'reservas_vivas']);

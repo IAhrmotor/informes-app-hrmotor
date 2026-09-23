@@ -56,10 +56,63 @@
     min-width: min(100%, 280px);
 }
 
-.reservations-sales-report .universe-definition-card small {
+.reservations-sales-report .period-card small {
     color: var(--report-ui-text-muted);
     display: block;
     margin-top: var(--report-ui-space-1);
+}
+
+.reservations-sales-report .reservations-production-panel {
+    border-color: color-mix(in srgb, var(--report-ui-accent) 35%, var(--report-ui-border));
+}
+
+.reservations-sales-report .reservations-production-panel .report-ui-kpi-strip,
+.reservations-sales-report .reservations-cohort-panel .report-ui-kpi-strip {
+    border-bottom: 1px solid var(--report-ui-border);
+}
+
+.reservations-sales-report .reservations-current-state {
+    align-items: center;
+    display: grid;
+    gap: var(--report-ui-space-3);
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    padding: var(--report-ui-space-3) var(--report-ui-space-4);
+}
+
+.reservations-sales-report .reservations-current-state span,
+.reservations-sales-report .reservations-cohort-contract span {
+    color: var(--report-ui-text-muted);
+    display: block;
+    font-size: var(--report-ui-font-xs);
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.reservations-sales-report .reservations-current-state strong,
+.reservations-sales-report .reservations-cohort-contract strong {
+    display: block;
+    margin-top: var(--report-ui-space-1);
+}
+
+.reservations-sales-report .reservations-current-state small {
+    color: var(--report-ui-text-muted);
+    display: block;
+    margin-top: var(--report-ui-space-1);
+}
+
+.reservations-sales-report .reservations-current-state__value {
+    font-size: clamp(1.35rem, 2vw, 2rem);
+    font-weight: 850;
+}
+
+.reservations-sales-report .reservations-cohort-panel {
+    background: var(--report-ui-surface-muted);
+}
+
+.reservations-sales-report .reservations-cohort-contract {
+    border-bottom: 1px solid var(--report-ui-border);
+    padding: var(--report-ui-space-3) var(--report-ui-space-4);
 }
 
 .reservations-sales-report .reservations-data-quality-panel {
@@ -504,6 +557,11 @@
 
     .reservations-sales-report .reservations-data-quality-incidents {
         flex-direction: column;
+    }
+
+    .reservations-sales-report .reservations-current-state {
+        align-items: start;
+        grid-template-columns: 1fr;
     }
 
     .reservations-sales-report .performance-data-context__summary {
