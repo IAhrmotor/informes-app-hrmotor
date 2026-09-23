@@ -1,5 +1,58 @@
 # Handoff para agentes
 
+## Activación de RV-3 — Validación histórica (2026-09-23)
+
+### Resumen, decisiones y archivos
+
+- Se activó RV-3 como `en_progreso` en la rama
+  `audit/rv-3-historical-validation`, nacida exactamente de `main` en
+  `04367da61f15301f9d63bb480a5f907dc2caae9b`.
+- Antes de crearla se verificó que la rama remota residual
+  `docs/roadmap-executive-v1` seguía apuntando al commit aprobado
+  `22e2f6496dc376ad6236854e56434e8a8aa0f3cc`; solo entonces se eliminó esa rama
+  remota ya fusionada. El PR #54 queda registrado como cerrado y fusionado.
+- `ROADMAP.md` identifica la nueva línea base, rama, fecha y punto exacto de
+  reanudación. RV-3 no se marca en revisión, aprobada ni cerrada: falta obtener
+  la evidencia productiva de solo lectura de julio y agosto.
+- Se prepararon dos comandos explícitos: uno llama exclusivamente a
+  `CommercialPerformanceDatasetService::historyCoverage()` para julio/agosto y
+  otro agrega candidatos brutos a venta caída de agosto con
+  `SalesforceOpportunity::query()` y el scope normal del modelo.
+- Archivos modificados: `docs/ai/ROADMAP.md` y `docs/ai/HANDOFF.md`. No cambian
+  `PROJECT_CONTEXT.md` ni `DECISIONS.md`, porque no se adopta una nueva decisión
+  arquitectónica ni cambia la arquitectura implementada.
+
+### Base de datos, seguridad, rendimiento y operación
+
+- No hay migraciones, cambios de esquema, configuración, dependencias ni código
+  productivo. No se ejecutaron los comandos de evidencia ni ninguna consulta
+  contra datos productivos.
+- Los comandos preparados contienen solo consultas `SELECT`: no llaman a los
+  payloads de Rendimiento comercial o auditoría que pueden ejecutar
+  `insertOrIgnore()`, ni a endpoints, sincronizadores o Salesforce.
+- La salida queda limitada a metadatos de cobertura y tres recuentos agregados;
+  no contiene nombres, matrículas, IDs de Salesforce o clientes, PII,
+  `raw_payload`, secretos ni credenciales.
+- Cobertura consulta solo los meses julio/agosto de 2026. La agregación de venta
+  caída limita cada rama temporal a `[2026-08-01, 2026-09-01)`, usa los campos
+  de fecha indexados y no carga Opportunities en memoria ni introduce N+1.
+- No hubo despliegue, PR, merge, sincronización, escritura Salesforce, limpieza
+  de caché ni operación de producción.
+
+### Validación y reanudación
+
+- Se revisaron el contrato actual de cobertura, el scope global de
+  `SalesforceOpportunity`, la lógica de fecha de referencia y los índices
+  existentes antes de redactar los comandos.
+- Punto exacto de reanudación: una persona autorizada debe ejecutar ambos
+  comandos contra la réplica local y devolver sus salidas agregadas. Si julio
+  no está `covered`, se documentará el corte, hueco o dependencia; si el total
+  bruto de agosto es mayor que cero, no se concluirá un bug sin autorizar una
+  segunda conciliación exacta.
+- Riesgo pendiente deliberado: todavía no existe evidencia de datos, por lo que
+  no se concluye la causa de `N/D` ni la validez del cero y no se modifica
+  ninguna métrica, UI o lógica de negocio.
+
 ## Roadmap controlado y decisiones del Resumen Ejecutivo V1 (2026-09-23)
 
 ### Resumen, decisiones y archivos

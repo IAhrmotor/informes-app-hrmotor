@@ -59,10 +59,13 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 ## Línea base y límites actuales
 
 - Rama base de este roadmap: `main`.
-- SHA base documental: `0355dd688a352e9b5d3bc34e7ab98a308cec0498`.
-- Rama documental: `docs/roadmap-executive-v1`.
+- SHA actual de la rama base: `04367da61f15301f9d63bb480a5f907dc2caae9b`.
+- El PR #54 de preparación documental está cerrado y fusionado. La rama remota
+  `docs/roadmap-executive-v1` se eliminó después de verificar que seguía
+  apuntando al commit aprobado `22e2f6496dc376ad6236854e56434e8a8aa0f3cc`.
 - El PR #53 de Reservas/Ventas ya está fusionado. No es trabajo pendiente.
-- No hay una rama funcional activa para los lotes descritos abajo.
+- La única rama funcional activa es `audit/rv-3-historical-validation`, creada
+  desde el `main` indicado para investigar RV-3 exclusivamente en solo lectura.
 - Las fichas con rama o SHA `por asignar` no autorizan iniciar trabajo: deben
   completarse al activar formalmente la tarea.
 
@@ -70,7 +73,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 
 | Orden | ID | Lote | Prioridad | Estado | Predecesor planificado | Dependencia técnica real principal |
 |---:|---|---|---|---|---|---|
-| 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `pendiente` | Ninguno | Contratos, auditorías y datos locales existentes |
+| 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `en_progreso` | Ninguno | Contratos, auditorías y datos locales existentes |
 | 2 | RV-1 | Cierre ejecutivo de Rendimiento comercial | P0 | `pendiente` | RV-3 | Evidencia de RV-3 para cancelaciones `N/D` y cero de ventas caídas |
 | 3 | RV-2 | Producción y períodos de Resumen Dirección | P0 | `pendiente` | RV-1 | Contratos temporales, reglas y universos existentes; no depende técnicamente de RV-1 |
 | 4 | SF-7A-OPS | Cierre operacional Salesforce Fase 7A | P0 | `pendiente` | RV-2 | Herramienta, migración, runbook y autorización propios; no depende de la UX de RV |
@@ -95,16 +98,19 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 
 - **Fase/lote:** cierre definitivo de Reservas/Ventas.
 - **Prioridad:** P0.
-- **Estado:** `pendiente`.
+- **Estado:** `en_progreso` desde 2026-09-23.
 - **Predecesor planificado:** ninguno; el PR #53 ya está fusionado.
 - **Dependencias técnicas reales:** contratos y auditorías locales existentes.
-- **Rama prevista o activa:** por asignar al activar; ninguna rama activa.
-- **SHA base al activar:** por registrar desde `main` actualizado.
+- **Rama prevista o activa:** `audit/rv-3-historical-validation`.
+- **SHA base al activar:** `04367da61f15301f9d63bb480a5f907dc2caae9b`.
 - **Bloqueos/decisiones de negocio:** la investigación debe ser de solo lectura.
-  Ninguna métrica puede modificarse sin demostrar antes una discrepancia.
-- **Punto exacto de reanudación:** iniciar inventario de cobertura local de
-  `OpportunityHistory`, contratos y auditorías para julio y agosto, sin lanzar
-  sincronizaciones ni escrituras.
+  Se usará exclusivamente la réplica local, sin construir payloads que creen
+  objetivos mensuales. Ninguna métrica puede modificarse sin demostrar antes
+  una discrepancia.
+- **Punto exacto de reanudación:** pendiente de recoger en la réplica local la
+  evidencia productiva de solo lectura preparada abajo: cobertura de julio y
+  agosto y candidatos brutos a venta caída de agosto. Los comandos aún no se
+  han ejecutado.
 - **Criterios de aceptación:**
   - explicar con evidencia por qué julio muestra cancelaciones `N/D`;
   - explicar con evidencia por qué agosto muestra cero ventas caídas;
@@ -114,6 +120,86 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
   - no convertir `null`/`N/D` en cero ni inferir datos ausentes;
   - registrar consultas, cobertura, límites y resultado sin PII ni escritura en
     Salesforce o producción.
+
+#### Procedimiento de evidencia preparado
+
+Estos comandos son reproducibles y exclusivamente de lectura. Deben ejecutarse
+contra la réplica local por una persona autorizada y devolver únicamente
+agregados o metadatos de cobertura. No invocan `payload()`, endpoints, procesos
+de sincronización ni Salesforce, y no se han ejecutado durante la activación.
+
+Cobertura certificada de julio y agosto de 2026 mediante el único método
+autorizado, `CommercialPerformanceDatasetService::historyCoverage()`:
+
+```bash
+php artisan tinker --execute='
+use App\Services\Reports\ReservationsSales\CommercialPerformanceDatasetService;
+use Carbon\CarbonImmutable;
+
+$months = collect([
+    CarbonImmutable::parse("2026-07-01", "Europe/Madrid"),
+    CarbonImmutable::parse("2026-08-01", "Europe/Madrid"),
+]);
+
+$coverage = app(CommercialPerformanceDatasetService::class)->historyCoverage($months);
+
+echo json_encode($coverage, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES).PHP_EOL;
+'
+```
+
+La salida esperada contiene, para `2026-07` y `2026-08`, solo `status`,
+`range_start`, `range_end`, `source_cutoff_at`, `certified_until` y
+`unresolved_dependencies`. Un julio `partial` o `uncovered` conserva
+cancelaciones no evaluables; si resulta `covered` y el dashboard sigue mostrando
+`N/D`, se investigará la discrepancia sin modificarla en este checkpoint.
+
+Candidatos brutos de venta caída con fecha de referencia en agosto de 2026,
+antes de deduplicación y resolución de conflictos:
+
+```bash
+php artisan tinker --execute='
+use App\Models\SalesforceOpportunity;
+use Illuminate\Database\Eloquent\Builder;
+
+$start = "2026-08-01";
+$end = "2026-09-01";
+
+$query = SalesforceOpportunity::query()
+    ->whereIn("record_type_name", ["Venta", "Cambio"])
+    ->where("cv_signed", true)
+    ->whereRaw("LOWER(TRIM(stage_name)) = ?", ["cerrada perdida"])
+    ->where(function (Builder $dates) use ($start, $end): void {
+        $dates->where(function (Builder $reservation) use ($start, $end): void {
+            $reservation->whereNotNull("reservation_date")
+                ->where("reservation_date", ">=", $start)
+                ->where("reservation_date", "<", $end);
+        })->orWhere(function (Builder $fallback) use ($start, $end): void {
+            $fallback->whereNull("reservation_date")
+                ->whereNotNull("cv_signed_date")
+                ->where("cv_signed_date", ">=", $start)
+                ->where("cv_signed_date", "<", $end);
+        });
+    });
+
+$row = $query
+    ->selectRaw("COUNT(*) AS total_candidates")
+    ->selectRaw("SUM(CASE WHEN reservation_date IS NOT NULL THEN 1 ELSE 0 END) AS candidates_with_reservation_date")
+    ->selectRaw("SUM(CASE WHEN reservation_date IS NULL AND cv_signed_date IS NOT NULL THEN 1 ELSE 0 END) AS candidates_with_cv_signed_date_fallback")
+    ->toBase()
+    ->first();
+
+echo json_encode([
+    "total_candidates" => (int) $row->total_candidates,
+    "candidates_with_reservation_date" => (int) $row->candidates_with_reservation_date,
+    "candidates_with_cv_signed_date_fallback" => (int) $row->candidates_with_cv_signed_date_fallback,
+], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES).PHP_EOL;
+'
+```
+
+La salida esperada contiene únicamente los tres recuentos. Un total bruto `0`
+es evidencia fuerte compatible con `sales_dropped = 0`; un total mayor que cero
+no demuestra un error y obliga a pausar la conclusión hasta autorizar una
+segunda conciliación de deduplicaciones, conflictos y exclusiones.
 
 ### RV-1 — Cierre ejecutivo de Rendimiento comercial
 
