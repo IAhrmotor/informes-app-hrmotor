@@ -1,5 +1,20 @@
 # Handoff para agentes
 
+## Cierre formal de RV-2 tras PR #59 (2026-09-23)
+
+- El PR #59 se fusionó en
+  `d57d460922cddbfe4e8abf4f9dceb9bffd134613`; la CI del PR y la CI posterior
+  de `main` (`CI #132`) finalizaron correctamente.
+- La rama `feat/rv-2-direction-summary-production-periods` fue eliminada y
+  RV-2 queda formalmente `cerrada`, sin acciones funcionales pendientes. Con
+  este cierre, RV-1, RV-2 y RV-3 están `cerradas`.
+- RV-2 no incorporó migraciones propias ni realizó escrituras Salesforce,
+  sincronizaciones o reprocesados. Tampoco se ha realizado todavía ningún
+  despliegue.
+- El siguiente paso operacional es el despliegue controlado del bloque
+  Reservas/Ventas. La siguiente tarea de desarrollo prevista es SF-7A-OPS, que
+  continúa `pendiente` y no ha sido activada.
+
 ## Aprobación sénior de RV-2 para PR (2026-09-23)
 
 - La revisión sénior aprobó RV-2 sobre el HEAD
