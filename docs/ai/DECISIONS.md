@@ -1,5 +1,59 @@
 # Decisiones técnicas
 
+## 2026-09-23 - Contrato funcional del Resumen Ejecutivo V1
+
+El primer Resumen Ejecutivo tendrá visión global y acceso exclusivo para
+Administrador y Dirección. La autorización y los datasets deberán admitir en el
+futuro scopes de Area Manager y Manager sin rehacer la lógica, pero V1 no concede
+esos accesos. El informe evaluará el último día cerrado y mostrará el mes en curso
+hasta ese mismo corte solo como contexto informativo. Sus métricas iniciales son
+Leads, Reservas y Ventas.
+
+La referencia principal será la media de D-7, D-14, D-21 y D-28, con las cuatro
+referencias obligatorias. D-364 será complementaria y no podrá cambiar por sí
+sola el estado. Los estados funcionales son Correcto, Atención, Desviación,
+Crítico y No evaluable; la dirección es Favorable, Desfavorable o Estable; la
+salud del dato es Actualizado, Parcial, Desactualizado o Incidencia. Si falta una
+de las cuatro referencias, el día está incompleto o existe una incidencia de
+sincronización, el resultado será No evaluable y no generará alerta de negocio.
+Las incidencias de datos tampoco se convierten en alertas de negocio.
+
+El contrato conceptual calcula:
+
+```text
+variacion_pct = ((actual - baseline) / baseline) * 100
+magnitud_variacion_pct = abs(variacion_pct)
+diferencia_absoluta = abs(actual - baseline)
+```
+
+Las bandas de estado se aplican sobre `magnitud_variacion_pct`: Correcto es menor
+del 15 %; Atención, desde 15 % incluido hasta 25 % excluido; Desviación, desde
+25 % incluido hasta 40 % incluido; y Crítico, superior al 40 %. Los mínimos de
+Leads, Reservas y Ventas se evalúan con `diferencia_absoluta`. Para alcanzar
+Atención, Desviación o Crítico debe cumplirse simultáneamente el mínimo del nivel:
+Leads exige respectivamente 30, 50 y 100, con baseline mínimo evaluable 100;
+Reservas y Ventas exigen 3, 5 y 8, con baseline mínimo evaluable 5.
+
+El estado y la dirección son dimensiones separadas. Una subida grande puede ser
+Crítico/Favorable y una caída grande, Crítico/Desfavorable. No se fija todavía
+una tolerancia para Estable: su contrato exacto debe definirse mediante
+especificación y pruebas antes de implementar EXE-1. Si `actual = 0` y el
+baseline alcanza su mínimo evaluable, el estado es Crítico y la dirección
+Desfavorable. La especificación ejecutable deberá cubrir todos los límites antes
+de implementar el motor.
+
+Se publicarán como máximo cinco alertas: primero por severidad, después las
+desfavorables antes que las favorables y, a continuación, por impacto económico
+solo cuando exista un dato fiable; si no existe, por volumen absoluto. Nunca se
+inventará impacto económico. Las acciones recomendadas serán fijas, versionadas,
+con clave única y auditables. Una causa solo se afirmará como confirmada cuando
+los datos la demuestren; en otro caso se mostrará «Posible causa a revisar».
+
+V1 no utilizará IA. SISTRIX y GEO/IA quedan fuera y ocultos. El correo ejecutivo
+general se enviará durante el piloto únicamente a `carlos.torres@hrmotor.es` a
+las 08:00 `Europe/Madrid`. El correo SEO existente se mantiene independiente
+mientras SEO no se incorpore expresamente al correo ejecutivo general.
+
 ## 2026-09-22 - Permisos y cierre productivo de Rendimiento comercial
 
 Administrador mantiene lectura global, auditoría y edición del objetivo
