@@ -1,5 +1,19 @@
 # Handoff para agentes
 
+## Aprobación sénior de RV-2 para PR (2026-09-23)
+
+- La revisión sénior aprobó RV-2 sobre el HEAD
+  `a07da5646b1ecdc5e1edee4ac6bb37bac8a17232`. Los cuatro defectos de la primera
+  revisión quedaron corregidos y no existen bloqueantes funcionales conocidos.
+- La suite completa pasó con 1.017/1.017 pruebas y 7.818 aserciones. La deuda
+  global de Pint permanece en archivos ajenos al lote y no fue introducida por
+  RV-2; todos los PHP modificados por RV-2 pasan Pint.
+- RV-2 queda `aprobada`, no `cerrada`. La CI del PR está pendiente y es
+  obligatoria antes de cualquier merge; SF-7A-OPS continúa `pendiente`.
+- Este checkpoint no incorpora cambios runtime, datos productivos ni PII. No
+  hubo despliegue, sincronizaciones, Salesforce ni otras operaciones
+  productivas.
+
 ## Correcciones de revisión sénior de RV-2 (2026-09-23)
 
 - Sobre el HEAD revisado `648751bbc260659396394b0ed1680e2a078ecde7` se

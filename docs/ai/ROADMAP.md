@@ -86,7 +86,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 |---:|---|---|---|---|---|---|
 | 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `cerrada` | Ninguno | Evidencia cerrada disponible para RV-1 |
 | 2 | RV-1 | Cierre ejecutivo de Rendimiento comercial | P0 | `cerrada` | RV-3 | Evidencia de RV-3 para cancelaciones `N/D` y cero de ventas caídas |
-| 3 | RV-2 | Producción y períodos de Resumen Dirección | P0 | `en_revision` | RV-1 | Contratos temporales, reglas y universos existentes; no depende técnicamente de RV-1 |
+| 3 | RV-2 | Producción y períodos de Resumen Dirección | P0 | `aprobada` | RV-1 | Contratos temporales, reglas y universos existentes; no depende técnicamente de RV-1 |
 | 4 | SF-7A-OPS | Cierre operacional Salesforce Fase 7A | P0 | `pendiente` | RV-2 | Herramienta, migración, runbook y autorización propios; no depende de la UX de RV |
 | 5 | SF-7B-OPS | Cierre operacional Salesforce Fase 7B | P0 | `pendiente` | SF-7A-OPS | Herramienta, fechas locales, runbook y autorización propios; no depende de RV ni de 7A |
 | 6 | EXE-1 | Motor ejecutivo V1 | P0 | `pendiente` | SF-7B-OPS | Contrato y pruebas V1; no depende técnicamente de 7A/7B por ser agnóstico de módulo |
@@ -141,7 +141,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 
 - **Fase/lote:** cierre definitivo de Reservas/Ventas.
 - **Prioridad:** P0.
-- **Estado:** `en_revision` desde el 2026-09-23.
+- **Estado:** `aprobada` el 2026-09-23 tras revisión sénior.
 - **Predecesor planificado:** RV-1.
 - **Dependencias técnicas reales:** contratos temporales, reglas, deduplicación
   y universos existentes. No depende técnicamente de cerrar RV-1.
@@ -149,6 +149,8 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - **SHA base al activar:** `3d3354f6fd4a3605dd3207b9448fa5be114e8d80`.
 - **HEAD funcional revisable:**
   `d6486ca3710c43e2a96a941338d17c46358b10aa`.
+- **HEAD sénior aprobado:**
+  `a07da5646b1ecdc5e1edee4ac6bb37bac8a17232`.
 - **Bloqueos/decisiones de negocio:** preservar el contrato temporal `[start,
   end)` y no cambiar silenciosamente claves JSON existentes.
 - **Contrato implementado:** `produccion_periodo` y `cohorte_creacion` son
@@ -159,9 +161,9 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
   correctos. Tras corregir el límite del mes comparado, el universo Venta/Cambio,
   la identidad estable V7 y el aislamiento del criterio oculto, la suite
   completa pasa: 1.017 pruebas y 7.818 aserciones.
-- **Punto exacto de reanudación:** revisión sénior de la rama previa al PR;
-  comprobar contrato aditivo, separación visual, scopes, auditoría y evidencia
-  de pruebas antes de autorizar su apertura.
+- **Punto exacto de reanudación:** abrir PR contra `main`, esperar CI
+  completamente verde, realizar la revisión final remota y fusionar únicamente
+  tras autorización expresa.
 - **Criterios de aceptación:**
   - los períodos se muestran con límites claros, verificables y sin apariencia
     de solapamiento; todos los presets conservan `[start, end)`;
