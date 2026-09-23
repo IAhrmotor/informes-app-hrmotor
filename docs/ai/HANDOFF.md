@@ -1,6 +1,6 @@
 # Handoff para agentes
 
-## Roadmap controlado y decisiones del Resumen Ejecutivo V1 (2026-09-22)
+## Roadmap controlado y decisiones del Resumen Ejecutivo V1 (2026-09-23)
 
 ### Resumen, decisiones y archivos
 
@@ -17,6 +17,12 @@
 - `docs/ai/DECISIONS.md` incorpora únicamente el contrato funcional aprobado del
   Resumen Ejecutivo V1: acceso, referencias, evaluabilidad, umbrales,
   priorización, acciones/causas, exclusiones y piloto de correo.
+- La revisión sénior precisó que el estado usa la magnitud absoluta de la
+  variación y los mínimos usan la diferencia absoluta, manteniendo la dirección
+  como dimensión separada y sin inventar tolerancia para `Estable`.
+- La secuencia preferida quedó separada de las dependencias técnicas reales. Los
+  cierres 7A/7B preceden al Resumen Ejecutivo por planificación, pero no son una
+  dependencia técnica de EXE-1 ni de los datos globales de EXE-2.
 - No se modificaron `PROJECT_CONTEXT.md`, `DESIGN_SYSTEM.md` ni
   `docs/informe-reservas-ventas.md`: se revisaron como fuentes, pero esta tarea no
   cambia arquitectura implementada, convenciones generales ni fórmulas actuales.
@@ -27,8 +33,9 @@
 
 - No hay migraciones, cambios de esquema, variables de entorno, dependencias ni
   configuración.
-- No se añadieron secretos, tokens, PII ni datos productivos. El único email
-  incorporado es el destinatario funcional aprobado del piloto ejecutivo.
+- No se añadieron secretos, tokens, credenciales ni datos productivos sensibles.
+  El único dato identificativo incorporado es el email corporativo expresamente
+  aprobado como destinatario del piloto.
 - No hubo conexiones a Salesforce, escrituras externas, operaciones sobre
   producción, despliegue, PR ni merge.
 - No hay impacto de runtime o rendimiento: el cambio es exclusivamente
@@ -44,8 +51,8 @@
   existen. El diff contiene únicamente los tres archivos Markdown declarados y
   `git diff --check` finaliza correctamente. No existe un lint documental barato
   configurado en el repositorio.
-- Tras el commit se revisará que `git status` quede limpio antes del push y se
-  volverá a comprobar después de publicarlo.
+- Después del commit y del push iniciales se comprobó que el working tree estaba
+  limpio y la rama quedó sincronizada con `origin/docs/roadmap-executive-v1`.
 - No se requieren acciones manuales, migraciones ni limpieza de caché. El riesgo
   pendiente está deliberadamente contenido en las fichas: ninguna rama futura,
   contrato no aprobado u operación queda activada por este documento.

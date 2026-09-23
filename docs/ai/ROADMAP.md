@@ -1,6 +1,6 @@
 # Roadmap controlado de implementación
 
-Actualizado: 2026-09-22.
+Actualizado: 2026-09-23.
 
 Este documento es la **fuente única de verdad del trabajo pendiente**. El
 histórico de trabajo ya entregado y sus validaciones permanece en
@@ -13,6 +13,11 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - Cada trabajo pendiente debe tener un ID único y una ficha en este documento.
 - Al activar una tarea se deben completar su rama y SHA base, cambiar su estado
   a `en_progreso` y registrar un punto de reanudación verificable.
+- El orden del roadmap expresa la secuencia de trabajo preferida. Cada ficha
+  distingue ese predecesor planificado de sus dependencias técnicas reales.
+  Una operación independiente bloqueada puede quedar `bloqueada`, con su punto
+  de reanudación, y permitir avanzar a la siguiente tarea P0 técnicamente
+  independiente únicamente tras revisión y decisión expresa.
 - Una tarea no se considera terminada por estar implementada: pasa por
   `en_revision`, `aprobada` y finalmente `cerrada` cuando también se han
   completado merge, operación y validación aplicables.
@@ -61,28 +66,28 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - Las fichas con rama o SHA `por asignar` no autorizan iniciar trabajo: deben
   completarse al activar formalmente la tarea.
 
-## Orden ejecutivo
+## Secuencia de trabajo preferida
 
-| Orden | ID | Lote | Prioridad | Estado | Dependencia principal |
-|---:|---|---|---|---|---|
-| 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `pendiente` | PR #53 fusionado |
-| 2 | RV-1 | Cierre ejecutivo de Rendimiento comercial | P0 | `pendiente` | RV-3 |
-| 3 | RV-2 | Producción y períodos de Resumen Dirección | P0 | `pendiente` | RV-3 y RV-1 |
-| 4 | SF-7A-OPS | Cierre operacional Salesforce Fase 7A | P0 | `pendiente` | RV-1 y RV-2 cerradas |
-| 5 | SF-7B-OPS | Cierre operacional Salesforce Fase 7B | P0 | `pendiente` | SF-7A-OPS |
-| 6 | EXE-1 | Motor ejecutivo V1 | P0 | `pendiente` | SF-7A-OPS y SF-7B-OPS |
-| 7 | EXE-2 | Datos ejecutivos diarios | P0 | `pendiente` | EXE-1 |
-| 8 | EXE-3 | Resumen Ejecutivo global | P0 | `pendiente` | EXE-2 |
-| 9 | EXE-4 | Correo ejecutivo piloto | P0 | `pendiente` | EXE-3 |
-| 10 | EXE-5 | Piloto y calibración | P0 | `pendiente` | EXE-4 |
-| 11 | TRANS-1 | Correcciones transversales | P1 | `pendiente` | EXE-5 |
-| 12 | UX-LEADS | UX Leads | P1 | `pendiente` | TRANS-1 |
-| 13 | UX-CALLS | UX Llamadas | P1 | `pendiente` | TRANS-1 |
-| 14 | UX-CAMPAIGNS | UX Campañas | P1 | `pendiente` | TRANS-1 |
-| 15 | SEO-SIMPLIFY | Simplificación SEO | P2 | `pendiente` | EXE-5 |
-| 16 | ANALYTICS-EXT | Ampliación del motor analítico | P2 | `pendiente` | EXE-5 |
-| 17 | AI-LATER | IA posterior | P3 | `pendiente` | ANALYTICS-EXT |
-| 18 | GEO-AI-LATER | GEO/IA posterior | P3 | `pendiente` | ANALYTICS-EXT |
+| Orden | ID | Lote | Prioridad | Estado | Predecesor planificado | Dependencia técnica real principal |
+|---:|---|---|---|---|---|---|
+| 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `pendiente` | Ninguno | Contratos, auditorías y datos locales existentes |
+| 2 | RV-1 | Cierre ejecutivo de Rendimiento comercial | P0 | `pendiente` | RV-3 | Evidencia de RV-3 para cancelaciones `N/D` y cero de ventas caídas |
+| 3 | RV-2 | Producción y períodos de Resumen Dirección | P0 | `pendiente` | RV-1 | Contratos temporales, reglas y universos existentes; no depende técnicamente de RV-1 |
+| 4 | SF-7A-OPS | Cierre operacional Salesforce Fase 7A | P0 | `pendiente` | RV-2 | Herramienta, migración, runbook y autorización propios; no depende de la UX de RV |
+| 5 | SF-7B-OPS | Cierre operacional Salesforce Fase 7B | P0 | `pendiente` | SF-7A-OPS | Herramienta, fechas locales, runbook y autorización propios; no depende de RV ni de 7A |
+| 6 | EXE-1 | Motor ejecutivo V1 | P0 | `pendiente` | SF-7B-OPS | Contrato y pruebas V1; no depende técnicamente de 7A/7B por ser agnóstico de módulo |
+| 7 | EXE-2 | Datos ejecutivos diarios | P0 | `pendiente` | EXE-1 | Contrato de EXE-1 y fuentes canónicas locales; no depende técnicamente de los backfills 7A/7B |
+| 8 | EXE-3 | Resumen Ejecutivo global | P0 | `pendiente` | EXE-2 | Contratos de EXE-1 y datasets de EXE-2 |
+| 9 | EXE-4 | Correo ejecutivo piloto | P0 | `pendiente` | EXE-3 | Dataset ejecutivo global aprobado |
+| 10 | EXE-5 | Piloto y calibración | P0 | `pendiente` | EXE-4 | Flujo piloto ejecutable y auditable |
+| 11 | TRANS-1 | Correcciones transversales | P1 | `pendiente` | EXE-5 | Inventario aprobado de incidencias verificadas |
+| 12 | UX-LEADS | UX Leads | P1 | `pendiente` | TRANS-1 | Alcance UX de Leads aprobado |
+| 13 | UX-CALLS | UX Llamadas | P1 | `pendiente` | TRANS-1 | Alcance UX de Llamadas aprobado |
+| 14 | UX-CAMPAIGNS | UX Campañas | P1 | `pendiente` | TRANS-1 | Alcance UX de Campañas aprobado |
+| 15 | SEO-SIMPLIFY | Simplificación SEO | P2 | `pendiente` | EXE-5 | Alcance de simplificación aprobado y contratos SEO actuales |
+| 16 | ANALYTICS-EXT | Ampliación del motor analítico | P2 | `pendiente` | EXE-5 | Evidencia del piloto y métricas aprobadas |
+| 17 | AI-LATER | IA posterior | P3 | `pendiente` | ANALYTICS-EXT | Caso de uso, gobernanza y contrato aprobados |
+| 18 | GEO-AI-LATER | GEO/IA posterior | P3 | `pendiente` | ANALYTICS-EXT | Decisión funcional y alcance aprobados |
 
 ## Lote previo: cierre definitivo de Reservas/Ventas
 
@@ -91,7 +96,8 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - **Fase/lote:** cierre definitivo de Reservas/Ventas.
 - **Prioridad:** P0.
 - **Estado:** `pendiente`.
-- **Dependencias:** PR #53 fusionado; contratos y auditorías locales existentes.
+- **Predecesor planificado:** ninguno; el PR #53 ya está fusionado.
+- **Dependencias técnicas reales:** contratos y auditorías locales existentes.
 - **Rama prevista o activa:** por asignar al activar; ninguna rama activa.
 - **SHA base al activar:** por registrar desde `main` actualizado.
 - **Bloqueos/decisiones de negocio:** la investigación debe ser de solo lectura.
@@ -114,8 +120,9 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - **Fase/lote:** cierre definitivo de Reservas/Ventas.
 - **Prioridad:** P0.
 - **Estado:** `pendiente`.
-- **Dependencias:** RV-3 cerrada para cualquier ajuste relacionado con
-  cancelaciones o ventas caídas.
+- **Predecesor planificado:** RV-3.
+- **Dependencias técnicas reales:** evidencia cerrada de RV-3 para representar
+  cancelaciones `N/D` y verificar el cero de ventas caídas.
 - **Rama prevista o activa:** por asignar al activar; ninguna rama activa.
 - **SHA base al activar:** por registrar desde `main` actualizado.
 - **Bloqueos/decisiones de negocio:** no redefinir fórmulas ni extrapolar margen
@@ -152,7 +159,9 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - **Fase/lote:** cierre definitivo de Reservas/Ventas.
 - **Prioridad:** P0.
 - **Estado:** `pendiente`.
-- **Dependencias:** RV-3 y RV-1 cerradas.
+- **Predecesor planificado:** RV-1.
+- **Dependencias técnicas reales:** contratos temporales, reglas, deduplicación
+  y universos existentes. No depende técnicamente de cerrar RV-1.
 - **Rama prevista o activa:** por asignar al activar; ninguna rama activa.
 - **SHA base al activar:** por registrar desde `main` actualizado.
 - **Bloqueos/decisiones de negocio:** preservar el contrato temporal `[start,
@@ -180,8 +189,10 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - **Fase/lote:** Salesforce 7A, backfill histórico de atribución Lead.
 - **Prioridad:** P0.
 - **Estado:** `pendiente`.
-- **Dependencias:** cierre definitivo de RV-1 y RV-2; herramienta técnica ya
-  implementada según `HANDOFF.md`.
+- **Predecesor planificado:** RV-2.
+- **Dependencias técnicas reales:** herramienta y migración ya implementadas
+  según `HANDOFF.md`, más runbook, rango, motivo y autorización operativa. La UX
+  de RV-1/RV-2 no es dependencia técnica.
 - **Rama prevista o activa:** por asignar; ninguna rama activa.
 - **SHA base al activar:** por registrar.
 - **Bloqueos/decisiones de negocio:** requiere runbook, rango, motivo y
@@ -197,7 +208,10 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - **Fase/lote:** Salesforce 7B, reproceso histórico de portales Opportunity.
 - **Prioridad:** P0.
 - **Estado:** `pendiente`.
-- **Dependencias:** SF-7A-OPS cerrada y fechas locales necesarias conciliadas.
+- **Predecesor planificado:** SF-7A-OPS.
+- **Dependencias técnicas reales:** herramienta implementada, fechas locales
+  necesarias conciliadas, runbook, rango, motivo y autorización operativa. No
+  depende técnicamente de RV-1/RV-2 ni del cierre de SF-7A-OPS.
 - **Rama prevista o activa:** por asignar; ninguna rama activa.
 - **SHA base al activar:** por registrar.
 - **Bloqueos/decisiones de negocio:** requiere runbook, rango, motivo y
@@ -245,13 +259,24 @@ trabajo pendiente, no como afirmación de funcionalidad ya implementada.
 
 ### Umbrales aprobados
 
-La variación se calcula respecto a la media de los cuatro mismos días anteriores.
-Un nivel de alerta solo se alcanza si se cumplen simultáneamente su banda
-porcentual y su diferencia absoluta mínima. Si una puerta absoluta no se cumple,
-no se puede asignar ese nivel. La especificación ejecutable deberá fijar con
-pruebas todos los límites antes de implementar el motor.
+El baseline es la media de los cuatro mismos días anteriores. El contrato
+conceptual separa signo, magnitud, diferencia absoluta y dirección:
 
-| Estado | Variación porcentual |
+```text
+variacion_pct = ((actual - baseline) / baseline) * 100
+magnitud_variacion_pct = abs(variacion_pct)
+diferencia_absoluta = abs(actual - baseline)
+```
+
+Las bandas de estado se aplican exclusivamente sobre
+`magnitud_variacion_pct`. Los mínimos de Leads, Reservas y Ventas se aplican
+exclusivamente sobre `diferencia_absoluta`. Un nivel de alerta solo se alcanza si
+se cumplen simultáneamente su banda de magnitud porcentual y su diferencia
+absoluta mínima. Si una puerta absoluta no se cumple, no se puede asignar ese
+nivel. La especificación ejecutable deberá fijar con pruebas todos los límites
+antes de implementar el motor.
+
+| Estado | `magnitud_variacion_pct` |
 |---|---:|
 | Correcto | `< 15 %` |
 | Atención | `>= 15 %` y `< 25 %` |
@@ -266,7 +291,11 @@ pruebas todos los límites antes de implementar el motor.
 
 Reglas de evaluabilidad:
 
-- si `current = 0` y el baseline alcanza el mínimo evaluable, el resultado es
+- el estado y la dirección son dimensiones separadas: una subida grande puede
+  ser **Crítico / Favorable** y una caída grande, **Crítico / Desfavorable**;
+- no se define todavía una tolerancia para la dirección **Estable**; su contrato
+  exacto debe fijarse mediante especificación y pruebas antes de EXE-1;
+- si `actual = 0` y el baseline alcanza el mínimo evaluable, el resultado es
   **Crítico** y **Desfavorable**;
 - si falta D-7, D-14, D-21 o D-28, el día está incompleto o existe una incidencia
   de sincronización, el resultado es **No evaluable** y la salud nunca se
@@ -279,7 +308,9 @@ Reglas de evaluabilidad:
 - **Fase/lote:** Resumen Ejecutivo, motor analítico.
 - **Prioridad:** P0.
 - **Estado:** `pendiente`.
-- **Dependencias:** SF-7A-OPS y SF-7B-OPS cerradas.
+- **Predecesor planificado:** SF-7B-OPS.
+- **Dependencias técnicas reales:** contrato funcional V1 y matriz de pruebas.
+  El motor es agnóstico de módulo y no depende técnicamente del cierre de 7A/7B.
 - **Rama prevista o activa:** por asignar; ninguna rama activa.
 - **SHA base al activar:** por registrar.
 - **Bloqueos/decisiones de negocio:** antes de código deben formalizarse pruebas
@@ -297,7 +328,9 @@ Reglas de evaluabilidad:
 - **Fase/lote:** Resumen Ejecutivo, adaptadores de datos.
 - **Prioridad:** P0.
 - **Estado:** `pendiente`.
-- **Dependencias:** EXE-1.
+- **Predecesor planificado:** EXE-1.
+- **Dependencias técnicas reales:** contrato de entrada de EXE-1 y fuentes
+  canónicas locales. No depende técnicamente de los backfills de 7A/7B.
 - **Rama prevista o activa:** por asignar; ninguna rama activa.
 - **SHA base al activar:** por registrar.
 - **Bloqueos/decisiones de negocio:** reutilizar universos canónicos y datos
@@ -314,7 +347,9 @@ Reglas de evaluabilidad:
 - **Fase/lote:** Resumen Ejecutivo, dashboard.
 - **Prioridad:** P0.
 - **Estado:** `pendiente`.
-- **Dependencias:** EXE-2.
+- **Predecesor planificado:** EXE-2.
+- **Dependencias técnicas reales:** contrato del motor EXE-1 y datasets diarios
+  reconciliables de EXE-2.
 - **Rama prevista o activa:** por asignar; ninguna rama activa.
 - **SHA base al activar:** por registrar.
 - **Bloqueos/decisiones de negocio:** acceso V1 solo Administrador/Dirección;
@@ -331,7 +366,9 @@ Reglas de evaluabilidad:
 - **Fase/lote:** Resumen Ejecutivo, distribución piloto.
 - **Prioridad:** P0.
 - **Estado:** `pendiente`.
-- **Dependencias:** EXE-3.
+- **Predecesor planificado:** EXE-3.
+- **Dependencias técnicas reales:** dataset y presentación ejecutiva global
+  aprobados.
 - **Rama prevista o activa:** por asignar; ninguna rama activa.
 - **SHA base al activar:** por registrar.
 - **Bloqueos/decisiones de negocio:** único destinatario aprobado
@@ -347,7 +384,8 @@ Reglas de evaluabilidad:
 - **Fase/lote:** Resumen Ejecutivo, validación funcional.
 - **Prioridad:** P0.
 - **Estado:** `pendiente`.
-- **Dependencias:** EXE-4.
+- **Predecesor planificado:** EXE-4.
+- **Dependencias técnicas reales:** flujo piloto ejecutable y auditable.
 - **Rama prevista o activa:** por asignar; ninguna rama activa.
 - **SHA base al activar:** por registrar.
 - **Bloqueos/decisiones de negocio:** cualquier ajuste de umbral o prioridad debe
@@ -368,7 +406,9 @@ aproximen a ejecución, sin adelantar contratos ni inventar arquitectura.
 
 - **Fase/lote:** Leads/Llamadas/Campañas.
 - **Prioridad:** P1. **Estado:** `pendiente`.
-- **Dependencias:** EXE-5. **Rama:** por asignar. **SHA base:** por registrar.
+- **Predecesor planificado:** EXE-5. **Dependencias técnicas reales:** inventario
+  aprobado de incidencias verificadas. **Rama:** por asignar. **SHA base:** por
+  registrar.
 - **Bloqueos/decisiones:** inventario y priorización pendientes.
 - **Punto de reanudación:** consolidar incidencias abiertas verificadas de los
   tres módulos sin mezclar cambios funcionales no relacionados.
@@ -378,7 +418,8 @@ aproximen a ejecución, sin adelantar contratos ni inventar arquitectura.
 ### UX-LEADS — UX Leads
 
 - **Fase/lote:** evolución UX. **Prioridad:** P1. **Estado:** `pendiente`.
-- **Dependencias:** TRANS-1. **Rama:** por asignar. **SHA base:** por registrar.
+- **Predecesor planificado:** TRANS-1. **Dependencias técnicas reales:** alcance
+  UX de Leads aprobado. **Rama:** por asignar. **SHA base:** por registrar.
 - **Bloqueos/decisiones:** alcance funcional pendiente de inventario.
 - **Punto de reanudación:** auditoría de uso, accesibilidad y deuda visual.
 - **Aceptación:** alcance aprobado, sin cambios de métricas, migración compatible
@@ -387,7 +428,8 @@ aproximen a ejecución, sin adelantar contratos ni inventar arquitectura.
 ### UX-CALLS — UX Llamadas
 
 - **Fase/lote:** evolución UX. **Prioridad:** P1. **Estado:** `pendiente`.
-- **Dependencias:** TRANS-1. **Rama:** por asignar. **SHA base:** por registrar.
+- **Predecesor planificado:** TRANS-1. **Dependencias técnicas reales:** alcance
+  UX de Llamadas aprobado. **Rama:** por asignar. **SHA base:** por registrar.
 - **Bloqueos/decisiones:** alcance funcional pendiente de inventario.
 - **Punto de reanudación:** auditoría de uso, accesibilidad y deuda visual.
 - **Aceptación:** alcance aprobado, sin cambios silenciosos de clasificación,
@@ -396,7 +438,8 @@ aproximen a ejecución, sin adelantar contratos ni inventar arquitectura.
 ### UX-CAMPAIGNS — UX Campañas
 
 - **Fase/lote:** evolución UX. **Prioridad:** P1. **Estado:** `pendiente`.
-- **Dependencias:** TRANS-1. **Rama:** por asignar. **SHA base:** por registrar.
+- **Predecesor planificado:** TRANS-1. **Dependencias técnicas reales:** alcance
+  UX de Campañas aprobado. **Rama:** por asignar. **SHA base:** por registrar.
 - **Bloqueos/decisiones:** alcance funcional pendiente de inventario.
 - **Punto de reanudación:** auditoría de uso, accesibilidad y deuda visual.
 - **Aceptación:** alcance aprobado, atribución preservada, migración compatible
@@ -405,7 +448,9 @@ aproximen a ejecución, sin adelantar contratos ni inventar arquitectura.
 ### SEO-SIMPLIFY — Simplificación SEO
 
 - **Fase/lote:** SEO/Analytics. **Prioridad:** P2. **Estado:** `pendiente`.
-- **Dependencias:** EXE-5. **Rama:** por asignar. **SHA base:** por registrar.
+- **Predecesor planificado:** EXE-5. **Dependencias técnicas reales:** alcance de
+  simplificación aprobado y contratos SEO actuales. **Rama:** por asignar. **SHA
+  base:** por registrar.
 - **Bloqueos/decisiones:** el correo SEO sigue independiente hasta decisión
   expresa de integración.
 - **Punto de reanudación:** inventariar información esencial, secundaria y
@@ -416,7 +461,9 @@ aproximen a ejecución, sin adelantar contratos ni inventar arquitectura.
 ### ANALYTICS-EXT — Ampliación del motor analítico
 
 - **Fase/lote:** analítica transversal. **Prioridad:** P2. **Estado:** `pendiente`.
-- **Dependencias:** EXE-5. **Rama:** por asignar. **SHA base:** por registrar.
+- **Predecesor planificado:** EXE-5. **Dependencias técnicas reales:** evidencia
+  del piloto y métricas aprobadas. **Rama:** por asignar. **SHA base:** por
+  registrar.
 - **Bloqueos/decisiones:** métricas y nuevos módulos todavía no aprobados.
 - **Punto de reanudación:** evaluar el piloto y proponer extensiones basadas en
   casos de uso demostrados.
@@ -426,7 +473,8 @@ aproximen a ejecución, sin adelantar contratos ni inventar arquitectura.
 ### AI-LATER — IA posterior
 
 - **Fase/lote:** capacidades futuras. **Prioridad:** P3. **Estado:** `pendiente`.
-- **Dependencias:** ANALYTICS-EXT y aprobación específica.
+- **Predecesor planificado:** ANALYTICS-EXT.
+- **Dependencias técnicas reales:** caso de uso, gobernanza y contrato aprobados.
 - **Rama:** por asignar. **SHA base:** por registrar.
 - **Bloqueos/decisiones:** fuera de V1; sin caso de uso, gobernanza ni contrato
   aprobados.
@@ -437,7 +485,8 @@ aproximen a ejecución, sin adelantar contratos ni inventar arquitectura.
 ### GEO-AI-LATER — GEO/IA posterior
 
 - **Fase/lote:** capacidades futuras. **Prioridad:** P3. **Estado:** `pendiente`.
-- **Dependencias:** ANALYTICS-EXT y aprobación específica.
+- **Predecesor planificado:** ANALYTICS-EXT.
+- **Dependencias técnicas reales:** decisión funcional y alcance aprobados.
 - **Rama:** por asignar. **SHA base:** por registrar.
 - **Bloqueos/decisiones:** GEO/IA y SISTRIX están fuera y ocultos en V1.
 - **Punto de reanudación:** ninguno hasta decisión funcional expresa.
@@ -446,10 +495,11 @@ aproximen a ejecución, sin adelantar contratos ni inventar arquitectura.
 
 ## Restricciones permanentes de seguridad y operación
 
-- No registrar secretos, tokens, credenciales, PII ni datos productivos en el
-  roadmap o sus evidencias.
-- El único email aprobado para el piloto ejecutivo es
-  `carlos.torres@hrmotor.es`; cualquier ampliación requiere una nueva decisión.
+- No registrar secretos, tokens, credenciales, datos productivos sensibles, PII
+  ni datos identificativos adicionales en el roadmap o sus evidencias.
+- `carlos.torres@hrmotor.es` es la única excepción actualmente aprobada como
+  requisito funcional del piloto. Cualquier otro destinatario requiere una
+  nueva decisión aprobada.
 - Una tarea documental no autoriza conexiones externas, escrituras Salesforce,
   operaciones sobre producción, despliegues ni cambios de runtime.
 - Los scopes se resuelven en servidor bajo mínimo privilegio; ocultar UI nunca
