@@ -1,5 +1,22 @@
 # Handoff para agentes
 
+## Aprobación sénior de RV-1 para PR (2026-09-23)
+
+- La revisión sénior aprobó RV-1 para abrir PR sobre el SHA revisado
+  `7c4cb00d42b841ac2fe27ce3b0d52a91e077f3f7`; el estado pasa de
+  `en_revision` a `aprobada`, no a `cerrada`. RV-2 continúa `pendiente`.
+- No se detectaron vulnerabilidades, regresiones funcionales ni cambios
+  backend. La implementación revisada, sus bundles y el manifest permanecen
+  intactos en este checkpoint exclusivamente documental.
+- Observación no bloqueante: los helpers compartidos de formato modificados por
+  RV-1 afectan también a otras vistas de Reservas/Ventas, únicamente en su
+  presentación `es-ES`; no cambian valores, fórmulas, universos ni contratos.
+- La incidencia temporal ajena de Stock permanece documentada sin alterar su
+  benchmark. La CI del PR debe estar completamente verde antes de cualquier
+  autorización de merge.
+- Punto de reanudación: abrir el PR contra `main`, esperar CI verde, realizar la
+  revisión final del PR y fusionar solo tras autorización expresa.
+
 ## RV-1 — Cierre ejecutivo de Rendimiento comercial (2026-09-23)
 
 ### Resumen y decisiones

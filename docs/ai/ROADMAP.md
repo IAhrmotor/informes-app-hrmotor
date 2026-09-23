@@ -79,7 +79,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 | Orden | ID | Lote | Prioridad | Estado | Predecesor planificado | Dependencia técnica real principal |
 |---:|---|---|---|---|---|---|
 | 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `cerrada` | Ninguno | Evidencia cerrada disponible para RV-1 |
-| 2 | RV-1 | Cierre ejecutivo de Rendimiento comercial | P0 | `en_revision` | RV-3 | Evidencia de RV-3 para cancelaciones `N/D` y cero de ventas caídas |
+| 2 | RV-1 | Cierre ejecutivo de Rendimiento comercial | P0 | `aprobada` | RV-3 | Evidencia de RV-3 para cancelaciones `N/D` y cero de ventas caídas |
 | 3 | RV-2 | Producción y períodos de Resumen Dirección | P0 | `pendiente` | RV-1 | Contratos temporales, reglas y universos existentes; no depende técnicamente de RV-1 |
 | 4 | SF-7A-OPS | Cierre operacional Salesforce Fase 7A | P0 | `pendiente` | RV-2 | Herramienta, migración, runbook y autorización propios; no depende de la UX de RV |
 | 5 | SF-7B-OPS | Cierre operacional Salesforce Fase 7B | P0 | `pendiente` | SF-7A-OPS | Herramienta, fechas locales, runbook y autorización propios; no depende de RV ni de 7A |
@@ -118,7 +118,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 
 - **Fase/lote:** cierre definitivo de Reservas/Ventas.
 - **Prioridad:** P0.
-- **Estado:** `en_revision` desde el 2026-09-23.
+- **Estado:** `aprobada` desde el 2026-09-23; todavía no `cerrada`.
 - **Predecesor planificado:** RV-3.
 - **Dependencias técnicas reales:** evidencia cerrada de RV-3 para representar
   cancelaciones `N/D` y verificar el cero de ventas caídas.
@@ -126,6 +126,8 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - **SHA base al activar:** `6bebc0a1d9dc11ef9c5ebf62fcf7c16ea3c9e923`.
 - **HEAD funcional validado:**
   `521310b1730b68f0579b0f734101904f65955018`.
+- **Aprobación sénior:** rama aprobada para PR el 2026-09-23 sobre el SHA
+  revisado `7c4cb00d42b841ac2fe27ce3b0d52a91e077f3f7`.
 - **Bloqueos/decisiones de negocio:** no redefinir fórmulas ni extrapolar margen
   desconocido; los presets de columnas son condicionales a que no introduzcan
   complejidad estructural.
@@ -137,9 +139,10 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
   aserciones; unit de KPI `1`/`6`; build Vite correcto. La suite completa obtuvo
   `1.008` de `1.009` pruebas y `7.668` aserciones: solo excedió por `0,1037 s` el
   umbral temporal de Stock; su repetición aislada fue correcta (`2`/`13`).
-- **Punto exacto de reanudación:** revisión sénior de la rama publicada antes de
-  abrir PR. No activar RV-2 ni cambiar RV-1 a `aprobada` o `cerrada` sin esa
-  revisión.
+- **Punto exacto de reanudación:** abrir PR contra `main`, esperar CI
+  completamente verde, realizar la revisión final del PR y fusionar únicamente
+  tras autorización expresa. No activar RV-2 ni cambiar RV-1 a `cerrada` antes
+  de completar ese flujo.
 - **Criterios de aceptación:**
   1. Mostrar `X reservas computables / Y de objetivo = Z %` usando, sin
      redefinir la fórmula, `global_reservations_valid_for_objective`,
