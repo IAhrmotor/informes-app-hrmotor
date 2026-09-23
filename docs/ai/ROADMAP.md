@@ -59,10 +59,13 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 ## Línea base y límites actuales
 
 - Rama base de este roadmap: `main`.
-- SHA base documental: `0355dd688a352e9b5d3bc34e7ab98a308cec0498`.
-- Rama documental: `docs/roadmap-executive-v1`.
+- SHA actual de la rama base: `04367da61f15301f9d63bb480a5f907dc2caae9b`.
+- El PR #54 de preparación documental está cerrado y fusionado. La rama remota
+  `docs/roadmap-executive-v1` se eliminó después de verificar que seguía
+  apuntando al commit aprobado `22e2f6496dc376ad6236854e56434e8a8aa0f3cc`.
 - El PR #53 de Reservas/Ventas ya está fusionado. No es trabajo pendiente.
-- No hay una rama funcional activa para los lotes descritos abajo.
+- La única rama funcional activa es `audit/rv-3-historical-validation`, creada
+  desde el `main` indicado para investigar RV-3 exclusivamente en solo lectura.
 - Las fichas con rama o SHA `por asignar` no autorizan iniciar trabajo: deben
   completarse al activar formalmente la tarea.
 
@@ -70,7 +73,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 
 | Orden | ID | Lote | Prioridad | Estado | Predecesor planificado | Dependencia técnica real principal |
 |---:|---|---|---|---|---|---|
-| 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `pendiente` | Ninguno | Contratos, auditorías y datos locales existentes |
+| 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `aprobada` | Ninguno | Contratos, auditorías y datos locales existentes |
 | 2 | RV-1 | Cierre ejecutivo de Rendimiento comercial | P0 | `pendiente` | RV-3 | Evidencia de RV-3 para cancelaciones `N/D` y cero de ventas caídas |
 | 3 | RV-2 | Producción y períodos de Resumen Dirección | P0 | `pendiente` | RV-1 | Contratos temporales, reglas y universos existentes; no depende técnicamente de RV-1 |
 | 4 | SF-7A-OPS | Cierre operacional Salesforce Fase 7A | P0 | `pendiente` | RV-2 | Herramienta, migración, runbook y autorización propios; no depende de la UX de RV |
@@ -95,16 +98,18 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 
 - **Fase/lote:** cierre definitivo de Reservas/Ventas.
 - **Prioridad:** P0.
-- **Estado:** `pendiente`.
+- **Estado:** `aprobada` desde 2026-09-23. La revisión sénior aprobó la rama
+  para PR sobre el SHA `821870a0252093dd5c0d50e044878549e8f99589`.
 - **Predecesor planificado:** ninguno; el PR #53 ya está fusionado.
 - **Dependencias técnicas reales:** contratos y auditorías locales existentes.
-- **Rama prevista o activa:** por asignar al activar; ninguna rama activa.
-- **SHA base al activar:** por registrar desde `main` actualizado.
-- **Bloqueos/decisiones de negocio:** la investigación debe ser de solo lectura.
-  Ninguna métrica puede modificarse sin demostrar antes una discrepancia.
-- **Punto exacto de reanudación:** iniciar inventario de cobertura local de
-  `OpportunityHistory`, contratos y auditorías para julio y agosto, sin lanzar
-  sincronizaciones ni escrituras.
+- **Rama prevista o activa:** `audit/rv-3-historical-validation`.
+- **SHA base al activar:** `04367da61f15301f9d63bb480a5f907dc2caae9b`.
+- **Bloqueos/decisiones de negocio:** la investigación de solo lectura ha
+  finalizado sin demostrar ninguna discrepancia que autorice modificar métricas.
+  La dependencia histórica de julio no se resuelve dentro de RV-3.
+- **Punto exacto de reanudación:** abrir el PR de RV-3, esperar CI verde, hacer
+  merge y eliminar la rama. Después del merge, registrar RV-3 como `cerrada`
+  antes de activar RV-1.
 - **Criterios de aceptación:**
   - explicar con evidencia por qué julio muestra cancelaciones `N/D`;
   - explicar con evidencia por qué agosto muestra cero ventas caídas;
@@ -114,6 +119,32 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
   - no convertir `null`/`N/D` en cero ni inferir datos ausentes;
   - registrar consultas, cobertura, límites y resultado sin PII ni escritura en
     Salesforce o producción.
+
+#### Resultado de validación productiva (2026-09-23)
+
+- La evidencia se obtuvo manualmente mediante consultas exclusivamente de
+  lectura contra la réplica local productiva, sin invocar payloads con efectos
+  laterales, sincronizadores ni Salesforce. Las salidas no contenían PII.
+- La migración de lifecycle
+  `2026_09_07_120000_add_lifecycle_fields_to_salesforce_opportunities_table`
+  constaba como aplicada en producción (`[60] Ran`).
+- Julio de 2026 resultó `partial`: `source_cutoff_at` alcanza
+  `2026-07-31T22:00:00Z`, pero la certificación se detiene en
+  `2026-07-15T00:00:00Z` y existe `1` dependencia sin resolver. El cutoff de
+  fuente no equivale a cobertura KPI certificada; las cancelaciones `N/D`/`null`
+  son correctas y no deben convertirse en cero ni inferirse para el tramo no
+  certificado.
+- Agosto de 2026 resultó `covered`, certificado hasta
+  `2026-08-31T22:00:00Z` y con `0` dependencias sin resolver. La cobertura de
+  cancelaciones del mes es completa.
+- La consulta previa a deduplicación de ventas caídas de agosto devolvió
+  `total_candidates = 0`, `candidates_with_reservation_date = 0` y
+  `candidates_with_cv_signed_date_fallback = 0`. El cero actual de
+  `sales_dropped` queda validado; no se requiere una segunda conciliación porque
+  el conjunto bruto está vacío.
+- No existe discrepancia demostrada que autorice cambiar cancelaciones o ventas
+  caídas. RV-3 no modifica código productivo, esquema, datos, UI ni contratos;
+  la futura explicación visible del `N/D` permanece en el criterio 9 de RV-1.
 
 ### RV-1 — Cierre ejecutivo de Rendimiento comercial
 

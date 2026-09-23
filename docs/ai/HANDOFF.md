@@ -1,5 +1,130 @@
 # Handoff para agentes
 
+## Aprobación sénior de RV-3 para PR (2026-09-23)
+
+- La revisión sénior aprobó RV-3 para abrir PR sobre el SHA revisado
+  `821870a0252093dd5c0d50e044878549e8f99589`; el estado pasa de `en_revision` a
+  `aprobada`, no a `cerrada`, porque todavía faltan PR, CI y merge.
+- No se detectaron cambios runtime, vulnerabilidades, regresiones ni
+  discrepancias funcionales. La evidencia productiva ya revisada permanece
+  intacta y no se añadieron datos productivos ni PII.
+- Punto de reanudación: abrir el PR contra `main`, esperar CI verde, hacer merge,
+  eliminar la rama y registrar entonces RV-3 como `cerrada` antes de activar
+  RV-1.
+
+## Evidencia productiva y paso a revisión de RV-3 (2026-09-23)
+
+### Resumen, evidencia y archivos
+
+- La investigación histórica de RV-3 finalizó y su estado pasa a
+  `en_revision`. La rama `audit/rv-3-historical-validation` queda pendiente
+  únicamente de revisión sénior previa al PR; no se inicia RV-1.
+- La evidencia se recogió manualmente el 2026-09-23 contra la réplica local
+  productiva mediante operaciones exclusivamente de lectura. No hubo llamada a
+  Salesforce, sincronización, escritura, modificación de datos ni despliegue.
+- `migrate:status` confirmó que
+  `2026_09_07_120000_add_lifecycle_fields_to_salesforce_opportunities_table`
+  estaba aplicada en producción como lote `60` (`Ran`). El comando solo consultó
+  el estado; no se ejecutó ninguna migración.
+- Cobertura de julio de 2026: `status = partial`, rango
+  `[2026-06-30T22:00:00Z, 2026-07-31T22:00:00Z)`,
+  `source_cutoff_at = 2026-07-31T22:00:00Z`,
+  `certified_until = 2026-07-15T00:00:00Z` y
+  `unresolved_dependencies = 1`. Que la fuente llegue al final del mes no
+  certifica el KPI: la dependencia bloqueante detiene la certificación y
+  explica correctamente las cancelaciones `N/D`/`null`. No se convierten en
+  cero ni se infiere el tramo no certificado.
+- Cobertura de agosto de 2026: `status = covered`, rango
+  `[2026-07-31T22:00:00Z, 2026-08-31T22:00:00Z)`, certificación y cutoff hasta
+  `2026-08-31T22:00:00Z`, con `unresolved_dependencies = 0`. La cobertura de
+  cancelaciones de agosto es completa.
+- La consulta agregada previa a deduplicación de ventas caídas de agosto obtuvo
+  `total_candidates = 0`, `candidates_with_reservation_date = 0` y
+  `candidates_with_cv_signed_date_fallback = 0`. La normalización de posibles
+  `SUM()` nulos a entero cero no altera el dato determinante: no existe ningún
+  candidato bruto. Por ello, `sales_dropped = 0` está demostrado y debe
+  conservarse; no hace falta una segunda conciliación de deduplicaciones o
+  conflictos.
+- Archivos modificados: `docs/ai/ROADMAP.md` y `docs/ai/HANDOFF.md`. No se
+  modifican decisiones estables, contexto arquitectónico ni documentación
+  funcional porque la evidencia confirma el contrato existente.
+
+### Seguridad, rendimiento y operación
+
+- Las salidas persistidas contienen únicamente estados y timestamps de
+  cobertura, recuentos agregados y estado de migración. No contienen Salesforce
+  IDs, Account IDs, nombres, matrículas, datos de clientes, `raw_payload`,
+  secretos, credenciales ni otra PII.
+- No hubo `INSERT`, `UPDATE`, `DELETE`, migración, limpieza de caché, endpoint de
+  auditoría, construcción del dashboard completo ni conexión a Salesforce.
+- No hay cambios de runtime, rendimiento, esquema, fórmulas, contratos JSON o
+  UI. No se repitieron consultas productivas durante este checkpoint
+  documental.
+- No se intenta resolver la dependencia histórica de julio dentro de RV-3. La
+  eventual presentación visible del motivo de `N/D` corresponde a RV-1.
+
+### Validación y reanudación
+
+- La evidencia es coherente con el contrato conservador implementado: solo
+  `covered` habilita cancelaciones y la deduplicación no puede crear eventos de
+  venta caída cuando el conjunto bruto está vacío.
+- No existe una discrepancia que autorice modificar métricas. Punto exacto de
+  reanudación: revisión sénior de esta rama; tras aprobación se podrá abrir el
+  PR conforme al protocolo, sin marcar todavía RV-3 como `aprobada` o `cerrada`.
+
+## Activación de RV-3 — Validación histórica (2026-09-23)
+
+### Resumen, decisiones y archivos
+
+- Se activó RV-3 como `en_progreso` en la rama
+  `audit/rv-3-historical-validation`, nacida exactamente de `main` en
+  `04367da61f15301f9d63bb480a5f907dc2caae9b`.
+- Antes de crearla se verificó que la rama remota residual
+  `docs/roadmap-executive-v1` seguía apuntando al commit aprobado
+  `22e2f6496dc376ad6236854e56434e8a8aa0f3cc`; solo entonces se eliminó esa rama
+  remota ya fusionada. El PR #54 queda registrado como cerrado y fusionado.
+- `ROADMAP.md` identifica la nueva línea base, rama, fecha y punto exacto de
+  reanudación. RV-3 no se marca en revisión, aprobada ni cerrada: falta obtener
+  la evidencia productiva de solo lectura de julio y agosto.
+- Se prepararon dos comandos explícitos: uno llama exclusivamente a
+  `CommercialPerformanceDatasetService::historyCoverage()` para julio/agosto y
+  otro agrega candidatos brutos a venta caída de agosto con
+  `SalesforceOpportunity::query()` y el scope normal del modelo.
+- Archivos modificados: `docs/ai/ROADMAP.md` y `docs/ai/HANDOFF.md`. No cambian
+  `PROJECT_CONTEXT.md` ni `DECISIONS.md`, porque no se adopta una nueva decisión
+  arquitectónica ni cambia la arquitectura implementada.
+
+### Base de datos, seguridad, rendimiento y operación
+
+- No hay migraciones, cambios de esquema, configuración, dependencias ni código
+  productivo. No se ejecutaron los comandos de evidencia ni ninguna consulta
+  contra datos productivos.
+- Los comandos preparados contienen solo consultas `SELECT`: no llaman a los
+  payloads de Rendimiento comercial o auditoría que pueden ejecutar
+  `insertOrIgnore()`, ni a endpoints, sincronizadores o Salesforce.
+- La salida queda limitada a metadatos de cobertura y tres recuentos agregados;
+  no contiene nombres, matrículas, IDs de Salesforce o clientes, PII,
+  `raw_payload`, secretos ni credenciales.
+- Cobertura consulta solo los meses julio/agosto de 2026. La agregación de venta
+  caída limita cada rama temporal a `[2026-08-01, 2026-09-01)`, usa los campos
+  de fecha indexados y no carga Opportunities en memoria ni introduce N+1.
+- No hubo despliegue, PR, merge, sincronización, escritura Salesforce, limpieza
+  de caché ni operación de producción.
+
+### Validación y reanudación
+
+- Se revisaron el contrato actual de cobertura, el scope global de
+  `SalesforceOpportunity`, la lógica de fecha de referencia y los índices
+  existentes antes de redactar los comandos.
+- Punto exacto de reanudación: una persona autorizada debe ejecutar ambos
+  comandos contra la réplica local y devolver sus salidas agregadas. Si julio
+  no está `covered`, se documentará el corte, hueco o dependencia; si el total
+  bruto de agosto es mayor que cero, no se concluirá un bug sin autorizar una
+  segunda conciliación exacta.
+- Riesgo pendiente deliberado: todavía no existe evidencia de datos, por lo que
+  no se concluye la causa de `N/D` ni la validez del cero y no se modifica
+  ninguna métrica, UI o lógica de negocio.
+
 ## Roadmap controlado y decisiones del Resumen Ejecutivo V1 (2026-09-23)
 
 ### Resumen, decisiones y archivos
