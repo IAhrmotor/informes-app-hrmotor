@@ -1,5 +1,44 @@
 # Handoff para agentes
 
+## Correcciones de revisión sénior de RV-2 (2026-09-23)
+
+- Sobre el HEAD revisado `648751bbc260659396394b0ed1680e2a078ecde7` se
+  publicó el commit funcional corregido
+  `d6486ca3710c43e2a96a941338d17c46358b10aa`. RV-2 continúa `en_revision` en la
+  misma rama y su punto de reanudación sigue siendo la revisión sénior previa al
+  PR; no se abrió PR ni se inició SF-7A-OPS.
+- `current_month` calcula los días completos incluidos y limita el fin candidato
+  del tramo comparado a `currentStart`. La regresión del 31-03-2026 acredita
+  actual `[2026-03-01, 2026-04-01)` y comparado
+  `[2026-02-01, 2026-03-01)`, con `fin` visible 28-02-2026 y sin solapamiento.
+- Ventas de Producción exige siempre RecordType Venta/Cambio además de firma,
+  `cv_signed_date` y exclusión de `Cerrada Perdida`. Con filtro `all` solo esos
+  dos tipos producen ventas; `Venta` conserva ambos y `Tasacion` produce cero.
+  Tasación, Otro y tipo ausente siguen disponibles para el contrato legacy y no
+  se redefinió `kpis.cv_firmados`.
+- La identidad de `reservas-ventas-dashboard-v7` usa únicamente límites
+  visibles/canónicos, no timestamps técnicos variables. El payload público
+  conserva los límites exactos del cálculo cacheado. Dos peticiones
+  `last_30_days` separadas cinco segundos devolvieron el mismo
+  `dataset_generated_at` y la misma metadata técnica.
+- En Resumen, `currentFilters()` envía explícitamente `created_date`; el valor
+  DOM elegido para Comerciales/Portales no cambia ni se resetea al alternar
+  pestañas. Así el filtro oculto no afecta al contrato ejecutivo ni fragmenta
+  su caché.
+- No se añadieron consultas, endpoints, permisos, PII, migraciones, schema,
+  dependencias u operaciones productivas. Rendimiento comercial, Comisiones,
+  Stock y Salesforce no fueron modificados.
+- Pruebas específicas correctas: períodos/caché 4/4 (38 aserciones), tipos 2/2
+  (19), Reservas totales/frontend 8/8 (85), cohorte/calidad 8/8 (102), endpoint
+  3/3 (77), criterio de fecha 1/1 (8) y Rendimiento comercial 77/77 (1.020).
+  `npm run build`, `node --check`, Pint sobre todos los PHP modificados y
+  `git diff --check` fueron correctos.
+- `./vendor/bin/pint --test` global continúa fallando por deuda de estilo
+  preexistente en archivos ajenos a RV-2, incluidos módulos de Comisiones,
+  Stock, migraciones y tests no modificados. No se amplió el alcance para
+  reformatearlos. La suite completa sí pasó íntegra: 1.017/1.017 pruebas y
+  7.818 aserciones en 359,109 s.
+
 ## RV-2 — Producción y períodos de Resumen Dirección (2026-09-23)
 
 - RV-2 queda `en_revision` en

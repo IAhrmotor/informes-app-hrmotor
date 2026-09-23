@@ -148,7 +148,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 - **Rama prevista o activa:** `feat/rv-2-direction-summary-production-periods`.
 - **SHA base al activar:** `3d3354f6fd4a3605dd3207b9448fa5be114e8d80`.
 - **HEAD funcional revisable:**
-  `ae09d4cb75bf50063cc8e78c3540ef70bc28d293`.
+  `d6486ca3710c43e2a96a941338d17c46358b10aa`.
 - **Bloqueos/decisiones de negocio:** preservar el contrato temporal `[start,
   end)` y no cambiar silenciosamente claves JSON existentes.
 - **Contrato implementado:** `produccion_periodo` y `cohorte_creacion` son
@@ -156,8 +156,9 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
   existente admite `cv_firmados_periodo`; el namespace de Resumen es V7.
 - **Validación:** suites específicas de fechas, Summary, deduplicación,
   auditoría y Rendimiento comercial verdes; build y sintaxis JavaScript
-  correctos. La suite completa tuvo únicamente la fluctuación temporal ajena
-  de Stock (44,9126338 s frente a 20 s), cuya repetición aislada fue correcta.
+  correctos. Tras corregir el límite del mes comparado, el universo Venta/Cambio,
+  la identidad estable V7 y el aislamiento del criterio oculto, la suite
+  completa pasa: 1.017 pruebas y 7.818 aserciones.
 - **Punto exacto de reanudación:** revisión sénior de la rama previa al PR;
   comprobar contrato aditivo, separación visual, scopes, auditoría y evidencia
   de pruebas antes de autorizar su apertura.
