@@ -1,5 +1,73 @@
 # Handoff para agentes
 
+## RV-2 — Producción y períodos de Resumen Dirección (2026-09-23)
+
+- RV-2 queda `en_revision` en
+  `feat/rv-2-direction-summary-production-periods`, nacida de `main`
+  `3d3354f6fd4a3605dd3207b9448fa5be114e8d80`. El HEAD funcional revisable es
+  `ae09d4cb75bf50063cc8e78c3540ef70bc28d293`; el punto de reanudación es la
+  revisión sénior previa al PR. No se abrió PR ni se inició SF-7A-OPS.
+- Resumen Dirección separa visual y contractualmente **Producción del período**,
+  **Cohorte de oportunidades creadas en el período** y **Reservas vivas
+  actuales**. Se retiró la mezcla visual de Comparativa básica, sin eliminar ni
+  redefinir `kpis`, `comparativa`, `universe_date_criterion`,
+  `universe_date_label`, `periodo_actual` o `periodo_comparado`.
+- El contrato aditivo publica `produccion_periodo` y `cohorte_creacion`.
+  Producción reutiliza exactamente `reservas_totales` por `reservation_date` y
+  calcula ventas válidas por `cv_signed_date`; Cohorte pertenece siempre a
+  `created_date` y describe resultados actuales, aunque ocurran después.
+- Ventas conserva `cv_signed = true`, fecha presente, etapa distinta de
+  `Cerrada Perdida`, filtros/scopes existentes y deduplicación vehículo + fecha
+  con fallback a Opportunity. Un grupo con clasificación contradictoria se
+  excluye y se audita como incidencia; no se elige por orden técnico.
+- Los períodos mantienen sus fechas visibles y añaden inicio técnico incluido,
+  fin técnico excluido, semántica `[start,end)` y timezone `UTC`. Mes actual usa
+  comienzo del día siguiente como fin exclusivo y compara el mismo número de
+  días completos; mes anterior y custom conservan límites naturales, y últimos
+  30 días mantiene su semántica previa.
+- El selector `dateCriterion` se oculta solo en Resumen. Permanece intacto en
+  las pestañas legacy y no se resetea al cambiar de pestaña. El catálogo de
+  filtros une las dimensiones relevantes de cohorte, reservas y ventas después
+  de aplicar el scope del servidor, incluida la restricción de Area Manager.
+- La auditoría JSON/CSV existente admite `metric=cv_firmados_periodo`, consulta
+  por `cv_signed_date`, conserva filas de grupos duplicados y reconstruye el KPI
+  con `counted_in_kpi`. Las pruebas verifican que no incorpora nombres, datos de
+  contacto ni otra PII nueva.
+- La reconciliación fija que una operación creada en junio, reservada en julio
+  y firmada en agosto pertenece a esas producciones por fecha de hito y no a la
+  cohorte de agosto. Una fixture simple reconcilia con Reservas/Ventas de
+  Rendimiento comercial; otra compatible con Comisiones confirma firma, mes y
+  exclusión de perdida. Comisiones puede diferir por owner activo, gestión,
+  elegibilidad, tipo y fórmulas económicas, que RV-2 no importa.
+- Rendimiento: se reutiliza la consulta de reservas ya existente y se añaden dos
+  consultas acotadas por `cv_signed_date` (actual/comparada). Solo si el criterio
+  legacy no es `created_date` se añaden dos consultas acotadas para la Cohorte;
+  con el valor por defecto se reutiliza el conjunto cargado. No hay N+1, nuevas
+  peticiones HTTP ni lectura de todo el histórico. El namespace de Summary pasa
+  a `reservas-ventas-dashboard-v7`; V6 expira por TTL y la caché V4 de
+  Rendimiento comercial no cambia.
+- Archivos modificados: servicio de dataset de Reservas/Ventas; Blade, JS y CSS
+  de la pantalla; bundles JS/CSS y `manifest.json`; cuatro suites feature;
+  `ROADMAP.md`, `HANDOFF.md`, `PROJECT_CONTEXT.md`, `DECISIONS.md` y
+  `docs/informe-reservas-ventas.md`.
+- Base de datos y operación: sin migraciones, schema, configuración,
+  dependencias, consultas productivas, sincronizaciones, Salesforce ni
+  despliegue. No se requieren acciones manuales antes de la revisión.
+- Validaciones específicas: `OpportunityDateCriterionTest` 1/1 (8 aserciones),
+  `ReservationsSalesTotalReservationsTest` 8/8 (83),
+  `ReservationsSalesCohortAndDuplicateQualityTest` 8/8 (102),
+  `OpportunitiesCustomPeriodFullMonthTest` 2/2 (25),
+  `OpportunityDashboardEndpointTest` 3/3 (77) y
+  `ReservationsSalesCommercialPerformanceTest` 77/77 (1.020), todas correctas.
+  Pint, `npm run build`, `node --check` y `git diff --check` fueron correctos.
+- Suite completa: 1.013/1.014 pruebas y 7.794 aserciones correctas; el único
+  fallo fue el benchmark temporal ajeno
+  `StockRecommendationCandidatePaginationTest` (44,9126338 s frente a 20 s).
+  La repetición aislada pasó: 1/1, 3 aserciones, 12,829 s. No se modificó Stock.
+- Riesgo residual: revisión sénior del contrato y la presentación antes del PR;
+  la diferencia intencional de timezone con Rendimiento comercial permanece
+  documentada y no se armonizó silenciosamente.
+
 ## Cierre formal de RV-1 tras el PR #57 (2026-09-23)
 
 - El PR #57 se fusionó con CI verde en el merge SHA
