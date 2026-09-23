@@ -29,7 +29,9 @@ como un único embudo:
 
 El selector legacy de criterio de fecha se oculta únicamente en Resumen porque
 no redefine ninguna de esas tres lentes. Continúa visible y operativo en
-Comerciales/delegaciones/zonas y Portales/procedencia. Las claves históricas
+Comerciales/delegaciones/zonas y Portales/procedencia. Mientras Resumen está
+activo, la petición usa `created_date` sin modificar el valor conservado en el
+selector para las pestañas legacy. Las claves históricas
 `kpis`, `comparativa`, `universe_date_criterion`, `universe_date_label` y
 `periodo_actual`/`periodo_comparado` mantienen su significado;
 `produccion_periodo` y `cohorte_creacion` son contratos aditivos.
@@ -38,7 +40,9 @@ La respuesta conserva `inicio` y `fin` como fechas visibles inclusivas y añade
 en cada período `technical.start_inclusive`, `technical.end_exclusive`,
 `technical.semantics = "[start,end)"` y `technical.timezone`. Así los presets,
 incluidos mes actual y mes anterior, se comparan sin aparentar solapamiento ni
-usar `23:59:59` como frontera técnica.
+usar `23:59:59` como frontera técnica. En mes actual, el tramo equivalente del
+mes anterior se limita siempre al comienzo del mes actual para que un mes largo
+no desborde ni solape períodos.
 
 El catálogo de Delegación, Zona y Comercial se forma con la unión relevante de
 producción y cohorte de creación bajo el ámbito resuelto en servidor. Cambiar
@@ -92,11 +96,14 @@ ocultan los resultados obsoletos.
   excluye reservas sin fecha y no depende del criterio temporal de la cohorte.
   Se deduplica con la regla común vehículo + fecha de reserva y fallback a la
   Opportunity cuando no existe identidad de vehículo.
-- `Ventas del período` = CV firmado con `cv_signed_date` dentro del período y
-  etapa actual distinta de `Cerrada Perdida`. Se deduplica por vehículo + fecha
-  de firma, con fallback a Opportunity sin identidad de vehículo. Un grupo con
-  estados de clasificación incompatibles no se resuelve por orden técnico: se
-  excluye del total y se publica como incidencia de calidad.
+- `Ventas del período` = RecordType Venta o Cambio, CV firmado con
+  `cv_signed_date` dentro del período y etapa actual distinta de
+  `Cerrada Perdida`. Tasación, otros tipos y tipo ausente no cuentan como venta
+  producida, aunque los KPI legacy conserven su universo previo. Se deduplica
+  por vehículo + fecha de firma, con fallback a Opportunity sin identidad de
+  vehículo. Un grupo con estados de clasificación incompatibles no se resuelve
+  por orden técnico: se excluye del total y se publica como incidencia de
+  calidad.
 - Caída = etapa `Cerrada Perdida`.
 - CV firmado = flag firmado true y etapa distinta de `Cerrada Perdida`.
 - `Reservas vivas del universo seleccionado` es la reserva viva dentro de la
@@ -219,7 +226,9 @@ ni un dry-run productivo.
 
 El dataset de Resumen usa el namespace de caché
 `reservas-ventas-dashboard-v7`; V6 queda intacto hasta expirar. Este cambio no
-afecta a la caché V4 independiente de Rendimiento comercial.
+afecta a la caché V4 independiente de Rendimiento comercial. La identidad V7
+usa fechas visibles/canónicas estables y excluye timestamps técnicos variables;
+el payload cacheado conserva los límites exactos del cálculo realmente servido.
 
 Archivos principales:
 

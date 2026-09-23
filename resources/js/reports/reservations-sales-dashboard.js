@@ -138,6 +138,10 @@ function isCommercialPerformanceMode() {
     return document.getElementById('reportFilters')?.dataset.filterMode === 'performance';
 }
 
+function isSummaryMode() {
+    return document.getElementById('reportFilters')?.dataset.filterMode === 'summary';
+}
+
 function bindCommercialPerformance() {
     if (!window.reportUserCanViewCommercialPerformance) return;
 
@@ -1283,9 +1287,12 @@ function updateSortIndicators(table, state) {
 
 function currentFilters() {
     const params = new URLSearchParams();
+    const dateCriterion = isSummaryMode()
+        ? 'created_date'
+        : document.getElementById('dateCriterion')?.value;
 
     setParam(params, 'period', document.getElementById('period')?.value);
-    setParam(params, 'date_criterion', document.getElementById('dateCriterion')?.value);
+    setParam(params, 'date_criterion', dateCriterion);
     setParam(params, 'opportunity_type', document.getElementById('opportunityType')?.value);
     setParam(params, 'commercial_delegation', document.getElementById('commercialDelegation')?.value);
     setParam(params, 'zone', document.getElementById('zone')?.value);

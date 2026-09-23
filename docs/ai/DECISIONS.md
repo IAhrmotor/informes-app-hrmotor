@@ -4,11 +4,13 @@
 
 Resumen Dirección distingue de forma estable **Producción del período** de la
 **Cohorte de oportunidades creadas en el período**. Producción imputa Reservas
-por `reservation_date` y Ventas por `cv_signed_date`; la cohorte pertenece
-siempre a `created_date` y sus reservas, caídas y firmas describen el estado o
-resultado actual de esas oportunidades, aunque el hito sea posterior. Reservas
-vivas actuales de todas las fechas permanece como contexto separado y no se
-suma a ninguno de los dos bloques.
+por `reservation_date` y Ventas de RecordType Venta/Cambio por
+`cv_signed_date`; la cohorte pertenece siempre a `created_date` y sus reservas,
+caídas y firmas describen el estado o resultado actual de esas oportunidades,
+aunque el hito sea posterior. Tasación, otros tipos y tipo ausente no son venta
+producida, sin redefinir por ello el KPI legacy `kpis.cv_firmados`. Reservas vivas
+actuales de todas las fechas permanece como contexto separado y no se suma a
+ninguno de los dos bloques.
 
 Todos los rangos internos son semiabiertos `[start, end)` en la zona horaria de
 la aplicación. Las fechas visibles `inicio`/`fin` conservan compatibilidad y
@@ -27,8 +29,9 @@ de calidad. No se incorporan nuevos datos personales.
 
 El catálogo de filtros se forma con la unión relevante de Producción y Cohorte
 bajo el scope ya resuelto en servidor. El dataset de Resumen avanza a la caché
-`reservas-ventas-dashboard-v7`; V6 expira por TTL y la caché V4 de Rendimiento
-comercial no cambia.
+`reservas-ventas-dashboard-v7`; su identidad usa límites visibles/canónicos
+estables y el payload conserva la metadata técnica exacta del cálculo cacheado.
+V6 expira por TTL y la caché V4 de Rendimiento comercial no cambia.
 
 ## 2026-09-23 - Contrato funcional del Resumen Ejecutivo V1
 

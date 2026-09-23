@@ -29,10 +29,12 @@ Actualizado: 2026-09-23.
 ## Resumen Dirección de Reservas / Ventas
 
 - El Resumen separa Producción, Cohorte de creación y Estado actual. Producción
-  imputa reservas por `reservation_date` y ventas firmadas no perdidas por
-  `cv_signed_date`; la cohorte se fija siempre por `created_date` y muestra los
-  resultados actuales de esas oportunidades. Reservas vivas actuales de todas
-  las fechas es contexto independiente.
+  imputa reservas por `reservation_date` y ventas firmadas no perdidas de tipo
+  Venta/Cambio por `cv_signed_date`; la cohorte se fija siempre por
+  `created_date` y muestra los resultados actuales de esas oportunidades.
+  Tasación, otros tipos y tipo ausente no son venta producida, sin alterar el
+  KPI legacy. Reservas vivas actuales de todas las fechas es contexto
+  independiente.
 - Los períodos usan `[start,end)` y publican metadata técnica aditiva de inicio,
   fin exclusivo y timezone, manteniendo las fechas visibles y las claves JSON
   legacy. El criterio temporal legacy no gobierna el Resumen, pero sigue activo
@@ -43,7 +45,9 @@ Actualizado: 2026-09-23.
   `cv_firmados_periodo` sin añadir PII.
 - El dataset usa `reservas-ventas-dashboard-v7`; el catálogo de filtros une las
   dimensiones relevantes de Producción y Cohorte después de aplicar el scope
-  de servidor. No cambia la caché V4 de Rendimiento comercial.
+  de servidor. La identidad de caché usa fechas canónicas estables y el payload
+  conserva sus límites técnicos exactos. No cambia la caché V4 de Rendimiento
+  comercial.
 
 ## Rendimiento comercial de Reservas / Ventas
 

@@ -86,7 +86,7 @@ class ReservationsSalesDashboardDatasetService
         return Cache::remember(
             'reservas-ventas-dashboard-v7:'.md5(json_encode([
                 'filters' => $filters,
-                'periods' => $this->periodPayloads($periods),
+                'periods' => $this->cachePeriodIdentity($periods),
                 'version' => $this->dataVersion(),
             ])),
             now()->addMinutes(self::CACHE_TTL_MINUTES),
@@ -527,6 +527,7 @@ class ReservationsSalesDashboardDatasetService
     {
         $query = SalesforceOpportunity::query()
             ->select($this->cohortColumns())
+            ->whereIn('record_type_name', ['Venta', 'Cambio'])
             ->where('cv_signed', true)
             ->whereNotNull('cv_signed_date')
             ->where('cv_signed_date', '>=', $period['start'])
@@ -677,7 +678,10 @@ class ReservationsSalesDashboardDatasetService
             $currentStart = $now->startOfMonth();
             $currentEnd = $now->addDay()->startOfDay();
             $previousStart = $currentStart->subMonthNoOverflow();
-            $previousEnd = $previousStart->addDays((int) floor($currentStart->diffInDays($currentEnd)));
+            $previousEndCandidate = $previousStart->addDays((int) floor($currentStart->diffInDays($currentEnd)));
+            $previousEnd = $previousEndCandidate->greaterThan($currentStart)
+                ? $currentStart
+                : $previousEndCandidate;
 
             return [
                 'current' => ['start' => $currentStart, 'end' => $currentEnd],
@@ -1254,6 +1258,16 @@ class ReservationsSalesDashboardDatasetService
             'current' => $this->periodPayload($periods['current']),
             'previous' => $this->periodPayload($periods['previous']),
         ];
+    }
+
+    private function cachePeriodIdentity(array $periods): array
+    {
+        return collect($this->periodPayloads($periods))
+            ->map(fn (array $period): array => [
+                'inicio' => $period['inicio'],
+                'fin' => $period['fin'],
+            ])
+            ->all();
     }
 
     private function lastUpdated(): ?CarbonImmutable

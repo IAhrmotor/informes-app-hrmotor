@@ -85,4 +85,39 @@ class OpportunitiesCustomPeriodFullMonthTest extends TestCase
             ->assertJsonPath('periodo_actual.technical.end_exclusive', '2026-09-23T12:34:56+00:00')
             ->assertJsonPath('periodo_comparado.technical.end_exclusive', '2026-08-24T12:34:56+00:00');
     }
+
+    public function test_mes_actual_limita_el_tramo_comparado_al_final_del_mes_anterior(): void
+    {
+        CarbonImmutable::setTestNow('2026-03-31 12:34:56');
+
+        $this->getJson('/informes/reservas-ventas/data/summary?period=current_month')
+            ->assertOk()
+            ->assertJsonPath('periodo_actual.technical.start_inclusive', '2026-03-01T00:00:00+00:00')
+            ->assertJsonPath('periodo_actual.technical.end_exclusive', '2026-04-01T00:00:00+00:00')
+            ->assertJsonPath('periodo_comparado.inicio', '2026-02-01')
+            ->assertJsonPath('periodo_comparado.fin', '2026-02-28')
+            ->assertJsonPath('periodo_comparado.technical.start_inclusive', '2026-02-01T00:00:00+00:00')
+            ->assertJsonPath('periodo_comparado.technical.end_exclusive', '2026-03-01T00:00:00+00:00');
+    }
+
+    public function test_last_30_days_reutiliza_cache_aunque_avance_el_reloj_unos_segundos(): void
+    {
+        CarbonImmutable::setTestNow('2026-09-23 12:34:56');
+        $first = $this->getJson('/informes/reservas-ventas/data/summary?period=last_30_days')
+            ->assertOk()
+            ->json();
+
+        CarbonImmutable::setTestNow('2026-09-23 12:35:01');
+        $second = $this->getJson('/informes/reservas-ventas/data/summary?period=last_30_days')
+            ->assertOk()
+            ->json();
+
+        $this->assertSame('2026-09-23 12:34:56', data_get($first, 'dataset_generated_at'));
+        $this->assertSame(data_get($first, 'dataset_generated_at'), data_get($second, 'dataset_generated_at'));
+        $this->assertSame(
+            data_get($first, 'periodo_actual.technical'),
+            data_get($second, 'periodo_actual.technical'),
+        );
+        $this->assertSame('2026-09-23T12:34:56+00:00', data_get($second, 'periodo_actual.technical.end_exclusive'));
+    }
 }

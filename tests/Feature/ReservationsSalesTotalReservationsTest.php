@@ -408,6 +408,13 @@ class ReservationsSalesTotalReservationsTest extends TestCase
         $this->assertMatchesRegularExpression('/data-filter-scope="standard"[^>]*>\s*<label[^>]*for="period"/s', $blade);
         $this->assertMatchesRegularExpression('/data-filter-scope="legacy-date-criterion"[^>]*>\s*<label[^>]*for="dateCriterion"/s', $blade);
         $this->assertStringContainsString('performanceMode || summaryMode', $javascript);
+        $this->assertStringContainsString("const dateCriterion = isSummaryMode()\n        ? 'created_date'", $javascript);
+        $setFilterModeSource = substr(
+            $javascript,
+            strpos($javascript, 'function setFilterMode('),
+            strpos($javascript, 'function isCommercialPerformanceMode(') - strpos($javascript, 'function setFilterMode('),
+        );
+        $this->assertStringNotContainsString("dateCriterion').value", $setFilterModeSource);
         $this->assertStringNotContainsString('Comparativa basica', $blade);
     }
 
