@@ -1,5 +1,16 @@
 # Handoff para agentes
 
+## Cierre formal de RV-1 tras el PR #57 (2026-09-23)
+
+- El PR #57 se fusionó con CI verde en el merge SHA
+  `f40637bfbab786f8909c2ce4e3b99435937542f6`; la rama funcional
+  `feat/rv-1-commercial-performance-ux` fue eliminada después del merge.
+- RV-1 queda formalmente `cerrada`, sin acciones operativas pendientes. No hubo
+  cambios backend ni operaciones productivas; el detalle de implementación y
+  validación permanece en las entradas siguientes de este documento.
+- El siguiente lote previsto es RV-2, que continúa `pendiente`, sin rama ni SHA
+  de activación. Este checkpoint no inicia su trabajo.
+
 ## Aprobación sénior de RV-1 para PR (2026-09-23)
 
 - La revisión sénior aprobó RV-1 para abrir PR sobre el SHA revisado
