@@ -1,5 +1,39 @@
 # Handoff para agentes
 
+## Activación de SF-7A-OPS (2026-09-23)
+
+- SF-7A-OPS queda `en_progreso` en
+  `ops/sf-7a-lead-attribution-backfill`, creada desde `main`
+  `545cbf87288a1124c93aec5979793b52dc35d608`, que coincide con la versión
+  desplegada en producción.
+- Se contrastaron el comando `salesforce:backfill-lead-attribution-fields`, su
+  servicio, modelo, migración y pruebas con el contrato documentado. La
+  herramienta ya implementada mantiene rango `[from, to)`, universo local,
+  lotes de 100, cursor, dry-run no persistente, apply local transaccional,
+  histórico before/after, mutex y cero escrituras Salesforce. No se detectaron
+  discrepancias ni se modificó runtime.
+- También continúan cubiertos la equivalencia de IDs 15/18 con casing sensible,
+  los ausentes o inválidos sin modificación, la coexistencia entre ambas
+  tablas, UTM-only, la preservación de claves ajenas de `raw_payload`, los
+  fallos parciales/rollback y la invalidación de caché solo tras cambios
+  aplicados.
+- La migración
+  `2026_09_03_120000_create_salesforce_lead_attribution_backfill_history_table`
+  consta aplicada en producción. El test focal pasó con 16 pruebas y 114
+  aserciones.
+- No se ejecutó ningún backfill, `--dry-run` ni `--apply`; tampoco hubo
+  sincronizaciones, escrituras Salesforce u operaciones productivas. El rango
+  histórico todavía debe derivarse de datos locales reales y ser aprobado.
+- El primer paso operacional es inventariar `created_date` mediante las
+  consultas locales de solo lectura del runbook. `--apply` permanece **NO
+  AUTORIZADO TODAVÍA** hasta revisar y conciliar el piloto y el dry-run completo.
+- Archivos modificados: `docs/ai/ROADMAP.md`, `docs/ai/HANDOFF.md` y la sección
+  9.2 de `docs/Documentacion_general_informes_y_contraste_salesforce.md`. No se
+  adoptó una decisión arquitectónica nueva, no cambió el esquema ni existe una
+  acción de configuración. Las guardas de seguridad y rendimiento preservan
+  mínimo privilegio, ausencia de PII, chunks de 100, una consulta remota por
+  chunk, SQL agrupado, red fuera de transacción y transacciones cortas.
+
 ## Cierre formal de RV-2 tras PR #59 (2026-09-23)
 
 - El PR #59 se fusionó en
@@ -9,11 +43,11 @@
   RV-2 queda formalmente `cerrada`, sin acciones funcionales pendientes. Con
   este cierre, RV-1, RV-2 y RV-3 están `cerradas`.
 - RV-2 no incorporó migraciones propias ni realizó escrituras Salesforce,
-  sincronizaciones o reprocesados. Tampoco se ha realizado todavía ningún
-  despliegue.
-- El siguiente paso operacional es el despliegue controlado del bloque
-  Reservas/Ventas. La siguiente tarea de desarrollo prevista es SF-7A-OPS, que
-  continúa `pendiente` y no ha sido activada.
+  sincronizaciones o reprocesados. En este checkpoint todavía no se había
+  realizado ningún despliegue.
+- El siguiente paso operacional registrado entonces era el despliegue
+  controlado del bloque Reservas/Ventas. SF-7A-OPS seguía `pendiente` y no había
+  sido activada en ese checkpoint.
 
 ## Aprobación sénior de RV-2 para PR (2026-09-23)
 

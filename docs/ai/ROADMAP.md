@@ -59,7 +59,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 ## Línea base y límites actuales
 
 - Rama base de este roadmap: `main`.
-- SHA actual de la rama base: `d57d460922cddbfe4e8abf4f9dceb9bffd134613`.
+- SHA actual de la rama base: `545cbf87288a1124c93aec5979793b52dc35d608`.
 - El PR #54 de preparación documental está cerrado y fusionado. La rama remota
   `docs/roadmap-executive-v1` se eliminó después de verificar que seguía
   apuntando al commit aprobado `22e2f6496dc376ad6236854e56434e8a8aa0f3cc`.
@@ -79,9 +79,11 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
   posterior de `main` (`CI #132`) finalizaron correctamente; la rama
   `feat/rv-2-direction-summary-production-periods` fue eliminada después del
   merge.
-- Actualmente no existe ninguna rama funcional activa. El siguiente paso
-  operacional es el despliegue controlado del bloque Reservas/Ventas; no se ha
-  realizado todavía.
+- El PR #60 de cierre documental de RV-2 está cerrado y fusionado; el `main`
+  resultante y actualmente desplegado en producción es
+  `545cbf87288a1124c93aec5979793b52dc35d608`.
+- La única rama operacional activa es
+  `ops/sf-7a-lead-attribution-backfill`, creada desde ese `main` para SF-7A-OPS.
 - Las fichas con rama o SHA `por asignar` no autorizan iniciar trabajo: deben
   completarse al activar formalmente la tarea.
 
@@ -92,7 +94,7 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 | 1 | RV-3 | Validación histórica Reservas/Ventas | P0 | `cerrada` | Ninguno | Evidencia cerrada disponible para RV-1 |
 | 2 | RV-1 | Cierre ejecutivo de Rendimiento comercial | P0 | `cerrada` | RV-3 | Evidencia de RV-3 para cancelaciones `N/D` y cero de ventas caídas |
 | 3 | RV-2 | Producción y períodos de Resumen Dirección | P0 | `cerrada` | RV-1 | Contratos temporales, reglas y universos existentes; no depende técnicamente de RV-1 |
-| 4 | SF-7A-OPS | Cierre operacional Salesforce Fase 7A | P0 | `pendiente` | RV-2 | Herramienta, migración, runbook y autorización propios; no depende de la UX de RV |
+| 4 | SF-7A-OPS | Cierre operacional Salesforce Fase 7A | P0 | `en_progreso` | RV-2 | Herramienta, migración, runbook y autorización propios; no depende de la UX de RV |
 | 5 | SF-7B-OPS | Cierre operacional Salesforce Fase 7B | P0 | `pendiente` | SF-7A-OPS | Herramienta, fechas locales, runbook y autorización propios; no depende de RV ni de 7A |
 | 6 | EXE-1 | Motor ejecutivo V1 | P0 | `pendiente` | SF-7B-OPS | Contrato y pruebas V1; no depende técnicamente de 7A/7B por ser agnóstico de módulo |
 | 7 | EXE-2 | Datos ejecutivos diarios | P0 | `pendiente` | EXE-1 | Contrato de EXE-1 y fuentes canónicas locales; no depende técnicamente de los backfills 7A/7B |
@@ -154,11 +156,12 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
   end)`, reglas y deduplicación vigentes; el contrato nuevo es aditivo y las
   claves legacy conservan su semántica.
 - **Operación:** RV-2 no incorporó migraciones propias ni realizó operaciones
-  Salesforce. El despliegue controlado del bloque Reservas/Ventas aún no se ha
-  realizado y es el siguiente paso operacional.
-- **Dependencia para SF-7A-OPS:** RV-2 queda disponible como predecesor
-  planificado, pero SF-7A-OPS continúa `pendiente`, sin rama ni SHA de
-  activación, hasta completar por separado el despliegue y su validación.
+  Salesforce. El despliegue controlado del bloque Reservas/Ventas quedó
+  completado sobre `main` `545cbf87288a1124c93aec5979793b52dc35d608`
+  antes de activar SF-7A-OPS.
+- **Dependencia para SF-7A-OPS:** RV-2 queda cerrada y desplegada como
+  predecesor planificado; SF-7A-OPS se activa por separado con su propio
+  runbook, rango y autorización operacional.
 - **Detalle auditable:** implementación, pruebas, seguridad y trazabilidad
   completa en [`HANDOFF.md`](HANDOFF.md).
 
@@ -168,20 +171,30 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 
 - **Fase/lote:** Salesforce 7A, backfill histórico de atribución Lead.
 - **Prioridad:** P0.
-- **Estado:** `pendiente`.
+- **Estado:** `en_progreso` desde el 2026-09-23.
 - **Predecesor planificado:** RV-2.
 - **Dependencias técnicas reales:** herramienta y migración ya implementadas
   según `HANDOFF.md`, más runbook, rango, motivo y autorización operativa. La UX
   de RV-1/RV-2 no es dependencia técnica.
-- **Rama prevista o activa:** por asignar; ninguna rama activa.
-- **SHA base al activar:** por registrar.
-- **Bloqueos/decisiones de negocio:** requiere runbook, rango, motivo y
-  autorización operativa separados; no autoriza escritura Salesforce.
-- **Punto exacto de reanudación:** conciliar migraciones y ejecutar primero el
-  dry-run aprobado sobre el rango acordado.
-- **Criterios de aceptación:** dry-run conciliado; apply local autorizado,
-  auditable e idempotente; validación posterior sin PII; incidencias y punto de
-  reanudación documentados; cero escrituras Salesforce.
+- **Rama activa:** `ops/sf-7a-lead-attribution-backfill`.
+- **SHA base al activar:** `545cbf87288a1124c93aec5979793b52dc35d608`.
+- **Contrato verificado:** la herramienta existente mantiene el universo local
+  `[from, to)`, lotes de 100, cursor reanudable, dry-run no persistente y apply
+  local transaccional y auditable. Salesforce se consulta solo en lectura. La
+  migración `2026_09_03_120000_create_salesforce_lead_attribution_backfill_history_table`
+  consta aplicada en producción.
+- **Bloqueos/decisiones de negocio:** el rango debe derivarse del inventario
+  local y aprobarse; el motivo operativo se definirá después de conciliar el
+  dry-run completo. `--apply` está **NO AUTORIZADO TODAVÍA** y no existe
+  autorización de escritura Salesforce.
+- **Punto exacto de reanudación:** (1) inventariar el rango local; (2) aprobar
+  el rango; (3) ejecutar un dry-run piloto acotado con `--limit=100`; (4)
+  conciliar sus métricas; (5) ampliar el dry-run al rango completo solo tras
+  aceptar el piloto; (6) evaluar `--apply` únicamente en una revisión posterior.
+- **Criterios de aceptación:** inventario y rango aprobados sin PII; piloto y
+  dry-run completo conciliados; apply local sometido a autorización separada,
+  auditable e idempotente; incidencias y cursor documentados; cero escrituras
+  Salesforce.
 
 ### SF-7B-OPS — Cierre operacional de Fase 7B
 

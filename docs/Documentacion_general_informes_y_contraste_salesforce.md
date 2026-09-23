@@ -1410,6 +1410,117 @@ conciliación, pero nunca se insertan en el universo legacy de Campañas.
 La infraestructura está preparada; el histórico todavía **NO ha sido
 modificado** y su ejecución requiere una aprobación operativa posterior.
 
+#### Runbook operacional de cierre SF-7A
+
+Estado al 2026-09-23: SF-7A-OPS está activada para preparar y conciliar el
+dry-run. `--apply` está **NO AUTORIZADO TODAVÍA**. Este procedimiento no permite
+escrituras Salesforce; el cliente remoto solo ejecuta el `SELECT Lead` ya
+definido, sin nombre, email o teléfono. No se usa `--debug-soql` en la operación
+ordinaria de producción y no se copian muestras de IDs, payloads completos ni
+PII a documentación o tickets. Se preservan los chunks de 100, una consulta
+Salesforce por chunk, SQL local agrupado sin N+1, red fuera de la transacción,
+transacciones cortas y cursor reanudable.
+
+##### A. Inventario local del rango
+
+Antes de fijar `--from` y `--to`, ejecutar únicamente estas consultas locales
+de solo lectura sobre la réplica productiva:
+
+```sql
+SELECT
+    'salesforce_leads' AS source_table,
+    MIN(created_date) AS min_created_date,
+    MAX(created_date) AS max_created_date,
+    COUNT(*) AS rows_total,
+    COUNT(DISTINCT BINARY salesforce_id) AS salesforce_ids_unique
+FROM salesforce_leads
+UNION ALL
+SELECT
+    'campaign_salesforce_leads' AS source_table,
+    MIN(created_date) AS min_created_date,
+    MAX(created_date) AS max_created_date,
+    COUNT(*) AS rows_total,
+    COUNT(DISTINCT BINARY salesforce_id) AS salesforce_ids_unique
+FROM campaign_salesforce_leads;
+```
+
+```sql
+SELECT
+    MIN(created_date) AS min_created_date,
+    MAX(created_date) AS max_created_date,
+    COUNT(*) AS rows_total,
+    COUNT(DISTINCT BINARY salesforce_id) AS salesforce_ids_unique
+FROM (
+    SELECT created_date, salesforce_id FROM salesforce_leads
+    UNION ALL
+    SELECT created_date, salesforce_id FROM campaign_salesforce_leads
+) AS local_lead_universe;
+
+SELECT COUNT(*) AS history_rows_before
+FROM salesforce_lead_attribution_backfill_history;
+```
+
+El inventario debe registrar únicamente agregados. El rango funcional se
+expresará como `[FROM_INCLUSIVE, TO_EXCLUSIVE)` sobre `created_date` local y
+debe aprobarse explícitamente; no se deduce ni se amplía con datos Salesforce.
+La fecha final exclusiva aprobada debe cubrir el último instante local incluido
+sin usar un límite inclusivo ni `23:59:59`.
+
+##### B. Dry-run piloto
+
+Solo después de aprobar el rango, ejecutar un primer piloto de máximo 100 IDs:
+
+```bash
+php artisan salesforce:backfill-lead-attribution-fields --from=<FROM_INCLUSIVE_APROBADO> --to=<TO_EXCLUSIVE_APROBADO> --dry-run --limit=100
+```
+
+No añadir `--debug-soql`, `--apply` ni un motivo operativo. El dry-run no debe
+modificar las tablas de Leads, el histórico ni las versiones de caché.
+
+##### C. Conciliación obligatoria
+
+Conservar del bloque `BACKFILL_METRICS` únicamente métricas agregadas y
+contrastar, como mínimo:
+
+- `range` y `mode`;
+- `rows_examined` y `salesforce_ids_unique`;
+- `ids_consulted`, `ids_found_in_salesforce`,
+  `ids_not_found_in_salesforce` e `ids_invalid_local`;
+- `rows_changed`, `rows_unchanged` y `changes_by_field`;
+- `conflicts_new_vs_legacy`, `fallbacks_new_empty_to_legacy` y
+  `placeholders_new_non_empty`;
+- `utm_only_detected` y `last_salesforce_id_processed`;
+- `failed`, `error`, `duration_seconds` y `peak_memory_mb`.
+
+La conciliación debe verificar `mode = dry-run`, `failed = false`, `error =
+null`, que los recuentos de encontrados y ausentes cuadran con los IDs
+consultados, y que cambiadas más no cambiadas cuadran con las filas examinadas
+por tabla. El recuento del histórico debe permanecer igual al inventario. Las
+muestras con IDs que emite la herramienta son solo diagnóstico de consola: no
+se trasladan a la evidencia salvo autorización y necesidad expresa.
+
+##### D. Dry-run completo
+
+Solo después de aceptar formalmente el piloto, repetir el mismo rango sin
+`--limit`:
+
+```bash
+php artisan salesforce:backfill-lead-attribution-fields --from=<FROM_INCLUSIVE_APROBADO> --to=<TO_EXCLUSIVE_APROBADO> --dry-run
+```
+
+Si se interrumpe, el valor agregado `last_salesforce_id_processed` permite
+preparar una reanudación con `--after-salesforce-id`, sin publicar el ID en la
+documentación. El resultado completo debe superar la misma conciliación antes
+de valorar cualquier escritura local.
+
+##### E. Apply
+
+`--apply` permanece **NO AUTORIZADO TODAVÍA**. No se incluye un comando de
+ejecución hasta que una revisión posterior apruebe de forma expresa el rango,
+el motivo operativo definitivo y la evidencia del dry-run completo. Esa futura
+autorización seguirá limitada a UPDATE locales de filas existentes; nunca
+autorizará escrituras Salesforce.
+
 ### 9.3 Reproceso histórico de portales de Opportunities (Fase 7B)
 
 `reports:reprocess-opportunity-portals` opera únicamente sobre filas locales de
