@@ -1,5 +1,16 @@
 # Handoff para agentes
 
+## Cierre formal de RV-3 tras el PR #55 (2026-09-23)
+
+- El PR #55 se fusionó con CI verde en el merge SHA
+  `8acb8e461cc675b32162f174af771a5cbc15e8e8`; la rama funcional
+  `audit/rv-3-historical-validation` fue eliminada después del merge.
+- RV-3 queda formalmente `cerrada`, sin acciones operativas pendientes y sin
+  cambios runtime. La evidencia y conclusiones revisadas permanecen en las
+  entradas siguientes de este documento.
+- El siguiente lote previsto es RV-1, que continúa `pendiente`, sin rama ni SHA
+  de activación. Este checkpoint no inicia su trabajo.
+
 ## Aprobación sénior de RV-3 para PR (2026-09-23)
 
 - La revisión sénior aprobó RV-3 para abrir PR sobre el SHA revisado
