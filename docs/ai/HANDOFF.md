@@ -1,5 +1,77 @@
 # Handoff para agentes
 
+## RV-1 — Cierre ejecutivo de Rendimiento comercial (2026-09-23)
+
+### Resumen y decisiones
+
+- RV-1 queda `en_revision` en `feat/rv-1-commercial-performance-ux`, nacida de
+  `main` `6bebc0a1d9dc11ef9c5ebf62fcf7c16ea3c9e923`. El HEAD funcional probado es
+  `521310b1730b68f0579b0f734101904f65955018`; el siguiente paso es la revisión
+  sénior previa al PR. RV-2 continúa `pendiente` y no se creó PR.
+- El KPI de cumplimiento muestra directamente `X reservas computables / Y de
+  objetivo = Z %`. En global consume las tres claves canónicas de `universe` y,
+  con filtro Comercial, las equivalentes de `summary`; no recalcula el
+  porcentaje backend ni inventa valores para filas no evaluables.
+- La presentación cambia **Semáforo** por **Estado** sin renombrar
+  `traffic_light`, y denomina **Ratios de actividad mensual** a los ratios. La
+  ayuda visible aclara que cada hito usa su fecha propia, no constituye cohorte
+  y puede superar 100 %.
+- `reservationsSalesCommercialPerformanceColumnsV5` inicia con una vista
+  **Resumen** compacta. **Resumen**, **Actividad** y **Rentabilidad** cambian
+  únicamente la visibilidad local, se persisten en V5 y conviven con la
+  personalización individual. V4 no se lee, migra ni elimina.
+- Ranking, Estado y Comercial son siempre visibles y sticky con anchos y offsets
+  deterministas. El Salesforce User ID deja de renderizarse bajo el nombre en
+  la tabla ejecutiva; continúa disponible en el payload/atributo técnico local
+  y en la auditoría autorizada.
+- Enteros, porcentajes, puntos porcentuales y moneda se presentan con `es-ES`.
+  La cobertura de margen inferior a 100 % aparece junto al margen de cada fila
+  y en el resumen agregado cuando existen ventas sin margen, sin extrapolar
+  importes desconocidos. El margen medio sigue usando solo ventas informadas.
+- Evolución mensual conserva `cancellations = null` como `N/D` y explica el
+  estado real de `cancellation_coverage_by_month`, incluyendo la certificación
+  disponible. Una cobertura completa sin eventos mantiene `0`; `sales_dropped
+  = 0` también permanece como cero.
+- No cambiaron backend, claves JSON, fórmulas, universos, objetivos, ranking,
+  deduplicación, caché backend V4, permisos, endpoints, consultas ni peticiones.
+
+### Archivos, seguridad, rendimiento y base de datos
+
+- Fuentes modificadas: vista, JavaScript y CSS específicos de
+  Reservas/Ventas; prueba feature; `docs/informe-reservas-ventas.md`,
+  `docs/ai/ROADMAP.md` y este handoff. Vite sustituyó únicamente los bundles
+  CSS/JS versionados del dashboard y sus dos referencias en el manifest; el
+  bundle CSS global rehashado sin relación se restauró.
+- No hay cambios de base de datos, migraciones, configuración, dependencias ni
+  variables de entorno. No se ejecutaron migraciones, consultas productivas,
+  sincronizaciones, conexiones Salesforce, despliegues ni escrituras de datos.
+- No se añadieron IDs visibles, PII, payloads, secretos o credenciales. Los
+  valores dinámicos nuevos se escapan antes de insertarse en HTML y la auditoría
+  conserva su autorización existente.
+- Presets, búsqueda, cobertura y formato se resuelven sobre las filas ya
+  descargadas. No hay nuevos `fetch`, SQL, N+1, recálculo del dataset ni aumento
+  del payload.
+
+### Pruebas, acciones y riesgos
+
+- `php artisan test tests/Feature/ReservationsSalesCommercialPerformanceTest.php`:
+  correcto, `77` pruebas y `1.020` aserciones.
+- `php artisan test tests/Unit/CommercialPerformanceKpiTest.php`: correcto, `1`
+  prueba y `6` aserciones.
+- `npm run build`: correcto. Se mantienen los avisos no bloqueantes conocidos
+  de Node `module.register()`, `/images/login-bg.jpg` resuelto en runtime y
+  tiempos de plugins de Vite.
+- `php artisan test`: `1.008` pruebas correctas de `1.009`, con `7.668`
+  aserciones. El único fallo fue ajeno a RV-1:
+  `StockRecommendationCandidatePaginationTest` tardó `20,1037129 s` frente al
+  límite de `20 s`. La repetición aislada del archivo pasó (`2` pruebas/`13`
+  aserciones), por lo que se conserva como fluctuación temporal documentada y
+  no se modificó Stock.
+- `node --check resources/js/reports/reservations-sales-dashboard.js` y
+  `git diff --check`: correctos.
+- No hay acción manual de datos o configuración. Pendiente únicamente revisión
+  sénior; no hacer PR, merge, despliegue ni activar RV-2 antes de la aprobación.
+
 ## Cierre formal de RV-3 tras el PR #55 (2026-09-23)
 
 - El PR #55 se fusionó con CI verde en el merge SHA
