@@ -191,7 +191,7 @@ mes, y una asignación mensual `observed` o `bootstrap_approved`. Las
 cancelaciones aisladas, margen y métricas derivadas no activan actividad real.
 
 Las filas con actividad y un histórico no certificable se muestran como **No
-evaluable**, sin objetivo, cumplimiento, semáforo, ranking ni referencia de
+evaluable**, sin objetivo, cumplimiento, estado, ranking ni referencia de
 delegación. Las filas certificadas sin actividad se excluyen de tabla y filtro
 Comercial, y se contabilizan en la metadata del universo. `Incidencia de datos`
 se publica en un bloque separado de calidad, fuera del universo evaluable.
@@ -200,10 +200,14 @@ El ranking y las comparativas se calculan tras Zona/Delegación y antes de
 Comercial. Cada referencia de delegación incluye solo comerciales evaluables de la
 misma delegación; Comercial solo limita filas visibles y conserva el puesto y
 las referencias calculadas sobre el universo anterior. Sin filtro Comercial, el
-KPI superior muestra el cumplimiento global. Con un comercial seleccionado,
-muestra `summary.fulfillment_pct` bajo la etiqueta **Cumplimiento comercial**;
-un comercial no evaluable permanece como `N/D`. El cumplimiento global sigue
-publicándose sin cambios en `universe` como
+KPI superior muestra el cumplimiento global. La presentación explicita
+`X reservas computables / Y de objetivo = Z %` usando directamente las claves
+publicadas, sin recalcular el porcentaje. Con un comercial seleccionado usa
+`summary.reservations_valid_for_objective`, `summary.objective` y
+`summary.fulfillment_pct`; un comercial no evaluable permanece como `N/D`. En
+global usa `universe.global_reservations_valid_for_objective`,
+`universe.global_target` y `universe.global_fulfillment_pct`. El cumplimiento
+global sigue publicándose sin cambios en `universe` como
 `SUM(reservations_valid_for_objective) / SUM(objective)` del universo evaluable
 y devuelve `null` cuando no existe objetivo global.
 
@@ -252,7 +256,7 @@ actual continúa disponible para selección manual.
 
 Al consultar el mes actual se muestra **Mes en curso · Resultado provisional**.
 La actividad es la acumulada hasta el momento, pero el objetivo mensual completo
-no se prorratea: cumplimiento, semáforo, ranking y comparativas mantienen las
+no se prorratea: cumplimiento, estado, ranking y comparativas mantienen las
 fórmulas aprobadas y se interpretan como provisionales. Los meses anteriores no
 muestran ese aviso. Durante loading o error el aviso previo se oculta junto con
 los datos de la carga anterior.
@@ -273,12 +277,17 @@ agregado reconciliable del mes seleccionado y no recibe objetivo.
 
 Los filtros de la pestaña son dependientes: Zona limita Delegación y ambas
 limitan Comercial. Comercial solo limita las filas visibles y no recalcula
-universo, ranking ni comparativas. La tabla incluye un buscador local por nombre
-o Salesforce User ID que opera exclusivamente sobre las filas ya renderizadas,
-sin peticiones ni recálculos. Ranking es visible por defecto bajo la preferencia
-versionada `reservationsSalesCommercialPerformanceColumnsV4`; Semáforo y
-Comercial permanecen fijos durante el desplazamiento horizontal. Al recargar se
-retiran los datos anteriores;
+universo, ranking ni comparativas. La tabla incluye un buscador local sobre las
+filas ya renderizadas, sin peticiones ni recálculos; el Salesforce User ID no se
+muestra en la vista normal y permanece disponible únicamente en los atributos
+técnicos necesarios y en la auditoría autorizada. La preferencia independiente
+`reservationsSalesCommercialPerformanceColumnsV5` estrena **Resumen** como vista
+compacta por defecto sin leer, modificar ni eliminar V4. **Personalizar
+columnas** conserva la selección individual y ofrece los presets **Resumen**,
+**Actividad** y **Rentabilidad**; aplicarlos solo cambia y persiste visibilidad
+local. Ranking, Estado y Comercial son obligatorias y permanecen fijas, en ese
+orden, durante el desplazamiento horizontal. Al recargar se retiran los datos
+anteriores;
 si falla la petición se informa el error sin exponer detalles internos y se
 ofrece `Reintentar` con los filtros actuales. La auditoría acepta los mismos
 filtros de Zona, Delegación y Comercial, los aplica tras resolver la atribución
@@ -313,6 +322,15 @@ Los registros fuera del universo y los contadores de auditoría no activan por s
 solos ese aviso exterior si los KPI siguen siendo evaluables. Una recarga limpia
 el contenido dinámico anterior sin forzar el estado abierto o cerrado elegido
 por el usuario.
+
+La presentación numérica de Rendimiento comercial utiliza `es-ES`: enteros con
+separador de millares, porcentajes con un decimal y espacio antes de `%`, puntos
+porcentuales con coma decimal y moneda con dos decimales. Los importes de margen
+no se extrapolan. Si `margin_coverage_pct` es inferior a 100 %, cada fila lo
+muestra junto a sus valores de margen aunque la columna específica no esté
+visible; el resumen calcula únicamente la cobertura de presentación mediante
+`sales_with_margin / sales` cuando existen `sales_without_margin`, sin alterar
+`margin_total` ni `average_margin_per_sale`.
 
 ### Actividad mensual y fórmulas
 
@@ -352,13 +370,18 @@ Si no existe ninguna de las fechas de anclaje, no se inventa un mes. Las
 cancelaciones continúan siendo transiciones históricas y no sustituyen ninguna
 de las métricas de caída: la reserva del ejemplo anterior cae en agosto por su
 estado actual, mientras la cancelación pertenece a septiembre por
-`transitioned_at`. Backend: null. Frontend de Rendimiento comercial:
-N/D. Un denominador cero nunca produce infinito ni 0 % ficticio. Como
-son ratios de actividad y no de cohorte, pueden superar el 100 %. El objetivo
+`transitioned_at`. Backend: `null`. En Evolución mensual el frontend conserva
+`N/D` y añade la explicación del estado real de
+`data_quality.cancellation_coverage_by_month` —incluido `certified_until` cuando
+existe—; una cobertura `covered` sin eventos continúa mostrando `0`. Un
+denominador cero nunca produce infinito ni 0 % ficticio. La ayuda visible los
+identifica como **Ratios de actividad mensual**: cada hito usa su propia fecha,
+no son ratios de cohorte y pueden superar el 100 %. El objetivo
 default inicial es 18; cada mes consultado se materializa inmediatamente en
 `commercial_performance_monthly_targets`, aunque no haya sido editado, para que
 un cambio futuro de la constante no reescriba el histórico. Cambiar un mes no
-reescribe los demás. Semáforo: verde ≥100,
+reescribe los demás. El **Estado** visible conserva la clave JSON
+`traffic_light` y sus umbrales: verde ≥100,
 amarillo ≥80, naranja ≥60 y rojo por debajo de 60, exclusivamente sobre
 cumplimiento.
 
@@ -371,7 +394,7 @@ El cumplimiento global se publica en `universe` y suma exclusivamente reservas
 válidas para objetivo y objetivos de comerciales evaluables dentro del scope de
 Zona/Delegación. El filtro Comercial no modifica ese universo. Una incidencia
 conserva eventos operativos en su bloque separado, pero no recibe objetivo,
-cumplimiento, semáforo ni ranking y no amplía el denominador global.
+cumplimiento, estado ni ranking y no amplía el denominador global.
 
 Existe una sola fila y un solo objetivo por `commercial_id` y mes. La delegación
 solo habilita comparaciones: cualquier hueco o cambio de delegación dentro del
@@ -396,7 +419,8 @@ calculan agregando sus contadores. Cada celda comparativa presenta primero el
 ratio del comercial, después la referencia de su delegación y finalmente una
 flecha con el valor absoluto y el texto por encima, por debajo o igual. Si falta
 un denominador o referencia se conserva `N/D` y no se inventa una flecha. Las
-claves técnicas `team_*` y `*_vs_team` se mantienen para no romper el contrato
+cabeceras visibles emplean **Ratio**, no **Conversión**, porque no son cohortes.
+Las claves técnicas `team_*` y `*_vs_team` se mantienen para no romper el contrato
 JSON ni las preferencias de columnas guardadas. Las filas no evaluables publican
 estos campos como `null`.
 

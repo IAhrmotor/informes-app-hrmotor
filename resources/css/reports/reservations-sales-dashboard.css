@@ -140,8 +140,44 @@
     position: absolute;
     right: 0;
     top: calc(100% + var(--report-ui-space-2));
-    width: 260px;
+    width: min(320px, calc(100vw - 2rem));
     z-index: 15;
+}
+
+.reservations-sales-report .reservations-column-presets,
+.reservations-sales-report .reservations-column-options {
+    border: 0;
+    margin: 0;
+    min-width: 0;
+    padding: 0;
+}
+
+.reservations-sales-report .reservations-column-presets {
+    border-bottom: 1px solid var(--report-ui-border);
+    margin-bottom: var(--report-ui-space-2);
+    padding-bottom: var(--report-ui-space-3);
+}
+
+.reservations-sales-report .reservations-column-presets legend,
+.reservations-sales-report .reservations-column-options legend {
+    color: var(--report-ui-text-muted);
+    font-size: var(--report-ui-font-xs);
+    font-weight: 800;
+    letter-spacing: .04em;
+    margin-bottom: var(--report-ui-space-2);
+    text-transform: uppercase;
+}
+
+.reservations-sales-report .reservations-column-presets > div {
+    display: grid;
+    gap: var(--report-ui-space-2);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.reservations-sales-report .reservations-column-preset {
+    justify-content: center;
+    min-width: 0;
+    padding-inline: var(--report-ui-space-2);
 }
 
 .reservations-sales-report .reservations-column-option {
@@ -295,11 +331,20 @@
     max-height: 68vh;
 }
 
+.reservations-sales-report .performance-ratios-help {
+    color: var(--report-ui-text-muted);
+    font-size: var(--report-ui-font-sm);
+    line-height: 1.45;
+    margin: var(--report-ui-space-3) var(--report-ui-space-4) 0;
+}
+
 .reservations-sales-report .performance-table {
-    --performance-traffic-light-sticky-width: 8.75rem;
+    --performance-ranking-sticky-width: 6rem;
+    --performance-status-sticky-width: 8.75rem;
     min-width: 1900px;
 }
 
+.reservations-sales-report .performance-table [data-column="ranking"],
 .reservations-sales-report .performance-table [data-column="traffic_light"],
 .reservations-sales-report .performance-table [data-column="commercial"] {
     background: var(--report-ui-surface);
@@ -307,27 +352,53 @@
     z-index: 2;
 }
 
-.reservations-sales-report .performance-table [data-column="traffic_light"] {
+.reservations-sales-report .performance-table [data-column="ranking"] {
     left: 0;
-    min-width: var(--performance-traffic-light-sticky-width);
-    width: var(--performance-traffic-light-sticky-width);
+    min-width: var(--performance-ranking-sticky-width);
+    width: var(--performance-ranking-sticky-width);
+}
+
+.reservations-sales-report .performance-table [data-column="traffic_light"] {
+    left: var(--performance-ranking-sticky-width);
+    min-width: var(--performance-status-sticky-width);
+    width: var(--performance-status-sticky-width);
 }
 
 .reservations-sales-report .performance-table [data-column="commercial"] {
     box-shadow: 1px 0 0 var(--report-ui-border);
-    left: var(--performance-traffic-light-sticky-width);
+    left: calc(var(--performance-ranking-sticky-width) + var(--performance-status-sticky-width));
     min-width: 14rem;
 }
 
+.reservations-sales-report .performance-table thead [data-column="ranking"],
 .reservations-sales-report .performance-table thead [data-column="traffic_light"],
 .reservations-sales-report .performance-table thead [data-column="commercial"] {
     background: var(--report-ui-surface-muted);
     z-index: 3;
 }
 
+.reservations-sales-report .performance-table tbody tr:hover > [data-column="ranking"],
 .reservations-sales-report .performance-table tbody tr:hover > [data-column="traffic_light"],
 .reservations-sales-report .performance-table tbody tr:hover > [data-column="commercial"] {
     background: var(--report-ui-surface-muted);
+}
+
+.reservations-sales-report .performance-kpi-detail,
+.reservations-sales-report .performance-margin-value small,
+.reservations-sales-report .performance-cancellation-unavailable small {
+    color: var(--report-ui-text-muted);
+    display: block;
+    font-size: .75rem;
+    font-weight: 600;
+    line-height: 1.35;
+    margin-top: 3px;
+    white-space: normal;
+}
+
+.reservations-sales-report .performance-margin-value,
+.reservations-sales-report .performance-cancellation-unavailable {
+    display: block;
+    min-width: 8.5rem;
 }
 
 .reservations-sales-report .performance-table th[data-column$="_vs_team"] {
