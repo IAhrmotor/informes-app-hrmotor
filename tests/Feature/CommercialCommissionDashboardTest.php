@@ -2806,6 +2806,137 @@ class CommercialCommissionDashboardTest extends TestCase
         $this->assertSame('Cambio 85 EUR', collect($row['details']['operations'])->firstWhere('opportunity_id', 'MONTHLY-CHANGE')['reason']);
     }
 
+    public function test_desde_junio_venta_y_cambio_compartidos_pagan_una_participacion_al_secundario_sin_reatribuir_operaciones(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-SHARED-OWNER', 'Owner sintético');
+        $this->createCommercialUser('005-SHARED-SECONDARY', 'Secundario sintético');
+
+        foreach ([
+            ['id' => 'SHARED-SALE', 'type' => 'Venta'],
+            ['id' => 'SHARED-CHANGE', 'type' => 'Cambio'],
+            ['id' => 'SHARED-APPRAISAL-IGNORED', 'type' => 'Tasacion'],
+        ] as $index => $operation) {
+            SalesforceOpportunity::create([
+                'salesforce_id' => $operation['id'],
+                'name' => $operation['type'].' compartida sintética',
+                'owner_id' => '005-SHARED-OWNER',
+                'owner_name' => 'Owner sintético',
+                'owner_is_active' => true,
+                'stage_name' => 'Contrato',
+                'record_type_name' => $operation['type'],
+                'cv_signed' => true,
+                'cv_signed_date' => '2026-09-0'.($index + 1),
+                'gestion_de_venta' => false,
+                'shared_delivery_id' => '005-SHARED-SECONDARY',
+                'shared_delivery_name' => 'Secundario sintético',
+            ]);
+        }
+
+        $dashboard = app(CommercialCommissionDashboardService::class)->build('2026-09');
+        $owner = collect($dashboard['summary_rows'])->firstWhere('commercial_id', '005-SHARED-OWNER');
+        $secondary = collect($dashboard['summary_rows'])->firstWhere('commercial_id', '005-SHARED-SECONDARY');
+
+        $this->assertNotNull($owner);
+        $this->assertSame(3, $owner['operations_count']);
+        $this->assertSame(2, $owner['deliveries_count']);
+        $this->assertSame(1, $owner['changes_count']);
+        $this->assertEquals(85.0, $owner['changes_amount']);
+        $this->assertEquals(145.0, $owner['purchases_amount']);
+        $this->assertEquals(175.0, $owner['operations_commission_amount']);
+        $this->assertSame(0, $owner['shared_count']);
+        $this->assertEquals(0.0, $owner['shared_amount']);
+        $this->assertEquals(175.0, $owner['prima_total']);
+        $this->assertEquals(175.0, $owner['prima_adjusted']);
+        $this->assertSame('Cambio 85 EUR', collect($owner['details']['operations'])->firstWhere('opportunity_id', 'SHARED-CHANGE')['reason']);
+        $this->assertSame('SHARED-CHANGE', collect($owner['details']['purchases'])->firstWhere('opportunity_id', 'SHARED-CHANGE')['opportunity_id']);
+
+        $this->assertNotNull($secondary);
+        $this->assertSame('Secundario sintético', $secondary['commercial_name']);
+        $this->assertSame(0, $secondary['operations_count']);
+        $this->assertSame(0, $secondary['deliveries_count']);
+        $this->assertSame(0, $secondary['changes_count']);
+        $this->assertEquals(0.0, $secondary['purchases_amount']);
+        $this->assertSame(2, $secondary['shared_count']);
+        $this->assertEquals(60.0, $secondary['shared_amount']);
+        $this->assertEquals(60.0, $secondary['prima_total']);
+        $this->assertEquals(60.0, $secondary['prima_adjusted']);
+
+        $sharedOpportunityIds = collect($secondary['details']['shared'])->pluck('opportunity_id');
+        $this->assertEqualsCanonicalizing(['SHARED-SALE', 'SHARED-CHANGE'], $sharedOpportunityIds->all());
+        $this->assertSame(2, $sharedOpportunityIds->unique()->count());
+        $this->assertEmpty($secondary['details']['operations']);
+        $this->assertSame(2, $dashboard['diagnostics']['shared_sales_count']);
+    }
+
+    public function test_entrega_compartida_no_duplica_owner_igual_a_secundario_ni_inventa_comision_para_tasador_secundario(): void
+    {
+        config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');
+        $this->createCommercialUser('005-SHARED-SELF', 'Comercial autorreferenciado');
+        $this->createCommercialUser('005-SHARED-OWNER-2', 'Owner sintético 2');
+        SalesforceUser::create([
+            'salesforce_id' => '005-SHARED-APPRAISER',
+            'name' => 'Tasador secundario sintético',
+            'profile_name' => 'Standard User',
+            'is_active' => true,
+            'commission_appraiser' => true,
+        ]);
+
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'SHARED-SELF-CHANGE',
+            'name' => 'Cambio autorreferenciado sintético',
+            'owner_id' => '005-SHARED-SELF',
+            'owner_name' => 'Comercial autorreferenciado',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Cambio',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-09-10',
+            'gestion_de_venta' => false,
+            'shared_delivery_id' => '005-SHARED-SELF',
+            'shared_delivery_name' => 'Comercial autorreferenciado',
+        ]);
+        SalesforceOpportunity::create([
+            'salesforce_id' => 'SHARED-APPRAISER-CHANGE',
+            'name' => 'Cambio con tasador secundario sintético',
+            'owner_id' => '005-SHARED-OWNER-2',
+            'owner_name' => 'Owner sintético 2',
+            'owner_is_active' => true,
+            'stage_name' => 'Contrato',
+            'record_type_name' => 'Cambio',
+            'cv_signed' => true,
+            'cv_signed_date' => '2026-09-11',
+            'gestion_de_venta' => false,
+            'shared_delivery_id' => '005-SHARED-APPRAISER',
+            'shared_delivery_name' => 'Tasador secundario sintético',
+        ]);
+
+        $rows = collect(app(CommercialCommissionDashboardService::class)->build('2026-09')['summary_rows']);
+        $self = $rows->firstWhere('commercial_id', '005-SHARED-SELF');
+        $owner = $rows->firstWhere('commercial_id', '005-SHARED-OWNER-2');
+        $appraiser = $rows->firstWhere('commercial_id', '005-SHARED-APPRAISER');
+
+        $this->assertNotNull($self);
+        $this->assertSame(1, $self['changes_count']);
+        $this->assertEquals(85.0, $self['changes_amount']);
+        $this->assertSame(0, $self['shared_count']);
+        $this->assertEquals(0.0, $self['shared_amount']);
+        $this->assertEmpty($self['details']['shared']);
+
+        $this->assertNotNull($owner);
+        $this->assertSame(1, $owner['changes_count']);
+        $this->assertEquals(85.0, $owner['changes_amount']);
+        $this->assertSame(0, $owner['shared_count']);
+
+        $this->assertNotNull($appraiser);
+        $this->assertTrue($appraiser['is_appraiser']);
+        $this->assertSame(0, $appraiser['operations_count']);
+        $this->assertSame(0, $appraiser['shared_count']);
+        $this->assertEquals(0.0, $appraiser['shared_amount']);
+        $this->assertEquals(0.0, $appraiser['final_commission']);
+        $this->assertEmpty($appraiser['details']['shared']);
+    }
+
     public function test_desde_junio_tasador_aplica_escalado_financiacion_y_rapidez(): void
     {
         config()->set('commercial_commissions.sale_management_field', 'gestion_de_venta');

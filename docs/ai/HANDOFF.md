@@ -3601,3 +3601,24 @@ vez por construcción del dataset, en lotes de 1.000 y sin consultas por fila.
   Composer y npm no informaron advisories. Vite mantuvo el aviso no bloqueante
   ya conocido de `/images/login-bg.jpg` resuelto en runtime y un aviso de
   deprecación de Node; no se actualizaron dependencias.
+
+## Cambio compartido en Comisiones Comerciales (2026-09-24)
+
+- Desde junio de 2026, la participación secundaria `shared` se detecta sobre
+  entregas (`Venta` o `Cambio`) con `shared_delivery_id` informado y diferente
+  del owner. Una `Tasacion` no genera participación aunque lleve ese campo.
+- El owner de un `Cambio` conserva íntegramente los 85 EUR y el secundario cobra
+  únicamente el importe configurado en `shared_secondary_delivery_amount`
+  (30 EUR por defecto). La Opportunity no se reatribuye ni se duplica.
+- El contrato público sigue siendo `shared_count`, `shared_amount` y
+  `details.shared`. No cambian sincronización Salesforce, modelo, base de datos,
+  frontend, tramos, penalizaciones, Tasadores ni meses anteriores a junio.
+- Seguridad/rendimiento: se reutiliza la colección mensual ya cargada, con un
+  único filtrado O(n), sin consultas, HTTP, Salesforce ni datos reales nuevos.
+- Regresiones específicas: escenario Venta + Cambio para el mismo secundario
+  `1/27`, autorreferencia y Tasador secundario `1/17`, API `1/22`, correctas.
+  Dashboard completo `56/490`, API completa `23/160` y suite completa
+  `1.020/7.884`, correctas. Pint `--test` focal, lint de los tres PHP y
+  `git diff --check`: correctos.
+- No se ejecutaron sincronizaciones ni llamadas Salesforce, migraciones,
+  dependencias, build frontend, escrituras productivas, push, merge o deploy.

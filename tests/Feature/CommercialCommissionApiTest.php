@@ -339,6 +339,49 @@ class CommercialCommissionApiTest extends TestCase
         $this->assertSame('OPPORTUNITY-SHARED', $response->json('row.details.shared.0.opportunity_id'));
     }
 
+    public function test_api_devuelve_cambio_compartido_solo_como_participacion_del_secundario(): void
+    {
+        $this->commercial('005-CHANGE-OWNER', 'Owner Cambio');
+        $this->commercial('005-CHANGE-SHARED', 'Secundario Cambio');
+        $this->opportunity('OPPORTUNITY-SHARED-CHANGE', '005-CHANGE-OWNER', 'Owner Cambio', '2026-08-14', [
+            'record_type_name' => 'Cambio',
+            'shared_delivery_id' => '005-CHANGE-SHARED',
+            'shared_delivery_name' => 'Secundario Cambio',
+        ]);
+
+        $secondaryResponse = $this->apiGet(['salesforce_id' => '005-CHANGE-SHARED', 'month' => '2026-08'])
+            ->assertOk()
+            ->assertJsonPath('row.shared_count', 1)
+            ->assertJsonPath('row.shared_amount', 30.0)
+            ->assertJsonPath('row.operations_count', 0)
+            ->assertJsonPath('row.deliveries_count', 0)
+            ->assertJsonPath('row.changes_count', 0)
+            ->assertJsonPath('row.purchases_amount', 0.0)
+            ->assertJsonPath('row.details.shared.0.opportunity_id', 'OPPORTUNITY-SHARED-CHANGE');
+
+        $this->assertSame(
+            $this->canonicalRow('005-CHANGE-SHARED', '2026-08'),
+            $secondaryResponse->json('row'),
+        );
+        $this->assertCount(1, $secondaryResponse->json('row.details.shared'));
+        $this->assertEmpty($secondaryResponse->json('row.details.operations'));
+
+        $ownerResponse = $this->apiGet(['salesforce_id' => '005-CHANGE-OWNER', 'month' => '2026-08'])
+            ->assertOk()
+            ->assertJsonPath('row.changes_count', 1)
+            ->assertJsonPath('row.changes_amount', 85.0)
+            ->assertJsonPath('row.purchases_amount', 85.0)
+            ->assertJsonPath('row.operations_commission_amount', 85.0)
+            ->assertJsonPath('row.shared_count', 0)
+            ->assertJsonPath('row.shared_amount', 0.0)
+            ->assertJsonPath('row.details.operations.0.reason', 'Cambio 85 EUR');
+
+        $this->assertSame(
+            $this->canonicalRow('005-CHANGE-OWNER', '2026-08'),
+            $ownerResponse->json('row'),
+        );
+    }
+
     public function test_tasador_conserva_exactamente_modo_tramos_financiacion_rapidez_y_comision(): void
     {
         $this->commercial('005-APPRAISER', 'Tasador API', 'System Administrator', true);
