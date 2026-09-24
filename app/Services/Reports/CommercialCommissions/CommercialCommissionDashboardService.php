@@ -628,7 +628,7 @@ class CommercialCommissionDashboardService
                 $userNames[(string) $operation->owner_id] = $operation->owner_name ?: $operation->owner_id;
             }
 
-            if ($this->isSale($operation) && filled($operation->shared_delivery_id)) {
+            if ($this->isSharedDeliveryForCoowner($operation)) {
                 $userNames[(string) $operation->shared_delivery_id] = $operation->shared_delivery_name ?: $operation->shared_delivery_id;
             }
         }
@@ -637,8 +637,8 @@ class CommercialCommissionDashboardService
             $userNames[$userId] = $salesforceUsersById->get($userId)?->name ?? $userId;
         }
 
-        $sharedSalesByCoowner = $monthlyOperations
-            ->filter(fn (SalesforceOpportunity $row) => $this->isSale($row) && filled($row->shared_delivery_id))
+        $sharedDeliveriesByCoowner = $monthlyOperations
+            ->filter(fn (SalesforceOpportunity $row) => $this->isSharedDeliveryForCoowner($row))
             ->groupBy(fn (SalesforceOpportunity $row) => (string) $row->shared_delivery_id);
         $appraiserPurchases = $monthlyOperations
             ->filter(function (SalesforceOpportunity $row) use ($salesforceUsersById): bool {
@@ -652,7 +652,7 @@ class CommercialCommissionDashboardService
 
         $userIds = collect()
             ->merge($operationsByOwner->keys())
-            ->merge($sharedSalesByCoowner->keys())
+            ->merge($sharedDeliveriesByCoowner->keys())
             ->merge(array_keys($financingPenaltyAmounts))
             ->filter()
             ->unique()
@@ -668,7 +668,7 @@ class CommercialCommissionDashboardService
         return $userIds->map(function (string $userId) use (
             $operationsByOwner,
             $reviewsByOwner,
-            $sharedSalesByCoowner,
+            $sharedDeliveriesByCoowner,
             $appraiserSpeedByOwner,
             $formulaSettings,
             $userNames,
@@ -699,7 +699,7 @@ class CommercialCommissionDashboardService
                 $salesforceUser,
                 $ownerOperations,
                 $reviewsByOwner->get($userId, collect())->values(),
-                $sharedSalesByCoowner->get($userId, collect())->values(),
+                $sharedDeliveriesByCoowner->get($userId, collect())->values(),
                 $formulaSettings,
                 (float) ($financingPenaltyAmounts[$userId] ?? 0),
                 $financingPenaltyDetails[$userId] ?? [],
@@ -714,7 +714,7 @@ class CommercialCommissionDashboardService
         ?SalesforceUser $salesforceUser,
         Collection $ownerOperations,
         Collection $ownerReviews,
-        Collection $sharedSales,
+        Collection $sharedDeliveries,
         array $formulaSettings,
         float $financingCancellationPenaltyAmount,
         array $financingCancellationDetails,
@@ -736,7 +736,7 @@ class CommercialCommissionDashboardService
         $appraisalsAmount = round((float) $appraisalDetails->sum('commission_amount'), 2);
         $changesAmount = round((float) $changeDetails->sum('commission_amount'), 2);
         $purchasesAmount = round($appraisalsAmount + $changesAmount, 2);
-        $sharedAmount = round($sharedSales->count() * (float) $formulaSettings['sales']['shared_secondary_delivery_amount'], 2);
+        $sharedAmount = round($sharedDeliveries->count() * (float) $formulaSettings['sales']['shared_secondary_delivery_amount'], 2);
         $discountTotal = round((float) $ownerOperations->sum(
             fn (SalesforceOpportunity $row) => max(0, (float) ($row->opo_div_descuento ?? 0))
         ), 2);
@@ -798,7 +798,7 @@ class CommercialCommissionDashboardService
             'changes_amount' => $changesAmount,
             'operations_commission_amount' => round((float) $operationDetails->sum('commission_amount'), 2),
             'purchases_amount' => $purchasesAmount,
-            'shared_count' => $sharedSales->count(),
+            'shared_count' => $sharedDeliveries->count(),
             'shared_amount' => $sharedAmount,
             'discount_total' => $discountTotal,
             'discount_penalty_amount' => $discountPenaltyAmount,
@@ -830,7 +830,7 @@ class CommercialCommissionDashboardService
             'details' => $includeDetails ? [
                 'operations' => $operationDetails->all(),
                 'purchases' => $appraisalDetails->merge($changeDetails)->values()->all(),
-                'shared' => $sharedSales->map(fn (SalesforceOpportunity $row) => $this->sharedCommissionDetail($row, $formulaSettings))->values()->all(),
+                'shared' => $sharedDeliveries->map(fn (SalesforceOpportunity $row) => $this->sharedCommissionDetail($row, $formulaSettings))->values()->all(),
                 'stock_150' => $ownerStockDeliveries->map(fn (SalesforceOpportunity $row) => $this->stockCommissionDetail($row, $formulaSettings))->values()->all(),
                 'reviews' => $this->reviewCommissionDetails($ownerReviews),
                 'financing_cancellations' => $financingCancellationDetails,
@@ -1687,7 +1687,7 @@ class CommercialCommissionDashboardService
                 'purchases_count' => $monthlyOperations->filter(fn (SalesforceOpportunity $row) => $this->isPurchaseOperation($row))->count(),
                 'operations_count' => $monthlyOperations->count(),
                 'shared_sales_count' => $monthlyOperations
-                    ->filter(fn (SalesforceOpportunity $row) => $this->isSale($row) && filled($row->shared_delivery_id))
+                    ->filter(fn (SalesforceOpportunity $row) => $this->isSharedDeliveryForCoowner($row))
                     ->count(),
                 'stock_150_count' => $monthlyOperations
                     ->filter(fn (SalesforceOpportunity $row) => $this->isStock150Delivery($row, $formulaSettings))
@@ -1802,6 +1802,13 @@ class CommercialCommissionDashboardService
     private function isDelivery(SalesforceOpportunity $row): bool
     {
         return $this->isSale($row) || $this->isChange($row);
+    }
+
+    private function isSharedDeliveryForCoowner(SalesforceOpportunity $row): bool
+    {
+        return $this->isDelivery($row)
+            && filled($row->shared_delivery_id)
+            && (string) $row->owner_id !== (string) $row->shared_delivery_id;
     }
 
     private function isSale(SalesforceOpportunity $row): bool

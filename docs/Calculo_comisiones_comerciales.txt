@@ -243,7 +243,7 @@ Importes unitarios por defecto:
 
 - Venta con un único comercial: 60 EUR.
 - Venta compartida, propietario: 30 EUR.
-- Venta compartida, comercial secundario: 30 EUR.
+- Entrega compartida (Venta o Cambio), comercial secundario: 30 EUR.
 - Tasación: 60 EUR.
 - Cambio: 85 EUR.
 - Descuento: se resta el 5 % de la suma de descuentos positivos.
@@ -279,7 +279,12 @@ del coeficiente de entregas:
 Operaciones compartidas
 -----------------------
 
-- La oportunidad paga la parte del propietario y la del comercial secundario.
+- En una Venta compartida, el propietario cobra 30 EUR y el secundario 30 EUR.
+- En un Cambio compartido, el propietario conserva sus 85 EUR de Cambio y el
+  secundario cobra 30 EUR como participación compartida. Son conceptos
+  distintos: no se reduce el Cambio ni se añade una compartida al propietario.
+- Solo Venta y Cambio son entregas compartibles. Una Tasación con el campo de
+  compartida informado no genera participación secundaria.
 - Una misma persona no recibe dos veces la misma oportunidad.
 - La conciliación debe hacerse por Opportunity.Id y por el email normalizado del
   beneficiario, no únicamente por nombre visible.
@@ -979,7 +984,8 @@ Pruebas:
 - No mezclar CreatedDate, fecha de reserva y fecha de firma.
 - No reutilizar el universo de Comerciales en Delegaciones o Financieros.
 - Tienda de entrega y delegación del propietario son ejes distintos.
-- Una venta compartida puede generar dos beneficiarios, pero una sola operación.
+- Una entrega compartida puede generar dos beneficiarios, pero una sola
+  operación. El secundario recibe una participación, no ownership.
 - Los bonus secuenciales de Delegaciones se multiplican; no se suman.
 - Contact Center tiene una ventana de cierre que llega hasta el día 10 del mes
   siguiente.
