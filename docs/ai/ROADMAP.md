@@ -1,6 +1,6 @@
 # Roadmap controlado de implementación
 
-Actualizado: 2026-09-23.
+Actualizado: 2026-09-24.
 
 Este documento es la **fuente única de verdad del trabajo pendiente**. El
 histórico de trabajo ya entregado y sus validaciones permanece en
@@ -171,7 +171,8 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
 
 - **Fase/lote:** Salesforce 7A, backfill histórico de atribución Lead.
 - **Prioridad:** P0.
-- **Estado:** `en_progreso` desde el 2026-09-23.
+- **Estado:** `en_progreso` desde el 2026-09-23; ejecución operacional pausada
+  después de enero por decisión operativa.
 - **Predecesor planificado:** RV-2.
 - **Dependencias técnicas reales:** herramienta y migración ya implementadas
   según `HANDOFF.md`, más runbook, rango, motivo y autorización operativa. La UX
@@ -183,18 +184,26 @@ persistir, en [`DECISIONS.md`](DECISIONS.md).
   local transaccional y auditable. Salesforce se consulta solo en lectura. La
   migración `2026_09_03_120000_create_salesforce_lead_attribution_backfill_history_table`
   consta aplicada en producción.
-- **Bloqueos/decisiones de negocio:** el rango debe derivarse del inventario
-  local y aprobarse; el motivo operativo se definirá después de conciliar el
-  dry-run completo. `--apply` está **NO AUTORIZADO TODAVÍA** y no existe
-  autorización de escritura Salesforce.
-- **Punto exacto de reanudación:** (1) inventariar el rango local; (2) aprobar
-  el rango; (3) ejecutar un dry-run piloto acotado con `--limit=100`; (4)
-  conciliar sus métricas; (5) ampliar el dry-run al rango completo solo tras
-  aceptar el piloto; (6) evaluar `--apply` únicamente en una revisión posterior.
-- **Criterios de aceptación:** inventario y rango aprobados sin PII; piloto y
-  dry-run completo conciliados; apply local sometido a autorización separada,
-  auditable e idempotente; incidencias y cursor documentados; cero escrituras
-  Salesforce.
+- **Checkpoint operacional 2026-09-24:** el inventario situó la deuda relevante
+  de `campaign_salesforce_leads` en `[2026-01-01, 2026-06-01)`. Los dry-runs
+  completos de enero a mayo quedaron conciliados. Solo enero fue autorizado y
+  aplicado: 23.422 de 23.582 filas examinadas de Campañas cambiaron y generaron
+  23.422 entradas de histórico; las 160 restantes quedaron sin
+  `field_resolution`. `salesforce_leads` tuvo 0 cambios, hubo 167 IDs ausentes
+  en Salesforce que permanecieron intactos, 0 IDs inválidos y ningún fallo.
+- **Bloqueos/decisiones de negocio:** febrero, marzo, abril y mayo permanecen
+  sin autorización de apply. Las 160 filas restantes de enero no se consideran
+  automáticamente un error. Antes de continuar debe demostrarse la idempotencia
+  del apply de enero. Salesforce permanece estrictamente de solo lectura.
+- **Punto exacto de reanudación:** (1) ejecutar un dry-run post-apply de enero;
+  (2) conciliar que enero no presenta cambios pendientes; (3) solo entonces
+  valorar un apply de febrero; (4) continuar febrero, marzo, abril y mayo por
+  ventanas mensuales y autorizaciones separadas; (5) ejecutar un dry-run final
+  de `[2026-01-01, 2026-06-01)`; (6) exigir 0 cambios pendientes antes del
+  cierre.
+- **Criterios de aceptación:** idempotencia de enero demostrada; ventanas
+  restantes autorizadas y conciliadas individualmente; dry-run final con 0
+  cambios pendientes; trazabilidad sin PII; cero escrituras Salesforce.
 
 ### SF-7B-OPS — Cierre operacional de Fase 7B
 

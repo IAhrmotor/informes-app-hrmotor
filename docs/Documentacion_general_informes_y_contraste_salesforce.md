@@ -1407,19 +1407,23 @@ confirma cada lote en una transacción independiente. Los IDs ausentes en
 Salesforce no se limpian ni se marcan eliminados. Los UTM-only se cuentan para
 conciliación, pero nunca se insertan en el universo legacy de Campañas.
 
-La infraestructura está preparada; el histórico todavía **NO ha sido
-modificado** y su ejecución requiere una aprobación operativa posterior.
+La infraestructura está preparada. El 24 de septiembre de 2026 se completó y
+validó el apply autorizado exclusivamente para enero de 2026; el histórico
+contiene 23.422 entradas correspondientes a ese intervalo. Febrero, marzo,
+abril y mayo no se han aplicado y requieren autorización operacional posterior.
 
 #### Runbook operacional de cierre SF-7A
 
-Estado al 2026-09-23: SF-7A-OPS está activada para preparar y conciliar el
-dry-run. `--apply` está **NO AUTORIZADO TODAVÍA**. Este procedimiento no permite
-escrituras Salesforce; el cliente remoto solo ejecuta el `SELECT Lead` ya
-definido, sin nombre, email o teléfono. No se usa `--debug-soql` en la operación
-ordinaria de producción y no se copian muestras de IDs, payloads completos ni
-PII a documentación o tickets. Se preservan los chunks de 100, una consulta
-Salesforce por chunk, SQL local agrupado sin N+1, red fuera de la transacción,
-transacciones cortas y cursor reanudable.
+Estado al 2026-09-24: enero fue autorizado, aplicado y conciliado; SF-7A-OPS
+permanece `en_progreso`, con la ejecución operacional pausada. Los applies de
+febrero a mayo están **NO AUTORIZADOS** hasta validar primero la idempotencia de
+enero y aprobar cada reanudación. Este procedimiento nunca permite escrituras
+Salesforce; el cliente remoto solo ejecuta el `SELECT Lead` ya definido, sin
+nombre, email o teléfono. No se usa `--debug-soql` en la operación ordinaria de
+producción y no se copian muestras de IDs, payloads completos ni PII a
+documentación o tickets. Se preservan los chunks de 100, una consulta Salesforce
+por chunk, SQL local agrupado sin N+1, red fuera de la transacción, transacciones
+cortas y cursor reanudable.
 
 ##### A. Inventario local del rango
 
@@ -1515,11 +1519,27 @@ de valorar cualquier escritura local.
 
 ##### E. Apply
 
-`--apply` permanece **NO AUTORIZADO TODAVÍA**. No se incluye un comando de
-ejecución hasta que una revisión posterior apruebe de forma expresa el rango,
-el motivo operativo definitivo y la evidencia del dry-run completo. Esa futura
-autorización seguirá limitada a UPDATE locales de filas existentes; nunca
-autorizará escrituras Salesforce.
+El apply de enero `[2026-01-01, 2026-02-01)` fue autorizado, ejecutado y
+conciliado. Modificó 23.422 filas de `campaign_salesforce_leads`, 0 filas de
+`salesforce_leads` y generó 23.422 entradas de histórico. De las 23.582 filas
+de Campañas examinadas, 160 permanecieron sin cambios; no deben interpretarse
+automáticamente como error. Los 167 IDs no encontrados en Salesforce quedaron
+intactos y no hubo IDs locales inválidos ni fallo del comando.
+
+No se autoriza repetir enero ni aplicar febrero, marzo, abril o mayo durante la
+pausa actual. Cualquier reanudación comienza con este dry-run de idempotencia de
+enero, que todavía no se ha ejecutado:
+
+```bash
+php artisan salesforce:backfill-lead-attribution-fields --from=2026-01-01 --to=2026-02-01 --dry-run
+```
+
+El resultado debe conciliar 0 cambios pendientes antes de valorar, mediante una
+autorización separada, el apply de febrero. Las ventanas restantes se procesarán
+mensualmente y el cierre requerirá un dry-run final de
+`[2026-01-01, 2026-06-01)` con 0 cambios pendientes. Todo apply seguirá limitado
+a UPDATE locales de filas existentes; Salesforce permanece estrictamente de
+solo lectura.
 
 ### 9.3 Reproceso histórico de portales de Opportunities (Fase 7B)
 

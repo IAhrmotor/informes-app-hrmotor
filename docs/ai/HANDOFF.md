@@ -1,5 +1,40 @@
 # Handoff para agentes
 
+## Checkpoint operacional de SF-7A-OPS tras enero (2026-09-24)
+
+- El inventario productivo identificó la deuda histórica relevante en
+  `campaign_salesforce_leads` para `[2026-01-01, 2026-06-01)`. Los dry-runs
+  completos de enero, febrero, marzo, abril y mayo quedaron conciliados: en
+  todos ellos `salesforce_leads` presentaba 0 filas a modificar, no había IDs
+  locales inválidos ni fallos, y Salesforce se utilizó exclusivamente en
+  lectura.
+- Se autorizó y ejecutó únicamente el apply de enero
+  `[2026-01-01, 2026-02-01)`: 27.603 IDs únicos fueron consultados; 27.436 se
+  encontraron en Salesforce y 167 no se encontraron. Estos 167 permanecieron
+  intactos y no se registraron IDs inválidos.
+- Se examinaron 27.532 filas de `salesforce_leads`, con 0 cambios. En
+  `campaign_salesforce_leads` se examinaron 23.582 filas: 23.422 cambiaron
+  `field_resolution` y `raw_payload`, y 160 quedaron sin cambios y con
+  `field_resolution IS NULL`. Estas 160 no se interpretan automáticamente como
+  error.
+- La verificación posterior confirmó 23.422 entradas en
+  `salesforce_lead_attribution_backfill_history` y 23.422 filas de enero con
+  `field_resolution IS NOT NULL`; la conciliación es exacta:
+  `23.422 + 160 = 23.582`. El comando terminó con `failed = false` y `error =
+  null`.
+- No hubo escrituras Salesforce. No se aplicaron febrero, marzo, abril ni mayo,
+  y esas ventanas continúan sin autorización. SF-7A-OPS permanece
+  `en_progreso`, con la ejecución operacional pausada voluntariamente después
+  de enero.
+- No se ha ejecutado todavía el dry-run post-apply de enero. El punto de
+  reanudación es comprobar primero su idempotencia y 0 cambios pendientes; solo
+  después podrá valorarse febrero y continuar mensualmente hasta mayo. El
+  cierre exige además un dry-run final de `[2026-01-01, 2026-06-01)` con 0
+  cambios pendientes.
+- Este checkpoint modifica únicamente documentación. No contiene IDs concretos,
+  PII, payloads ni muestras de cambios; no ejecuta consultas, backfills,
+  sincronizaciones ni otras operaciones productivas.
+
 ## Activación de SF-7A-OPS (2026-09-23)
 
 - SF-7A-OPS queda `en_progreso` en
