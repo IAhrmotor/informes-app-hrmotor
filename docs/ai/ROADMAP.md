@@ -4,10 +4,11 @@ Actualizado: 2026-09-25.
 
 ## Salesforce Interest foundation
 
-- `SF-INTEREST-FOUNDATION-1` — **implementada, pendiente de revisión sénior**:
-  persistencia local aditiva de `Interes__c`, persona y fecha funcional
-  materializadas, modelo, resolver y pruebas. No se ha ejecutado la migración
-  persistente ni existe integración Salesforce o consumo funcional.
+- `SF-INTEREST-FOUNDATION-1` — **completada y validada en MySQL local;
+  pendiente de certificación en shadow**: revisión sénior aprobada y commit
+  `2b9ab559e1b1016e3e623fcd45462e1a0fd43541` publicado. La migración se aplicó
+  solo en `informes_intereses_local`; shadow sigue pendiente y producción
+  permanece intacta. No existe integración Salesforce ni consumo funcional.
 - Siguientes fases, no iniciadas: sincronizador read-only e idempotente;
   reconciliación Lead→Interest; Opportunity→Interest; captura y resolución de
   Activity→Interest; deduplicación con hitos; resumen por Interest; certificación

@@ -2,6 +2,11 @@
 
 ## SF-INTEREST-FOUNDATION-1 — persistencia local de Interest (2026-09-25)
 
+- FOUNDATION-1 está implementada, revisada y aprobada. El commit publicado es
+  `2b9ab559e1b1016e3e623fcd45462e1a0fd43541`
+  (`feat: add local Salesforce interest foundation`). La fase queda validada
+  en MySQL local y pendiente exclusivamente de certificación en shadow;
+  FOUNDATION-2 no ha comenzado.
 - Se añadió exclusivamente la foundation local y aditiva de `Interes__c` en
   `salesforce_interests`. No existe todavía sincronizador, SOQL, comando,
   scheduler, reconciliador, endpoint ni consumidor funcional; todas las tablas
@@ -34,9 +39,17 @@
   atribución histórica mutable frente a fotografiada, fechas por actividad,
   controles de integridad, campos Contact Center, Quote, Contact, pools de
   producción y cutover.
+- La migración `2026_09_25_090000_create_salesforce_interests_table` se aplicó
+  correctamente únicamente sobre la base MySQL local
+  `informes_intereses_local`. Se verificaron la PK, los ocho índices de
+  FOUNDATION-1, las dos restricciones únicas y los índices incremental y de
+  persona canónica. Dos fixtures sintéticas confirmaron Lead→Lead,
+  Account→Account y el fallback de fecha funcional a Salesforce CreatedDate;
+  ambas se eliminaron tras la comprobación.
 - Seguridad: no se añadieron datos de contacto, secretos o credenciales. No se
-  conectó a Salesforce, shadow o producción, no se ejecutaron backfills y la
-  migración no se aplicó sobre la base persistente.
+  conectó a Salesforce, shadow o producción y no se ejecutaron backfills. La
+  migración todavía no se ha aplicado en shadow ni en producción; producción
+  permanece intacta.
 - Validación final tras las correcciones: test específico con 12 pruebas y 56
   aserciones; regresiones Salesforce con 43 pruebas y 296 aserciones; suite
   completa con 1.032 pruebas y 7.940 aserciones. Pint pasó sobre los PHP
