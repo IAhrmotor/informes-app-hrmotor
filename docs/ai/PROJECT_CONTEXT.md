@@ -1,6 +1,24 @@
 # Contexto técnico del proyecto
 
-Actualizado: 2026-09-23.
+Actualizado: 2026-09-25.
+
+## Foundation local de Salesforce Interest
+
+- `salesforce_interests` representa de forma aditiva `Interes__c` mediante PK
+  local y Salesforce ID externo. Ningún informe consume todavía esta tabla y
+  las estructuras legacy conservan íntegramente su semántica.
+- La identidad analítica de persona se materializa en el propio Interest:
+  Account prevalece sobre Lead y la ausencia se representa con `NULL`. No se ha
+  creado una tabla Persona ni se utiliza teléfono, email o nombre como identidad.
+- La fecha funcional se materializa como fecha de creación de origen con
+  fallback a `Interes__c.CreatedDate`. El cálculo de persona y fecha está
+  centralizado en `SalesforceInterestFoundationResolver::materialize()`. El
+  evento `SalesforceInterest::saving` lo aplica a escrituras Eloquent como
+  safety net. Toda escritura bulk debe invocarlo antes de `insert`/`upsert`, ya
+  que esas operaciones no ejecutan eventos Eloquent.
+- Las relaciones con Lead, Account, Product2 y Opportunity se conservan como
+  Salesforce IDs sin FK locales. La foundation no incorpora acceso Salesforce,
+  SOQL, sincronización, reconciliación ni cambios de dashboard.
 
 ## Autoridad Salesforce y lifecycle vigente
 

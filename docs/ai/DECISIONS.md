@@ -1,5 +1,33 @@
 # Decisiones técnicas
 
+## 2026-09-25 — Interest como capa local aditiva y materializada
+
+- Se crea `salesforce_interests` en lugar de reinterpretar
+  `salesforce_leads`. Mantiene PK local + Salesforce ID externo y no usa FK a
+  tablas Salesforce locales, porque futuras cargas podrán llegar fuera de orden
+  o contener referencias eliminadas, fusionadas o aún no sincronizadas.
+- No se crea tabla Persona. Cada Interest materializa
+  `canonical_person_type` y `canonical_person_salesforce_id`: Account prevalece
+  sobre Lead; si ambos faltan, ambos quedan `NULL`. Esto evita matching inseguro
+  por contacto y permite agrupar varios Interests sin fusionarlos.
+- `functional_created_at` materializa
+  `COALESCE(IN_Fecha_Creacion_Origen__c, CreatedDate)`. Así no se recalcula en
+  cada request ni se usa la fecha técnica local como fecha funcional. Null,
+  vacío y whitespace se consideran ausencia de fecha de origen.
+- `SalesforceInterestFoundationResolver::materialize()` es la única API
+  canónica para derivar persona y fecha. El evento `saving` del modelo es solo
+  un safety net para `create`/`save`/`update`. Los futuros procesos bulk deben
+  materializar cada array antes de `insert`/`upsert`, porque Eloquent no emite
+  eventos de modelo para esas operaciones; no se sustituirá el procesamiento
+  bulk por escrituras registro a registro.
+- Estado, tipo, fuente, medio y canal se almacenan sin enum/check ni
+  normalización implícita. Valores nuevos se conservan y su control de calidad
+  pertenece a fases posteriores.
+- El Lead de migración es único y nullable conforme al contrato Salesforce.
+  Opportunity inversa no es única, para no ocultar incoherencias futuras.
+- Se aplazan columnas de descarte hasta confirmar sus tipos y los índices de
+  dimensiones hasta disponer de datasets y planes de consulta reales.
+
 ## 2026-09-23 - Contrato temporal y dual de Resumen Dirección
 
 Resumen Dirección distingue de forma estable **Producción del período** de la

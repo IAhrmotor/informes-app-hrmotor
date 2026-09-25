@@ -1,5 +1,49 @@
 # Handoff para agentes
 
+## SF-INTEREST-FOUNDATION-1 — persistencia local de Interest (2026-09-25)
+
+- Se añadió exclusivamente la foundation local y aditiva de `Interes__c` en
+  `salesforce_interests`. No existe todavía sincronizador, SOQL, comando,
+  scheduler, reconciliador, endpoint ni consumidor funcional; todas las tablas
+  y funcionalidades legacy permanecen sin cambios.
+- La tabla usa PK local y `salesforce_id` de 18 caracteres único. Conserva IDs
+  externos de Lead, Account, Lead de migración, Owner, ambos vehículos y
+  Opportunity inversa sin FK SQL. `migration_origin_lead_id` es nullable y
+  único cuando existe; MySQL y SQLite permiten múltiples `NULL`.
+- La persona canónica se materializa como tipo + Salesforce ID: Account tiene
+  prioridad, Lead es fallback y ausencia se representa con `NULL`. No existe
+  tabla Persona ni matching por teléfono, email o nombre. La fecha funcional
+  se materializa con `origin_created_at ?? salesforce_created_at`; nunca usa
+  timestamps locales.
+- Corrección de revisión sénior: una fecha de origen `null`, vacía o compuesta
+  solo por whitespace se considera ausente y cae correctamente a
+  `salesforce_created_at`. `SalesforceInterestFoundationResolver::materialize()`
+  es el contrato único para preparar los derivados. El evento Eloquent
+  `saving` lo invoca como safety net; los futuros `insert`/`upsert` bulk no
+  ejecutan eventos y deberán invocarlo explícitamente al construir cada fila.
+- Estado, tipo, fuente, medio y canal son strings no restrictivos. No hay
+  enum/check ni normalización silenciosa. Las seis UTMs respetan las longitudes
+  confirmadas; `raw_payload` es JSON nullable y el futuro sync solo deberá
+  guardar campos consultados explícitamente, sin registrarlo en logs.
+- Los índices se limitan a identidades, fecha funcional, cursor incremental,
+  Opportunity inversa y persona canónica + fecha. No se añadieron índices
+  prematuros por Owner, estado, tipo, delegación, fuente, medio o canal.
+- Los tipos de los campos de descarte continúan `PENDIENTE DE CONTRATO
+  SALESFORCE`; no se inventaron columnas. También quedan pendientes rollback
+  del batch, snapshot final legacy, sincronización continua y deletes/merges,
+  atribución histórica mutable frente a fotografiada, fechas por actividad,
+  controles de integridad, campos Contact Center, Quote, Contact, pools de
+  producción y cutover.
+- Seguridad: no se añadieron datos de contacto, secretos o credenciales. No se
+  conectó a Salesforce, shadow o producción, no se ejecutaron backfills y la
+  migración no se aplicó sobre la base persistente.
+- Validación final tras las correcciones: test específico con 12 pruebas y 56
+  aserciones; regresiones Salesforce con 43 pruebas y 296 aserciones; suite
+  completa con 1.032 pruebas y 7.940 aserciones. Pint pasó sobre los PHP
+  modificados, `git diff --check` fue correcto y `migrate --pretend` mantuvo el
+  mismo `CREATE TABLE` y ocho índices. El literal `Tasación` se verificó en el
+  archivo real como UTF-8 correcto. No se requirió build frontend.
+
 ## Cierre formal de RV-2 tras PR #59 (2026-09-23)
 
 - El PR #59 se fusionó en

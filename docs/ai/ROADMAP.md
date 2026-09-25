@@ -1,6 +1,25 @@
 # Roadmap controlado de implementación
 
-Actualizado: 2026-09-23.
+Actualizado: 2026-09-25.
+
+## Salesforce Interest foundation
+
+- `SF-INTEREST-FOUNDATION-1` — **implementada, pendiente de revisión sénior**:
+  persistencia local aditiva de `Interes__c`, persona y fecha funcional
+  materializadas, modelo, resolver y pruebas. No se ha ejecutado la migración
+  persistente ni existe integración Salesforce o consumo funcional.
+- Siguientes fases, no iniciadas: sincronizador read-only e idempotente;
+  reconciliación Lead→Interest; Opportunity→Interest; captura y resolución de
+  Activity→Interest; deduplicación con hitos; resumen por Interest; certificación
+  y migración gradual de cada informe.
+- FOUNDATION-2 deberá materializar persona y fecha mediante
+  `SalesforceInterestFoundationResolver::materialize()` antes de cualquier
+  escritura bulk; no podrá depender del evento Eloquent `saving`.
+- Pendientes de contrato/operación: rollback completo y parcial del batch,
+  snapshot final legacy, deletes/merges y orden de sincronización continua,
+  atribución histórica fotografiada frente a mutable, fechas por actividad,
+  tipos de descarte, campos Contact Center, Quote, Contact, controles de
+  integridad, pools de producción y timestamps de cutover.
 
 Este documento es la **fuente única de verdad del trabajo pendiente**. El
 histórico de trabajo ya entregado y sus validaciones permanece en
